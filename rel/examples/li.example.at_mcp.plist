@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  AtMcp as a launchd agent for one user. README.md, "Run it", says where each
+  path comes from; replace /Users/you with your home folder (launchd does not
+  expand ~). Install as ~/Library/LaunchAgents/li.example.at_mcp.plist, then:
+
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/li.example.at_mcp.plist
+
+  Logs go to StandardOutPath and StandardErrorPath below:
+    tail -f ~/Library/Logs/AtMcp/at_mcp.log
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>li.example.at_mcp</string>
+  <!-- launchd reads no environment file, so a shell exports the one file's
+       NAME=value lines and then becomes `bin/at_mcp start`. With -e a line of
+       the file that fails, such as a value with a space left unquoted, stops
+       the start instead of leaving that setting unset. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>set -ae; . "$0"; set +a; exec "$1" start</string>
+    <string>/Users/you/at_mcp/at_mcp.env</string>
+    <string>/Users/you/at_mcp/current/bin/at_mcp</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/you</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>/Users/you/at_mcp</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/you/Library/Logs/AtMcp/at_mcp.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/AtMcp/at_mcp.log</string>
+</dict>
+</plist>

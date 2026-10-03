@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+case "${1:-}" in
+  status|reload|disconnect|reconnect)
+    exec "$script_dir/at_mcp" eval 'AtMcp.AccountControl.main(System.argv())' "$@"
+    ;;
+  *)
+    exec "$script_dir/at_mcp" eval 'AtMcp.AccountSetup.main(System.argv())' "$@"
+    ;;
+esac

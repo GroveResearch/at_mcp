@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# A shared service's environment file must not select this client's account.
+unset AT_MCP_ENV_FILE
+if [ -n "${AT_MCP_STDIO_ENV_FILE:-}" ]; then
+  AT_MCP_ENV_FILE=$AT_MCP_STDIO_ENV_FILE
+  export AT_MCP_ENV_FILE
+fi
+exec "$script_dir/at_mcp" eval 'AtMcp.Stdio.run()'

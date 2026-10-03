@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# This process only connects to the account owner. It needs no credential file.
+unset AT_MCP_ENV_FILE AT_MCP_STDIO_ENV_FILE AT_MCP_ACCOUNTS_FILE
+exec "$script_dir/at_mcp" eval 'AtMcp.SharedConnection.main(System.argv())' "$@"

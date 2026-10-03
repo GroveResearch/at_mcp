@@ -1,0 +1,351 @@
+{
+  "about": "The MCP tools and arguments AtMcp has published. test/at_mcp/tool_surface_test.exs holds the rules for changing it.",
+  "tools": {
+    "block": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "delete_post": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "follow": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_actor_likes": {
+      "arguments": {
+        "actor": "string",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_author_feed": {
+      "arguments": {
+        "actor": "string",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_blocks": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_feed": {
+      "arguments": {
+        "cursor": "string",
+        "feed": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "feed"
+      ]
+    },
+    "get_followers": {
+      "arguments": {
+        "actor": "string",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_follows": {
+      "arguments": {
+        "actor": "string",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_known_followers": {
+      "arguments": {
+        "actor": "string",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_likes": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_list_feed": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "list": "string"
+      },
+      "required": [
+        "list"
+      ]
+    },
+    "get_membership": {
+      "arguments": {},
+      "required": []
+    },
+    "get_mutes": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_notifications": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_posts": {
+      "arguments": {
+        "uris": "array"
+      },
+      "required": [
+        "uris"
+      ]
+    },
+    "get_profile": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": []
+    },
+    "get_profiles": {
+      "arguments": {
+        "actors": "array"
+      },
+      "required": [
+        "actors"
+      ]
+    },
+    "get_quotes": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_relationships": {
+      "arguments": {
+        "actor": "string",
+        "others": "array"
+      },
+      "required": [
+        "actor",
+        "others"
+      ]
+    },
+    "get_reposted_by": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_suggested_follows": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "get_thread": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_thread_chain": {
+      "arguments": {
+        "before": "string",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_timeline": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_unread_count": {
+      "arguments": {},
+      "required": []
+    },
+    "identity_status": {
+      "arguments": {},
+      "required": []
+    },
+    "like": {
+      "arguments": {
+        "cid": "string",
+        "uri": "string"
+      },
+      "required": [
+        "cid",
+        "uri"
+      ]
+    },
+    "mute": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "post": {
+      "arguments": {
+        "images": "array",
+        "langs": "array",
+        "quote": "string",
+        "text": "string"
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "reply": {
+      "arguments": {
+        "images": "array",
+        "langs": "array",
+        "quote": "string",
+        "text": "string",
+        "uri": "string"
+      },
+      "required": [
+        "text",
+        "uri"
+      ]
+    },
+    "repost": {
+      "arguments": {
+        "cid": "string",
+        "uri": "string"
+      },
+      "required": [
+        "cid",
+        "uri"
+      ]
+    },
+    "search_actors": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "query": "string"
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "search_posts": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "query": "string"
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "unblock": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unfollow": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unlike": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unmute": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
+      ]
+    },
+    "unrepost": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "update_profile": {
+      "arguments": {
+        "description": "string",
+        "display_name": "string"
+      },
+      "required": []
+    },
+    "update_seen": {
+      "arguments": {
+        "seen_at": "string"
+      },
+      "required": []
+    }
+  }
+}

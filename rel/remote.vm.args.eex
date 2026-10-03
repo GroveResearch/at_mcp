@@ -1,0 +1,5 @@
+## `rpc` and `remote` reach the service on this machine, over loopback, at the
+## port env.sh gives both; they start no port mapper and listen on nothing.
+-start_epmd false
+-dist_listen false
+-kernel inet_dist_use_interface {127,0,0,1}

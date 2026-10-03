@@ -1,0 +1,35 @@
+# AtMcp as a systemd service. README.md, "Run it", says where each path comes
+# from; change them to match this machine. Install as
+# /etc/systemd/system/at_mcp.service, then:
+#
+#   sudo systemctl daemon-reload && sudo systemctl enable --now at_mcp
+#
+# Logs go to the journal: journalctl -u at_mcp -f
+
+[Unit]
+Description=AtMcp AT Protocol accounts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=at_mcp
+Group=at_mcp
+# The one environment file: NAME=value lines (README, "Run it").
+EnvironmentFile=/etc/at_mcp/at_mcp.env
+ExecStart=/opt/at_mcp/current/bin/at_mcp start
+# /var/lib/at_mcp, owned by User and private to it: the accounts file, the
+# grants file and the stores live here (AT_MCP_ACCOUNTS_FILE and AT_MCP_STATE_DIR
+# in the environment file).
+StateDirectory=at_mcp
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/at_mcp
+# The release passes the Erlang cookie on the VM's command line, which /proc
+# shows to every user. This hides other users' processes from the service.
+# Other login accounts on the machine still see them unless /proc is mounted
+# with hidepid=invisible.
+ProtectProc=invisible
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

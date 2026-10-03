@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+release="$script_dir/../_build/prod/rel/at_mcp/bin/at_mcp-stdio"
+if [ ! -x "$release" ]; then
+  echo 'Build AtMcp first with MIX_ENV=prod mix release.' >&2
+  exit 1
+fi
+exec "$release"

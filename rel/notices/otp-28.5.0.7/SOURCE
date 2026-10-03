@@ -1,0 +1,26 @@
+Unmodified upstream notice texts from https://github.com/erlang/otp/tree/OTP-28.5.0.7
+Source archive SHA256: 0149c8d3bb26c3ae48ee5651ecd25c5a2c911c98d2151c2aad1f2a58ac3c2881
+Runtime-wide license set retained as upstream distributes it. Some terms apply only to optional components.
+AUTHORS
+LICENSE.txt
+LICENSES/BSD-2-Clause.txt
+LICENSES/BSD-3-Clause.txt
+LICENSES/LicenseRef-IETF-MIB.txt
+LICENSES/LicenseRef-RSA-PKCS3.txt
+LICENSES/LicenseRef-RSA-PKCS5v2-0.txt
+LICENSES/LicenseRef-scancode-ietf-trust.txt
+LICENSES/LicenseRef-scancode-ietf.txt
+LICENSES/LicenseRef-scancode-w3c-docs-19990405.txt
+LICENSES/LicenseRef-scancode-wxwindows-free-doc-3.txt
+LICENSES/MIT.txt
+LICENSES/SGI-B-2.0.txt
+LICENSES/W3C-19980720.txt
+README.md
+erts/emulator/asmjit/LICENSE.md
+erts/emulator/openssl/LICENSE.txt
+erts/emulator/pcre/LICENCE
+erts/emulator/ryu/LICENSE-Apache2
+erts/emulator/ryu/LICENSE-Boost
+erts/emulator/zlib/zlib.h (opening notice)
+erts/emulator/zstd/COPYING
+erts/emulator/zstd/LICENSE

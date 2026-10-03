@@ -1,0 +1,5 @@
+## Erlang distribution carries only AtMcp's own release commands (`rpc`,
+## `remote`), which run on this machine; it listens on loopback alone, at the
+## port env.sh gives it, and starts no port mapper.
+-start_epmd false
+-kernel inet_dist_use_interface {127,0,0,1}

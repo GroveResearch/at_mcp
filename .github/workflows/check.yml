@@ -1,0 +1,387 @@
+name: check
+
+# What runs, and when:
+#
+#   pull request   test, release (Linux)
+#   push to main   test, release (Linux); nothing is published
+#   push a v* tag  test, release (Linux), macos, then publish both tarballs
+#                  only if both platform jobs passed
+#   on request     test, release (Linux), macos; nothing is published
+#
+# Publishing is a deliberate act: docs/operations.md's "Publish a release"
+# says how to push a tag. A release is its version: the tag is `v` + the
+# version in mix.exs, and the build jobs refuse any other. Both advertised
+# platforms must pass before a release can be created or updated.
+# macOS runs only on a tag or on request because macOS runner minutes on this
+# private repository bill at ten times Linux's.
+#
+# Every job starts from a fresh checkout with no dependency cache, as someone
+# else running AtMcp would, so a lockfile or vendored patch that only works on a
+# machine that already has the pieces is found here.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to a pull request cancels its run still going. Main's runs are
+# its record and a tag's run publishes, so neither is cancelled.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Each job has a time limit well above its usual run (macOS takes under five
+# minutes), so a hang fails in minutes instead of holding a runner.
+jobs:
+  # Format, compile with warnings as errors and the whole suite (`mix check`),
+  # with every environment-gated test given its environment: the official MCP
+  # client packages, and a production release for the tests that run one.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify release platform and baseline contracts
+        run: |
+          python3 scripts/release_platform_contract_test.py
+          python3 scripts/published_release_test.py
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: mix deps.get
+
+      - name: Build documentation and the local Hex package
+        run: |
+          mix docs
+          mix hex.build
+          python3 scripts/package_consumer_check.py at_mcp-*.tar
+
+      # The official client packages gate the independent MCP checks. Without
+      # them those tests skip, which is the failure this job exists to catch.
+      - name: Install the official MCP client packages
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
+            @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
+
+      # The release-gated tests run against this build.
+      - name: Build the release the tests run
+        run: mix release
+        env:
+          MIX_ENV: prod
+
+      - name: Download without credentials and use the installed release
+        env:
+          MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
+          MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
+        run: python3 scripts/download_release_check.py _build/prod/rel/at_mcp
+
+      - name: mix check, with every gate's environment
+        shell: bash
+        run: |
+          set -o pipefail
+          mix check 2>&1 | tee "$RUNNER_TEMP/check.log"
+        env:
+          MIX_ENV: test
+          MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
+          MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
+          AT_MCP_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
+          AT_MCP_CONNECT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp/bin/at_mcp-connect
+
+      # Every test that skips does so because its environment is missing, and
+      # this job supplies all of it. A skip here means a package did not load
+      # or a new gate was added without giving this job its environment. Either
+      # way a skipped interoperability check would otherwise read as a pass.
+      - name: No test may have skipped
+        shell: bash
+        run: |
+          summary=$(grep -E '^[0-9]+ tests?, [0-9]+ failures?' "$RUNNER_TEMP/check.log" | tail -n 1)
+          echo "summary: $summary"
+          if [ -z "$summary" ]; then
+            echo "no ExUnit summary line found; the suite did not run to completion"
+            exit 1
+          fi
+          if echo "$summary" | grep -qE '[1-9][0-9]* skipped'; then
+            echo "tests skipped; every gate's environment is set here, so a skipped test is a failure"
+            exit 1
+          fi
+
+  # The linux-x86_64 release, built the way it is published and run as
+  # README.md's "Run it" says: in the foreground with every operator command
+  # against it, and under the example systemd unit, upgraded to from the newest
+  # published release and rolled back to it. Built on the oldest Ubuntu GitHub
+  # still runs, because a release links the glibc it was built against and
+  # refuses to start on an older one: Ubuntu 22.04, Debian 12 or later. On a
+  # tag, the tarball that passed is published.
+  release:
+    needs: test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      MIX_ENV: prod
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      # Building must not depend on the operator's environment. config/runtime.exs
+      # reads AT_MCP_* at boot, not at build, and this fails loudly if that ever
+      # stops being true by making the build environment provably clean.
+      - name: Confirm no AtMcp variables are set
+        run: |
+          if env | grep -q '^AT_MCP_'; then
+            echo "the build environment has AT_MCP_ variables set; a release build must not need any"
+            env | grep '^AT_MCP_'
+            exit 1
+          fi
+
+      - run: mix deps.get
+
+      - run: mix release
+
+      # A release is its version: the tag that publishes it is `v` + the
+      # version in mix.exs, and a pushed tag that says anything else stops here.
+      - name: Name the release and check the tag
+        id: build
+        run: |
+          test "$(uname -m)" = x86_64
+          version=$(cut -d' ' -f2 _build/prod/rel/at_mcp/releases/start_erl.data)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "the tag is $GITHUB_REF_NAME, but mix.exs says version $version: a release tag is v$version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm the release carries its executables
+        run: scripts/release_executables_check.sh _build/prod/rel/at_mcp
+
+      - name: Confirm the release boots without any AtMcp variables
+        run: _build/prod/rel/at_mcp/bin/at_mcp eval 'IO.puts(Application.spec(:at_mcp, :vsn))'
+
+      - name: Copy the release outside the source tree
+        run: |
+          rm -rf "$RUNNER_TEMP/at_mcp-release"
+          cp -R _build/prod/rel/at_mcp "$RUNNER_TEMP/at_mcp-release"
+
+      - run: python3 scripts/foreground_boot_check.py "$RUNNER_TEMP/at_mcp-release"
+
+      # As root, because it installs the example unit in /etc/systemd/system,
+      # makes the `at_mcp` user and writes /opt/at_mcp, /etc/at_mcp and
+      # /var/lib/at_mcp, as the README does on a server.
+      - name: Upgrade from the newest published release and roll back, under the example systemd unit
+        run: |
+          old=$(python3 scripts/published_release.py linux-x86_64 "$RUNNER_TEMP/old")
+          if [ -x "$old/bin/kite" ]; then
+            python3 scripts/rename_defaults_check.py "$old" "$RUNNER_TEMP/at_mcp-release"
+          fi
+          sudo --preserve-env=CI python3 scripts/upgrade_rollback_check.py --systemd \
+            "$old" "$RUNNER_TEMP/at_mcp-release"
+
+      # The tarball is named by version and holds one directory, `at_mcp-X.Y.Z`
+      # (BUILD, inside it, still names the commit). It records root (0/0) as
+      # every entry's owner, not the runner's uid, which
+      # on a server may be a real account (scripts/tarball_owner_check.py).
+      - name: Pack the release and check its owners
+        id: pack
+        run: |
+          version=${{ steps.build.outputs.version }}
+          name="at_mcp-${version}-linux-x86_64.tar.gz"
+          stage="$RUNNER_TEMP/publish"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp -R _build/prod/rel/at_mcp "$stage/at_mcp-${version}"
+          tar --owner=0 --group=0 --numeric-owner -C "$stage" -czf "$stage/$name" "at_mcp-${version}"
+          python3 scripts/tarball_owner_check.py "$stage/$name"
+          (cd "$stage" && shasum -a 256 "$name" > "$name.sha256" && cat "$name.sha256")
+          echo "path=$stage/$name" >> "$GITHUB_OUTPUT"
+
+      - name: Hand the Linux tarball to the publish job
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: |
+            ${{ steps.pack.outputs.path }}
+            ${{ steps.pack.outputs.path }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  # The macos-arm64 release (macos-14 runners are Apple silicon), run as
+  # README.md's "Run it" says: in the foreground with every operator command
+  # against it, and under the example launchd plist, upgraded to from the
+  # newest published release and rolled back to it. On a tag, the tarball that
+  # passed is published only when Linux passed too.
+  macos:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-14
+    timeout-minutes: 20
+    env:
+      MIX_ENV: prod
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - name: Confirm no AtMcp variables are set
+        run: |
+          if env | grep -q '^AT_MCP_'; then
+            echo "the build environment has AT_MCP_ variables set; a release build must not need any"
+            env | grep '^AT_MCP_'
+            exit 1
+          fi
+
+      - run: mix deps.get
+
+      - run: mix release
+
+      # A release is its version: the tag that publishes it is `v` + the
+      # version in mix.exs, and a pushed tag that says anything else stops here.
+      - name: Name the release and check the tag
+        id: build
+        run: |
+          test "$(uname -m)" = arm64
+          version=$(cut -d' ' -f2 _build/prod/rel/at_mcp/releases/start_erl.data)
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "the tag is $GITHUB_REF_NAME, but mix.exs says version $version: a release tag is v$version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Confirm the release carries its executables
+        run: scripts/release_executables_check.sh _build/prod/rel/at_mcp
+
+      # A Mac that receives this release may have no Homebrew. The runtime
+      # erlef/setup-beam installs on macOS carries OpenSSL inside crypto.so,
+      # while an Erlang built against Homebrew's openssl@3 (as a local
+      # `brew install erlang` is) links /opt/homebrew and fails to load crypto
+      # anywhere else. Every native library and runtime binary here may link
+      # only the system's own libraries.
+      - name: Confirm the release links nothing outside macOS itself
+        shell: bash
+        run: |
+          rel=_build/prod/rel/at_mcp
+          bad=0
+          while IFS= read -r f; do
+            # A library lists its own install name among what it links; that
+            # is not a dependency. A NIF bundle has none.
+            self=$(otool -D "$f" | tail -n +2)
+            outside=$(otool -L "$f" | tail -n +2 | awk '{print $1}' |
+              grep -v -x -F -e "${self:-/nonexistent}" | grep -v -e '^/usr/lib/' -e '^/System/' || true)
+            if [ -n "$outside" ]; then
+              echo "$f links: $outside"; bad=1
+            fi
+          done < <(find "$rel" -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) \
+            -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print)
+          [ "$bad" = 0 ] || exit 1
+
+      - name: Confirm the release boots without any AtMcp variables
+        run: _build/prod/rel/at_mcp/bin/at_mcp eval 'IO.puts(Application.spec(:at_mcp, :vsn))'
+
+      - name: Copy the release outside the source tree
+        run: |
+          rm -rf "$RUNNER_TEMP/at_mcp-release"
+          cp -R _build/prod/rel/at_mcp "$RUNNER_TEMP/at_mcp-release"
+
+      - run: plutil -lint rel/examples/li.example.at_mcp.plist
+
+      - run: python3 scripts/foreground_boot_check.py "$RUNNER_TEMP/at_mcp-release"
+
+      - name: Upgrade from the newest published release and roll back, under the example launchd plist
+        run: |
+          old=$(python3 scripts/published_release.py macos-arm64 "$RUNNER_TEMP/old")
+          if [ -x "$old/bin/kite" ]; then
+            python3 scripts/rename_defaults_check.py "$old" "$RUNNER_TEMP/at_mcp-release"
+          fi
+          python3 scripts/upgrade_rollback_check.py --launchd "$old" "$RUNNER_TEMP/at_mcp-release"
+
+      # As on Linux. bsdtar spells root ownership --uid/--gid; COPYFILE_DISABLE
+      # keeps macOS metadata (._ entries) out.
+      - name: Pack the release and check its owners
+        id: pack
+        run: |
+          version=${{ steps.build.outputs.version }}
+          name="at_mcp-${version}-macos-arm64.tar.gz"
+          stage="$RUNNER_TEMP/publish"
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp -R _build/prod/rel/at_mcp "$stage/at_mcp-${version}"
+          COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --numeric-owner -C "$stage" -czf "$stage/$name" "at_mcp-${version}"
+          python3 scripts/tarball_owner_check.py "$stage/$name"
+          (cd "$stage" && shasum -a 256 "$name" > "$name.sha256" && cat "$name.sha256")
+          echo "path=$stage/$name" >> "$GITHUB_OUTPUT"
+
+      - name: Hand the macOS tarball to the publish job
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: |
+            ${{ steps.pack.outputs.path }}
+            ${{ steps.pack.outputs.path }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  # A tag publishes the complete pair of advertised platforms. Failed,
+  # cancelled, skipped or missing builds cannot create or overwrite a release.
+  # A successful rerun can replace assets only after both platforms pass again.
+  publish:
+    needs: [release, macos]
+    if: ${{ !cancelled() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success' && needs.macos.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish the tag's release
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          repo="$GITHUB_REPOSITORY"
+          files=(
+            "artifacts/at_mcp-${tag#v}-linux-x86_64.tar.gz"
+            "artifacts/at_mcp-${tag#v}-linux-x86_64.tar.gz.sha256"
+            "artifacts/at_mcp-${tag#v}-macos-arm64.tar.gz"
+            "artifacts/at_mcp-${tag#v}-macos-arm64.tar.gz.sha256"
+          )
+          for file in "${files[@]}"; do
+            test -s "$file" || { echo "Missing release asset: $file"; exit 1; }
+          done
+          notes="AtMcp ${tag#v}, built from $GITHUB_SHA.
+          - linux-x86_64: Ubuntu 22.04, Debian 12 or later
+          - macos-arm64: Apple silicon
+
+          To run it: see the README."
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --repo "$repo" --clobber
+            gh release edit "$tag" --repo "$repo" --notes "$notes"
+          else
+            gh release create "$tag" "${files[@]}" --repo "$repo" --verify-tag \
+              --title "AtMcp ${tag#v}" --notes "$notes"
+          fi

@@ -1,0 +1,2 @@
+CAStore bundles Mozilla certificate data. Its source is identified in priv/cacerts.pem.
+MPL terms: https://www.mozilla.org/MPL/2.0/
