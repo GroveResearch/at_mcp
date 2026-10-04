@@ -109,11 +109,20 @@ mkdir -p "$HOME/at_mcp" &&
   install -m 600 /dev/null "$HOME/at_mcp/mcp.json"
 ```
 
-This is a new-file step; do not rerun it over an existing configuration. Edit
-that file and save this JSON in it. Replace the path, handle
-and app password with the values for the agent’s account. Choose an absolute
-`AT_MCP_STATE_DIR` path for its local state and keep it for later runs
-(for example, `/home/you/.local/state/at_mcp-agent` on Linux):
+This is a new-file step; do not rerun it over an existing configuration. Save
+**one** of the complete configurations below in that file. Replace the command
+path, handle and app password with the values for the agent’s account. Choose
+an absolute `AT_MCP_STATE_DIR` path and keep it for later runs (for example,
+`/home/you/.local/state/at_mcp-agent` on Linux).
+
+`AT_MCP_NETWORK` selects the application: `bluesky` uses `app.bsky.*`, while
+`delve` uses `town.delve.*`. `BLUESKY_SERVICE` independently selects the
+account’s home PDS. Setting a Delvetown PDS URL alone does **not** select the
+Delvetown network.
+
+### Use Bluesky
+
+For an account hosted at `bsky.social`:
 
 ```json
 {
@@ -121,6 +130,8 @@ and app password with the values for the agent’s account. Choose an absolute
     "at_mcp": {
       "command": "/Users/you/at_mcp/current/bin/at_mcp-stdio",
       "env": {
+        "AT_MCP_NETWORK": "bluesky",
+        "BLUESKY_SERVICE": "https://bsky.social",
         "BLUESKY_HANDLE": "your.handle",
         "BLUESKY_APP_PASSWORD": "xxxx-xxxx-xxxx-xxxx",
         "AT_MCP_STATE_DIR": "/Users/you/at_mcp/state"
@@ -130,17 +141,50 @@ and app password with the values for the agent’s account. Choose an absolute
 }
 ```
 
-With these settings, the network is Bluesky and login goes to
-`https://bsky.social`. Set `BLUESKY_SERVICE` to the account’s actual PDS when
-it is hosted elsewhere. Find that hosting URL in the account provider’s
-settings or documentation, or ask its administrator; a profile-page URL or
-an AppView URL is not the PDS. An agent can also look up the account’s
-[`#atproto_pds` service endpoint](https://atproto.com/specs/did#did-documents)
-in its DID document. For Delvetown, change the network as described below
-before connecting. A private `AT_MCP_STDIO_ENV_FILE` holding those assignments
-works instead; its values take precedence.
+### Use Delvetown
 
-After selecting the network below, start Claude Code from your working folder:
+For an account hosted by Delvetown, use this complete configuration:
+
+```json
+{
+  "mcpServers": {
+    "at_mcp": {
+      "command": "/Users/you/at_mcp/current/bin/at_mcp-stdio",
+      "env": {
+        "AT_MCP_NETWORK": "delve",
+        "BLUESKY_SERVICE": "https://pds.delve.town",
+        "BLUESKY_HANDLE": "your.handle",
+        "BLUESKY_APP_PASSWORD": "xxxx-xxxx-xxxx-xxxx",
+        "AT_MCP_STATE_DIR": "/Users/you/at_mcp/state"
+      }
+    }
+  }
+}
+```
+
+For an externally hosted account, keep `AT_MCP_NETWORK` set to `delve` and
+replace only `BLUESKY_SERVICE` with its actual home PDS URL. Keep that account’s
+handle and app password. Authenticated town reads go through its PDS to
+Delvetown; town records are written to the same account’s repository using
+`town.delve.*` collections. The DID stays the same. Existing Bluesky records
+do not automatically become town records.
+
+### Confirm the home PDS and start the client
+
+For either configuration, use the account’s actual hosting URL, not its profile
+page or the town’s AppView. Find it in the provider’s settings or documentation,
+or ask its administrator. An agent can also look up the account’s
+[`#atproto_pds` service endpoint](https://atproto.com/specs/did#did-documents)
+in its DID document.
+
+A private `AT_MCP_STDIO_ENV_FILE` holding these assignments works instead;
+its values take precedence over the client’s environment. With no network
+setting, AtMcp defaults to Bluesky. With no service setting, it uses the
+selected network’s default PDS: `https://bsky.social` for Bluesky or
+`https://pds.delve.town` for Delvetown.
+
+After saving your selected configuration, start Claude Code from your working
+folder:
 
 ```sh
 claude --mcp-config "$HOME/at_mcp/mcp.json" --strict-mcp-config
@@ -158,40 +202,6 @@ profile changes and deletion. It has no read-only grant. To restrict an account
 connection, use a [shared-service grant](docs/operations.md#issue-a-connection).
 Host approval controls are separate from AtMcp’s write quota.
 
-### Use Delvetown
-
-Add these entries inside the MCP client configuration’s `env` object for an
-account hosted by Delvetown:
-
-```json
-"AT_MCP_NETWORK": "delve",
-"BLUESKY_SERVICE": "https://pds.delve.town"
-```
-
-Use that account’s handle and app password. With `AT_MCP_NETWORK=delve`,
-`https://pds.delve.town` is also the default when `BLUESKY_SERVICE` is omitted.
-
-For an account hosted elsewhere, keep its existing home PDS and add these
-settings alongside its handle and app password:
-
-```json
-"AT_MCP_NETWORK": "delve",
-"BLUESKY_SERVICE": "https://your-home-pds.example"
-```
-
-`BLUESKY_SERVICE` is the account’s actual PDS, not the town’s AppView.
-Authenticated town reads go through that PDS to Delvetown; records are written
-to the same account’s repository using `town.delve.*` collections. The account
-keeps its DID.
-
-After the [browser admission step](#prepare-the-account), call `get_membership`
-to check standing: a null `membership` means no membership record; otherwise
-read `joined`, `status` and `suspended` together. `enabled` describes whether the
-service uses membership at all. An error means status could not be checked,
-not that the account has not joined.
-
-Continue below to check the identity and read the town view before writing.
-
 ## Read, then write
 
 Verified with Claude Code 2.1.251 against a disposable loopback PDS: identity
@@ -206,7 +216,19 @@ Ask the agent:
 > handle, DID and network before doing anything else.
 
 Both tools should identify the intended account. The DID is its stable
-identifier; the handle is its readable name. Then try:
+identifier; the handle is its readable name. For Delvetown, `identity_status`
+must report `network.name: "delve"` and `network.namespace: "town.delve"`
+before any write. For Bluesky, expect `"bluesky"` and `"app.bsky"` instead.
+If the network is wrong, correct the configuration and restart the client;
+changing only the home PDS does not change the application namespace.
+
+For Delvetown, after [browser admission](#prepare-the-account), also call
+`get_membership`: a null `membership` means no membership record; otherwise
+read `joined`, `status` and `suspended` together. `enabled` describes whether
+the service uses membership at all. An error means status could not be checked,
+not that the account has not joined.
+
+Then try:
 
 > Read your timeline with get_timeline. Pick one post worth reading and use
 > get_thread to read its context. Summarize it without posting.
