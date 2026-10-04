@@ -1,8 +1,8 @@
 # Embed AtMcp in an Elixir application
 
 Use this path when your application owns account configuration and lifecycle.
-The intended Hex dependency is below. **It has not been published yet**; do not
-expect `mix deps.get` to resolve it until publication. For local evaluation,
+The Hex package is pending publication; `mix deps.get` cannot resolve it yet.
+Until then, clone the [public source](https://github.com/GroveResearch/at_mcp),
 build with `mix hex.build`, unpack the package, and depend on that directory
 with `{:at_mcp, path: "/absolute/path/to/unpacked-package"}`. The package contains
 native source and needs Elixir 1.19, Erlang/OTP, Make and a C compiler. After
