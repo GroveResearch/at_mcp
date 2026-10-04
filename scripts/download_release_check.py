@@ -2,7 +2,7 @@
 """Run README download/install commands against disposable unauthenticated HTTP.
 
 The downloaded release then serves official MCP clients. This does not assert
-that future public URLs exist or that a locally built Mac release is portable.
+public URL availability or that a locally built Mac release is portable.
 """
 from functools import partial
 import hashlib
@@ -43,7 +43,10 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-download-") as scratch:
     try:
         platform_block = blocks[0] if target == "macos-arm64" else blocks[1]
         assert "PLATFORM=" + target in platform_block
-        commands = platform_block.replace("VERSION=X.Y.Z", "VERSION=" + version) + "\n" + blocks[2].replace(
+        platform_block, replacements = re.subn(r"^VERSION=[^\n]+$", "VERSION=" + version,
+                                               platform_block, flags=re.M)
+        assert replacements == 1, "expected one README version assignment"
+        commands = platform_block + "\n" + blocks[2].replace(
             "BASE_URL=https://github.com/GroveResearch/at_mcp/releases/download",
             "BASE_URL=http://127.0.0.1:" + str(server.server_port))
         install = blocks[3]

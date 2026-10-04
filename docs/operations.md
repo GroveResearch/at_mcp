@@ -500,9 +500,9 @@ left.
 
 ## Transition from Kite
 
-This is the private `at_mcp` release candidate. Until an `at_mcp` release is
-published, build it using "Build a release" below. The private source repository
-remains `GroveResearch/kite`; publishing a fresh public snapshot is a separate step.
+Kite 0.1.2 installations can move to `at_mcp` while keeping their account
+state. The public repository starts from a reviewed source snapshot; the
+private Kite Git history remains separate.
 
 Stop Kite before starting at_mcp on the same state. Keep the existing state
 files and service account; no account recreation, grant rotation or data conversion
@@ -556,9 +556,9 @@ silently choosing new defaults.
 ## Build a release
 
 This developer path starts from a source checkout and needs Elixir 1.19,
-a compatible Erlang/OTP, a C compiler and Make. The future source repository is
-[`GroveResearch/at_mcp`](https://github.com/GroveResearch/at_mcp); it has not been
-published yet. From the checkout root:
+a compatible Erlang/OTP, a C compiler and Make. Clone
+[`GroveResearch/at_mcp`](https://github.com/GroveResearch/at_mcp), then run from
+the checkout root:
 
 ```sh
 mix deps.get
@@ -702,11 +702,13 @@ and record the scope of what was run in the pull request.
 
 ## Publish a release
 
-This is a maintainer action, not an installation step. The public repository
-and first Hex package are still unpublished. The previous-release CI check
-currently uses the private Kite release history; a fresh public repository
-needs an explicitly available baseline before that check can run there. Do not
-skip it or treat a freshly rebuilt candidate as a previous published release.
+This is a maintainer action, not an installation step. GitHub binary releases
+and Hex package publication are separate actions. The previous-release CI
+check uses the newest eligible published release, or the explicit historical
+Kite baseline described below when there is no eligible predecessor. That
+baseline must be available in this public repository; no private Git history
+is required. Do not skip the check or use a rebuilt candidate as its own
+previous release.
 
 Pushing a version tag publishes one; a merge to `main` does not. A release is
 its version: bump `version:` in `mix.exs` in a pull request and merge it,

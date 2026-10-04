@@ -35,24 +35,24 @@ A release includes its own runtime: binary users need no Elixir, Git or GitHub
 account. The supported downloads are Linux x86-64 (Ubuntu 22.04, Debian 12 or
 later) and macOS Apple silicon.
 
-**The public repository, binary downloads and Hex package are not published
-yet.** For this private candidate, [build a release](docs/operations.md#build-a-release)
-from the source checkout. The download commands below are the intended public
-path once published. Existing Kite users should follow
+The commands below install version 0.1.2 from the releases page. You can also
+[build a release](docs/operations.md#build-a-release) from the public source.
+Existing Kite users should follow
 [Transition from Kite 0.1.2](docs/operations.md#transition-from-kite).
 
 ### Fetch a release
 
-Choose a version and platform listed on the future
-[public releases page](https://github.com/GroveResearch/at_mcp/releases).
+Check the available version and platform on the
+[releases page](https://github.com/GroveResearch/at_mcp/releases).
 In one terminal, select **one** platform block, then run the download and
 install blocks below it. Both install under your home directory without sudo.
-Replace `X.Y.Z` with the version, without the leading `v`.
+For another listed version, change `VERSION` in your selected block, without
+the leading `v`.
 
 macOS on Apple silicon:
 
 ```sh
-VERSION=X.Y.Z
+VERSION=0.1.2
 PLATFORM=macos-arm64
 AT_MCP="$HOME/at_mcp"
 ```
@@ -60,7 +60,7 @@ AT_MCP="$HOME/at_mcp"
 Linux on x86-64:
 
 ```sh
-VERSION=X.Y.Z
+VERSION=0.1.2
 PLATFORM=linux-x86_64
 AT_MCP="$HOME/at_mcp"
 ```
