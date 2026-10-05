@@ -11,7 +11,7 @@ const {StdioClientTransport} = await import(pathToFileURL(join(process.env.MCP_C
 const root = await mkdtemp(join(tmpdir(),'direct-auth-'));
 const {privateKey, publicKey} = generateKeyPairSync('ec',{namedCurve:'secp256k1'});
 const did='did:plc:external', aud='did:web:api.delve.town#bsky_appview';
-let mode='ok', issuance=0, appCalls=0, writes=0, logins=0, proxyCalls=0;
+let mode='ok', issuance=0, appCalls=0, writes=0, logins=0, proxyCalls=0, refreshes=0, expiredOnce=false;
 const faults=[];
 function send(res,status,body) {res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(body));}
 function jwt(payload) {
@@ -29,6 +29,8 @@ const app=http.createServer((req,res)=>{try {
   const method=new URL(req.url,'http://fixture').pathname.split('/').pop();
   if(payload.aud!==aud || payload.lxm!==method || payload.exp<=Date.now()/1000) return send(res,401,{error:'InvalidToken'});
   assert.equal(payload.iss,did);
+  if(mode==='app-malformed-error') return send(res,503,{error:{object:true},message:['not text']});
+  if(mode==='app-novel-error') return send(res,503,{error:'UnseenRemoteFailure_4729',message:'Read refused'});
   if(mode==='app-auth-503') return send(res,503,{error:'InvalidToken'});
   if(mode==='app-redirect') {res.writeHead(307,{location:pdsOrigin+'/leak'});return res.end();}
   if(method.endsWith('getMembership')) return send(res,200,{enabled:true,membership:{did,status:'active',suspended:false,joined:true,revision:1}});
@@ -39,10 +41,14 @@ await new Promise(r=>app.listen(0,'127.0.0.1',r));
 const pds=http.createServer(async(req,res)=>{try {
  const u=new URL(req.url,'http://fixture');
  if(u.pathname.endsWith('createSession')) {logins++;return send(res,200,{did,handle:'external.test',accessJwt:'home.access.jwt',refreshJwt:'home-refresh'});}
+ if(u.pathname.endsWith('refreshSession')) {assert.equal(req.headers.authorization,'Bearer home-refresh');refreshes++;return send(res,200,{did,handle:'external.test',accessJwt:'home.access.jwt',refreshJwt:'home-refresh'});}
  assert.equal(req.headers.authorization,'Bearer home.access.jwt');
  if(u.pathname.endsWith('getServiceAuth')) {
-  issuance++; assert.equal(u.searchParams.get('aud'),aud); assert.ok(u.searchParams.get('lxm').startsWith('town.delve.'));
+  issuance++; if(mode==='home-expired' && !expiredOnce) {expiredOnce=true;return send(res,401,{error:'ExpiredToken'});}
+  assert.equal(u.searchParams.get('aud'),aud); assert.ok(u.searchParams.get('lxm').startsWith('town.delve.'));
   const exp=Number(u.searchParams.get('exp'));assert.ok(exp>Date.now()/1000 && exp<=Date.now()/1000+61);
+  if(mode==='home-malformed-error') return send(res,403,{error:['not text'],message:{object:true}});
+  if(mode==='home-novel-error') return send(res,503,{error:'UnseenIssuerFailure_391',message:'Do not expose home.access.jwt'});
   if(mode==='denied') return send(res,403,{error:'Forbidden',message:'Issuance denied'});
   if(mode==='home-token') return send(res,200,{token:'home.access.jwt'});
   if(mode==='malformed') return send(res,200,{token:'unsafe\nheader'});
@@ -64,17 +70,18 @@ const pdsOrigin=`http://127.0.0.1:${pds.address().port}`;
 const client=new Client({name:'direct-route-proof',version:'1'});
 const transport=new StdioClientTransport({command:process.env.AT_MCP_EXTERNAL_COMMAND,args:JSON.parse(process.env.AT_MCP_EXTERNAL_ARGS),stderr:'pipe',env:{PATH:process.env.PATH,TEST_APPVIEW_ORIGIN:`http://127.0.0.1:${app.address().port}`,BLUESKY_HANDLE:'external.test',BLUESKY_APP_PASSWORD:'fixture',BLUESKY_SERVICE:pdsOrigin,AT_MCP_STATE_DIR:join(root,'state')}});
 let diagnostics='';transport.stderr?.on('data',s=>diagnostics+=s);
-async function call(name,args={},error=false){const r=await client.callTool({name,arguments:args});assert.equal(Boolean(r.isError),error,JSON.stringify(r));return r;}
+async function call(name,args={},error=false){const r=await client.callTool({name,arguments:args});assert.equal(Boolean(r.isError),error,JSON.stringify(r));assert.ok(!JSON.stringify(r).includes('home.access.jwt'));return r;}
 try {
  await client.connect(transport);
  await call('get_membership'); await call('get_timeline');
  assert.equal(proxyCalls,0);assert.equal(issuance,2);assert.equal(appCalls,2);
- for(const failure of ['denied','missing','home-token','malformed','unsupported','issue-redirect']) {
+ for(const failure of ['home-malformed-error','home-novel-error','denied','missing','home-token','malformed','unsupported','issue-redirect']) {
   mode=failure;const before=appCalls;const count=issuance;await call('get_timeline',{},true);assert.equal(appCalls,before);assert.equal(issuance,count+1);
  }
- for(const failure of ['wrong-aud','wrong-method','expired','app-redirect','app-auth-503']) {
+ for(const failure of ['wrong-aud','wrong-method','expired','app-redirect','app-auth-503','app-malformed-error','app-novel-error']) {
   mode=failure;const count=appCalls;const issued=issuance;await call('get_timeline',{},true);assert.equal(appCalls,count+1);assert.equal(issuance,issued+1);assert.equal(logins,1);
  }
+ assert.equal(refreshes,0);mode='home-expired';const issuedBeforeRecovery=issuance;await call('get_timeline');assert.equal(refreshes,1);assert.equal(issuance,issuedBeforeRecovery+2);assert.equal(logins,1);
  mode='ok';await call('get_posts',{uris:[`at://${did}/town.delve.feed.post/1`,`at://${did}/town.delve.feed.post/2`]});const result=await call('post',{text:'uncertain'},true);assert.equal(result.structuredContent.outcome,'unknown');assert.equal(writes,1);
  await call('mute',{actor:did},true);assert.equal(proxyCalls,1);
  assert.deepEqual(faults,[]);console.log('direct_service_auth_passed');

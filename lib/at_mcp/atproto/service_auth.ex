@@ -71,27 +71,7 @@ defmodule AtMcp.ATProto.ServiceAuth do
         refused("Service-auth routing refused a redirect; no redirected request was sent.")
 
       {:ok, %{status: status} = response} when status >= 400 ->
-        body = if is_map(response.body), do: response.body, else: %{}
-        body = Map.put_new(body, "error", "ServiceAuthHttpError")
-        error = ProtoRune.XRPC.Error.from(%{response | body: body})
-
-        context =
-          if destination == :home,
-            do: "Home PDS service-token issuance failed",
-            else: "Direct AppView read failed"
-
-        error = %{error | message: context <> ": " <> (error.message || to_string(error.reason))}
-
-        if destination == :appview do
-          {:error,
-           Failure.new(if(status < 500, do: :refused, else: :indeterminate),
-             status: status,
-             message: error.message,
-             detail: error.reason
-           )}
-        else
-          {:error, error}
-        end
+        http_failure(response, destination, headers)
 
       {:ok, _} ->
         refused("Service-auth routing received an invalid response.")
@@ -100,6 +80,58 @@ defmodule AtMcp.ATProto.ServiceAuth do
         {:error, error}
     end
   end
+
+  # Do not use XRPC.Error.from here: proto_rune 0.5.3 interns arbitrary remote
+  # error names as atoms and assumes both error fields are strings. Classify
+  # this new boundary finitely; raw error names are bounded private evidence.
+  defp http_failure(response, destination, headers) do
+    body = if is_map(response.body), do: response.body, else: %{}
+    code = safe_text(body["error"], headers, 256)
+    message = safe_text(body["message"], headers, 1024)
+    status = response.status
+
+    kind =
+      cond do
+        destination == :home and
+            (status == 401 or code in ["ExpiredToken", "InvalidToken", "TokenRequired"]) ->
+          :auth_refused
+
+        status < 500 ->
+          :refused
+
+        true ->
+          :indeterminate
+      end
+
+    context =
+      if destination == :home,
+        do: "Home PDS service-token issuance failed",
+        else: "Direct AppView read failed"
+
+    {:error,
+     Failure.new(kind,
+       status: status,
+       message: context <> if(message, do: ": " <> message, else: "."),
+       detail: %{service_auth_error: code}
+     )}
+  end
+
+  defp safe_text(value, headers, limit) when is_binary(value) do
+    # A malformed service may echo the submitted credential in its error.
+    redacted =
+      Enum.reduce(headers, value, fn {key, credential}, text ->
+        if String.downcase(to_string(key)) == "authorization" do
+          secret = String.replace_prefix(credential, "Bearer ", "")
+          String.replace(text, secret, "[redacted]")
+        else
+          text
+        end
+      end)
+
+    String.slice(redacted, 0, limit)
+  end
+
+  defp safe_text(_, _, _), do: nil
 
   defp refused(message), do: {:error, Failure.new(:refused, message: message)}
 end
