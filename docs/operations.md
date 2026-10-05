@@ -258,6 +258,7 @@ environment sets where things are and what is switched on:
 | `AT_MCP_PORT` | The one MCP endpoint (4400) |
 | `AT_MCP_CONTROL_PORT` | Operator listener for identity discovery; no listener without it |
 | `AT_MCP_NETWORK` | `bluesky` (default) or `delve`; an unknown name refuses to start |
+| `AT_MCP_APPVIEW_READS` | `proxy` (default) or `direct`: prototype direct authenticated application GETs; see README for limits. |
 | `AT_MCP_STATE_DIR` | Durable state (write quotas, checkpoints, outbox); one process per directory |
 | `AT_MCP_NOTIFICATIONS` | `0` disables notification polling (on by default) |
 | `AT_MCP_JETSTREAM` | `1` enables the network-wide stream collector (off by default) |

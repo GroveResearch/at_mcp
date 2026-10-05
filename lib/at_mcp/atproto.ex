@@ -283,6 +283,14 @@ defmodule AtMcp.ATProto do
       |> Query.new(base_url: base_url)
       |> Map.put(:params, flatten_query(params))
 
+    if AtMcp.Network.direct_read?(method, session) do
+      AtMcp.ATProto.ServiceAuth.execute(session, query)
+    else
+      execute_repeated_query(session, query, method, url)
+    end
+  end
+
+  defp execute_repeated_query(session, query, method, url) do
     with {:ok, headers, session} <- ProtoRune.Session.authorization_headers(session, "GET", url) do
       Client.execute(
         %{

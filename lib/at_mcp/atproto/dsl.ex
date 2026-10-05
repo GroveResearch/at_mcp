@@ -82,6 +82,14 @@ defmodule AtMcp.ATProto.DSL do
 
   @doc false
   def authenticated_query(session, method, schema, params) do
+    if AtMcp.Network.direct_read?(method, session) do
+      AtMcp.ATProto.ServiceAuth.query(session, method, schema, params)
+    else
+      proxied_query(session, method, schema, params)
+    end
+  end
+
+  defp proxied_query(session, method, schema, params) do
     base_url = base_url(session)
     url = Path.join(base_url, method)
     query = Query.new(method, from: schema, base_url: base_url)

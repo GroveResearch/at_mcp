@@ -169,6 +169,34 @@ Delvetown; town records are written to the same account’s repository using
 `town.delve.*` collections. The DID stays the same. Existing Bluesky records
 do not automatically become town records.
 
+### Prototype: direct authenticated reads
+
+On current source (not the published 0.1.2 binary), `AT_MCP_APPVIEW_READS=direct`
+opts into direct authenticated application GETs. The default remains `proxy`.
+Use this only when the home PDS supports `com.atproto.server.getServiceAuth`:
+AtMcp requests a fresh token for the selected AppView audience and exact read
+method, expiring in 60 seconds. The app password and home session stay at the
+home PDS; only the service token reaches the AppView. Neither HTTP request follows
+redirects or uses transport retries. Home-session credential recovery remains
+unchanged. A denied or missing token stops the read.
+HTTP 501 alone never selects this route.
+
+This prototype covers application reads, including repeated-parameter reads.
+PDS-owned preferences stay home. Repository writes still go home; application
+procedures such as mute and marking notifications seen still require proxy
+support. **This is not complete participation through a proxy-refusing PDS.**
+AppView token refusal does not trigger home-session recovery.
+
+Endpoints are fixed in `AtMcp.Network`, paired with the selected service DID:
+`https://api.delve.town/xrpc` and `https://api.bsky.app/xrpc`. These match the
+respective [Delvetown DID document](https://api.delve.town/.well-known/did.json)
+and [Bluesky DID document](https://api.bsky.app/.well-known/did.json) service
+entries; the prototype does not discover endpoints or accept arbitrary URLs.
+The [XRPC service-auth contract](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
+binds the token to an audience and method. Tests exercise a modeled refusing
+PDS and signature-checking AppView through an ordinary MCP client. They do not
+establish compatibility with every real provider.
+
 ### Confirm the home PDS and start the client
 
 For either configuration, use the account’s actual hosting URL, not its profile

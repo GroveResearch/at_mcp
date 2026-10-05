@@ -24,11 +24,20 @@ if config_env() != :test and Application.get_env(:at_mcp, :boot_from_env, true) 
       name -> String.to_atom(name)
     end
 
+  appview_reads =
+    case System.get_env("AT_MCP_APPVIEW_READS") do
+      nil -> Application.get_env(:at_mcp, :appview_reads, :proxy)
+      "proxy" -> :proxy
+      "direct" -> :direct
+      other -> raise ArgumentError, "unknown AT_MCP_APPVIEW_READS #{inspect(other)}"
+    end
+
   jetstream = System.get_env("AT_MCP_JETSTREAM", "0") in ["1", "true"]
   notifications = System.get_env("AT_MCP_NOTIFICATIONS", "1") not in ["0", "false"]
 
   config :at_mcp,
     network: network,
+    appview_reads: appview_reads,
     mcp_port: port,
     control_port: control_port,
     jetstream_enabled: jetstream,

@@ -17,6 +17,9 @@ One line per project ruling or load-bearing design decision. Each carries the da
 
 ## Credentials and access
 
+- 2026-10-05 · provisional (#5) · Explicit `AT_MCP_APPVIEW_READS=direct` routes application GETs requiring an AppView through short-lived method-bound service tokens. Default proxy routing, PDS-owned preferences and all writes retain their current paths. Fixed Network endpoints bound the prototype; arbitrary providers remain unproved. This qualifies the historical every-read-via-session-service rule below. — `AtMcp.ATProto.ServiceAuth`; `test/at_mcp/direct_service_auth_test.exs`.
+
+
 - 2026-09-11 · settled · One loopback MCP endpoint (`KITE_MCP_PORT`, 4400) serves every identity; `Authorization: Bearer <grant>` decides which identity a request acts as; a request with no grant is `401`, never served. — `Kite.MCP.HTTP`; `test/kite/mcp_http_test.exs` "the endpoint refuses a caller that presents nothing"; `test/kite/telos_test.exs` "one endpoint serves every identity".
 - 2026-09-11 · settled · `x-kite-account-did` confirms the binding and selects nothing. — `Kite.MCP.HTTP`; `test/kite/mcp_http_test.exs` "one listener serves every identity, and a grant reaches only its own".
 - 2026-09-11 · settled · A grant's scope (`read` / `write` / `manage`) is derived from each tool's own `readOnlyHint` and `destructiveHint`, never from a hand-kept verb list; a tool with no hints is reached by no scope. — `Kite.Grants`; `test/kite/mcp_http_test.exs` "a grant's scope bounds the tools it reaches, from the tools' own hints".
