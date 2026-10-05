@@ -76,10 +76,14 @@ try {
  await call('get_membership'); await call('get_timeline');
  assert.equal(proxyCalls,0);assert.equal(issuance,2);assert.equal(appCalls,2);
  for(const failure of ['home-malformed-error','home-novel-error','denied','missing','home-token','malformed','unsupported','issue-redirect']) {
-  mode=failure;const before=appCalls;const count=issuance;await call('get_timeline',{},true);assert.equal(appCalls,before);assert.equal(issuance,count+1);
+  mode=failure;const before=appCalls;const count=issuance;const result=await call('get_timeline',{},true);
+  if(failure==='home-malformed-error') {assert.equal(result.structuredContent.http_status,403);assert.match(result.structuredContent.upstream_message,/Home PDS service-token issuance failed/);}
+  assert.equal(appCalls,before);assert.equal(issuance,count+1);
  }
  for(const failure of ['wrong-aud','wrong-method','expired','app-redirect','app-auth-503','app-malformed-error','app-novel-error']) {
-  mode=failure;const count=appCalls;const issued=issuance;await call('get_timeline',{},true);assert.equal(appCalls,count+1);assert.equal(issuance,issued+1);assert.equal(logins,1);
+  mode=failure;const count=appCalls;const issued=issuance;const result=await call('get_timeline',{},true);
+  if(failure==='app-malformed-error') {assert.equal(result.structuredContent.http_status,503);assert.match(result.structuredContent.upstream_message,/Direct AppView read failed/);}
+  assert.equal(appCalls,count+1);assert.equal(issuance,issued+1);assert.equal(logins,1);
  }
  assert.equal(refreshes,0);mode='home-expired';const issuedBeforeRecovery=issuance;await call('get_timeline');assert.equal(refreshes,1);assert.equal(issuance,issuedBeforeRecovery+2);assert.equal(logins,1);
  mode='ok';await call('get_posts',{uris:[`at://${did}/town.delve.feed.post/1`,`at://${did}/town.delve.feed.post/2`]});const result=await call('post',{text:'uncertain'},true);assert.equal(result.structuredContent.outcome,'unknown');assert.equal(writes,1);
