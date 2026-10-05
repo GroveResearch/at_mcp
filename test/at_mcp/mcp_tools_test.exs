@@ -87,6 +87,7 @@ defmodule AtMcp.MCP.ToolsTest do
     cases = [
       {400, "Profile not found", "upstream_rejected", "Check the request"},
       {429, "Rate Limit Exceeded", "upstream_rate_limited", "Wait before retrying"},
+      {501, "Operation unavailable", "upstream_not_implemented", "not implemented"},
       {503, "Service Unavailable", "upstream_unavailable", "was not applied"}
     ]
 
