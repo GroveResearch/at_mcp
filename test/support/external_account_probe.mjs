@@ -15,6 +15,8 @@ const authority = 'did:web:api.delve.town#bsky_appview';
 const calls = [], writes = [], faults = [];
 let membership = {did, status: 'active', suspended: false, revision: 1, joined: true};
 let membershipFailure = false;
+let timelineUnimplemented = false;
+let timelineRequests = 0;
 function send(res, status, body) { res.writeHead(status, {'content-type':'application/json'}); res.end(JSON.stringify(body)); }
 async function body(req) { let data=''; for await (const chunk of req) data+=chunk; return data ? JSON.parse(data) : {}; }
 function view(record, n) { return {uri:`at://${did}/town.delve.feed.post/${n}`, cid:`bafy${n}`, author:{did,handle:'external.test'}, record, viewer:{}}; }
@@ -40,6 +42,10 @@ const appOrigin=`http://127.0.0.1:${appview.address().port}`;
 const pds = http.createServer(async (req,res) => {
   try {
     const url = new URL(req.url,'http://localhost');
+    if(url.pathname.endsWith('feed.getTimeline')) {
+      timelineRequests++;
+      if(timelineUnimplemented) return send(res,501,{error:'NotImplemented',message:'Timeline operation is not implemented'});
+    }
     if(url.pathname.includes('/town.delve.')) {
       if(req.headers['atproto-proxy']!==authority) return send(res,400,{error:'WrongService',message:'Town calls require AppView proxy'});
       const data=await body(req);
@@ -74,6 +80,16 @@ try {
   assert.equal((await call('get_membership')).membership.joined,true);
   assert.equal((await call('get_profile')).did,did);
   assert.equal((await call('get_timeline')).count,0);
+  timelineUnimplemented=true;
+  const before=timelineRequests;
+  const unsupported=await client.callTool({name:'get_timeline',arguments:{}});
+  assert.equal(unsupported.isError,true);
+  assert.deepEqual(unsupported.structuredContent,{code:'upstream_not_implemented',http_status:501,upstream_message:'Timeline operation is not implemented'});
+  const guidance=unsupported.content.find(x=>x.type==='text').text;
+  assert.match(guidance,/not implemented/);
+  assert.doesNotMatch(guidance,/retrying later|proxy|incompatib/i);
+  assert.equal(timelineRequests,before+1,'unsupported operation must not retry');
+  timelineUnimplemented=false;
   const post=await call('post',{text:'external account in town'});
   assert.ok(post.uri.includes('/town.delve.feed.post/'));
   const read=await call('get_posts',{uris:[post.uri,post.uri]});

@@ -163,6 +163,11 @@ defmodule AtMcp.MCP.Tools do
 
     {code, guidance} =
       cond do
+        status == 501 ->
+          {"upstream_not_implemented",
+           "The account's service reports that this operation is not implemented. " <>
+             "Repeating the same request is not expected to help; check which operations the service supports."}
+
         status == 429 ->
           {"upstream_rate_limited",
            "The account's service is rate limiting this client. Wait before retrying."}
