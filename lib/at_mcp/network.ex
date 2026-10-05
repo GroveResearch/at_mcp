@@ -59,6 +59,7 @@ defmodule AtMcp.Network do
     bluesky: %{
       namespace: "app.bsky",
       appview: "did:web:api.bsky.app#bsky_appview",
+      appview_url: "https://api.bsky.app/xrpc",
       web_origin: "https://bsky.app",
       default_service: "https://bsky.social",
       lexicon_dir: "app/bsky",
@@ -67,6 +68,7 @@ defmodule AtMcp.Network do
     delve: %{
       namespace: "town.delve",
       appview: "did:web:api.delve.town#bsky_appview",
+      appview_url: "https://api.delve.town/xrpc",
       web_origin: "https://delve.town",
       default_service: "https://pds.delve.town",
       lexicon_dir: "town/delve",
@@ -164,6 +166,18 @@ defmodule AtMcp.Network do
 
   @doc "The service authority the home PDS forwards authenticated AppView calls to."
   def appview_service, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:appview)
+
+  @doc "The trusted AppView endpoint paired with this network's service authority."
+  def appview_url, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:appview_url)
+
+  @doc false
+  def direct_read?(method, session) do
+    case Application.get_env(:at_mcp, :appview_reads, :proxy) do
+      :proxy -> false
+      :direct -> Map.has_key?(request_headers(method, session), "atproto-proxy")
+      other -> raise ArgumentError, "unknown appview_reads mode #{inspect(other)}"
+    end
+  end
 
   @doc false
   def request_headers(method, session) do
