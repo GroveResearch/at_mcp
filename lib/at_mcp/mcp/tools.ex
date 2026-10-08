@@ -246,6 +246,29 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
+  @doc """
+  The images on the post at `uri`, as `AtMcp.PostImages.result/2` builds them.
+  The post is read through the account like any other read; its pictures are
+  fetched from the URLs that read returned, outside the account's call.
+  """
+  def get_post_images(effects, uri, state) do
+    case AtMcp.Effects.get_posts(effects, [uri]) do
+      {:ok, %{items: [post | _]}} ->
+        {:ok, AtMcp.PostImages.result(uri, post), state}
+
+      {:ok, _} ->
+        error(
+          state,
+          "post_not_found",
+          "error: no post at #{uri} could be read. It may be deleted, not indexed yet, or not a post. No image was fetched.",
+          %{uri: uri}
+        )
+
+      other ->
+        respond(other, state)
+    end
+  end
+
   def update_profile(effects, args) when is_map(args) do
     updates =
       []

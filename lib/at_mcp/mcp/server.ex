@@ -146,6 +146,17 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "get_post_images",
+       "See the images attached to one post. Returns a text block listing each image by index (from 1) with its alt text, then each image that could be fetched, in the post's order, as image content. An image that could not be fetched is listed with the reason. Results can be large; use it only when the model reading the result accepts images. A quoted post's images are not included: call this with the quoted post's URI." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.post_images())
+    param(:uri, :string, required: true, description: "AT URI of the post")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.get_post_images(state.effects, Map.fetch!(a, :uri), state)
+    end)
+  end
+
   tool "get_profile",
        "Fetch a profile on this network by handle or DID. Omit actor for this account." do
     annotations(%{readOnlyHint: true, openWorldHint: true})

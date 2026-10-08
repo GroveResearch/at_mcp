@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 41 tools: 40 network verbs, plus
+`AtMcp.MCP.Server` declares 42 tools: 41 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside the JSON text.
@@ -114,7 +114,7 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Category | Tools |
 | --- | --- |
 | Writing | `post`, `reply`, `delete_post`, `update_profile` |
-| Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_list_feed`, `get_actor_likes` |
+| Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_list_feed`, `get_actor_likes` |
 | Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
@@ -155,7 +155,11 @@ quote stays a `nested_uri` rather than recursively expanding. `embed_type`
 identifies other media kinds that this projection does not interpret.
 
 These are read projections of what the server already returned, not extra
-requests or image pixels. Raw notifications and stream records preserve full
+requests or image pixels. `get_post_images` is the one read that fetches
+pictures, for one post at a time: it takes the `fullsize` URLs from that post's
+hydrated view and returns them as MCP image content after a text block that
+lists every image by index. Putting pictures in every page read would make each
+one many megabytes for images most readers never look at. Raw notifications and stream records preserve full
 facet URLs and references; when they lack hydrated content they say so.
 
 Summaries also keep the viewer's like, repost, follow and block record URIs so

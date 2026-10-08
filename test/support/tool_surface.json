@@ -130,6 +130,14 @@
       },
       "required": []
     },
+    "get_post_images": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "get_posts": {
       "arguments": {
         "uris": "array"
