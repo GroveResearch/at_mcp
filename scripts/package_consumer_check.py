@@ -28,7 +28,6 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-package-") as scratch:
                          "licenses/flock_ex/LICENSE", "licenses/flock_ex/NOTICE.md",
                          "licenses/lexicons/LICENSE.txt", "licenses/lexicons/LICENSE-MIT.txt",
                          "licenses/lexicons/LICENSE-APACHE.txt", "licenses/lexicons/NOTICE.md",
-                         "licenses/proto_rune/LICENSE", "licenses/proto_rune/NOTICE.md",
                          "lib/at_mcp/native_lock.ex"]:
             assert required in names, f"package missing {required}"
         repo = Path(__file__).resolve().parent.parent

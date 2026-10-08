@@ -7,7 +7,6 @@ defmodule AtMcp.ATProto.ServiceAuth do
   Tokens are not persisted or reused. Procedures never enter this module.
   This does not prove that an arbitrary provider permits token issuance.
   """
-  alias AtMcp.ATProto.DSL
   alias AtMcp.Effects.Failure
   alias AtMcp.Network
   alias ProtoRune.Session
@@ -32,7 +31,7 @@ defmodule AtMcp.ATProto.ServiceAuth do
   end
 
   defp issue(session, method) do
-    url = Path.join(DSL.base_url(session), "com.atproto.server.getServiceAuth")
+    url = Path.join(AtMcp.ATProto.base_url(session), "com.atproto.server.getServiceAuth")
     params = %{aud: Network.appview_service(), lxm: method, exp: System.system_time(:second) + 60}
 
     with {:ok, headers, _session} <- Session.authorization_headers(session, "GET", url),
@@ -81,8 +80,8 @@ defmodule AtMcp.ATProto.ServiceAuth do
     end
   end
 
-  # Do not use XRPC.Error.from here: proto_rune 0.5.3 interns arbitrary remote
-  # error names as atoms and assumes both error fields are strings. Classify
+  # Do not use XRPC.Error.from here: proto_rune assumes both error fields are
+  # strings, and 0.5.3 interned arbitrary remote error names as atoms. Classify
   # this new boundary finitely; raw error names are bounded private evidence.
   defp http_failure(response, destination, headers) do
     body = if is_map(response.body), do: response.body, else: %{}

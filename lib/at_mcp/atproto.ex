@@ -2,10 +2,11 @@ defmodule AtMcp.ATProto do
   @moduledoc """
   Every endpoint AtMcp calls on the application namespace, declared once.
 
-  AtMcp's application namespace is a value (`AtMcp.Network`), so each declaration
-  here names the suffix within that namespace, its parameters and its
-  authentication. `AtMcp.ATProto.DSL` generates the functions. `com.atproto.*`
-  methods are declared as literals, because they are the same NSIDs on every
+  AtMcp's application namespace is a value (`AtMcp.Network`), so each function
+  here names its suffix within that namespace and its parameters, and resolves
+  the NSID when it is called. proto_rune's `defquery` compiles the NSID into the
+  function it generates, so it cannot serve both networks from one release.
+  `com.atproto.*` methods are literals, because they are the same NSIDs on every
   network.
 
   Every declaration is authenticated. An unauthenticated read returns records
@@ -23,7 +24,7 @@ defmodule AtMcp.ATProto do
     keeps a key that is present and `nil`, so `params/1` drops the keys a caller
     did not supply.
 
-  - **A list parameter cannot go through the DSL.** `URI.encode_query/1` raises
+  - **A list parameter cannot go through `read/4`.** `URI.encode_query/1` raises
     on a list value, while AT Protocol repeats the key once per element. Those
     endpoints are declared as ordinary functions over `repeated_query/3`.
 
@@ -37,176 +38,138 @@ defmodule AtMcp.ATProto do
   an `embed` handed to `Bsky.post/3` returns `{:ok, ...}` with the embed gone.
   """
 
-  import AtMcp.ATProto.DSL
-
-  alias AtMcp.ATProto.DSL
+  alias AtMcp.ATProto.ServiceAuth
+  alias AtMcp.Network
+  alias ProtoRune.Session
   alias ProtoRune.XRPC.Client
+  alias ProtoRune.XRPC.Procedure
   alias ProtoRune.XRPC.Query
 
-  defread "membership.getMembership" do
-  end
+  # The paging parameters most list endpoints share.
+  @page [limit: :integer, cursor: :string]
+
+  def get_membership(session, params),
+    do: read(session, "membership.getMembership", params)
 
   # --- feed reads ---
 
   # `ProtoRune.Bsky.get_post_thread/2` sends `parent_height`, which the lexicon
   # does not define; the AppView answers with no parents at all.
-  defread "feed.getPostThread" do
-    param(:uri, {:required, :string})
-    param(:depth, :integer)
-    param(:parentHeight, :integer)
-  end
+  def get_post_thread(session, params),
+    do:
+      read(session, "feed.getPostThread", params,
+        uri: {:required, :string},
+        depth: :integer,
+        parentHeight: :integer
+      )
 
   # proto_rune declares `getAuthorFeed` public-only, so its generated function
   # takes no session, reaches bsky.social rather than the account's own service,
   # and 401s there.
-  defread "feed.getAuthorFeed" do
-    param(:actor, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_author_feed(session, params),
+    do: read(session, "feed.getAuthorFeed", params, [actor: {:required, :string}] ++ @page)
 
   # A custom feed: the generator's AT URI selects the slice of the network.
-  defread "feed.getFeed" do
-    param(:feed, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_feed(session, params),
+    do: read(session, "feed.getFeed", params, [feed: {:required, :string}] ++ @page)
 
   # The posts of the accounts on one list.
-  defread "feed.getListFeed" do
-    param(:list, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_list_feed(session, params),
+    do: read(session, "feed.getListFeed", params, [list: {:required, :string}] ++ @page)
 
   # Who liked a post.
-  defread "feed.getLikes" do
-    param(:uri, {:required, :string})
-    param(:cid, :string)
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_likes(session, params),
+    do: read(session, "feed.getLikes", params, [uri: {:required, :string}, cid: :string] ++ @page)
 
   # Who quoted a post.
-  defread "feed.getQuotes" do
-    param(:uri, {:required, :string})
-    param(:cid, :string)
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_quotes(session, params),
+    do:
+      read(session, "feed.getQuotes", params, [uri: {:required, :string}, cid: :string] ++ @page)
 
   # Who reposted a post.
-  defread "feed.getRepostedBy" do
-    param(:uri, {:required, :string})
-    param(:cid, :string)
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_reposted_by(session, params),
+    do:
+      read(
+        session,
+        "feed.getRepostedBy",
+        params,
+        [uri: {:required, :string}, cid: :string] ++ @page
+      )
 
   # What an account has liked.
-  defread "feed.getActorLikes" do
-    param(:actor, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_actor_likes(session, params),
+    do: read(session, "feed.getActorLikes", params, [actor: {:required, :string}] ++ @page)
 
   # The home timeline.
-  defread "feed.getTimeline" do
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_timeline(session, params),
+    do: read(session, "feed.getTimeline", params, @page)
 
   # Full-text search over posts.
-  defread "feed.searchPosts" do
-    param(:q, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def search_posts(session, params),
+    do: read(session, "feed.searchPosts", params, [q: {:required, :string}] ++ @page)
 
   # --- actor reads ---
 
-  defread "actor.getProfile" do
-    param(:actor, {:required, :string})
-  end
+  def get_profile(session, params),
+    do: read(session, "actor.getProfile", params, actor: {:required, :string})
 
-  defread "actor.searchActors" do
-    param(:q, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def search_actors(session, params),
+    do: read(session, "actor.searchActors", params, [q: {:required, :string}] ++ @page)
 
   # --- notifications ---
 
   @doc """
   List account notifications, optionally filtering by repeated `reasons` keys.
 
-  The notification reasons array shares the DSL encoding defect documented for
+  The notification reasons array shares the list-encoding defect documented for
   the other repeated-query endpoints below.
   """
   def list_notifications(session, params),
     do: repeated_query(session, AtMcp.Network.nsid("notification.listNotifications"), params)
 
-  defread "notification.getUnreadCount" do
-    param(:priority, :boolean)
-  end
+  def get_unread_count(session, params),
+    do: read(session, "notification.getUnreadCount", params, priority: :boolean)
 
   # The one write declared here. `ProtoRune.Bsky.update_seen/2` stringifies the
   # DateTime before a schema that requires a DateTime, and the XRPC client then
   # camelizes the body by recursing into every map — which a DateTime is. This
   # declares the wire type the endpoint actually takes.
-  defwrite "notification.updateSeen" do
-    param(:seen_at, {:required, :string})
-  end
+  def update_seen(session, params),
+    do: write(session, "notification.updateSeen", params, seen_at: {:required, :string})
 
   # --- graph writes that are methods rather than records ---
 
   # A mute is not a record in the repository: it is server-side state on the
   # AppView, set by an application-namespace method. So it moves with the
   # namespace like a read does, and unlike a block, which is a record.
-  defwrite "graph.muteActor" do
-    param(:actor, {:required, :string})
-  end
+  def mute_actor(session, params),
+    do: write(session, "graph.muteActor", params, actor: {:required, :string})
 
-  defwrite "graph.unmuteActor" do
-    param(:actor, {:required, :string})
-  end
+  def unmute_actor(session, params),
+    do: write(session, "graph.unmuteActor", params, actor: {:required, :string})
 
   # --- graph reads ---
 
-  defread "graph.getFollowers" do
-    param(:actor, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_followers(session, params),
+    do: read(session, "graph.getFollowers", params, [actor: {:required, :string}] ++ @page)
 
-  defread "graph.getFollows" do
-    param(:actor, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_follows(session, params),
+    do: read(session, "graph.getFollows", params, [actor: {:required, :string}] ++ @page)
 
   # Followers of one account that this account also follows.
-  defread "graph.getKnownFollowers" do
-    param(:actor, {:required, :string})
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_known_followers(session, params),
+    do: read(session, "graph.getKnownFollowers", params, [actor: {:required, :string}] ++ @page)
 
-  defread "graph.getSuggestedFollowsByActor" do
-    param(:actor, {:required, :string})
-  end
+  def get_suggested_follows_by_actor(session, params),
+    do: read(session, "graph.getSuggestedFollowsByActor", params, actor: {:required, :string})
 
   # The requesting account's own blocks and mutes. Neither takes an actor: the
   # subject is whoever the session belongs to.
-  defread "graph.getBlocks" do
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_blocks(session, params),
+    do: read(session, "graph.getBlocks", params, @page)
 
-  defread "graph.getMutes" do
-    param(:limit, :integer)
-    param(:cursor, :string)
-  end
+  def get_mutes(session, params),
+    do: read(session, "graph.getMutes", params, @page)
 
   # --- endpoints whose parameters include a list ---
 
@@ -271,39 +234,70 @@ defmodule AtMcp.ATProto do
 
   def flatten_query(params) when is_list(params), do: params |> Map.new() |> flatten_query()
 
-  # The same authenticated GET the DSL generates, with the parameters encoded
-  # rather than validated: a declared parameter list cannot describe a repeated
-  # key, so these endpoints skip Peri and build the query directly.
+  # An authenticated GET with the parameters encoded rather than validated: a
+  # declared parameter list cannot describe a repeated key, so these endpoints
+  # skip Peri and build the query directly.
   defp repeated_query(session, method, params) do
-    base_url = AtMcp.ATProto.DSL.base_url(session)
-    url = Path.join(base_url, method)
-
     query =
       method
-      |> Query.new(base_url: base_url)
+      |> Query.new(base_url: base_url(session))
       |> Map.put(:params, flatten_query(params))
 
-    if AtMcp.Network.direct_read?(method, session) do
-      AtMcp.ATProto.ServiceAuth.execute(session, query)
+    if Network.direct_read?(method, session),
+      do: ServiceAuth.execute(session, query),
+      else: execute(session, query, "GET")
+  end
+
+  # An authenticated read or write on the application namespace, named by its
+  # suffix and declared with proto_rune's Peri parameter types.
+  defp read(session, suffix, params, schema \\ []),
+    do: query(session, Network.nsid(suffix), Map.new(schema), params)
+
+  defp write(session, suffix, params, schema),
+    do: procedure(session, Network.nsid(suffix), Map.new(schema), params)
+
+  # The authenticated query and procedure every call here goes through.
+  #
+  # These are `ProtoRune.XRPC.query/5` and `procedure/5` with one addition that
+  # proto_rune 0.6 has no option for: per-request headers. An
+  # application-namespace call carries `atproto-proxy` naming this network's
+  # AppView (`AtMcp.Network.request_headers/2`), which tells the account's PDS
+  # where to forward it. Reads may instead go straight to the AppView with a service token
+  # (`AtMcp.ATProto.ServiceAuth`); writes never do.
+  defp query(session, method, schema, params) do
+    if Network.direct_read?(method, session) do
+      ServiceAuth.query(session, method, schema, params)
     else
-      execute_repeated_query(session, query, method, url)
+      query = Query.new(method, from: schema, base_url: base_url(session))
+      with {:ok, query} <- Query.add_params(query, params), do: execute(session, query, "GET")
     end
   end
 
-  defp execute_repeated_query(session, query, method, url) do
-    with {:ok, headers, session} <- ProtoRune.Session.authorization_headers(session, "GET", url) do
-      Client.execute(
-        %{
-          query
-          | headers:
-              query.headers
-              |> Map.merge(headers)
-              |> Map.merge(AtMcp.Network.request_headers(method, session))
-        },
-        session: session
-      )
+  defp procedure(session, method, schema, params) do
+    proc = Procedure.new(method, from: schema, base_url: base_url(session))
+
+    with {:ok, proc} <- Procedure.put_body(proc, params),
+         do: execute(session, proc, "POST")
+  end
+
+  defp execute(session, request, http_method) do
+    url = Path.join(request.base_url, request.method)
+
+    with {:ok, headers, session} <- Session.authorization_headers(session, http_method, url) do
+      headers =
+        request.headers
+        |> Map.merge(headers)
+        |> Map.merge(Network.request_headers(request.method, session))
+
+      Client.execute(%{request | headers: headers}, session: session)
     end
   end
+
+  @doc false
+  # The account's own service, or the library's default. A session always
+  # carries one in AtMcp, because every configured account names a service.
+  def base_url(session),
+    do: Session.service_url(session) || ProtoRune.Config.default_base_url()
 
   # --- com.atproto.repo: the methods AtMcp writes through ---
   #
@@ -348,20 +342,19 @@ defmodule AtMcp.ATProto do
   checking that schema. A successful write does not prove schema validity.
   """
   def create_record(session, params),
-    do: DSL.authenticated_procedure(session, "com.atproto.repo.createRecord", @repo_write, params)
+    do: procedure(session, "com.atproto.repo.createRecord", @repo_write, params)
 
   @doc "Write a record at a known rkey, creating or replacing it."
   def put_record(session, params),
-    do: DSL.authenticated_procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
+    do: procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
 
   @doc "Delete one record from a repository."
   def delete_record(session, params),
-    do:
-      DSL.authenticated_procedure(session, "com.atproto.repo.deleteRecord", @repo_delete, params)
+    do: procedure(session, "com.atproto.repo.deleteRecord", @repo_delete, params)
 
   @doc "Read one record out of a repository."
   def get_record(session, params),
-    do: DSL.authenticated_query(session, "com.atproto.repo.getRecord", @repo_get, params)
+    do: query(session, "com.atproto.repo.getRecord", @repo_get, params)
 
   @doc """
   Upload a blob and return `{:ok, %{blob: blob_ref}}`.

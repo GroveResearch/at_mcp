@@ -35,7 +35,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def refresh(session) do
-    # Hex proto_rune 0.5.3 POSTs `json: %{}` for refreshSession; Bluesky
+    # proto_rune (0.5.3 and 0.6.0) POSTs `json: %{}` for refreshSession; Bluesky
     # replies 400 "A request body was provided when none was expected".
     # Empty-body POST with the refresh JWT, then parse like login.
     refresh_jwt = Map.get(session, :refresh_jwt)
@@ -44,7 +44,7 @@ defmodule AtMcp.Effects.ProtoRune do
       {:error, AtMcp.Effects.Failure.new(:auth_refused, detail: :missing_refresh_jwt)}
     else
       base_url =
-        Map.get(session, :service_url) || ProtoRune.XRPC.Config.default_base_url()
+        Map.get(session, :service_url) || ProtoRune.Config.default_base_url()
 
       url = Path.join(base_url, "com.atproto.server.refreshSession")
 

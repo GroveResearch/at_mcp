@@ -95,7 +95,7 @@ defmodule AtMcp.MixProject do
 
   defp deps do
     [
-      {:proto_rune, "~> 0.5.3"},
+      {:proto_rune, "~> 0.6.0"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:ex_mcp, "~> 1.5"},
       {:elixir_make, "~> 0.10", runtime: false},

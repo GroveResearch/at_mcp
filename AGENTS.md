@@ -86,7 +86,8 @@ condition is in `decisions.md` under Dependencies:
 - proto_rune workarounds live in `AtMcp.Effects.ProtoRune`, `AtMcp.ATProto` and
   `AtMcp.RichText`, each commented with the upstream defect. `ProtoRune.Bsky` is
   not called at all.
-- `AtMcp.ATProto.DSL` is proto_rune's XRPC DSL with the NSID left to runtime.
+- `AtMcp.ATProto` calls proto_rune's XRPC request pieces directly, resolving the
+  NSID at call time and adding the AppView proxy header; see its comments.
 - `priv/lexicons` holds copies of `feed/post.json` for each network — see the
   README beside them.
 
