@@ -34,7 +34,8 @@ defmodule AtMcp.MCP.ToolsTest do
 
     assert {:ok, _} = AtMcp.Effects.login(effects)
 
-    assert {:ok, %{write_quota: %{resets_at: nil, used: 0}}} =
+    # The configured limit and window, not the defaults.
+    assert {:ok, %{write_quota: %{limit: 4, window_seconds: 60, resets_at: nil, used: 0}}} =
              AtMcp.MCP.Tools.identity_status(effects)
 
     assert {:ok, _} = AtMcp.Effects.repost(effects, "at://u", "cid")
