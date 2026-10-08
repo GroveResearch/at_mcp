@@ -35,7 +35,7 @@ A release includes its own runtime: binary users need no Elixir, Git or GitHub
 account. The supported downloads are Linux x86-64 (Ubuntu 22.04, Debian 12 or
 later) and macOS Apple silicon.
 
-The commands below install version 0.1.2 from the releases page. You can also
+The commands below install version 0.2.0 from the releases page. You can also
 [build a release](docs/operations.md#build-a-release) from the public source.
 Existing Kite users should follow
 [Transition from Kite 0.1.2](docs/operations.md#transition-from-kite).
@@ -52,7 +52,7 @@ the leading `v`.
 macOS on Apple silicon:
 
 ```sh
-VERSION=0.1.2
+VERSION=0.2.0
 PLATFORM=macos-arm64
 AT_MCP="$HOME/at_mcp"
 ```
@@ -60,7 +60,7 @@ AT_MCP="$HOME/at_mcp"
 Linux on x86-64:
 
 ```sh
-VERSION=0.1.2
+VERSION=0.2.0
 PLATFORM=linux-x86_64
 AT_MCP="$HOME/at_mcp"
 ```
@@ -171,7 +171,7 @@ do not automatically become town records.
 
 ### Prototype: direct authenticated reads
 
-On current source (not the published 0.1.2 binary), `AT_MCP_APPVIEW_READS=direct`
+From 0.2.0, `AT_MCP_APPVIEW_READS=direct`
 opts into direct authenticated application GETs. The default remains `proxy`.
 Use this only when the home PDS supports `com.atproto.server.getServiceAuth`:
 AtMcp requests a fresh token for the selected AppView audience and exact read

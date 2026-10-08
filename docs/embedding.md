@@ -5,7 +5,7 @@ The package contains native source and needs Elixir 1.19, Erlang/OTP, Make
 and a C compiler. Add this dependency and commit the generated `mix.lock`:
 
 ```elixir
-{:at_mcp, "~> 0.1.2"}
+{:at_mcp, "~> 0.2.0"}
 ```
 
 First [prepare the agent’s account](../README.md#prepare-the-account). Add the

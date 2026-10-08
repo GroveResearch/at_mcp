@@ -491,6 +491,83 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.1.3 to 0.2.0
+
+0.2.0 stores data in the same format as 0.1.3, so rolling back works as below.
+What changes is how it reads its settings, and some of what it does with them.
+The version is 0.2.0 rather than 0.1.4 because an environment that started
+0.1.3 can stop 0.2.0 from starting, and because the Hex package changes how an
+embedding application configures it (below).
+
+**Check the environment before you restart.** 0.2.0 checks every setting when
+it starts and refuses to start, naming the variable, when:
+
+- a variable starting `AT_MCP_` is not one of the settings in the README's
+  [Settings](../README.md#settings) table (a misspelling is told the closest
+  setting). 0.1.3 ignored such a variable;
+- a value fails its check. `AT_MCP_NOTIFICATIONS` and `AT_MCP_JETSTREAM` take
+  only `1`, `true`, `0` or `false`, where 0.1.3 read any other value as the
+  default. Ports must be whole numbers from 0 to 65535, counts and intervals
+  positive whole numbers, and `AT_MCP_SERVICE`, `AT_MCP_SERVICE_2` and
+  `AT_MCP_DELIVERY_URL` `http` or `https` URLs.
+
+An empty value now counts as unset. After unpacking 0.2.0 and before
+repointing `current`, run its settings report with the service's environment
+file:
+
+```sh
+AT_MCP_ENV_FILE=~/at_mcp/at_mcp.env ~/at_mcp/releases/at_mcp-0.2.0/bin/at_mcp eval 'AtMcp.CLI.settings()'
+```
+
+On Linux, as the service's user:
+
+```sh
+cd / && sudo -u at_mcp env AT_MCP_ENV_FILE=/etc/at_mcp/at_mcp.env /opt/at_mcp/releases/at_mcp-0.2.0/bin/at_mcp eval 'AtMcp.CLI.settings()'
+```
+
+It prints every setting, its value and where it came from, or the error that
+would stop the service. Do the same for each stdio client's environment (its
+MCP configuration, or `AT_MCP_STDIO_ENV_FILE`).
+
+**`BLUESKY_*` account variables are deprecated, not removed.**
+`BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD` and `BLUESKY_SERVICE` (and the `_2`
+set) still work, with a warning at startup; the new names are
+`AT_MCP_HANDLE`, `AT_MCP_APP_PASSWORD` and `AT_MCP_SERVICE`. When both are set,
+the `AT_MCP_*` name wins and the warning says to remove the old one. Rename them
+when convenient; nothing else needs to change.
+
+**New settings**, all optional, with defaults that keep 0.1.3's behaviour:
+`AT_MCP_WRITE_LIMIT` and `AT_MCP_WRITE_WINDOW_SECONDS` (each account's write
+quota, 16 per 3600 seconds), `AT_MCP_INBOUND_MAX_EVENTS` and
+`AT_MCP_INBOUND_MAX_BYTES` (the undelivered-activity queue, 10,000 events per
+account and 64 MiB in all), `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` (60), and
+`AT_MCP_APPVIEW_READS` (`proxy`; `direct` is the
+[direct authenticated reads](../README.md#prototype-direct-authenticated-reads)
+prototype).
+
+**What clients see.**
+
+- `tools/list` offers a connection only the tools its grant's scope allows. A
+  read-only grant no longer sees write or delete tools that would have been
+  refused with `out_of_scope`. The local stdio server holds no grant and still
+  lists every tool.
+- The MCP endpoint accepts a post carrying the largest images the network's
+  lexicon allows (four of 2,000,000 bytes each). 0.1.3 refused any request
+  over 1 MB. Other requests keep the 1 MB limit.
+- A service that answers HTTP 501 is reported as `upstream_not_implemented`,
+  with no advice to retry.
+
+**Embedding the Hex package.** Change the requirement to
+`{:at_mcp, "~> 0.2.0"}`; `~> 0.1.2` does not select 0.2.0. AtMcp's code no
+longer reads the process environment, only the application environment
+(see [Embed AtMcp](embedding.md)). In particular
+`AtMcp.Effects` no longer falls back to `BLUESKY_HANDLE` and
+`BLUESKY_APP_PASSWORD` when it is started without `:handle` and `:password`,
+and `AT_MCP_STATE_DIR`, `AT_MCP_ACCOUNTS_FILE`, `AT_MCP_DELIVERY_*` and
+`AT_MCP_GRANT` set in your application's environment are no longer read; set
+`inbound_state_dir`, `accounts_file`, `delivery` and `connect_grant` instead.
+AtMcp now requires `proto_rune ~> 0.6.0`.
+
 ## Roll back
 
 Stop the service, point `current` at the release you left and start it (on
