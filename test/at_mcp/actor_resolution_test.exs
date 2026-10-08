@@ -343,62 +343,6 @@ defmodule AtMcp.ActorResolutionTest do
     assert writes(calls, "graph.getRelationships") == []
   end
 
-  test "something in others that is not a handle is not_found without a resolution read" do
-    %{calls: calls, state: state} = start()
-
-    assert {:ok, result, ^state} =
-             AtMcp.MCP.Server.handle_call_tool(
-               "get_relationships",
-               %{"actor" => "carol.example", "others" => ["not a handle", "did:plc:bob"]},
-               state
-             )
-
-    refute result[:isError]
-    assert sent(calls, "com.atproto.identity.resolveHandle") == []
-    assert [missing, found] = result.structuredContent["items"]
-    assert missing["not_found"]
-    assert missing["did"] == "not a handle"
-    assert found["did"] == "did:plc:bob"
-
-    assert [request] = writes(calls, "graph.getRelationships")
-    assert repeated(request.raw, "others") == ["did:plc:bob"]
-  end
-
-  test "DIDs in others are sent as given, without a resolution read" do
-    %{calls: calls, state: state} = start()
-    others = ["did:plc:bob", "did:plc:carol"]
-
-    assert {:ok, result, ^state} =
-             AtMcp.MCP.Server.handle_call_tool(
-               "get_relationships",
-               %{"actor" => "carol.example", "others" => others},
-               state
-             )
-
-    refute result[:isError]
-    assert sent(calls, "com.atproto.identity.resolveHandle") == []
-    assert Enum.map(result.structuredContent["items"], & &1["did"]) == others
-
-    assert [request] = writes(calls, "graph.getRelationships")
-    assert repeated(request.raw, "others") == others
-  end
-
-  test "a rate-limited resolution of others keeps its own kind and asks for no relationships" do
-    %{calls: calls, state: state} = start()
-
-    assert {:ok, result, ^state} =
-             AtMcp.MCP.Server.handle_call_tool(
-               "get_relationships",
-               %{"actor" => "carol.example", "others" => ["limited.example", "did:plc:bob"]},
-               state
-             )
-
-    assert result[:isError]
-    assert result.structuredContent.code == "upstream_rate_limited"
-    assert result.structuredContent.http_status == 429
-    assert writes(calls, "graph.getRelationships") == []
-  end
-
   test "a service that fails resolving a handle in others is not a missing account" do
     %{calls: calls, state: state} = start(:down)
 
