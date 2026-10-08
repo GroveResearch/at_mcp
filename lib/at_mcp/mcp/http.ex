@@ -24,16 +24,34 @@ defmodule AtMcp.MCP.HTTP do
   @behaviour Plug
   import Plug.Conn
 
-  # A JSON-RPC envelope is small. This is read before ExMCP sees it so the tool
-  # name can be checked against the grant's scope, and handed on through
-  # `:raw_body` rather than read twice.
-  @body_limit 1_000_000
+  # Room for everything in a request besides the post's images and text: alt
+  # text, the other arguments and the JSON-RPC envelope.
+  @envelope_bytes 1_000_000
+
+  @doc """
+  The largest request body the endpoint reads, in bytes.
+
+  It is derived from the largest request a tool legitimately takes: a post
+  with as many images as this network's lexicon allows, each at its largest,
+  base64-encoded because JSON carries them as text, and the longest text the
+  lexicon allows at its longest JSON encoding (six bytes per byte, `\\u0000`),
+  plus `@envelope_bytes` for the rest. The body is read before ExMCP sees it so
+  the tool name can be checked against the grant's scope, and handed on
+  through `:raw_body` rather than read twice; ExMCP is given the same limit.
+  """
+  def body_limit do
+    %{count: count, bytes: bytes} = AtMcp.Network.post_image_limits()
+    %{bytes: text_bytes} = AtMcp.Network.post_limits()
+    count * 4 * div(bytes + 2, 3) + 6 * text_bytes + @envelope_bytes
+  end
 
   def init(opts) do
     port = Keyword.fetch!(opts, :port)
+    body_limit = body_limit()
 
     %{
       port: port,
+      body_limit: body_limit,
       mcp:
         ExMCP.HttpPlug.init(
           handler: AtMcp.MCP.Server,
@@ -42,6 +60,7 @@ defmodule AtMcp.MCP.HTTP do
           end,
           server_info: AtMcp.MCP.Server.server_info(),
           handler_call_timeout: handler_call_timeout(),
+          body_limit: body_limit,
           legacy_http_sse: false,
           cors_enabled: false,
           allowed_hosts: ["localhost", "127.0.0.1", "::1", "[::1]"],
@@ -149,7 +168,7 @@ defmodule AtMcp.MCP.HTTP do
   end
 
   defp authorize(%{method: "POST"} = conn, scope, opts) do
-    case read_body(conn, length: @body_limit, read_length: @body_limit) do
+    case read_body(conn, length: opts.body_limit, read_length: opts.body_limit) do
       {:ok, body, conn} ->
         case requested_tool(body) do
           {:ok, tool} ->

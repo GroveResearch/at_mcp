@@ -15,10 +15,12 @@ dependency on this directory, and `test/at_mcp/network_test.exs` parses the same
 files independently and fails if the compiled numbers drift from them.
 
 Only the definitions AtMcp reads a limit from are here — currently
-`feed/post.json` for each network. Do not vendor a whole namespace: the 165-NSID
+`feed/post.json` and `embed/images.json` for each network. The image limits
+size the MCP endpoint's request body (`AtMcp.MCP.HTTP.body_limit/0`). Do not vendor a whole namespace: the 165-NSID
 rename is one substitution rule, and a rule does not need 165 copies to state it.
 
-Copied 2026-09-11 from `deepfates/delvetown-sdk` at `7cb95ba`, which holds both
+Copied from `deepfates/delvetown-sdk` at `7cb95ba` (`feed/post.json` on
+2026-09-11, `embed/images.json` on 2026-10-07), which holds both
 namespaces side by side. Refresh them by copying again, not by editing them.
 
 Upstream copyright and license terms are retained in
