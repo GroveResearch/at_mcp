@@ -27,6 +27,7 @@ defmodule AtMcp.Notifications do
 
   # A sweep a minute: how long a mention can wait before it reaches the
   # consumer, and how often each account asks its own PDS.
+  # `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` sets it (`config/runtime.exs`).
   @interval_ms 60_000
   # The overlap with the last completed sweep, for late indexing (see above).
   @overlap_us 300_000_000
@@ -43,7 +44,11 @@ defmodule AtMcp.Notifications do
 
   @impl true
   def init(opts) do
-    interval = Keyword.get(opts, :interval_ms, @interval_ms)
+    interval =
+      Keyword.get_lazy(opts, :interval_ms, fn ->
+        Application.get_env(:at_mcp, :notifications_interval_ms, @interval_ms)
+      end)
+
     clock = Keyword.get(opts, :clock, fn -> System.system_time(:microsecond) end)
 
     state = %{

@@ -433,6 +433,24 @@ defmodule AtMcp.NotificationsTest do
     event
   end
 
+  test "an enabled poller sweeps on the interval the operator set", ctx do
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_interval_ms) end)
+    Application.put_env(:at_mcp, :notifications_interval_ms, 50)
+    pages(%{nil => page([])})
+
+    start_supervised!(
+      {AtMcp.Notifications,
+       name: nil,
+       effects: ctx.effects,
+       store: ctx.store,
+       enabled: true,
+       clock: fn -> Agent.get(Backend, & &1.now) end}
+    )
+
+    assert_receive {:page, nil}, 1_000
+    assert_receive {:page, nil}, 1_000
+  end
+
   defp pages(pages), do: Agent.update(Backend, &%{&1 | pages: pages})
   defp page(items, cursor \\ nil), do: {:ok, %{items: items, cursor: cursor}}
 

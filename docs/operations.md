@@ -263,6 +263,9 @@ environment sets where things are and what is switched on:
 | `AT_MCP_WRITE_LIMIT` | Publishing writes (`post`, `reply`, `repost`) each account may attempt per window (16); not a positive integer refuses to start |
 | `AT_MCP_WRITE_WINDOW_SECONDS` | Length of the write quota window in seconds (3600); not a positive integer refuses to start |
 | `AT_MCP_NOTIFICATIONS` | `0` disables notification polling (on by default) |
+| `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` | Seconds between notification sweeps of each account (60); not a positive integer refuses to start |
+| `AT_MCP_INBOUND_MAX_EVENTS` | Undelivered events held for one account before its collection pauses (10000); not a positive integer refuses to start |
+| `AT_MCP_INBOUND_MAX_BYTES` | Size of the delivery store in bytes (67108864, 64 MiB); one account may fill a quarter of it. Not a positive integer refuses to start |
 | `AT_MCP_JETSTREAM` | `1` enables the network-wide stream collector (off by default) |
 | `AT_MCP_DELIVERY_URL`, `AT_MCP_DELIVERY_TOKEN_FILE` / `AT_MCP_DELIVERY_TOKEN` | Where collected activity is delivered, and the bearer token |
 | `AT_MCP_ENV_FILE` | For a command run from a shell (`at_mcp-accounts`, `rpc`, `remote`): the environment file to load first. The service's unit loads the file itself |
@@ -320,8 +323,8 @@ action is approved; the account's write quota only says whether capacity is left
 
 ## Incoming activity
 
-The service polls each account's notifications every 60 seconds through its
-PDS, without changing their read state. Configure where to deliver:
+The service polls each account's notifications every 60 seconds
+(`AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS`) through its PDS, without changing their read state. Configure where to deliver:
 
 ```sh
 AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
@@ -384,7 +387,9 @@ event.
 
 Collection revisits five minutes before its checkpoint and deduplicates; the
 first poll looks back five minutes, not the whole inbox. Pending events are
-never evicted: at 10,000 events or 64 MiB, collection holds until delivery
+never evicted: when an account has 10,000 pending events
+(`AT_MCP_INBOUND_MAX_EVENTS`) or a quarter of the store's 64 MiB
+(`AT_MCP_INBOUND_MAX_BYTES`), that account's collection holds until delivery
 makes room. Late arrivals outside the overlap, and activity the provider never
 puts in the inbox, are not covered.
 
