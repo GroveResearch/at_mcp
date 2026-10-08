@@ -133,7 +133,9 @@ defmodule AtMcp.ATProto do
   # The one write declared here. `ProtoRune.Bsky.update_seen/2` stringifies the
   # DateTime before a schema that requires a DateTime, and the XRPC client then
   # camelizes the body by recursing into every map — which a DateTime is. This
-  # declares the wire type the endpoint actually takes.
+  # declares the wire type the endpoint actually takes. 0.6.0 still does both.
+  # An upstream fix deletes nothing here: the runtime namespace already keeps
+  # this off `ProtoRune.Bsky`.
   def update_seen(session, params),
     do: write(session, "notification.updateSeen", params, seen_at: {:required, :string})
 
@@ -210,6 +212,8 @@ defmodule AtMcp.ATProto do
 
   Peri keeps a key whose value is `nil`, and `URI.encode_query/1` then sends it
   as an empty value — `cursor=` asks a service to continue from nowhere.
+  Delete when proto_rune's `Query` leaves `nil` parameters out of the URL
+  (0.6.0 still sends them).
   """
   def params(params) when is_map(params),
     do: Map.reject(params, fn {_key, value} -> is_nil(value) end)
@@ -236,7 +240,9 @@ defmodule AtMcp.ATProto do
 
   # An authenticated GET with the parameters encoded rather than validated: a
   # declared parameter list cannot describe a repeated key, so these endpoints
-  # skip Peri and build the query directly.
+  # skip Peri and build the query directly. Delete when proto_rune's `Query`
+  # encodes a list value as repeated keys (0.6.0 still hands it to
+  # `URI.encode_query/1`, which raises).
   defp repeated_query(session, method, params) do
     query =
       method
@@ -263,7 +269,9 @@ defmodule AtMcp.ATProto do
   # application-namespace call carries `atproto-proxy` naming this network's
   # AppView (`AtMcp.Network.request_headers/2`), which tells the account's PDS
   # where to forward it. Reads may instead go straight to the AppView with a service token
-  # (`AtMcp.ATProto.ServiceAuth`); writes never do.
+  # (`AtMcp.ATProto.ServiceAuth`); writes never do. Delete `execute/3` and call
+  # `ProtoRune.XRPC.query/5` and `procedure/5` once they accept a `:headers`
+  # option.
   defp query(session, method, schema, params) do
     if Network.direct_read?(method, session) do
       ServiceAuth.query(session, method, schema, params)
@@ -518,6 +526,8 @@ defmodule AtMcp.ATProto do
   # `uploadBlob` answers through the XRPC client, which snakelizes every key in
   # every response — so the reference comes back as `mime_type` and has to go
   # out as `mimeType`. `$type`, `size` and `ref.$link` have no case to lose.
+  # Delete the rename when proto_rune returns response keys as the server sent
+  # them (0.6.0 still snakelizes).
   defp wire_blob(blob) when is_map(blob) do
     blob
     |> deep_stringify_keys()

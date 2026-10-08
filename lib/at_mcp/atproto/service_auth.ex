@@ -83,6 +83,7 @@ defmodule AtMcp.ATProto.ServiceAuth do
   # Do not use XRPC.Error.from here: proto_rune assumes both error fields are
   # strings, and 0.5.3 interned arbitrary remote error names as atoms. Classify
   # this new boundary finitely; raw error names are bounded private evidence.
+  # Use `XRPC.Error.from` once it accepts any JSON value in both fields.
   defp http_failure(response, destination, headers) do
     body = if is_map(response.body), do: response.body, else: %{}
     code = safe_text(body["error"], headers, 256)
