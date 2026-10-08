@@ -42,7 +42,7 @@ class PlatformContractTest(unittest.TestCase):
         cls.jobs = dict(zip(parts[1::2], parts[2::2]))
         cls.platforms = {}
         for name, block in cls.jobs.items():
-            if 'uses: actions/upload-artifact@' in block:
+            if name in ('release', 'macos') and 'uses: actions/upload-artifact@' in block:
                 upload = block.split('uses: actions/upload-artifact@', 1)[1]
                 cls.platforms[name] = re.search(r'^          name: (\S+)$', upload, re.M)[1]
         assert len(cls.platforms) == 2, 'This release promises two binary platforms'
@@ -74,6 +74,16 @@ class PlatformContractTest(unittest.TestCase):
                                 and all(result == 'success' for result in results))
                     with self.subTest(results=results, event=event, ref=ref, cancelled=cancelled):
                         self.assertEqual(actual, expected)
+
+    def test_manual_preparation_retains_both_platforms_and_package_docs(self):
+        for name in self.platforms:
+            block = self.jobs[name]
+            self.assertIn("if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))", block)
+        test_job = self.jobs['test']
+        self.assertIn('name: hex-package-and-docs', test_job)
+        self.assertIn('at_mcp-*.tar', test_job)
+        self.assertIn('at_mcp-docs.tar.gz', test_job)
+        self.assertIn("if: github.event_name == 'workflow_dispatch'", test_job)
 
     def test_missing_asset_stops_before_any_github_call(self):
         names = [f'at_mcp-0.1.2-{platform}.tar.gz{suffix}'
