@@ -305,11 +305,13 @@ login, state-directory and delivery problems.
 
 ## What to know before writing
 
-- Every account has a durable write quota of 16 attempted publishing writes per
-  hour — `post`, `reply` and `repost` — shared by clients using the same
+- Every account has a durable write quota of attempted publishing writes —
+  `post`, `reply` and `repost` — shared by clients using the same
   installation and state. Separate machines
-  or state directories do not share a quota.
-  `identity_status` reports usage and the reset time. Reads and every other
+  or state directories do not share a quota. By default it is 16 per hour;
+  `AT_MCP_WRITE_LIMIT` (default 16) and `AT_MCP_WRITE_WINDOW_SECONDS` (default
+  3600) change it, and a value that is not a positive integer refuses to start.
+  `identity_status` reports the limit, the window, usage and the reset time. Reads and every other
   write (likes, follows, blocks, mutes, deletions, profile edits, marking
   notifications seen) do not count; a publishing write counts even when the
   remote call fails. Each write tool's description says whether it counts.

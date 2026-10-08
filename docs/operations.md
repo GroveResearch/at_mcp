@@ -260,6 +260,8 @@ environment sets where things are and what is switched on:
 | `AT_MCP_NETWORK` | `bluesky` (default) or `delve`; an unknown name refuses to start |
 | `AT_MCP_APPVIEW_READS` | `proxy` (default) or `direct`: prototype direct authenticated application GETs; see README for limits. |
 | `AT_MCP_STATE_DIR` | Durable state (write quotas, checkpoints, outbox); one process per directory |
+| `AT_MCP_WRITE_LIMIT` | Publishing writes (`post`, `reply`, `repost`) each account may attempt per window (16); not a positive integer refuses to start |
+| `AT_MCP_WRITE_WINDOW_SECONDS` | Length of the write quota window in seconds (3600); not a positive integer refuses to start |
 | `AT_MCP_NOTIFICATIONS` | `0` disables notification polling (on by default) |
 | `AT_MCP_JETSTREAM` | `1` enables the network-wide stream collector (off by default) |
 | `AT_MCP_DELIVERY_URL`, `AT_MCP_DELIVERY_TOKEN_FILE` / `AT_MCP_DELIVERY_TOKEN` | Where collected activity is delivered, and the bearer token |
