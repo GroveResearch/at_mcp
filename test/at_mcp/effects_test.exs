@@ -128,7 +128,7 @@ defmodule AtMcp.EffectsTest do
     assert AtMcp.Effects.login_count(effects) == 2
   end
 
-  test "updateSeen is declared with a string wire type (proto_rune 0.5.3 cannot send a DateTime)" do
+  test "updateSeen is declared with a string wire type (proto_rune declares a DateTime it cannot send)" do
     Code.ensure_loaded!(AtMcp.ATProto)
     assert function_exported?(AtMcp.ATProto, :update_seen, 2)
 

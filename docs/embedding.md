@@ -23,7 +23,7 @@ config :at_mcp,
   jetstream_enabled: false,
   notifications_enabled: false
 
-# ProtoRune 0.5.3 otherwise adds a second retry loop around Req.
+# ProtoRune otherwise adds a second retry loop around Req.
 config :proto_rune, :retry, false
 ```
 
