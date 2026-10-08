@@ -51,8 +51,8 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-defaults-") as root:
     leaf = state / "stdio" / digest
     leaf.mkdir(parents=True)
     stdio = subprocess.run([str(new / "bin" / "at_mcp-stdio")], input="", text=True,
-                           env={**env, "BLUESKY_SERVICE": service, "BLUESKY_HANDLE": handle,
-                                "BLUESKY_APP_PASSWORD": "fixture-password"},
+                           env={**env, "AT_MCP_SERVICE": service, "AT_MCP_HANDLE": handle,
+                                "AT_MCP_APP_PASSWORD": "fixture-password"},
                            capture_output=True, timeout=30)
     assert stdio.returncode != 0
     assert "AT_MCP_STATE_DIR=" + str(leaf) in stdio.stderr, stdio.stderr

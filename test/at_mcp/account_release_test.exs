@@ -31,10 +31,10 @@ defmodule AtMcp.AccountReleaseTest do
     match(_, do: send_resp(conn, 404, "no fixture for this operation"))
   end
 
-  @tag skip: is_nil(System.get_env("AT_MCP_ACCOUNT_RELEASE"))
+  @tag skip: is_nil(System.get_env("TEST_ACCOUNT_RELEASE"))
   @tag timeout: 180_000
   test "release account commands manage one daemon across live configuration changes" do
-    release = System.fetch_env!("AT_MCP_ACCOUNT_RELEASE") |> Path.expand()
+    release = System.fetch_env!("TEST_ACCOUNT_RELEASE") |> Path.expand()
 
     root =
       Path.join(System.tmp_dir!(), "at_mcp-account-release-#{System.unique_integer([:positive])}")
@@ -268,9 +268,9 @@ defmodule AtMcp.AccountReleaseTest do
     refute output =~ cookie
   end
 
-  @tag skip: is_nil(System.get_env("AT_MCP_ACCOUNT_RELEASE"))
+  @tag skip: is_nil(System.get_env("TEST_ACCOUNT_RELEASE"))
   test "the distribution port is 4370 unless the environment file names another, and eval gets none" do
-    release = System.fetch_env!("AT_MCP_ACCOUNT_RELEASE") |> Path.expand()
+    release = System.fetch_env!("TEST_ACCOUNT_RELEASE") |> Path.expand()
     root = Path.join(System.tmp_dir!(), "at_mcp-dist-port-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)

@@ -92,6 +92,37 @@ defmodule AtMcp.CLI do
   end
 
   @doc """
+  Print every setting this node read from its environment at boot
+  (`config/runtime.exs`): its value, and whether it came from the environment or
+  is the default. Secrets show only as set or unset.
+
+  Run it against the running service with `bin/at_mcp rpc 'AtMcp.CLI.settings()'`,
+  or with `eval` for the settings a service started now would get.
+  """
+  def settings do
+    case Application.get_env(:at_mcp, :settings) do
+      nil ->
+        IO.puts("No settings: this node was not started from config/runtime.exs.")
+
+      rows ->
+        width = rows |> Enum.map(&String.length(elem(&1, 0))) |> Enum.max()
+
+        for {name, value, source} <- rows do
+          from =
+            cond do
+              source == :default -> "default"
+              source == name -> "environment"
+              true -> "environment, as #{source} (deprecated)"
+            end
+
+          IO.puts("#{String.pad_trailing(name, width)}  #{value}  (#{from})")
+        end
+    end
+
+    :ok
+  end
+
+  @doc """
   Keep the BEAM alive with the application supervision tree.
 
   Prefer `mix at_mcp.server` (which runs the app) or `MIX_ENV=prod mix run --no-halt`.

@@ -6,29 +6,23 @@ defmodule AtMcp.Deliver.HTTPBridgeTest do
   setup do
     AtMcp.Deliver.clear_callback()
 
-    on_exit(fn ->
-      AtMcp.Deliver.clear_callback()
-      System.delete_env("AT_MCP_DELIVERY_URL")
-      System.delete_env("AT_MCP_DELIVERY_TOKEN")
-      System.delete_env("AT_MCP_DELIVERY_TOKEN_FILE")
-      System.delete_env("AT_MCP_JETSTREAM")
-      System.delete_env("AT_MCP_NOTIFICATIONS")
-    end)
+    on_exit(fn -> AtMcp.Deliver.clear_callback() end)
 
     :ok
   end
 
-  test "maybe_attach_from_env! skips when AT_MCP_DELIVERY_URL unset" do
-    System.delete_env("AT_MCP_DELIVERY_URL")
+  test "maybe_attach_from_env! skips when no delivery URL is set" do
+    AtMcp.Test.Settings.put(delivery: [])
     assert :skipped = HTTPBridge.maybe_attach_from_env!()
     assert is_nil(AtMcp.Deliver.callback())
   end
 
   test "maybe_attach_from_env! fails closed when no collector is enabled" do
-    System.put_env("AT_MCP_DELIVERY_URL", "http://127.0.0.1:9/inbound")
-    System.put_env("AT_MCP_DELIVERY_TOKEN", "test-token")
-    System.put_env("AT_MCP_JETSTREAM", "0")
-    System.put_env("AT_MCP_NOTIFICATIONS", "0")
+    AtMcp.Test.Settings.put(
+      delivery: [url: "http://127.0.0.1:9/inbound", token: "test-token"],
+      jetstream_enabled: false,
+      notifications_enabled: false
+    )
 
     # No collection at all can never deliver anything, so this is the one
     # configuration attaching refuses; host reachability is the outbox's job.
@@ -42,10 +36,11 @@ defmodule AtMcp.Deliver.HTTPBridgeTest do
   # the account's own PDS. Either collector is enough to attach, so such an
   # installation boots with the collector it has.
   test "the notification poll is a collector, so a network without a firehose delivers" do
-    System.put_env("AT_MCP_DELIVERY_URL", "http://127.0.0.1:9/inbound")
-    System.put_env("AT_MCP_DELIVERY_TOKEN", "test-token")
-    System.put_env("AT_MCP_JETSTREAM", "0")
-    System.put_env("AT_MCP_NOTIFICATIONS", "1")
+    AtMcp.Test.Settings.put(
+      delivery: [url: "http://127.0.0.1:9/inbound", token: "test-token"],
+      jetstream_enabled: false,
+      notifications_enabled: true
+    )
 
     assert :ok = HTTPBridge.maybe_attach_from_env!()
     assert is_function(AtMcp.Deliver.callback(), 1)
@@ -72,17 +67,8 @@ defmodule AtMcp.Deliver.HTTPBridgeTest do
     path = Path.join(System.tmp_dir!(), "consumer-token-#{System.unique_integer([:positive])}")
     File.write!(path, "first-token")
 
-    previous = System.get_env("AT_MCP_DELIVERY_TOKEN_FILE")
-    System.put_env("AT_MCP_DELIVERY_TOKEN_FILE", path)
-    System.delete_env("AT_MCP_DELIVERY_TOKEN")
-
-    on_exit(fn ->
-      File.rm_rf!(path)
-
-      if previous,
-        do: System.put_env("AT_MCP_DELIVERY_TOKEN_FILE", previous),
-        else: System.delete_env("AT_MCP_DELIVERY_TOKEN_FILE")
-    end)
+    AtMcp.Test.Settings.put(delivery: [token_file: path])
+    on_exit(fn -> File.rm_rf!(path) end)
 
     # The callback the bridge registers, not a second copy of what it does.
     deliver = HTTPBridge.callback("http://127.0.0.1:#{port}/inbound")

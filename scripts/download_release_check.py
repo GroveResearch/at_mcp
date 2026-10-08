@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-download-") as scratch:
                 relative = source.relative_to(repo)
                 assert (downloaded / relative).read_bytes() == source.read_bytes(), f"release notice mismatch: {relative}"
         subprocess.run([sys.executable, str(repo / "scripts/release_notices_check.py"), str(downloaded)], check=True)
-        env.update(AT_MCP_MCP_COMMAND=str(downloaded / "bin/at_mcp-stdio"), AT_MCP_STDIO_RELEASE="1")
+        env.update(TEST_MCP_COMMAND=str(downloaded / "bin/at_mcp-stdio"), TEST_STDIO_RELEASE="1")
         for key in ["MCP_CLIENT_PATH", "MCP_SDK_PATH"]:
             env[key] = os.environ[key]
         subprocess.run(["node", str(repo / "test/support/stdio_sdk_probe.mjs")], env=env, check=True)

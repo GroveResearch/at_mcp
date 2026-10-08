@@ -9,9 +9,12 @@ defmodule AtMcp.StdioTest do
     {output, code} =
       System.cmd("node", [Path.expand("../support/stdio_sdk_probe.mjs", __DIR__)],
         env: [
-          {"AT_MCP_STDIO_RELEASE", "0"},
-          {"AT_MCP_MCP_COMMAND", System.find_executable("elixir")},
-          {"AT_MCP_MCP_ARGS", Jason.encode!(paths ++ ["-e", "AtMcp.Stdio.run()"])}
+          {"TEST_STDIO_RELEASE", "0"},
+          {"TEST_MCP_COMMAND", System.find_executable("elixir")},
+          {"TEST_MCP_ARGS",
+           Jason.encode!(
+             paths ++ ["-e", AtMcp.Test.Settings.from_environment() <> "AtMcp.Stdio.run()"]
+           )}
         ],
         stderr_to_stdout: true
       )

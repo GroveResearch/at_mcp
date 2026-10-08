@@ -92,8 +92,8 @@ the operator commands refuse to run with it empty.
   `AT_MCP_DELIVERY_URL` (Dwell's `http://127.0.0.1:$DWELL_INBOUND_PORT/inbound`)
   and `AT_MCP_DELIVERY_TOKEN_FILE`, a file holding the consumer's token and
   readable by the service. `AT_MCP_NETWORK=delve` points the tools at
-  `town.delve.*`. [Configuration](#configuration) lists every
-  variable.
+  `town.delve.*`. The README's [Settings](../README.md#settings) lists
+  every variable.
 
 **A second installation** on the same machine, such as one per network, is a
 second copy of all of this: its own prefix, environment file, state folder and
@@ -250,36 +250,35 @@ cookie, port and node name.
 ## Configuration
 
 An installation is configured by its accounts file and nothing else. The
-environment sets where things are and what is switched on:
+environment sets where things are and what is switched on; the README's
+[Settings](../README.md#settings) lists every variable, its default and its
+check. A misspelled `AT_MCP_*` variable or a bad value stops the service at
+startup and names it. To see what a running service has, with each value's
+source:
 
-| Variable | Meaning |
-| --- | --- |
-| `AT_MCP_ACCOUNTS_FILE` | The accounts file; default is the platform's user configuration directory |
-| `AT_MCP_PORT` | The one MCP endpoint (4400) |
-| `AT_MCP_CONTROL_PORT` | Operator listener for identity discovery; no listener without it |
-| `AT_MCP_NETWORK` | `bluesky` (default) or `delve`; an unknown name refuses to start |
-| `AT_MCP_APPVIEW_READS` | `proxy` (default) or `direct`: prototype direct authenticated application GETs; see README for limits. |
-| `AT_MCP_STATE_DIR` | Durable state (write quotas, checkpoints, outbox); one process per directory |
-| `AT_MCP_WRITE_LIMIT` | Publishing writes (`post`, `reply`, `repost`) each account may attempt per window (16); not a positive integer refuses to start |
-| `AT_MCP_WRITE_WINDOW_SECONDS` | Length of the write quota window in seconds (3600); not a positive integer refuses to start |
-| `AT_MCP_NOTIFICATIONS` | `0` disables notification polling (on by default) |
-| `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` | Seconds between notification sweeps of each account (60); not a positive integer refuses to start |
-| `AT_MCP_INBOUND_MAX_EVENTS` | Undelivered events held for one account before its collection pauses (10000); not a positive integer refuses to start |
-| `AT_MCP_INBOUND_MAX_BYTES` | Size of the delivery store in bytes (67108864, 64 MiB); one account may fill a quarter of it. Not a positive integer refuses to start |
-| `AT_MCP_JETSTREAM` | `1` enables the network-wide stream collector (off by default) |
-| `AT_MCP_DELIVERY_URL`, `AT_MCP_DELIVERY_TOKEN_FILE` / `AT_MCP_DELIVERY_TOKEN` | Where collected activity is delivered, and the bearer token |
-| `AT_MCP_ENV_FILE` | For a command run from a shell (`at_mcp-accounts`, `rpc`, `remote`): the environment file to load first. The service's unit loads the file itself |
-| `RELEASE_COOKIE` | The cookie the operator commands present; set one per installation, since a published release's own is readable by anyone who downloads it |
-| `RELEASE_NODE` | The service's Erlang node name; a second installation on one machine needs its own. A name without a host is given `@localhost`, or `@127.0.0.1` under `RELEASE_DISTRIBUTION=name`; a host it names must resolve to loopback |
-| `AT_MCP_DIST_PORT` | Where the service's Erlang distribution listens, on 127.0.0.1 (4370); a second installation on one machine needs its own |
+```sh
+export AT_MCP_ENV_FILE=~/at_mcp/at_mcp.env
+~/at_mcp/current/bin/at_mcp rpc 'AtMcp.CLI.settings()'
+```
+
+On Linux, as with `at_mcp-accounts`:
+`cd / && sudo -u at_mcp env AT_MCP_ENV_FILE=/etc/at_mcp/at_mcp.env /opt/at_mcp/current/bin/at_mcp rpc 'AtMcp.CLI.settings()'`.
+
+The release itself reads two more: `RELEASE_COOKIE`, the cookie the operator
+commands present (set one per installation, since a published release's own is
+readable by anyone who downloads it), and `RELEASE_NODE`, the service's Erlang
+node name. A second installation on one machine needs its own node name. A
+name without a host is given `@localhost`, or `@127.0.0.1` under
+`RELEASE_DISTRIBUTION=name`; a host it names must resolve to loopback.
 
 `.env.example` is the template for the environment file.
 
-**First run from `BLUESKY_*`.** An installation with `BLUESKY_HANDLE` and
-`BLUESKY_APP_PASSWORD` set (and optionally the `_2` pair and `BLUESKY_SERVICE`)
-and no accounts file writes itself one at startup, naming the accounts
-`default` and `second`. This happens once; with a file present the environment
-is not consulted, and changing `BLUESKY_*` afterwards does nothing.
+**First run from the account variables.** An installation with
+`AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` set (and optionally the `_2` pair and
+`AT_MCP_SERVICE`; the older `BLUESKY_*` names still work) and no accounts file
+writes itself one at startup, naming the accounts `default` and `second`. This
+happens once; with a file present these variables are not consulted, and
+changing them afterwards does nothing.
 
 **Two networks, two installations.** `AT_MCP_NETWORK` is installation-wide, so
 reaching Bluesky and Delvetown at once is two services, each with its own
@@ -521,8 +520,9 @@ Rename each `KITE_*` setting to `AT_MCP_*`, **preserving its value**, except
 `KITE_MCP_PORT` becomes `AT_MCP_PORT`. In particular, set
 `AT_MCP_ACCOUNTS_FILE` to the exact existing accounts file and `AT_MCP_STATE_DIR`
 to the exact existing state directory. The grants file remains beside the accounts
-file. `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`, `BLUESKY_SERVICE`, the cookie,
-node name and port values do not change. Old `KITE_*` settings are rejected with
+file. `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD` and `BLUESKY_SERVICE` keep
+working (with a warning to rename them `AT_MCP_HANDLE`, `AT_MCP_APP_PASSWORD`
+and `AT_MCP_SERVICE`); the cookie, node name and port values do not change. Old `KITE_*` settings are rejected with
 the corresponding new name; they are not silently ignored or treated as aliases.
 
 For example, an existing Linux installation keeps:
@@ -643,16 +643,16 @@ disposable loopback accounts and publish nothing.
 Two more tests exercise the built release and skip without it:
 
 ```sh
-AT_MCP_ACCOUNT_RELEASE="$PWD/_build/prod/rel/at_mcp" \
-AT_MCP_CONNECT_RELEASE="$PWD/_build/prod/rel/at_mcp/bin/at_mcp-connect" mix check
+TEST_ACCOUNT_RELEASE="$PWD/_build/prod/rel/at_mcp" \
+TEST_CONNECT_RELEASE="$PWD/_build/prod/rel/at_mcp/bin/at_mcp-connect" mix check
 ```
 
-`test/at_mcp/account_release_test.exs` is gated on `AT_MCP_ACCOUNT_RELEASE`.
-`AT_MCP_CONNECT_RELEASE` makes the shared stdio
+`test/at_mcp/account_release_test.exs` is gated on `TEST_ACCOUNT_RELEASE`.
+`TEST_CONNECT_RELEASE` makes the shared stdio
 test launch the release's `at_mcp-connect` instead of test beams. To drive the
 release's `at_mcp-stdio` with the SDK probe directly, run
 `test/support/stdio_sdk_probe.mjs` with both package paths,
-`AT_MCP_STDIO_RELEASE=1` and `AT_MCP_MCP_COMMAND` pointing at it.
+`TEST_STDIO_RELEASE=1` and `TEST_MCP_COMMAND` pointing at it.
 
 With every variable above set the suite reports no skipped tests. That is what
 `.github/workflows/check.yml` runs on every pull request, from a fresh checkout, and it
@@ -692,8 +692,8 @@ matches the JSON text on real responses, and that refusals arrive as codes. It
 calls no write tool.
 
 `scripts/pds_read_probe.exs` logs into an authorized account with writes
-disabled and reads its profile; set the account credentials, `BLUESKY_SERVICE`
-and `AT_MCP_EXPECTED_DID` (and `_2` values for a second account), then
+disabled and reads its profile; set the account credentials, `AT_MCP_SERVICE`
+and `EXPECTED_DID` (and `_2` values for a second account), then
 `MIX_ENV=test mix run --no-start scripts/pds_read_probe.exs`.
 
 ### What counts as evidence

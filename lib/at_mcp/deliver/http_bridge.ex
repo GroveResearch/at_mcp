@@ -62,8 +62,8 @@ defmodule AtMcp.Deliver.HTTPBridge do
   `{:error, {:delivery_bridge_unready, [:no_inbound_collector]}}`.
   """
   def maybe_attach_from_env! do
-    case System.get_env("AT_MCP_DELIVERY_URL") do
-      url when is_binary(url) and url != "" ->
+    case delivery(:url) do
+      url when is_binary(url) ->
         if collecting?() do
           :ok = AtMcp.Deliver.set_callback(callback(url))
           Logger.info("AtMcp.Deliver.HTTPBridge attached → #{url}")
@@ -82,32 +82,17 @@ defmodule AtMcp.Deliver.HTTPBridge do
   # Inbound has two collectors, and either one is enough to attach. Jetstream is
   # Bluesky's; the notification poll goes through the account's own PDS and works
   # on any network, so a network without a firehose runs on the poll alone.
-  defp collecting?, do: jetstream_enabled?() or notifications_enabled?()
-
-  defp notifications_enabled? do
-    case System.get_env("AT_MCP_NOTIFICATIONS") do
-      "1" -> true
-      "true" -> true
-      "0" -> false
-      "false" -> false
-      _ -> Application.get_env(:at_mcp, :notifications_enabled, true)
-    end
+  defp collecting? do
+    Application.get_env(:at_mcp, :jetstream_enabled, false) or
+      Application.get_env(:at_mcp, :notifications_enabled, true)
   end
 
-  defp jetstream_enabled? do
-    case System.get_env("AT_MCP_JETSTREAM") do
-      "0" -> false
-      "false" -> false
-      "1" -> true
-      "true" -> true
-      _ -> Application.get_env(:at_mcp, :jetstream_enabled, false)
-    end
-  end
+  defp delivery(key), do: Application.get_env(:at_mcp, :delivery, [])[key]
 
   @doc """
   The delivery callback registered for a durable HTTP consumer.
 
-  The credential is read per delivery rather than captured here. Capturing it at
+  The token file is read per delivery rather than captured here. Capturing it at
   attach meant a rotated receiver token 401ed every delivery until AtMcp restarted,
   and because nothing evicts a pending event, the outbox filled and collection
   paused.
@@ -119,10 +104,10 @@ defmodule AtMcp.Deliver.HTTPBridge do
   @doc false
   def access_token do
     cond do
-      t = System.get_env("AT_MCP_DELIVERY_TOKEN") ->
-        String.trim(t)
+      token = delivery(:token) ->
+        String.trim(token)
 
-      path = System.get_env("AT_MCP_DELIVERY_TOKEN_FILE") ->
+      path = delivery(:token_file) ->
         path |> File.read!() |> String.trim()
 
       true ->

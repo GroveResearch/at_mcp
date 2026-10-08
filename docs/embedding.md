@@ -29,7 +29,7 @@ config :proto_rune, :retry, false
 
 For Delvetown, also set `config :at_mcp, network: :delve`; the default is
 `:bluesky`. The network selects the application namespace, while the account’s
-`service:` below selects its actual home PDS. Set `BLUESKY_SERVICE` to that
+`service:` below selects its actual home PDS. Set `AT_MCP_SERVICE` to that
 hosting URL, such as `https://bsky.social` for an account hosted there. With
 `boot_from_env: false`, these environment variables are read by your code, not
 automatically by AtMcp.
@@ -40,9 +40,9 @@ and read it through the same Effects interface MCP uses:
 ```elixir
 {:ok, _} = AtMcp.Identities.start_identity(
   id: "social",
-  handle: System.fetch_env!("BLUESKY_HANDLE"),
-  password: System.fetch_env!("BLUESKY_APP_PASSWORD"),
-  service: System.fetch_env!("BLUESKY_SERVICE"),
+  handle: System.fetch_env!("AT_MCP_HANDLE"),
+  password: System.fetch_env!("AT_MCP_APP_PASSWORD"),
+  service: System.fetch_env!("AT_MCP_SERVICE"),
   listen_enabled: false
 )
 

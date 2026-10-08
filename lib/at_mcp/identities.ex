@@ -180,7 +180,7 @@ defmodule AtMcp.Identities do
   end
 
   @doc """
-  Migrate an installation configured through `BLUESKY_*` into the accounts file.
+  Migrate an installation configured through `AT_MCP_HANDLE` into the accounts file.
 
   This runs once, at boot, and only when no accounts file exists: an existing
   installation that was started from the environment pair writes itself an

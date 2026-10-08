@@ -1,10 +1,8 @@
 import Config
 
-config :at_mcp,
-  mcp_port: 4400,
-  jetstream_enabled: false,
-  notifications_enabled: true,
-  start_mcp: true
+# Settings an operator gives through the environment, and their defaults, are
+# in config/runtime.exs.
+config :at_mcp, start_mcp: true
 
 # ProtoRune 0.5.3 wraps Req's retries with another 429 loop. Let Req own
 # request retries: safe transient requests, Retry-After and jitter. Remove

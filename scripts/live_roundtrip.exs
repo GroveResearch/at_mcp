@@ -1,6 +1,6 @@
 # Run only with explicit authorization for the three public test posts below.
 # MIX_ENV=test mix run --no-start scripts/live_roundtrip.exs
-# Requires AT_MCP_PROBE_{FIRST,SECOND}_{URL,GRANT_FILE,DID}. The host colleagues
+# Requires PROBE_{FIRST,SECOND}_{URL,GRANT_FILE,DID}. The host colleagues
 # should be in read-only mode while this probe observes their inbound turns.
 # Only records created by this invocation are deleted. A private receipt retains
 # their URIs and cleanup outcomes if the probe is interrupted or cleanup fails.
@@ -9,15 +9,15 @@ Application.ensure_all_started(:req)
 
 defmodule AtMcp.LiveRoundtrip do
   def run do
-    receipt = System.get_env("AT_MCP_PROBE_RECEIPT", "/tmp/at_mcp-live-roundtrip.json")
+    receipt = System.get_env("PROBE_RECEIPT", "/tmp/at_mcp-live-roundtrip.json")
 
     clients =
       for suffix <- ["FIRST", "SECOND"] do
-        url = System.fetch_env!("AT_MCP_PROBE_#{suffix}_URL")
-        did = System.fetch_env!("AT_MCP_PROBE_#{suffix}_DID")
+        url = System.fetch_env!("PROBE_#{suffix}_URL")
+        did = System.fetch_env!("PROBE_#{suffix}_DID")
 
         grant =
-          System.fetch_env!("AT_MCP_PROBE_#{suffix}_GRANT_FILE") |> File.read!() |> String.trim()
+          System.fetch_env!("PROBE_#{suffix}_GRANT_FILE") |> File.read!() |> String.trim()
 
         {:ok, client} =
           ExMCP.Client.connect(url,

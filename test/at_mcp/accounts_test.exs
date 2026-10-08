@@ -264,10 +264,10 @@ defmodule AtMcp.AccountsTest do
 
     env =
       for key <- [
-            "BLUESKY_HANDLE",
-            "BLUESKY_APP_PASSWORD",
-            "BLUESKY_HANDLE_2",
-            "BLUESKY_APP_PASSWORD_2",
+            "AT_MCP_HANDLE",
+            "AT_MCP_APP_PASSWORD",
+            "AT_MCP_HANDLE_2",
+            "AT_MCP_APP_PASSWORD_2",
             "AT_MCP_HOST_TOKEN",
             "AT_MCP_HOST_TOKEN_FILE",
             "AT_MCP_DELIVERY_URL"
@@ -320,6 +320,7 @@ defmodule AtMcp.AccountsTest do
     second =
       common <>
         """
+        Application.put_env(:at_mcp, :delivery, url: "http://127.0.0.1:9/inbound", token: "fixture")
         Application.put_env(:at_mcp, :jetstream_enabled, true)
         {:ok, _} = Application.ensure_all_started(:at_mcp)
         nil = AtMcp.Identity.whereis("default")
@@ -344,10 +345,10 @@ defmodule AtMcp.AccountsTest do
 
     env =
       for key <- [
-            "BLUESKY_HANDLE",
-            "BLUESKY_APP_PASSWORD",
-            "BLUESKY_HANDLE_2",
-            "BLUESKY_APP_PASSWORD_2",
+            "AT_MCP_HANDLE",
+            "AT_MCP_APP_PASSWORD",
+            "AT_MCP_HANDLE_2",
+            "AT_MCP_APP_PASSWORD_2",
             "AT_MCP_HOST_TOKEN",
             "AT_MCP_HOST_TOKEN_FILE",
             "AT_MCP_DELIVERY_URL",
@@ -364,15 +365,9 @@ defmodule AtMcp.AccountsTest do
 
     assert code == 0, output
 
-    bridge_env = [
-      {"AT_MCP_DELIVERY_URL", "http://127.0.0.1:9/inbound"},
-      {"AT_MCP_DELIVERY_TOKEN", "fixture"}
-      | Enum.reject(env, fn {key, _} -> key == "AT_MCP_DELIVERY_URL" end)
-    ]
-
     {output, code} =
       System.cmd("mix", ["run", "--no-start", "-e", second],
-        env: [{"MIX_ENV", "test"} | bridge_env],
+        env: [{"MIX_ENV", "test"} | env],
         stderr_to_stdout: true
       )
 

@@ -1,22 +1,22 @@
 # Live read-only account/PDS probe. No AtMcp application, inbound delivery, or
 # public writes are started. Supply authorized credentials in the environment,
-# plus BLUESKY_SERVICE and AT_MCP_EXPECTED_DID (optional second set with _2).
+# plus AT_MCP_SERVICE and EXPECTED_DID (optional second set with _2).
 # Run with MIX_ENV=test mix run --no-start scripts/pds_read_probe.exs.
 {:ok, _} = Application.ensure_all_started(:proto_rune)
 
 accounts =
   for {id, suffix} <- [{"default", ""}, {"second", "_2"}],
-      suffix == "" or not is_nil(System.get_env("BLUESKY_HANDLE" <> suffix)) do
-    {id, suffix, System.fetch_env!("AT_MCP_EXPECTED_DID" <> suffix),
-     System.fetch_env!("BLUESKY_SERVICE" <> suffix)}
+      suffix == "" or not is_nil(System.get_env("AT_MCP_HANDLE" <> suffix)) do
+    {id, suffix, System.fetch_env!("EXPECTED_DID" <> suffix),
+     System.fetch_env!("AT_MCP_SERVICE" <> suffix)}
   end
 
 results =
   for {id, suffix, expected_did, service} <- accounts do
     {:ok, effects} =
       AtMcp.Effects.start_link(
-        handle: System.fetch_env!("BLUESKY_HANDLE" <> suffix),
-        password: System.fetch_env!("BLUESKY_APP_PASSWORD" <> suffix),
+        handle: System.fetch_env!("AT_MCP_HANDLE" <> suffix),
+        password: System.fetch_env!("AT_MCP_APP_PASSWORD" <> suffix),
         service: service,
         credential_mode: :explicit,
         write_quota: :read_probe_no_write_quota

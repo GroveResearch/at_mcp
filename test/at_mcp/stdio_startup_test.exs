@@ -44,23 +44,23 @@ defmodule AtMcp.StdioStartupTest do
       "PATH" => System.fetch_env!("PATH"),
       "HOME" => root,
       "LANG" => "en_US.UTF-8",
-      "BLUESKY_HANDLE" => "fixture.test",
-      "BLUESKY_APP_PASSWORD" => @secret,
-      "BLUESKY_SERVICE" => "http://127.0.0.1:#{:ranch.get_port(ref)}"
+      "AT_MCP_HANDLE" => "fixture.test",
+      "AT_MCP_APP_PASSWORD" => @secret,
+      "AT_MCP_SERVICE" => "http://127.0.0.1:#{:ranch.get_port(ref)}"
     }
 
     fails(
       root,
       "missing-handle",
-      "AtMcp requires BLUESKY_HANDLE",
-      Map.delete(env, "BLUESKY_HANDLE")
+      "AtMcp requires AT_MCP_HANDLE",
+      Map.delete(env, "AT_MCP_HANDLE")
     )
 
     fails(
       root,
       "missing-password",
-      "AtMcp requires BLUESKY_APP_PASSWORD",
-      Map.delete(env, "BLUESKY_APP_PASSWORD")
+      "AtMcp requires AT_MCP_APP_PASSWORD",
+      Map.delete(env, "AT_MCP_APP_PASSWORD")
     )
 
     collision = Path.join(root, "collision")
@@ -89,7 +89,7 @@ defmodule AtMcp.StdioStartupTest do
     fails(
       root,
       "login-refused",
-      "Check BLUESKY_HANDLE, BLUESKY_APP_PASSWORD, and BLUESKY_SERVICE",
+      "Check AT_MCP_HANDLE, AT_MCP_APP_PASSWORD, and AT_MCP_SERVICE",
       env
     )
 
@@ -103,7 +103,7 @@ defmodule AtMcp.StdioStartupTest do
       env,
       prefix: """
       defmodule BrokenStartupDependency do
-        def start(_, _), do: {:error, System.fetch_env!("BLUESKY_APP_PASSWORD")}
+        def start(_, _), do: {:error, System.fetch_env!("AT_MCP_APP_PASSWORD")}
       end
       :ok = Application.load(:at_mcp)
       {:ok, spec} = :application.get_all_key(:at_mcp)
@@ -123,14 +123,17 @@ defmodule AtMcp.StdioStartupTest do
     env =
       env
       |> Map.put("AT_MCP_STATE_DIR", Keyword.get(opts, :state, Path.join(root, name)))
-      |> Map.put("AT_MCP_TEST_STDERR", stderr)
+      |> Map.put("TEST_STDERR", stderr)
 
     environment =
       Enum.map(System.get_env(), fn {key, _} -> {String.to_charlist(key), false} end) ++
         Enum.map(env, fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
 
     paths = Enum.flat_map(:code.get_path(), fn path -> ["-pa", to_string(path)] end)
-    code = Keyword.get(opts, :prefix, "") <> "\nAtMcp.Stdio.run()"
+
+    code =
+      Keyword.get(opts, :prefix, "") <>
+        "\n" <> AtMcp.Test.Settings.from_environment() <> "AtMcp.Stdio.run()"
 
     # The shell only redirects independent streams and immediately execs the
     # cold VM. Arguments remain separate; no source or path is interpolated.
@@ -141,7 +144,7 @@ defmodule AtMcp.StdioStartupTest do
         :use_stdio,
         args: [
           "-c",
-          "exec \"$@\" </dev/null 2>\"$AT_MCP_TEST_STDERR\"",
+          "exec \"$@\" </dev/null 2>\"$TEST_STDERR\"",
           "at_mcp-startup",
           System.find_executable("elixir") | paths ++ ["-e", code]
         ],

@@ -70,7 +70,6 @@ defmodule AtMcp.EffectsIdentityTest do
           [
             backend: Backend,
             expected_did: "did:plc:owner",
-            credential_mode: :explicit,
             handle: "owner.test",
             password: "fixture",
             write_quota: AtMcp.Test.QuotaFixture.quota(3)

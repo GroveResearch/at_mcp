@@ -8,8 +8,9 @@ defmodule AtMcp.Application do
   @impl true
   def start(_type, _args) do
     :ok = AtMcp.Rename.check_application!()
-    # An installation configured only by BLUESKY_* writes itself the accounts
-    # file it is missing, then runs the one configured path like any other.
+    # An installation configured only by AT_MCP_HANDLE / AT_MCP_APP_PASSWORD
+    # writes itself the accounts file it is missing, then runs the one
+    # configured path like any other.
     :ok = AtMcp.Identities.bootstrap_configuration!()
 
     # Validate the configuration before any listener can bind or login.

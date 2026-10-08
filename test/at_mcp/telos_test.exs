@@ -11,7 +11,6 @@ defmodule AtMcp.TelosTest do
   use ExUnit.Case, async: false
 
   setup do
-    previous = System.get_env("AT_MCP_ACCOUNTS_FILE")
     path = Path.join(System.tmp_dir!(), "at_mcp-telos-#{System.unique_integer([:positive])}.json")
 
     # A configured account that is not running: discovery has to describe an
@@ -34,16 +33,12 @@ defmodule AtMcp.TelosTest do
 
     # AtMcp refuses to read a credential file others can read.
     File.chmod!(path, 0o600)
-    System.put_env("AT_MCP_ACCOUNTS_FILE", path)
+    AtMcp.Test.Settings.put(accounts_file: path)
 
     on_exit(fn ->
       File.rm_rf!(path)
       File.rm_rf!(AtMcp.Grants.path_for(path))
       File.rm_rf!(AtMcp.Grants.path_for(path) <> ".lock")
-
-      if previous,
-        do: System.put_env("AT_MCP_ACCOUNTS_FILE", previous),
-        else: System.delete_env("AT_MCP_ACCOUNTS_FILE")
     end)
 
     :ok
@@ -92,7 +87,7 @@ defmodule AtMcp.TelosTest do
   # Reporting no identities because the file could not be read tells an operator
   # the opposite of what is true.
   test "a configuration that cannot be read is reported as unreadable, not as empty" do
-    File.chmod!(System.get_env("AT_MCP_ACCOUNTS_FILE"), 0o644)
+    File.chmod!(AtMcp.AccountConfig.path(), 0o644)
 
     assert %{status: 503, body: body} = get("/identities")
     assert body["error"] == "configuration_unreadable"
@@ -134,19 +129,8 @@ defmodule AtMcp.TelosTest do
   test "an installation is configured one way" do
     refute Code.ensure_loaded?(AtMcp.MCP.OAuth)
 
-    previous = System.get_env("AT_MCP_HOST_TOKEN")
-    System.put_env("AT_MCP_HOST_TOKEN", String.duplicate("a", 64))
-
-    on_exit(fn ->
-      if previous,
-        do: System.put_env("AT_MCP_HOST_TOKEN", previous),
-        else: System.delete_env("AT_MCP_HOST_TOKEN")
-    end)
-
-    # A host token in the environment conflicts with nothing, because nothing
-    # else claims authority over how a client is authorized.
     assert {:ok, _specs} =
-             AtMcp.Identities.named_identity_specs(System.get_env("AT_MCP_ACCOUNTS_FILE"))
+             AtMcp.Identities.named_identity_specs(AtMcp.AccountConfig.path())
   end
 
   test "the network AtMcp talks to is a value, not a literal" do

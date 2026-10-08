@@ -44,9 +44,7 @@ defmodule AtMcp.LanguageLimitTest do
     quota = AtMcp.Test.QuotaFixture.quota(100)
 
     effects =
-      start_supervised!(
-        {AtMcp.Effects, backend_state: session, write_quota: quota, credential_mode: :explicit}
-      )
+      start_supervised!({AtMcp.Effects, backend_state: session, write_quota: quota})
 
     %{session: session, effects: effects, ledger: ledger, quota: quota}
   end

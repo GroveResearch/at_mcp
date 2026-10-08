@@ -66,7 +66,7 @@ const pds = http.createServer(async (req,res) => {
 });
 await new Promise(resolve=>pds.listen(0,'127.0.0.1',resolve));
 const client=new Client({name:'external-identity-proof',version:'1'});
-const transport=new StdioClientTransport({command:process.env.AT_MCP_EXTERNAL_COMMAND,args:JSON.parse(process.env.AT_MCP_EXTERNAL_ARGS||'[]'),stderr:'pipe',env:{PATH:process.env.PATH,LANG:'C',LC_ALL:'C',AT_MCP_NETWORK:'delve',BLUESKY_HANDLE:'external.test',BLUESKY_APP_PASSWORD:'fixture',BLUESKY_SERVICE:`http://127.0.0.1:${pds.address().port}`,AT_MCP_STATE_DIR:join(root,'state')}});
+const transport=new StdioClientTransport({command:process.env.TEST_EXTERNAL_COMMAND,args:JSON.parse(process.env.TEST_EXTERNAL_ARGS||'[]'),stderr:'pipe',env:{PATH:process.env.PATH,LANG:'C',LC_ALL:'C',AT_MCP_NETWORK:'delve',AT_MCP_HANDLE:'external.test',AT_MCP_APP_PASSWORD:'fixture',AT_MCP_SERVICE:`http://127.0.0.1:${pds.address().port}`,AT_MCP_STATE_DIR:join(root,'state')}});
 let diagnostics='';transport.stderr?.on('data',s=>diagnostics+=s);
 async function call(name,args={},error=false) {
   const result=await client.callTool({name,arguments:args});

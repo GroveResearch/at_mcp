@@ -6,9 +6,9 @@ defmodule AtMcp.SharedConnection do
       {opts, [], []} when length(opts) == 2 ->
         # The grant arrives in the environment, never in argv: a command line is
         # readable by every process on the machine.
-        case {opts[:url], opts[:did], System.get_env("AT_MCP_GRANT")} do
+        case {opts[:url], opts[:did], Application.get_env(:at_mcp, :connect_grant)} do
           {url, did, grant}
-          when is_binary(url) and is_binary(did) and is_binary(grant) and grant != "" ->
+          when is_binary(url) and is_binary(did) and is_binary(grant) ->
             AtMcp.MCP.SharedStdio.run(url, did, grant)
 
           _ ->

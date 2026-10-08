@@ -1,5 +1,5 @@
 // Disposable PDS + ordinary client-launched AtMcp release; no public network effects.
-// AT_MCP_MCP_COMMAND points to a built bin/at_mcp-stdio. MCP_CLIENT_PATH points to
+// TEST_MCP_COMMAND points to a built bin/at_mcp-stdio. MCP_CLIENT_PATH points to
 // @modelcontextprotocol/client 2.x; MCP_SDK_PATH optionally adds the 1.x client.
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -9,9 +9,9 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-const command = process.env.AT_MCP_MCP_COMMAND;
+const command = process.env.TEST_MCP_COMMAND;
 const sdk = process.env.MCP_CLIENT_PATH;
-assert.ok(command && sdk, 'Set AT_MCP_MCP_COMMAND and MCP_CLIENT_PATH.');
+assert.ok(command && sdk, 'Set TEST_MCP_COMMAND and MCP_CLIENT_PATH.');
 const {Client} = await import(pathToFileURL(join(sdk, 'dist/index.mjs')));
 const {StdioClientTransport} = await import(pathToFileURL(join(sdk, 'dist/stdio.mjs')));
 const root = await mkdtemp(join(tmpdir(), 'at_mcp-stdio-sdk-'));
@@ -66,11 +66,11 @@ await new Promise(resolve => pds.listen(0, '127.0.0.1', resolve));
 const service = `http://127.0.0.1:${pds.address().port}`;
 
 function params(name) {
-  return {command, args: JSON.parse(process.env.AT_MCP_MCP_ARGS || '[]'), stderr: 'pipe', env: {
+  return {command, args: JSON.parse(process.env.TEST_MCP_ARGS || '[]'), stderr: 'pipe', env: {
     PATH: process.env.PATH, LANG: 'C', LC_ALL: 'C',
     AT_MCP_ENV_FILE: join(root, 'inherited-service-file-must-not-be-read'),
-    BLUESKY_HANDLE: `${name}.test`, BLUESKY_APP_PASSWORD: 'fixture-password',
-    BLUESKY_SERVICE: service, AT_MCP_STATE_DIR: join(root, name)
+    AT_MCP_HANDLE: `${name}.test`, AT_MCP_APP_PASSWORD: 'fixture-password',
+    AT_MCP_SERVICE: service, AT_MCP_STATE_DIR: join(root, name)
   }};
 }
 
@@ -207,10 +207,10 @@ try {
   assert.equal(frames.length, 1);
   assert.equal(frames[0].id, 1);
 
-  if (process.env.AT_MCP_STDIO_RELEASE === '1') {
+  if (process.env.TEST_STDIO_RELEASE === '1') {
     const file = join(root, 'carol.env');
-    await writeFile(file, `BLUESKY_HANDLE=carol.test\nBLUESKY_APP_PASSWORD=fixture-password\nBLUESKY_SERVICE=${service}\n`, {mode: 0o600});
-    const carol = await connect('carol', false, {BLUESKY_HANDLE: '', BLUESKY_APP_PASSWORD: '', AT_MCP_STDIO_ENV_FILE: file});
+    await writeFile(file, `AT_MCP_HANDLE=carol.test\nAT_MCP_APP_PASSWORD=fixture-password\nAT_MCP_SERVICE=${service}\n`, {mode: 0o600});
+    const carol = await connect('carol', false, {AT_MCP_HANDLE: '', AT_MCP_APP_PASSWORD: '', AT_MCP_STDIO_ENV_FILE: file});
     assert.equal((await call(carol, 'identity_status')).did, 'did:plc:carol');
     await close(carol);
   }
@@ -220,7 +220,7 @@ try {
     output_schemas: tools.filter((t) => t.outputSchema).length, structured_content: true, recoverable_invalid_arguments: true, iso_quota_reset: true,
     real_summaries: ['get_timeline', 'get_thread'],
     durable_quota: true, process_cleanup: true, graceful_eof: true,
-    private_env_file: process.env.AT_MCP_STDIO_RELEASE === '1', mock_writes: 1, public_writes: 0}));
+    private_env_file: process.env.TEST_STDIO_RELEASE === '1', mock_writes: 1, public_writes: 0}));
 } finally {
   await Promise.allSettled([...clients].map(c => c.close()));
   await new Promise(resolve => pds.close(resolve));

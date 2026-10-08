@@ -8,10 +8,10 @@ defmodule AtMcp.IdentitySupervisorRecoveryTest do
        } do
     env =
       for key <- [
-            "BLUESKY_HANDLE",
-            "BLUESKY_APP_PASSWORD",
-            "BLUESKY_HANDLE_2",
-            "BLUESKY_APP_PASSWORD_2",
+            "AT_MCP_HANDLE",
+            "AT_MCP_APP_PASSWORD",
+            "AT_MCP_HANDLE_2",
+            "AT_MCP_APP_PASSWORD_2",
             "AT_MCP_HOST_TOKEN",
             "AT_MCP_HOST_TOKEN_FILE",
             "AT_MCP_DELIVERY_URL",

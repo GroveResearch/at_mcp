@@ -98,9 +98,7 @@ defmodule AtMcp.Inbound.Store do
   def stalls(server \\ __MODULE__), do: GenServer.call(server, :stalls)
 
   def default_dir do
-    Application.get_env(:at_mcp, :inbound_state_dir) ||
-      System.get_env("AT_MCP_STATE_DIR") ||
-      AtMcp.Rename.default_state_path()
+    Application.get_env(:at_mcp, :inbound_state_dir) || AtMcp.Rename.default_state_path()
   end
 
   @impl true

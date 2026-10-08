@@ -76,15 +76,14 @@ defmodule AtMcp.SharedStdioTest do
     {output, code} =
       System.cmd("node", [Path.expand("../support/shared_stdio_sdk_probe.mjs", __DIR__)],
         env: [
-          {"AT_MCP_MCP_COMMAND",
-           System.get_env("AT_MCP_CONNECT_RELEASE") || System.find_executable("elixir")},
-          {"AT_MCP_SHARED_RELEASE",
-           if(System.get_env("AT_MCP_CONNECT_RELEASE"), do: "1", else: "0")},
-          {"AT_MCP_MCP_ARGS", Jason.encode!(paths)},
-          {"AT_MCP_SHARED_URL", AtMcp.Test.Grant.url()},
-          {"AT_MCP_SHARED_DID", did},
+          {"TEST_MCP_COMMAND",
+           System.get_env("TEST_CONNECT_RELEASE") || System.find_executable("elixir")},
+          {"TEST_SHARED_RELEASE", if(System.get_env("TEST_CONNECT_RELEASE"), do: "1", else: "0")},
+          {"TEST_MCP_ARGS", Jason.encode!(paths)},
+          {"TEST_SHARED_URL", AtMcp.Test.Grant.url()},
+          {"TEST_SHARED_DID", did},
           {"AT_MCP_GRANT", AtMcp.Test.Grant.token(id)},
-          {"AT_MCP_TEST_CONTROL", "http://127.0.0.1:#{control_port}"}
+          {"TEST_CONTROL", "http://127.0.0.1:#{control_port}"}
         ],
         stderr_to_stdout: true
       )

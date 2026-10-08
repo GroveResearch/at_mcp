@@ -143,7 +143,9 @@ defmodule AtMcp.Accounts do
      %{
        configs: configs,
        config_path:
-         if(AtMcp.Identities.boot_from_env?() and System.get_env("AT_MCP_ACCOUNTS_FILE"),
+         if(
+           AtMcp.Identities.boot_from_env?() and
+             Application.get_env(:at_mcp, :accounts_file),
            do: AtMcp.AccountConfig.path()
          ),
        supervisor: nil,

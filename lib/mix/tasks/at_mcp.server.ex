@@ -5,8 +5,7 @@ defmodule Mix.Tasks.AtMcp.Server do
 
       mix at_mcp.server
 
-  Port: `AT_MCP_PORT` (default 4400).
-  Auth: `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`.
+  Settings come from the environment; README.md, "Settings", lists them.
   """
 
   use Mix.Task
