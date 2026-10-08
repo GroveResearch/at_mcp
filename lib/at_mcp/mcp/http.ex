@@ -4,8 +4,9 @@ defmodule AtMcp.MCP.HTTP do
 
   `Authorization: Bearer <grant>` resolves through `AtMcp.Grants` to exactly one
   account, and the grant's scope bounds how much of the tool surface the caller
-  reaches. A grant issued for one identity cannot reach another, whatever the
-  caller asks for.
+  reaches: `tools/list` offers only the tools the scope permits, and
+  `tools/call` for any other tool is refused with `403`. A grant issued for one
+  identity cannot reach another, whatever the caller asks for.
 
   A request that presents no grant is refused with `401`; the credential, not
   the address, is what separates two clients.
@@ -56,7 +57,7 @@ defmodule AtMcp.MCP.HTTP do
         ExMCP.HttpPlug.init(
           handler: AtMcp.MCP.Server,
           handler_opts: fn conn, _request ->
-            [effects: conn.private.at_mcp_effects]
+            [effects: conn.private.at_mcp_effects, scope: conn.private.at_mcp_scope]
           end,
           server_info: AtMcp.MCP.Server.server_info(),
           handler_call_timeout: handler_call_timeout(),
@@ -93,7 +94,10 @@ defmodule AtMcp.MCP.HTTP do
          {:ok, account, scope} <- grant(conn),
          {:ok, effects} <- effects(account),
          :ok <- confirmed_binding(conn, effects) do
-      conn |> put_private(:at_mcp_effects, effects) |> authorize(scope, opts)
+      conn
+      |> put_private(:at_mcp_effects, effects)
+      |> put_private(:at_mcp_scope, scope)
+      |> authorize(scope, opts)
     else
       {:error, status, body} -> json(conn, status, body)
     end
@@ -187,9 +191,10 @@ defmodule AtMcp.MCP.HTTP do
 
   defp authorize(conn, _scope, opts), do: dispatch(conn, opts)
 
-  # Only `tools/call` names a tool. Anything else — initialize, tools/list, a
-  # notification, a body ExMCP will reject itself — carries no scope question,
-  # and ExMCP stays the one place that decides whether a body is well formed.
+  # Only `tools/call` names a tool. Anything else — initialize, a notification,
+  # a body ExMCP will reject itself — carries no scope question here, and ExMCP
+  # stays the one place that decides whether a body is well formed. `tools/list`
+  # is answered by the handler from the scope passed in `handler_opts`.
   defp requested_tool(body) do
     case Jason.decode(body) do
       {:ok, %{"method" => "tools/call", "params" => %{"name" => name}}} when is_binary(name) ->

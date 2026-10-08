@@ -24,7 +24,7 @@ defmodule AtMcp.MCP.Server do
   @impl true
   def init(args) do
     effects = Keyword.get(args, :effects, AtMcp.Effects)
-    {:ok, %{effects: effects}}
+    {:ok, %{effects: effects, scope: Keyword.get(args, :scope)}}
   end
 
   tool "get_notifications", "Read recent notifications on this network for this account." do
