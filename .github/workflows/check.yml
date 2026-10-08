@@ -2,10 +2,13 @@ name: check
 
 # What runs, and when:
 #
-#   pull request   test, release (Linux)
-#   push to main   test, release (Linux); nothing is published
-#   merge queue    test, release (Linux) on the queued pull requests merged
-#                  onto main; nothing is published
+#   pull request   test, without its documentation and Hex package steps;
+#                  release reports success without running. This is the
+#                  quick check a pull request needs to join the merge queue.
+#   merge queue    test in full, release (Linux) on the queued pull requests
+#                  merged onto main; nothing is published. Nothing reaches
+#                  main without passing everything here.
+#   push to main   test in full, release (Linux); nothing is published
 #   push a v* tag  test, release (Linux), macos, then publish both tarballs
 #                  only if both platform jobs passed
 #   on request     test, release (Linux), macos; nothing is published
@@ -17,9 +20,11 @@ name: check
 # macOS runs only on a tag or on request because macOS runner minutes on this
 # private repository bill at ten times Linux's.
 #
-# Every job starts from a fresh checkout with no dependency cache, as someone
-# else running AtMcp would, so a lockfile or vendored patch that only works on a
-# machine that already has the pieces is found here.
+# `test` keeps compiled dependencies between runs, keyed on mix.lock, because
+# compiling them three times was most of its run. `release`, and the Hex
+# package's consumer, start from nothing, as someone else running AtMcp would,
+# so a lockfile or vendored patch that only works on a machine that already has
+# the pieces is found before anything reaches main.
 on:
   push:
     branches: [main]
@@ -63,9 +68,24 @@ jobs:
         with:
           node-version: "22"
 
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+
       - run: mix deps.get
 
+      # AtMcp itself is always compiled whole, so `--warnings-as-errors` sees
+      # every file and the native lock is built from this checkout.
+      - run: rm -rf _build/*/lib/at_mcp
+
+      # The package's consumer compiles every dependency from nothing, so this
+      # runs in the merge queue and on main, not on each pull request push.
       - name: Build documentation and the local Hex package
+        if: github.event_name != 'pull_request'
         run: |
           mix docs
           mix hex.build
@@ -127,8 +147,13 @@ jobs:
   # still runs, because a release links the glibc it was built against and
   # refuses to start on an older one: Ubuntu 22.04, Debian 12 or later. On a
   # tag, the tarball that passed is published.
+  #
+  # Branch protection requires `release`. On a pull request it is skipped, which
+  # GitHub counts as passing, and it runs in the merge queue before anything
+  # reaches main.
   release:
     needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
