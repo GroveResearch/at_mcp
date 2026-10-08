@@ -215,7 +215,7 @@ jobs:
 
       - name: Hand the Linux tarball to the publish job
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: linux-x86_64
           path: |
@@ -335,7 +335,7 @@ jobs:
 
       - name: Hand the macOS tarball to the publish job
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: macos-arm64
           path: |
