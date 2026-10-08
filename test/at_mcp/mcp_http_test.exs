@@ -162,6 +162,48 @@ defmodule AtMcp.MCP.HTTPTest do
     refute AtMcp.Grants.permits_scope?(:manage, "post_but_renamed")
   end
 
+  test "tools/list offers only the tools a grant's scope reaches" do
+    id = "http_lister"
+
+    {:ok, _} =
+      AtMcp.Identities.start_identity(
+        id: id,
+        listen_enabled: false,
+        backend: AtMcp.Test.MockBackend,
+        backend_state: %{did: "did:plc:lister", mock: true}
+      )
+
+    on_exit(fn -> AtMcp.Identities.stop_identity(id) end)
+
+    listed =
+      Map.new([:read, :write, :manage], fn scope ->
+        headers = Grant.session!(Grant.token(id, scope))
+        response = Req.post!(Grant.url(), headers: headers, json: list_request(), retry: false)
+        assert response.status == 200
+        {scope, response.body["result"]["tools"]}
+      end)
+
+    # :manage is offered the whole surface; the other two are judged against
+    # each tool's own annotations as :manage was shown them.
+    everything = listed.manage
+
+    assert MapSet.new(everything, & &1["name"]) ==
+             MapSet.new(Map.keys(AtMcp.Grants.tool_scopes()))
+
+    hint = fn tool, key -> get_in(tool, ["annotations", key]) == true end
+
+    names = fn tools -> tools |> Enum.map(& &1["name"]) |> Enum.sort() end
+    read_only = Enum.filter(everything, &hint.(&1, "readOnlyHint"))
+    not_destructive = Enum.reject(everything, &hint.(&1, "destructiveHint"))
+
+    assert names.(listed.read) == names.(read_only)
+    assert names.(listed.write) == names.(not_destructive)
+
+    # Each set is a real cut: the narrower scopes are offered less.
+    assert length(listed.read) < length(listed.write)
+    assert length(listed.write) < length(everything)
+  end
+
   test "an identity the service does not hold is unavailable, not unauthorized" do
     token = Grant.token("http_never_started")
 
@@ -208,6 +250,9 @@ defmodule AtMcp.MCP.HTTPTest do
       params: %{name: tool, arguments: arguments}
     }
   end
+
+  defp list_request,
+    do: %{jsonrpc: "2.0", id: System.unique_integer([:positive]), method: "tools/list"}
 
   defp structured(response), do: response.body["result"]["structuredContent"]
 

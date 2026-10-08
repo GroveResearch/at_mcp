@@ -78,7 +78,7 @@ defmodule AtMcp.MCP.DSL do
         {:ok, tools, next, state} = super(cursor, state)
         schemas = unquote(Macro.escape(schemas))
         tools = Enum.map(tools, &Map.put(&1, :outputSchema, Map.fetch!(schemas, &1.name)))
-        {:ok, tools, next, state}
+        {:ok, AtMcp.MCP.DSL.offered(tools, state), next, state}
       end
 
       @impl true
@@ -103,6 +103,18 @@ defmodule AtMcp.MCP.DSL do
       end
     end
   end
+
+  # A client is offered only the tools its grant's scope permits, judged by the
+  # same `AtMcp.Grants.permits_scope?/2` that refuses an out-of-scope
+  # `tools/call`. A handler started without a scope — the local stdio server,
+  # or `AtMcp.Grants` reading the surface to classify it — is offered every
+  # tool. A grant's scope never changes, so the list a session sees does not
+  # either, and no `notifications/tools/list_changed` is owed.
+  @doc false
+  def offered(tools, %{scope: scope}) when not is_nil(scope),
+    do: Enum.filter(tools, &AtMcp.Grants.permits_scope?(scope, &1.name))
+
+  def offered(tools, _state), do: tools
 
   defp compile_schemas(schemas) do
     Map.new(schemas, fn {name, schema} ->
