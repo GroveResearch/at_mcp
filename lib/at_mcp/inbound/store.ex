@@ -41,7 +41,9 @@ defmodule AtMcp.Inbound.Store do
   (default a quarter of `max_bytes`, 16 MiB). `max_bytes` (default 64 MiB)
   bounds the whole file, events, receipts and checkpoints together; one full
   lane cannot reach it, so it refuses everything only when several lanes are
-  full at once.
+  full at once. An operator sets `max_pending` and `max_bytes` with
+  `AT_MCP_INBOUND_MAX_EVENTS` and `AT_MCP_INBOUND_MAX_BYTES`
+  (`config/runtime.exs`).
 
   What a refusal holds depends on the collector. A notification sweep covers
   one account, so only that account's collection pauses. The Jetstream
@@ -109,6 +111,8 @@ defmodule AtMcp.Inbound.Store do
     File.chmod!(dir, 0o700)
     path = Path.join(dir, "inbound.term")
     data = load!(path)
+    # The operator's capacity settings (`config/runtime.exs`); options override them.
+    opts = Keyword.merge(Application.get_env(:at_mcp, :inbound_store, []), opts)
     max_bytes = Keyword.get(opts, :max_bytes, 64 * 1024 * 1024)
 
     state = %{

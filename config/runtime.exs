@@ -59,6 +59,21 @@ if config_env() != :test and Application.get_env(:at_mcp, :boot_from_env, true) 
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
 
+  # The delivery queue's capacity, the same way: unset keeps
+  # `AtMcp.Inbound.Store`'s defaults (10,000 events per account, 64 MiB in all).
+  inbound_store =
+    [
+      max_pending: positive_integer.("AT_MCP_INBOUND_MAX_EVENTS"),
+      max_bytes: positive_integer.("AT_MCP_INBOUND_MAX_BYTES")
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+
+  notifications_interval =
+    case positive_integer.("AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS") do
+      nil -> nil
+      seconds -> seconds * 1000
+    end
+
   jetstream = System.get_env("AT_MCP_JETSTREAM", "0") in ["1", "true"]
   notifications = System.get_env("AT_MCP_NOTIFICATIONS", "1") not in ["0", "false"]
 
@@ -71,4 +86,8 @@ if config_env() != :test and Application.get_env(:at_mcp, :boot_from_env, true) 
     notifications_enabled: notifications
 
   if write_quota != [], do: config(:at_mcp, write_quota: write_quota)
+  if inbound_store != [], do: config(:at_mcp, inbound_store: inbound_store)
+
+  if notifications_interval,
+    do: config(:at_mcp, notifications_interval_ms: notifications_interval)
 end
