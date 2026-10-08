@@ -710,8 +710,8 @@ and record the scope of what was run in the pull request.
 
 ## Publish a release
 
-This is a maintainer action, not an installation step. GitHub binary releases
-and Hex package publication are separate actions. The previous-release CI
+This is a maintainer action, not an installation step. One tag publishes both
+the GitHub binary release and the Hex package. The previous-release CI
 check uses the newest eligible published release, or the explicit historical
 Kite baseline described below when there is no eligible predecessor. That
 baseline must be available in this public repository; no private Git history
@@ -729,7 +729,10 @@ git tag v0.3.0 && git push origin v0.3.0
 CI tests the tagged commit, refuses a tag that is not `v` + the version in
 `mix.exs`, builds the Linux and macOS releases, and publishes only after both platforms
 pass. Publication requires both exact-version tarballs and their checksum files;
-a partial platform build does not create or replace a release.
+a partial platform build does not create or replace a release. Once the GitHub
+release is published, CI publishes the package and its docs to Hex with
+`mix hex.publish`, using the `HEX_API_KEY` secret in the repository's `hex`
+environment.
 
 ## Bootstrap a fresh public repository
 

@@ -7,7 +7,8 @@ name: check
 #   merge queue    test, release (Linux) on the queued pull requests merged
 #                  onto main; nothing is published
 #   push a v* tag  test, release (Linux), macos, then publish both tarballs
-#                  only if both platform jobs passed
+#                  only if both platform jobs passed, then publish the
+#                  package to Hex only if that GitHub release was published
 #   on request     test, release (Linux), macos; nothing is published
 #
 # Publishing is a deliberate act: docs/operations.md's "Publish a release"
@@ -388,3 +389,27 @@ jobs:
             gh release create "$tag" "${files[@]}" --repo "$repo" --verify-tag \
               --title "AtMcp ${tag#v}" --notes "$notes"
           fi
+
+  # The Hex package and its docs, from the tagged commit, once its GitHub
+  # release is published. The build jobs have already refused a tag that is
+  # not `v` + the version in mix.exs. HEX_API_KEY is a Hex key that can publish
+  # this package, kept in the `hex` environment, which only v* tags can use.
+  hex:
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: hex
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - run: mix deps.get
+
+      - run: mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
