@@ -22,10 +22,8 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def login(opts) do
-    handle = Keyword.get_lazy(opts, :handle, fn -> System.fetch_env!("BLUESKY_HANDLE") end)
-
-    password =
-      Keyword.get_lazy(opts, :password, fn -> System.fetch_env!("BLUESKY_APP_PASSWORD") end)
+    handle = Keyword.fetch!(opts, :handle)
+    password = Keyword.fetch!(opts, :password)
 
     case ProtoRune.login(handle, password, Keyword.take(opts, [:service])) do
       {:ok, session} -> {:ok, session}

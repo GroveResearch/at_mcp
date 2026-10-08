@@ -1,10 +1,10 @@
 # Multi-DID Inbound prove — two identities, one Jetstream fanout.
-# Fixtures always; live Jetstream optional via AT_MCP_LIVE_INBOUND=1 (listen-only, no posts).
+# Fixtures always; live Jetstream optional via LIVE_INBOUND=1 (listen-only, no posts).
 #
 #   set -a; source /path/to/your/at_mcp-accounts.env; set +a   # the account credentials the live run needs
 #   cd /path/to/at_mcp
 #   mix run scripts/prove_multi_did.exs
-#   AT_MCP_LIVE_INBOUND=1 AT_MCP_JETSTREAM=0 mix run scripts/prove_multi_did.exs
+#   LIVE_INBOUND=1 AT_MCP_JETSTREAM=0 mix run scripts/prove_multi_did.exs
 
 defmodule AtMcp.Prove.FakeJetstream do
   @moduledoc false
@@ -19,10 +19,10 @@ defmodule AtMcp.Prove.MultiDid do
   @moduledoc false
 
   def run do
-    handle_a = System.fetch_env!("BLUESKY_HANDLE")
-    handle_b = System.fetch_env!("BLUESKY_HANDLE_2")
-    pass_a = System.fetch_env!("BLUESKY_APP_PASSWORD")
-    pass_b = System.fetch_env!("BLUESKY_APP_PASSWORD_2")
+    handle_a = System.fetch_env!("AT_MCP_HANDLE")
+    handle_b = System.fetch_env!("AT_MCP_HANDLE_2")
+    pass_a = System.fetch_env!("AT_MCP_APP_PASSWORD")
+    pass_b = System.fetch_env!("AT_MCP_APP_PASSWORD_2")
 
     unless Process.whereis(AtMcp.Listen.Registry) do
       {:ok, _} = Registry.start_link(keys: :duplicate, name: AtMcp.Listen.Registry)
@@ -51,7 +51,7 @@ defmodule AtMcp.Prove.MultiDid do
     IO.puts("AtMcp A DID: #{did_a}")
     IO.puts("AtMcp B DID: #{did_b}")
 
-    live? = System.get_env("AT_MCP_LIVE_INBOUND", "0") == "1"
+    live? = System.get_env("LIVE_INBOUND", "0") == "1"
 
     inbound_opts = [name: :at_mcp_prove_inbound, enabled: true]
 
@@ -119,7 +119,7 @@ defmodule AtMcp.Prove.MultiDid do
       {a, b} = drain_live(8_000)
       IO.puts("live delivers A=#{a} B=#{b} (quiet OK — nothing public-posted)")
     else
-      IO.puts("\n(skip live — set AT_MCP_LIVE_INBOUND=1 AT_MCP_JETSTREAM=0 for listen-only)")
+      IO.puts("\n(skip live — set LIVE_INBOUND=1 AT_MCP_JETSTREAM=0 for listen-only)")
     end
 
     tracked = inbound |> AtMcp.Inbound.tracked_dids() |> Enum.sort()

@@ -17,6 +17,7 @@ One line per project ruling or load-bearing design decision. Each carries the da
 
 ## Credentials and access
 
+- 2026-10-07 · settled (#19) · Every setting an operator gives through the environment is read and checked once, in `config/runtime.exs`, with its default beside its check; `lib/` reads only the application environment. An unknown `AT_MCP_*` variable or a bad value stops startup and names it; `AtMcp.CLI.settings/0` prints each setting's value and source, secrets as set or unset. The account variables are `AT_MCP_HANDLE`, `AT_MCP_APP_PASSWORD` and `AT_MCP_SERVICE` (and `_2`); the earlier `BLUESKY_*` names still work with a warning, because existing client configurations and environment files use them. Test-harness variables use `TEST_*`, outside the namespace the check owns. — `config/runtime.exs`; `test/at_mcp/settings_test.exs`.
 - 2026-10-05 · provisional (#5) · Explicit `AT_MCP_APPVIEW_READS=direct` routes application GETs requiring an AppView through short-lived method-bound service tokens. Default proxy routing, PDS-owned preferences and all writes retain their current paths. Fixed Network endpoints bound the prototype; arbitrary providers remain unproved. This qualifies the historical every-read-via-session-service rule below. — `AtMcp.ATProto.ServiceAuth`; `test/at_mcp/direct_service_auth_test.exs`.
 
 

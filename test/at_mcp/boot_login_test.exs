@@ -172,12 +172,14 @@ defmodule AtMcp.BootLoginTest do
     )
 
     File.chmod!(accounts, 0o600)
-    System.put_env("AT_MCP_ACCOUNTS_FILE", accounts)
+    Application.put_env(:at_mcp, :accounts_file, accounts, persistent: true)
     # A shared installation delivers to a host and collects notifications, so a
     # boot that survives the login must also survive the bridge attaching after it.
-    System.put_env("AT_MCP_DELIVERY_URL", "http://127.0.0.1:9/inbound")
-    System.put_env("AT_MCP_DELIVERY_TOKEN", "fixture")
-    System.put_env("AT_MCP_NOTIFICATIONS", "1")
+    Application.put_env(:at_mcp, :delivery, [url: "http://127.0.0.1:9/inbound", token: "fixture"],
+      persistent: true
+    )
+
+    Application.put_env(:at_mcp, :notifications_enabled, true, persistent: true)
     # A request the PDS does not answer in time is a timeout at the client.
     # The unanswered login is never answered, so this bound only has to exceed
     # how long a loaded machine takes to carry an answered one. A bound near
@@ -192,8 +194,8 @@ defmodule AtMcp.BootLoginTest do
     env =
       for key <- [
             "AT_MCP_ACCOUNTS_FILE",
-            "BLUESKY_HANDLE",
-            "BLUESKY_APP_PASSWORD",
+            "AT_MCP_HANDLE",
+            "AT_MCP_APP_PASSWORD",
             "AT_MCP_DELIVERY_URL",
             "AT_MCP_DELIVERY_TOKEN_FILE",
             "AT_MCP_JETSTREAM",

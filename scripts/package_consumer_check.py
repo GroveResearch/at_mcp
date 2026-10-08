@@ -72,8 +72,8 @@ IO.puts("package consumer: documented identity/profile/disconnect/reconnect plus
         env.update(HOME=str(home),
                    HEX_HOME=os.environ.get("HEX_HOME", str(Path.home() / ".hex")),
                    MIX_HOME=os.environ.get("MIX_HOME", str(Path.home() / ".mix")))
-        env.update(CONSUMER_STATE=str(root / "state"), BLUESKY_SERVICE=pds.url,
-                   BLUESKY_HANDLE="agent.test", BLUESKY_APP_PASSWORD="fixture-app-password",
+        env.update(CONSUMER_STATE=str(root / "state"), AT_MCP_SERVICE=pds.url,
+                   AT_MCP_HANDLE="agent.test", AT_MCP_APP_PASSWORD="fixture-app-password",
                    PROTO_RUNE_PATH=str(root / "nonexistent-override-must-be-ignored"))
         subprocess.run(["mix", "deps.get"], cwd=consumer, env=env, check=True)
         subprocess.run(["mix", "run", "check.exs"], cwd=consumer, env=env, check=True)

@@ -1,9 +1,9 @@
 # MIX_ENV=test mix run --no-start scripts/live_read_smoke.exs
-# Supply BLUESKY_HANDLE/BLUESKY_APP_PASSWORD (and _2) in the environment.
+# Supply AT_MCP_HANDLE/AT_MCP_APP_PASSWORD (and _2) in the environment.
 # No records are written, notifications are not marked seen, no host is nudged.
 for suffix <- ["", "_2"] do
-  handle = System.fetch_env!("BLUESKY_HANDLE" <> suffix)
-  password = System.fetch_env!("BLUESKY_APP_PASSWORD" <> suffix)
+  handle = System.fetch_env!("AT_MCP_HANDLE" <> suffix)
+  password = System.fetch_env!("AT_MCP_APP_PASSWORD" <> suffix)
 
   {:ok, effects} =
     AtMcp.Effects.start_link(

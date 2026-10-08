@@ -85,7 +85,6 @@ defmodule AtMcp.Identity do
         name: effects_name,
         identity_id: to_string(id),
         backend: Keyword.get(opts, :backend, AtMcp.Effects.ProtoRune),
-        credential_mode: :explicit,
         write_quota: Keyword.get(opts, :write_quota, AtMcp.WriteQuota)
       ]
       |> maybe_put(:handle, Keyword.get(opts, :handle))

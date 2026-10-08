@@ -12,9 +12,9 @@ defmodule AtMcp.AccountConfig do
 
   @fields ~w(id handle did password service)
 
-  @doc "Configuration path, overridable with AT_MCP_ACCOUNTS_FILE."
+  @doc "Configuration path: `:accounts_file` (`AT_MCP_ACCOUNTS_FILE`), or a per-user default."
   def path do
-    (System.get_env("AT_MCP_ACCOUNTS_FILE") ||
+    (Application.get_env(:at_mcp, :accounts_file) ||
        AtMcp.Rename.default_path(
          Path.join(to_string(:filename.basedir(:user_config, ~c"at_mcp")), "accounts.json"),
          Path.join(to_string(:filename.basedir(:user_config, ~c"kite")), "accounts.json"),

@@ -2,21 +2,13 @@ defmodule AtMcp.DeliveryConsumerTest do
   use ExUnit.Case, async: false
 
   test "delivery configuration attaches when a collector is enabled" do
-    keys = ["AT_MCP_DELIVERY_URL", "AT_MCP_DELIVERY_TOKEN", "AT_MCP_NOTIFICATIONS"]
+    on_exit(fn -> AtMcp.Deliver.clear_callback() end)
 
-    previous = Map.new(keys, &{&1, System.get_env(&1)})
+    AtMcp.Test.Settings.put(
+      delivery: [url: "http://127.0.0.1:9/inbound", token: "fixture"],
+      notifications_enabled: true
+    )
 
-    on_exit(fn ->
-      AtMcp.Deliver.clear_callback()
-
-      for {key, value} <- previous do
-        if value, do: System.put_env(key, value), else: System.delete_env(key)
-      end
-    end)
-
-    System.put_env("AT_MCP_DELIVERY_URL", "http://127.0.0.1:9/inbound")
-    System.put_env("AT_MCP_DELIVERY_TOKEN", "fixture")
-    System.put_env("AT_MCP_NOTIFICATIONS", "1")
     assert :ok = AtMcp.Deliver.HTTPBridge.maybe_attach_from_env!()
     assert is_function(AtMcp.Deliver.callback(), 1)
   end

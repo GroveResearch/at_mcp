@@ -150,18 +150,7 @@ defmodule AtMcp.AccountSetupTest do
 
   test "named configuration keeps its own authorization and supports three accounts",
        %{path: path} do
-    original = System.get_env("AT_MCP_ACCOUNTS_FILE")
-    boot = Application.get_env(:at_mcp, :boot_from_env)
-
-    on_exit(fn ->
-      if original,
-        do: System.put_env("AT_MCP_ACCOUNTS_FILE", original),
-        else: System.delete_env("AT_MCP_ACCOUNTS_FILE")
-
-      if is_nil(boot),
-        do: Application.delete_env(:at_mcp, :boot_from_env),
-        else: Application.put_env(:at_mcp, :boot_from_env, boot)
-    end)
+    AtMcp.Test.Settings.put(boot_from_env: true)
 
     for name <- ["alice", "bob", "carol"] do
       assert {:ok, _} =
@@ -174,31 +163,16 @@ defmodule AtMcp.AccountSetupTest do
                })
     end
 
-    System.put_env("AT_MCP_ACCOUNTS_FILE", path)
-    Application.put_env(:at_mcp, :boot_from_env, true)
+    AtMcp.Test.Settings.put(accounts_file: path)
     specs = AtMcp.Identities.env_identity_specs()
     assert Enum.map(specs, & &1[:id]) == ["alice", "bob", "carol"]
     assert Enum.all?(specs, &(&1[:expected_did] == "did:plc:" <> &1[:id]))
     refute Enum.any?(specs, &Keyword.has_key?(&1, :host_token))
 
-    # A host token in the environment is not refused alongside an accounts file:
-    # it cannot reach a configured account, which always uses its account quota,
-    # so there is nothing for the file to conflict with.
-    previous_token = System.get_env("AT_MCP_HOST_TOKEN")
-
-    try do
-      System.put_env("AT_MCP_HOST_TOKEN", String.duplicate("x", 32))
-      assert AtMcp.Identities.env_identity_specs() == specs
-    after
-      if previous_token,
-        do: System.put_env("AT_MCP_HOST_TOKEN", previous_token),
-        else: System.delete_env("AT_MCP_HOST_TOKEN")
-    end
-
     # A file that does not exist yet is an installation still being set up. A
     # file that disappeared under a running service is a different thing, and
     # reload still refuses it rather than reading it as no accounts.
-    System.put_env("AT_MCP_ACCOUNTS_FILE", path <> ".missing")
+    AtMcp.Test.Settings.put(accounts_file: path <> ".missing")
     assert AtMcp.Identities.env_identity_specs() == []
     assert {:error, :config_missing} = AtMcp.Identities.named_identity_specs(path <> ".missing")
 
@@ -207,37 +181,30 @@ defmodule AtMcp.AccountSetupTest do
   end
 
   @tag :tmp_dir
-  test "an installation configured by BLUESKY_* migrates itself into the accounts file", %{
-    tmp_dir: dir
-  } do
+  test "an installation configured by account variables migrates itself into the accounts file",
+       %{
+         tmp_dir: dir
+       } do
     path = Path.join(dir, "accounts.json")
 
-    environment = %{
-      "BLUESKY_HANDLE" => "grug.test",
-      "BLUESKY_APP_PASSWORD" => "app-password",
-      "BLUESKY_SERVICE" => "https://pds.example",
-      "AT_MCP_PORT" => "4500",
-      "BLUESKY_HANDLE_2" => "second.test",
-      "BLUESKY_APP_PASSWORD_2" => "app-password-2"
-    }
-
-    previous = Map.new(Map.keys(environment), &{&1, System.get_env(&1)})
-    Enum.each(environment, fn {key, value} -> System.put_env(key, value) end)
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, nil} -> System.delete_env(key)
-        {key, value} -> System.put_env(key, value)
-      end)
-    end)
+    AtMcp.Test.Settings.put(
+      env_accounts: [
+        default: [
+          service: "https://pds.example",
+          handle: "grug.test",
+          password: "app-password"
+        ],
+        second: [handle: "second.test", password: "app-password-2"]
+      ]
+    )
 
     login = fn handle, _password, _opts -> {:ok, %{did: "did:plc:" <> handle, handle: handle}} end
     assert :ok = AtMcp.AccountSetup.bootstrap_from_env(path, login: login)
     assert {:ok, accounts} = AtMcp.AccountConfig.load(path)
 
     # The ids are the ones that installation already had, so `default` still
-    # names the same account. AT_MCP_PORT is the installation's one endpoint
-    # now, not an account's, so it is not migrated onto either of them.
+    # names the same account. The port is the installation's one endpoint now,
+    # not an account's, so it is not migrated onto either of them.
     assert Enum.map(accounts, & &1["id"]) == ["default", "second"]
     refute Enum.any?(accounts, &Map.has_key?(&1, "mcp_port"))
     assert Enum.map(accounts, & &1["did"]) == ["did:plc:grug.test", "did:plc:second.test"]
@@ -245,7 +212,7 @@ defmodule AtMcp.AccountSetupTest do
 
     # It happens once. With a file present the environment is never read again,
     # so which accounts exist cannot change underneath an installation.
-    System.put_env("BLUESKY_HANDLE", "someone.else")
+    AtMcp.Test.Settings.put(env_accounts: [default: [handle: "someone.else", password: "x"]])
 
     assert :ok =
              AtMcp.AccountSetup.bootstrap_from_env(path,
@@ -258,20 +225,10 @@ defmodule AtMcp.AccountSetupTest do
   @tag :tmp_dir
   test "a migration that cannot log in leaves no half-written configuration", %{tmp_dir: dir} do
     path = Path.join(dir, "accounts.json")
-    previous = System.get_env("BLUESKY_HANDLE")
-    previous_password = System.get_env("BLUESKY_APP_PASSWORD")
-    System.put_env("BLUESKY_HANDLE", "grug.test")
-    System.put_env("BLUESKY_APP_PASSWORD", "wrong-password")
 
-    on_exit(fn ->
-      if previous,
-        do: System.put_env("BLUESKY_HANDLE", previous),
-        else: System.delete_env("BLUESKY_HANDLE")
-
-      if previous_password,
-        do: System.put_env("BLUESKY_APP_PASSWORD", previous_password),
-        else: System.delete_env("BLUESKY_APP_PASSWORD")
-    end)
+    AtMcp.Test.Settings.put(
+      env_accounts: [default: [handle: "grug.test", password: "wrong-password"]]
+    )
 
     assert {:error, :authentication_failed} =
              AtMcp.AccountSetup.bootstrap_from_env(path, login: fn _, _, _ -> {:error, :nope} end)

@@ -116,7 +116,7 @@ defmodule AtMcp.Stdio do
 
       {:error, {:authentication_failed, _}} ->
         fail(
-          "AtMcp could not log into this account. Check BLUESKY_HANDLE, BLUESKY_APP_PASSWORD, and BLUESKY_SERVICE, then reconnect the client."
+          "AtMcp could not log into this account. Check AT_MCP_HANDLE, AT_MCP_APP_PASSWORD, and AT_MCP_SERVICE, then reconnect the client."
         )
 
       {:error, :account_disconnected} ->
@@ -131,36 +131,34 @@ defmodule AtMcp.Stdio do
     end
   end
 
+  # The account comes from the environment, which config/runtime.exs reads.
   defp account_options! do
+    account = Application.get_env(:at_mcp, :env_accounts, [])[:default] || []
+
     [
       id: "stdio",
-      handle: required!("BLUESKY_HANDLE"),
-      password: required!("BLUESKY_APP_PASSWORD"),
-      service: System.get_env("BLUESKY_SERVICE"),
+      handle: required!(account, :handle, "AT_MCP_HANDLE"),
+      password: required!(account, :password, "AT_MCP_APP_PASSWORD"),
+      service: account[:service],
       listen_enabled: false,
       notifications_enabled: false,
       write_quota: AtMcp.WriteQuota
     ]
   end
 
-  defp required!(key) do
-    case System.get_env(key) do
-      value when is_binary(value) and value != "" ->
-        value
-
-      _ ->
-        fail(
-          "AtMcp requires #{key}. Set it in the MCP client's environment or AT_MCP_STDIO_ENV_FILE."
-        )
-    end
+  defp required!(account, key, name) do
+    account[key] ||
+      fail(
+        "AtMcp requires #{name}. Set it in the MCP client's environment or AT_MCP_STDIO_ENV_FILE."
+      )
   end
 
   defp state_dir(opts) do
-    case System.get_env("AT_MCP_STATE_DIR") do
-      value when is_binary(value) and value != "" ->
-        Path.expand(value)
+    case Application.get_env(:at_mcp, :inbound_state_dir) do
+      dir when is_binary(dir) ->
+        Path.expand(dir)
 
-      _ ->
+      nil ->
         key =
           :crypto.hash(:sha256, [
             opts[:service] || AtMcp.Network.default_service(),

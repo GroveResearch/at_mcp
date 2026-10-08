@@ -165,14 +165,14 @@ defmodule AtMcp.AccountSetup do
   defp dispatch(_, _, _), do: {:error, :usage}
 
   @doc """
-  Write an accounts file for an installation that has only `BLUESKY_*` set.
+  Write an accounts file for an installation that has only account variables set.
 
   AtMcp is configured one way: by the accounts file. An installation that
-  predates it was configured by `BLUESKY_HANDLE` / `BLUESKY_APP_PASSWORD` (and
-  the `_2` pair), so those are read once, here, to write the file the single
-  path then reads. With a file already present — even an empty one — the
-  environment is not consulted, so this cannot silently change which accounts
-  exist. The account ids are the ones that installation already had: `default`
+  predates it was configured by `AT_MCP_HANDLE` / `AT_MCP_APP_PASSWORD` (once
+  `BLUESKY_HANDLE` / `BLUESKY_APP_PASSWORD`) and the `_2` pair, so those are
+  used once, here, to write the file the single path then reads. With a file
+  already present — even an empty one — they are not consulted, so this cannot
+  silently change which accounts exist. The account ids are the ones that installation already had: `default`
   and `second`. `AT_MCP_PORT` is now the installation's one endpoint rather
   than an account's, so it is not migrated per account.
 
@@ -207,31 +207,20 @@ defmodule AtMcp.AccountSetup do
 
       {:error, reason} ->
         raise ArgumentError,
-              "AtMcp account configuration: BLUESKY_* environment could not be migrated into " <>
+              "AtMcp account configuration: AT_MCP_HANDLE / AT_MCP_APP_PASSWORD could not be migrated into " <>
                 path <> ": #{message(reason)}"
     end
   end
 
   defp env_accounts do
-    [{"", "default"}, {"_2", "second"}]
-    |> Enum.map(fn {suffix, id} ->
+    for {id, account} <- Application.get_env(:at_mcp, :env_accounts, []),
+        is_binary(account[:handle]) and is_binary(account[:password]) do
       %{
-        id: id,
-        handle: env("BLUESKY_HANDLE" <> suffix),
-        password: env("BLUESKY_APP_PASSWORD" <> suffix),
-        service: env("BLUESKY_SERVICE" <> suffix) || AtMcp.Network.default_service()
+        id: to_string(id),
+        handle: String.trim(account[:handle]),
+        password: String.trim(account[:password]),
+        service: account[:service] || AtMcp.Network.default_service()
       }
-    end)
-    |> Enum.filter(&(is_binary(&1.handle) and is_binary(&1.password)))
-  end
-
-  defp env(key) do
-    case System.get_env(key) do
-      value when is_binary(value) ->
-        if String.trim(value) == "", do: nil, else: String.trim(value)
-
-      _ ->
-        nil
     end
   end
 

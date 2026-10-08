@@ -4,12 +4,8 @@ import Config
 # default path is the operator's own. A test run must never read, log in to,
 # or rewrite that file, so point the whole test environment — including the
 # boots tests start as child processes — at a path that does not exist.
-System.put_env(
-  "AT_MCP_ACCOUNTS_FILE",
-  Path.join(System.tmp_dir!(), "at_mcp-test-accounts-#{System.pid()}.json")
-)
-
 config :at_mcp,
+  accounts_file: Path.join(System.tmp_dir!(), "at_mcp-test-accounts-#{System.pid()}.json"),
   inbound_state_dir: Path.join(System.tmp_dir!(), "at_mcp-test-#{System.pid()}"),
   jetstream_enabled: false,
   notifications_enabled: false,

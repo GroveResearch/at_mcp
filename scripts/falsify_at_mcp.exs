@@ -13,7 +13,7 @@ defmodule AtMcp.FalsifyLive do
     port = Application.get_env(:at_mcp, :mcp_port, 4400)
     url = "http://127.0.0.1:#{port}/mcp"
     IO.puts("MCP URL: #{url}")
-    IO.puts("BLUESKY_HANDLE set?: #{not is_nil(System.get_env("BLUESKY_HANDLE"))}")
+    IO.puts("AT_MCP_HANDLE set?: #{not is_nil(System.get_env("AT_MCP_HANDLE"))}")
 
     results =
       %{}

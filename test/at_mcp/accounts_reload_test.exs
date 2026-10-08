@@ -51,19 +51,15 @@ defmodule AtMcp.AccountsReloadTest do
       for suffix <- ["a", "b"], do: row(prefix <> suffix, service)
 
     Enum.each(rows, &AccountConfig.add(file, &1))
-    original = System.get_env("AT_MCP_ACCOUNTS_FILE")
-    System.put_env("AT_MCP_ACCOUNTS_FILE", file)
-    restart_accounts!()
-
+    # Registered first, so it runs after the setting is restored.
     on_exit(fn ->
-      if original,
-        do: System.put_env("AT_MCP_ACCOUNTS_FILE", original),
-        else: System.delete_env("AT_MCP_ACCOUNTS_FILE")
-
       for suffix <- ~w(a b c), do: Identities.stop_identity(prefix <> suffix)
       restart_accounts!()
       File.rm_rf!(root)
     end)
+
+    AtMcp.Test.Settings.put(accounts_file: file)
+    restart_accounts!()
 
     assert {:ok, _} = Accounts.status()
     assert eventually(fn -> Enum.all?(rows, &(Store.ready(&1["id"]) == :ok)) end)
@@ -126,16 +122,8 @@ defmodule AtMcp.AccountsReloadTest do
     assert Enum.map([a, b], &Identity.whereis(&1["id"])) == owners
     write(file, [a, b])
 
-    # A host token in the environment cannot reach a configured account, so a
-    # reload reads the file rather than refusing it.
-    System.put_env("AT_MCP_HOST_TOKEN", "sentinel")
-
-    try do
-      assert {:ok, %{unchanged: [_, _]}} = Accounts.reload()
-      assert Enum.map([a, b], &Identity.whereis(&1["id"])) == owners
-    after
-      System.delete_env("AT_MCP_HOST_TOKEN")
-    end
+    assert {:ok, %{unchanged: [_, _]}} = Accounts.reload()
+    assert Enum.map([a, b], &Identity.whereis(&1["id"])) == owners
 
     File.rm!(file)
     assert {:error, :config_missing} = Accounts.reload()

@@ -77,18 +77,23 @@ defmodule AtMcp.ExternalAccountTest do
   @tag skip: is_nil(System.get_env("MCP_CLIENT_PATH"))
   test "ordinary MCP client inhabits an admitted external identity through separate PDS and AppView" do
     paths = :code.get_path() |> Enum.flat_map(&["-pa", to_string(&1)])
-    release = System.get_env("AT_MCP_ACCOUNT_RELEASE")
+    release = System.get_env("TEST_ACCOUNT_RELEASE")
 
     {command, args} =
       if release,
         do: {Path.join(release, "bin/at_mcp-stdio"), []},
         else:
           {System.find_executable("elixir"),
-           paths ++ ["-e", "Application.put_env(:at_mcp, :network, :delve); AtMcp.Stdio.run()"]}
+           paths ++
+             [
+               "-e",
+               AtMcp.Test.Settings.from_environment() <>
+                 "Application.put_env(:at_mcp, :network, :delve); AtMcp.Stdio.run()"
+             ]}
 
     {output, code} =
       System.cmd("node", [Path.expand("../support/external_account_probe.mjs", __DIR__)],
-        env: [{"AT_MCP_EXTERNAL_COMMAND", command}, {"AT_MCP_EXTERNAL_ARGS", Jason.encode!(args)}],
+        env: [{"TEST_EXTERNAL_COMMAND", command}, {"TEST_EXTERNAL_ARGS", Jason.encode!(args)}],
         stderr_to_stdout: true
       )
 

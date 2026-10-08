@@ -29,13 +29,14 @@ defmodule AtMcp.DirectServiceAuthTest do
     paths = :code.get_path() |> Enum.flat_map(&["-pa", to_string(&1)])
 
     setup =
-      "Application.put_env(:at_mcp, :network, :delve); Application.put_env(:at_mcp, :appview_reads, :direct); Req.default_options(adapter: AtMcp.TestDirectRouteAdapter); AtMcp.Stdio.run()"
+      AtMcp.Test.Settings.from_environment() <>
+        "Application.put_env(:at_mcp, :network, :delve); Application.put_env(:at_mcp, :appview_reads, :direct); Req.default_options(adapter: AtMcp.TestDirectRouteAdapter); AtMcp.Stdio.run()"
 
     {output, code} =
       System.cmd("node", [Path.expand("../support/direct_service_auth_probe.mjs", __DIR__)],
         env: [
-          {"AT_MCP_EXTERNAL_COMMAND", System.find_executable("elixir")},
-          {"AT_MCP_EXTERNAL_ARGS", Jason.encode!(paths ++ ["-e", setup])}
+          {"TEST_EXTERNAL_COMMAND", System.find_executable("elixir")},
+          {"TEST_EXTERNAL_ARGS", Jason.encode!(paths ++ ["-e", setup])}
         ],
         stderr_to_stdout: true
       )

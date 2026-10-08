@@ -45,8 +45,8 @@ defmodule AtMcp.EmbeddingTest do
 
     env = [
       {"MIX_ENV", "test"},
-      {"BLUESKY_HANDLE", "inherited-sentinel"},
-      {"BLUESKY_APP_PASSWORD", "private-sentinel-never-read"},
+      {"AT_MCP_HANDLE", "inherited-sentinel"},
+      {"AT_MCP_APP_PASSWORD", "private-sentinel-never-read"},
       {"AT_MCP_HOST_TOKEN_FILE", Path.join(dir, "missing-host-secret")},
       {"AT_MCP_DELIVERY_URL", "invalid-inherited-url"},
       {"AT_MCP_DELIVERY_TOKEN_FILE", Path.join(dir, "missing-haven-secret")},

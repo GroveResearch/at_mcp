@@ -10,13 +10,13 @@ const legacy = process.env.MCP_SDK_PATH;
 const {Client: LegacyClient} = await load(legacy, 'dist/esm/client/index.js');
 const {StdioClientTransport: LegacyStdio} = await load(legacy, 'dist/esm/client/stdio.js');
 const {StreamableHTTPClientTransport} = await load(legacy, 'dist/esm/client/streamableHttp.js');
-const url = process.env.AT_MCP_SHARED_URL, did = process.env.AT_MCP_SHARED_DID;
+const url = process.env.TEST_SHARED_URL, did = process.env.TEST_SHARED_DID;
 // The credential that names the identity. It travels in the child's environment,
 // never in argv, which is what the generated descriptor does too.
 const grant = process.env.AT_MCP_GRANT;
 const clients = new Set();
 const control = async action => {
-  const response = await fetch(`${process.env.AT_MCP_TEST_CONTROL}/${action}`);
+  const response = await fetch(`${process.env.TEST_CONTROL}/${action}`);
   assert.equal(response.status, 200); return response.json();
 };
 async function stdio(target = url, expected = did, old = false) {
@@ -24,10 +24,10 @@ async function stdio(target = url, expected = did, old = false) {
   const client = new C({name: 'at_mcp-shared-stdio-proof', version: '1'}, old ? {} : {
     versionNegotiation: {mode: {pin: '2026-07-28'}}
   });
-  const transport = new T({command: process.env.AT_MCP_MCP_COMMAND,
-    args: process.env.AT_MCP_SHARED_RELEASE === '1'
+  const transport = new T({command: process.env.TEST_MCP_COMMAND,
+    args: process.env.TEST_SHARED_RELEASE === '1'
       ? ['--url', target, '--did', expected]
-      : [...JSON.parse(process.env.AT_MCP_MCP_ARGS), '-e',
+      : [...JSON.parse(process.env.TEST_MCP_ARGS), '-e',
         `AtMcp.MCP.SharedStdio.run(${JSON.stringify(target)}, ${JSON.stringify(expected)}, System.get_env("AT_MCP_GRANT"))`],
     env: {PATH: process.env.PATH, LANG: 'C', LC_ALL: 'C', AT_MCP_GRANT: grant}, stderr: 'pipe'});
   let diagnostics = ''; 

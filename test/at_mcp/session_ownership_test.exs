@@ -56,19 +56,9 @@ defmodule AtMcp.SessionOwnershipTest do
   end
 
   test "an unconfigured identity never inherits the default account's credentials" do
-    previous =
-      for key <- ["BLUESKY_HANDLE", "BLUESKY_APP_PASSWORD"],
-          into: %{},
-          do: {key, System.get_env(key)}
-
-    on_exit(fn ->
-      for {key, value} <- previous do
-        if value, do: System.put_env(key, value), else: System.delete_env(key)
-      end
-    end)
-
-    System.put_env("BLUESKY_HANDLE", "default.invalid")
-    System.put_env("BLUESKY_APP_PASSWORD", "default-private-password")
+    AtMcp.Test.Settings.put(
+      env_accounts: [default: [handle: "default.invalid", password: "default-private-password"]]
+    )
 
     {:ok, _} =
       AtMcp.Identities.start_identity(id: "unconfigured", listen_enabled: false)

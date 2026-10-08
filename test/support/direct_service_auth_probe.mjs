@@ -68,7 +68,7 @@ const pds=http.createServer(async(req,res)=>{try {
 await new Promise(r=>pds.listen(0,'127.0.0.1',r));
 const pdsOrigin=`http://127.0.0.1:${pds.address().port}`;
 const client=new Client({name:'direct-route-proof',version:'1'});
-const transport=new StdioClientTransport({command:process.env.AT_MCP_EXTERNAL_COMMAND,args:JSON.parse(process.env.AT_MCP_EXTERNAL_ARGS),stderr:'pipe',env:{PATH:process.env.PATH,TEST_APPVIEW_ORIGIN:`http://127.0.0.1:${app.address().port}`,BLUESKY_HANDLE:'external.test',BLUESKY_APP_PASSWORD:'fixture',BLUESKY_SERVICE:pdsOrigin,AT_MCP_STATE_DIR:join(root,'state')}});
+const transport=new StdioClientTransport({command:process.env.TEST_EXTERNAL_COMMAND,args:JSON.parse(process.env.TEST_EXTERNAL_ARGS),stderr:'pipe',env:{PATH:process.env.PATH,TEST_APPVIEW_ORIGIN:`http://127.0.0.1:${app.address().port}`,AT_MCP_HANDLE:'external.test',AT_MCP_APP_PASSWORD:'fixture',AT_MCP_SERVICE:pdsOrigin,AT_MCP_STATE_DIR:join(root,'state')}});
 let diagnostics='';transport.stderr?.on('data',s=>diagnostics+=s);
 async function call(name,args={},error=false){const r=await client.callTool({name,arguments:args});assert.equal(Boolean(r.isError),error,JSON.stringify(r));assert.ok(!JSON.stringify(r).includes('home.access.jwt'));return r;}
 try {

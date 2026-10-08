@@ -96,8 +96,8 @@ jobs:
           MIX_ENV: test
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
-          AT_MCP_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
-          AT_MCP_CONNECT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp/bin/at_mcp-connect
+          TEST_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
+          TEST_CONNECT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp/bin/at_mcp-connect
 
       # Every test that skips does so because its environment is missing, and
       # this job supplies all of it. A skip here means a package did not load

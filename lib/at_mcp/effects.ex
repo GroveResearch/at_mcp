@@ -86,8 +86,8 @@ defmodule AtMcp.Effects do
   - `:expected_did` — require this account DID on every session it accepts
   - `:name` — process name
   - `:logged_in` — mark already connected when `backend_state` is set
-  - `:handle` / `:password` — optional identity credentials (preferred over
-    process-wide `BLUESKY_*` env when multiple Effects share one BEAM)
+  - `:handle` / `:password` — optional identity credentials; without them
+    the account logs in only when a caller supplies them
   """
   def start_link(opts \\ []) do
     backend = Keyword.get(opts, :backend, AtMcp.Effects.ProtoRune)
@@ -116,15 +116,7 @@ defmodule AtMcp.Effects do
           %{handle: h, password: p}
 
         _ ->
-          if Keyword.get(opts, :credential_mode, :env) == :env do
-            case {System.get_env("BLUESKY_HANDLE"), System.get_env("BLUESKY_APP_PASSWORD")} do
-              {h, p} when is_binary(h) and h != "" and is_binary(p) and p != "" ->
-                %{handle: h, password: p}
-
-              _ ->
-                nil
-            end
-          end
+          nil
       end
 
     credentials = retain_service(credentials, opts)
@@ -204,7 +196,7 @@ defmodule AtMcp.Effects do
   @doc "Whether Effects currently holds a live backend session."
   def logged_in?(effects), do: state(effects).logged_in?
 
-  @doc "Whether Effects has identity credentials (opts or BLUESKY_* env) for eager login."
+  @doc "Whether Effects has identity credentials for eager login."
   def credentials?(effects), do: has_credentials?(state(effects))
 
   @doc "The durable write quota server this account reserves from."
