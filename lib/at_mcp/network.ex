@@ -145,6 +145,38 @@ defmodule AtMcp.Network do
              }}
           end)
 
+  # How many images a post may embed and how large each may be, from the
+  # network's `embed.images` lexicon.
+  @image_lexicon_paths Map.new(@networks, fn {name, network} ->
+                         {name,
+                          Path.expand(
+                            Path.join([
+                              __DIR__,
+                              "..",
+                              "..",
+                              "priv",
+                              "lexicons",
+                              network.lexicon_dir,
+                              "embed",
+                              "images.json"
+                            ])
+                          )}
+                       end)
+
+  for {_name, path} <- @image_lexicon_paths do
+    @external_resource path
+  end
+
+  @image_limits Map.new(@image_lexicon_paths, fn {name, path} ->
+                  defs = path |> File.read!() |> Jason.decode!() |> Map.fetch!("defs")
+
+                  {name,
+                   %{
+                     count: get_in(defs, ["main", "properties", "images", "maxLength"]),
+                     bytes: get_in(defs, ["image", "properties", "image", "maxSize"])
+                   }}
+                end)
+
   @language_limits Map.new(@post_properties, fn {name, properties} ->
                      {name, properties |> Map.fetch!("langs") |> Map.fetch!("maxLength")}
                    end)
@@ -276,6 +308,13 @@ defmodule AtMcp.Network do
   """
   @spec post_limits() :: %{graphemes: pos_integer(), bytes: pos_integer()}
   def post_limits, do: Map.fetch!(@limits, name())
+
+  @doc """
+  How many images a post may embed and the most bytes each may have, read from
+  this network's `embed.images` lexicon.
+  """
+  @spec post_image_limits() :: %{count: pos_integer(), bytes: pos_integer()}
+  def post_image_limits, do: Map.fetch!(@image_limits, name())
 
   @doc "Maximum language tags on a post, read from this network's lexicon."
   @spec post_language_limit() :: non_neg_integer()
