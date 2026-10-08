@@ -356,6 +356,7 @@ environment file ([Settings](docs/operations.md#settings) in the operations guid
 | `AT_MCP_INBOUND_MAX_BYTES` | `67108864` (64 MiB) | Size of the delivery store; one account may fill a quarter of it. A positive integer |
 | `AT_MCP_IMAGE_MAX_BYTES` | `2000000` | The largest picture `get_post_images` returns, in bytes; a positive integer |
 | `AT_MCP_IMAGE_FETCH_SECONDS` | `10` | How long `get_post_images` waits for all of one post's pictures; a positive integer |
+| `AT_MCP_MEDIA_DIR` | none (off) | A directory whose image files `post`, `reply` and `update_profile` may read when an image gives a `path` instead of base64 `data`. Only regular files inside it, at most the network's post image size. Every account the process serves reads the same directory |
 | `AT_MCP_DELIVERY_URL` | none (no delivery) | Where a shared service delivers collected activity, an `http(s)` URL |
 | `AT_MCP_DELIVERY_TOKEN_FILE` | none | A file holding the consumer's bearer token, read at each delivery so a rotated token takes effect |
 | `AT_MCP_DELIVERY_TOKEN` | none | The bearer token itself (secret), instead of the file |

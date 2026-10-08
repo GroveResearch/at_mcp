@@ -566,17 +566,22 @@ defmodule AtMcp.MCP.Server do
 
     param(:images, {:array, :object},
       description:
-        "Images to attach. Each is base64 data, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
+        "Images to attach. Each is base64 data or a file path, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
       schema: %{
         type: "array",
         items: %{
           type: "object",
           properties: %{
             data: %{type: "string", description: "The image bytes, base64-encoded"},
+            path: %{
+              type: "string",
+              description:
+                "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
+            },
             mime_type: %{type: "string", description: "MIME type, e.g. image/png"},
             alt: %{type: "string", description: "Alt text describing the image"}
           },
-          required: ["data", "mime_type", "alt"]
+          required: ["mime_type", "alt"]
         }
       }
     )
@@ -623,17 +628,22 @@ defmodule AtMcp.MCP.Server do
 
     param(:images, {:array, :object},
       description:
-        "Images to attach. Each is base64 data, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
+        "Images to attach. Each is base64 data or a file path, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
       schema: %{
         type: "array",
         items: %{
           type: "object",
           properties: %{
             data: %{type: "string", description: "The image bytes, base64-encoded"},
+            path: %{
+              type: "string",
+              description:
+                "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
+            },
             mime_type: %{type: "string", description: "MIME type, e.g. image/png"},
             alt: %{type: "string", description: "Alt text describing the image"}
           },
-          required: ["data", "mime_type", "alt"]
+          required: ["mime_type", "alt"]
         }
       }
     )
@@ -895,7 +905,10 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "update_profile",
-       write_description(:update_profile, "Update display name and/or description. No avatar.") do
+       write_description(
+         :update_profile,
+         "Update display name, description, avatar and/or banner. Fields not given are kept."
+       ) do
     annotations(
       write_annotations(:update_profile, %{
         readOnlyHint: false,
@@ -907,6 +920,40 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.action_result())
     param(:display_name, :string, description: "New display name")
     param(:description, :string, description: "New description")
+
+    param(:avatar, :object,
+      description: "New avatar image: base64 data or a file path, and its MIME type",
+      schema: %{
+        type: "object",
+        properties: %{
+          data: %{type: "string", description: "The image bytes, base64-encoded"},
+          path: %{
+            type: "string",
+            description:
+              "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
+          },
+          mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"}
+        },
+        required: ["mime_type"]
+      }
+    )
+
+    param(:banner, :object,
+      description: "New banner image: base64 data or a file path, and its MIME type",
+      schema: %{
+        type: "object",
+        properties: %{
+          data: %{type: "string", description: "The image bytes, base64-encoded"},
+          path: %{
+            type: "string",
+            description:
+              "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
+          },
+          mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"}
+        },
+        required: ["mime_type"]
+      }
+    )
 
     run(fn a, state ->
       e = state.effects
