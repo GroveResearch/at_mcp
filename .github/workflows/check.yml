@@ -4,6 +4,8 @@ name: check
 #
 #   pull request   test, release (Linux)
 #   push to main   test, release (Linux); nothing is published
+#   merge queue    test, release (Linux) on the queued pull requests merged
+#                  onto main; nothing is published
 #   push a v* tag  test, release (Linux), macos, then publish both tarballs
 #                  only if both platform jobs passed
 #   on request     test, release (Linux), macos; nothing is published
@@ -23,6 +25,7 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 # A newer push to a pull request cancels its run still going. Main's runs are
