@@ -36,6 +36,8 @@ defmodule AtMcp.Effects.ProtoRune do
     # proto_rune (0.5.3 and 0.6.0) POSTs `json: %{}` for refreshSession; Bluesky
     # replies 400 "A request body was provided when none was expected".
     # Empty-body POST with the refresh JWT, then parse like login.
+    # Delete and call `ProtoRune.Atproto.Server.refresh_session/1` when it
+    # sends no body.
     refresh_jwt = Map.get(session, :refresh_jwt)
 
     if not is_binary(refresh_jwt) or refresh_jwt == "" do
