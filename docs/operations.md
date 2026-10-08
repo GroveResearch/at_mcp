@@ -723,6 +723,18 @@ CI tests the tagged commit, refuses a tag that is not `v` + the version in
 pass. Publication requires both exact-version tarballs and their checksum files;
 a partial platform build does not create or replace a release.
 
+### 0.1.3 safety backport
+
+The `codex/0.1.3-safety` branch prepares 0.1.3 from the published `v0.1.2`
+commit, with the deletion-kind repair from [PR #11](https://github.com/GroveResearch/at_mcp/pull/11).
+That repair is already on `main`; the branch carries the same implementation.
+This temporary release branch keeps the safety correction separate from later
+changes, including the direct AppView read prototype. Its publication, if
+approved, tags the reviewed release-branch commit instead of `main`. Retire
+the branch after publication and continue development on `main`; it is not a
+second maintained implementation. Preparing this branch does not authorize
+publishing a tag or Hex package.
+
 ## Bootstrap a fresh public repository
 
 This is release preparation for maintainers. It does not publish anything by
