@@ -555,7 +555,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def unlike(session, like_uri) when is_binary(like_uri),
-    do: delete(session, like_uri, :unlike)
+    do: delete(session, like_uri, :unlike, :like)
 
   @impl true
   def repost(session, uri, cid) when is_binary(uri) and is_binary(cid) do
@@ -575,7 +575,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def unrepost(session, repost_uri) when is_binary(repost_uri),
-    do: delete(session, repost_uri, :unrepost)
+    do: delete(session, repost_uri, :unrepost, :repost)
 
   @impl true
   def follow(session, "did:" <> _ = did) do
@@ -587,7 +587,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def unfollow(session, follow_uri) when is_binary(follow_uri),
-    do: delete(session, follow_uri, :unfollow)
+    do: delete(session, follow_uri, :unfollow, :follow)
 
   @impl true
   def block(session, "did:" <> _ = did) do
@@ -599,7 +599,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def unblock(session, block_uri) when is_binary(block_uri),
-    do: delete(session, block_uri, :unblock)
+    do: delete(session, block_uri, :unblock, :block)
 
   # A mute is server-side state rather than a record, so it is a method call
   # and not a write to the repository.
@@ -621,7 +621,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def delete_post(session, post_uri) when is_binary(post_uri),
-    do: delete(session, post_uri, :delete_post)
+    do: delete(session, post_uri, :delete_post, :post)
 
   @impl true
   def update_profile(session, updates) when is_list(updates) do
@@ -672,11 +672,13 @@ defmodule AtMcp.Effects.ProtoRune do
     })
   end
 
-  # A delete names its own collection in the URI it was given. Nothing about it
-  # derives from the configured network: the record exists on whichever network
-  # the URI came from, and deleting it there is what the caller asked for.
-  defp delete(session, uri, action) do
+  # The URI selects the network, but the tool selects the record kind. An
+  # account may delete records from either supported network after reconfiguring;
+  # undoing a repost must never delete the original post instead. Repository
+  # ownership (including handle references) is still enforced by the home PDS.
+  defp delete(session, uri, action, kind) do
     with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri),
+         :ok <- require_record_kind(collection, kind, action),
          {:ok, _} <-
            AtMcp.ATProto.delete_record(session, %{
              repo: repo,
@@ -686,6 +688,19 @@ defmodule AtMcp.Effects.ProtoRune do
       {:ok, %{ok: true, uri: uri, action: action}}
     else
       {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  defp require_record_kind(collection, kind, action) do
+    if AtMcp.Network.collection?(collection, kind) do
+      :ok
+    else
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message:
+           "#{action} requires a #{kind} record URI from a supported network; nothing was sent",
+         detail: {:wrong_record_kind, kind, collection}
+       )}
     end
   end
 
