@@ -440,14 +440,14 @@ defmodule AtMcp.MCP.ReadPagesTest do
   # repeated key, so `others` cannot go through the declared-parameter path at
   # all. If it were sent as one value, the service would see one account.
   test "get_relationships asks about every account it was given", %{client: client} do
-    others = ["bob.example", "carol.example", "dave.example"]
+    others = ["did:plc:bob", "did:plc:carol", "did:plc:dave"]
 
     result =
       call(client, "get_relationships", %{"actor" => "reader.example", "others" => others})
 
     assert result["count"] == 3
     assert Enum.map(result["items"], & &1["did"]) == others
-    assert hd(result["items"])["following"] =~ "app.bsky.graph.follow/bob.example"
+    assert hd(result["items"])["following"] =~ "app.bsky.graph.follow/did:plc:bob"
     assert hd(result["items"])["followed_by"] == nil
     refute hd(result["items"])["not_found"]
 

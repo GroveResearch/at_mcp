@@ -108,6 +108,8 @@ One line per project ruling or load-bearing design decision. Each carries the da
 
 ## Dependencies
 
+- 2026-10-08 · settled (#13) · `get_relationships` resolves each handle in `others` to a DID before the AppView call, because that service resolves only `actor` and keys `others` by DID; a handle that does not resolve is `not_found` and names the handle. Retires when the AppView resolves `others` the same way. — `AtMcp.Effects.ProtoRune.get_relationships/3`; `test/at_mcp/actor_resolution_test.exs` "get_relationships resolves a handle in others and asks about the DID".
+
 - 2026-10-02 · settled (owner, #106) · `ex_mcp` comes unmodified from Hex. Kite keeps each output schema beside its tool; `Kite.MCP.DSL` advertises it and `Kite.MCP.Output` validates the completed response. A timeout or schema defect logs a diagnostic without replacing the action's result: validation cannot undo a write. Schema-contract tests explicitly reject mismatches. This removes Kite's need for the private output-validation patch; other consumers keep their own documented dependencies. The adapter retires when upstream supports this post-action policy. — `test/kite/write_outcome_test.exs`; `test/kite/mcp_tools_test.exs`; `test/kite/stdio_test.exs`.
 
 - 2026-10-02 · settled · `Kite.NativeLock` owns the native advisory lock formerly vendored from flock_ex 0.1.0, built with released Hex `elixir_make`. Resource-lifetime ownership, long paths, private close-on-exec descriptors and serialized cleanup remain required; state and private-file callers use one implementation. Derived code keeps Apache-2.0 attribution in `licenses/flock_ex`, included in releases. — `test/kite/native_lock_test.exs`; `test/kite/state_lock_test.exs`; `test/kite/account_edit_test.exs`.

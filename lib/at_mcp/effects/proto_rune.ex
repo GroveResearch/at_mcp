@@ -404,11 +404,80 @@ defmodule AtMcp.Effects.ProtoRune do
     |> read(:mutes, &summarize_profile/1)
   end
 
+  # The AppView resolves only `actor` and keys `others` by DID, so a handle
+  # there is never found. Resolve each entry here, the way a mention is
+  # resolved before a post is built, and send only DIDs. A handle that does
+  # not resolve stays in its place as `not_found`, named by the handle the
+  # caller passed. Retire this when that service resolves `others` the same way.
   @impl true
   def get_relationships(session, actor, others) when is_binary(actor) and is_list(others) do
-    session
-    |> AtMcp.ATProto.get_relationships(actor, others)
-    |> read(:relationships, &relationship_item/1)
+    with {:ok, resolved} <- resolve_others(session, others) do
+      case for {:ok, did} <- resolved, do: did do
+        [] ->
+          {:ok, relationship_page(Enum.map(resolved, &missing_relationship/1))}
+
+        dids ->
+          session
+          |> AtMcp.ATProto.get_relationships(actor, dids)
+          |> read(:relationships, &relationship_item/1)
+          |> align_relationships(resolved, dids)
+      end
+    end
+  end
+
+  defp resolve_others(session, others) do
+    others
+    |> Enum.reduce_while([], fn other, acc ->
+      case resolve_actor(session, other) do
+        {:ok, did} ->
+          {:cont, [{:ok, did} | acc]}
+
+        {:error, {:handle_not_resolved, handle}} ->
+          {:cont, [{:error, {:handle_not_resolved, handle}} | acc]}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      acc -> {:ok, Enum.reverse(acc)}
+    end
+  end
+
+  # The service's list is one entry per DID sent, in that order. A different
+  # length cannot be zipped back onto the accounts that were asked about: the
+  # one relationship left would be reported for the wrong account.
+  defp align_relationships({:ok, %{items: items} = page}, resolved, dids)
+       when length(items) == length(dids) do
+    zipped = zip_relationships(resolved, items)
+    {:ok, %{page | items: zipped, count: length(zipped)}}
+  end
+
+  defp align_relationships({:ok, page}, _resolved, _dids),
+    do: {:error, unreadable("a page of relationships", page)}
+
+  defp align_relationships({:error, _} = error, _resolved, _dids), do: error
+
+  defp zip_relationships(resolved, items) do
+    {zipped, []} =
+      Enum.map_reduce(resolved, items, fn
+        {:error, {:handle_not_resolved, _handle}} = missing, rest ->
+          {missing_relationship(missing), rest}
+
+        {:ok, _did}, [item | rest] ->
+          {item, rest}
+      end)
+
+    zipped
+  end
+
+  defp missing_relationship({:error, {:handle_not_resolved, handle}}) do
+    relationship_item(%{"did" => handle, "notFound" => true})
+  end
+
+  defp relationship_page(items) do
+    %{count: length(items), items: items, cursor: nil}
   end
 
   # --- engagement reads ---

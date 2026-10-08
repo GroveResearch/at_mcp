@@ -76,7 +76,38 @@ defmodule AtMcp.ActorResolutionTest do
     defp response("com.atproto.repo.createRecord", _conn, _resolve),
       do: {200, %{uri: "at://did:plc:self/town.delve.graph.follow/new", cid: "bafyreinew"}}
 
-    defp response(_method, _conn, _resolve), do: {200, %{}}
+    # Plug's decoded query map keeps one value of a repeated key. The raw query
+    # string is where every `others` entry is visible. `did:plc:short` is
+    # dropped so a short page can be told from one entry per account asked about.
+    defp response(method, conn, _resolve) do
+      if String.ends_with?(method, "graph.getRelationships") do
+        others =
+          conn.query_string
+          |> repeated("others")
+          |> Enum.reject(&(&1 == "did:plc:short"))
+
+        {200,
+         %{
+           relationships:
+             Enum.map(others, fn other ->
+               %{did: other, following: nil, followedBy: nil, notFound: false}
+             end)
+         }}
+      else
+        {200, %{}}
+      end
+    end
+
+    defp repeated(query, key) do
+      query
+      |> String.split("&")
+      |> Enum.flat_map(fn pair ->
+        case String.split(pair, "=", parts: 2) do
+          [^key, value] -> [URI.decode_www_form(value)]
+          _ -> []
+        end
+      end)
+    end
   end
 
   defp start(resolve \\ :ok) do
@@ -112,6 +143,19 @@ defmodule AtMcp.ActorResolutionTest do
   defp sent(calls, method), do: calls |> Agent.get(& &1) |> Enum.filter(&(&1.method == method))
 
   defp text(result), do: Enum.find(result.content, &(&1.type == "text")).text
+
+  # Plug keeps one value for a repeated key. The raw query string is the only
+  # place every `others` value is visible.
+  defp repeated(raw, key) do
+    raw
+    |> String.split("&")
+    |> Enum.flat_map(fn pair ->
+      case String.split(pair, "=", parts: 2) do
+        [^key, value] -> [URI.decode_www_form(value)]
+        _ -> []
+      end
+    end)
+  end
 
   # Each write that names its subject, with (the end of) the method of the
   # request that carries the subject, and where the subject sits in it.
@@ -222,6 +266,169 @@ defmodule AtMcp.ActorResolutionTest do
     refute text(result) =~ "may have completed"
     assert AtMcp.Effects.quota_status(effects).used == used
     assert sent(calls, "com.atproto.repo.createRecord") == []
+  end
+
+  # The AppView resolves `actor` and then looks `others` up by DID. A handle in
+  # `others` has to be resolved here, or the service reports an account that
+  # exists as not found.
+  test "get_relationships resolves a handle in others and asks about the DID" do
+    %{calls: calls, state: state} = start()
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => ["@alice.example", "did:plc:bob"]},
+               state
+             )
+
+    refute result[:isError]
+
+    assert [%{query: %{"handle" => "alice.example"}}] =
+             sent(calls, "com.atproto.identity.resolveHandle")
+
+    assert [request] = writes(calls, "graph.getRelationships")
+    assert request.query["actor"] == "carol.example"
+    assert repeated(request.raw, "others") == ["did:plc:alice", "did:plc:bob"]
+
+    assert result.structuredContent["count"] == 2
+
+    assert Enum.map(result.structuredContent["items"], & &1["did"]) ==
+             ["did:plc:alice", "did:plc:bob"]
+
+    assert Enum.map(result.structuredContent["items"], & &1["not_found"]) == [false, false]
+  end
+
+  test "a handle in others the service cannot resolve is not_found beside the accounts it can" do
+    %{calls: calls, state: state} = start()
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => ["gone.example", "did:plc:bob"]},
+               state
+             )
+
+    refute result[:isError]
+    assert [missing, found] = result.structuredContent["items"]
+    assert missing["not_found"]
+    assert missing["did"] == "gone.example"
+    assert missing["following"] == nil
+    assert missing["followed_by"] == nil
+    assert found["did"] == "did:plc:bob"
+    refute found["not_found"]
+
+    assert [request] = writes(calls, "graph.getRelationships")
+    assert repeated(request.raw, "others") == ["did:plc:bob"]
+  end
+
+  test "get_relationships of only unresolved handles is not_found and asks for no relationships" do
+    %{calls: calls, state: state} = start()
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{
+                 "actor" => "carol.example",
+                 "others" => ["gone.example", "nobody.example"]
+               },
+               state
+             )
+
+    refute result[:isError]
+
+    assert Enum.map(result.structuredContent["items"], & &1["did"]) ==
+             ["gone.example", "nobody.example"]
+
+    assert Enum.all?(result.structuredContent["items"], & &1["not_found"])
+    assert writes(calls, "graph.getRelationships") == []
+  end
+
+  test "something in others that is not a handle is not_found without a resolution read" do
+    %{calls: calls, state: state} = start()
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => ["not a handle", "did:plc:bob"]},
+               state
+             )
+
+    refute result[:isError]
+    assert sent(calls, "com.atproto.identity.resolveHandle") == []
+    assert [missing, found] = result.structuredContent["items"]
+    assert missing["not_found"]
+    assert missing["did"] == "not a handle"
+    assert found["did"] == "did:plc:bob"
+
+    assert [request] = writes(calls, "graph.getRelationships")
+    assert repeated(request.raw, "others") == ["did:plc:bob"]
+  end
+
+  test "DIDs in others are sent as given, without a resolution read" do
+    %{calls: calls, state: state} = start()
+    others = ["did:plc:bob", "did:plc:carol"]
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => others},
+               state
+             )
+
+    refute result[:isError]
+    assert sent(calls, "com.atproto.identity.resolveHandle") == []
+    assert Enum.map(result.structuredContent["items"], & &1["did"]) == others
+
+    assert [request] = writes(calls, "graph.getRelationships")
+    assert repeated(request.raw, "others") == others
+  end
+
+  test "a rate-limited resolution of others keeps its own kind and asks for no relationships" do
+    %{calls: calls, state: state} = start()
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => ["limited.example", "did:plc:bob"]},
+               state
+             )
+
+    assert result[:isError]
+    assert result.structuredContent.code == "upstream_rate_limited"
+    assert result.structuredContent.http_status == 429
+    assert writes(calls, "graph.getRelationships") == []
+  end
+
+  test "a service that fails resolving a handle in others is not a missing account" do
+    %{calls: calls, state: state} = start(:down)
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => ["alice.example"]},
+               state
+             )
+
+    # The handle may be fine; the service is not. Reporting it not_found would
+    # send an agent to change the handle when it should wait.
+    assert result[:isError]
+    assert result.structuredContent.code == "upstream_unavailable"
+    refute text(result) =~ "not_found"
+    assert writes(calls, "graph.getRelationships") == []
+  end
+
+  test "a relationships answer shorter than the accounts asked about is unreadable" do
+    %{state: state} = start()
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_relationships",
+               %{"actor" => "carol.example", "others" => ["did:plc:bob", "did:plc:short"]},
+               state
+             )
+
+    assert result[:isError]
+    assert result.structuredContent.code == "response_unreadable"
   end
 
   test "a DID is used as given, without a resolution read" do
