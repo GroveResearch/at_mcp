@@ -14,6 +14,13 @@ defmodule AtMcp.MCP.Tools do
           "Membership status is available through the Delvetown backend. This connection does not support it; no request was sent."
         )
 
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:wrong_record_kind, _, _}} = failure},
+        state
+      ),
+      do: error(state, "wrong_record_kind", failure.message)
+
   def respond({:error, :not_connected}, state),
     do:
       error(

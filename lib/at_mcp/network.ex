@@ -210,6 +210,14 @@ defmodule AtMcp.Network do
   def collection(kind) when is_map_key(@collections, kind),
     do: nsid(Map.fetch!(@collections, kind))
 
+  @doc "Whether a collection names this record kind on any supported network."
+  @spec collection?(String.t(), atom()) :: boolean()
+  def collection?(collection, kind) when is_map_key(@collections, kind) do
+    Enum.any?(@networks, fn {_name, network} ->
+      collection == network.namespace <> "." <> Map.fetch!(@collections, kind)
+    end)
+  end
+
   @doc "A web permalink for a post on this network; the AT URI stays canonical."
   def post_url("at://" <> rest) do
     case String.split(rest, "/") do

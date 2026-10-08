@@ -213,6 +213,81 @@ defmodule AtMcp.WriteRecordsTest do
       assert deleted.body["repo"] == "did:plc:self"
     end
 
+    @deletions [
+      delete_post: "feed.post",
+      unlike: "feed.like",
+      unrepost: "feed.repost",
+      unfollow: "graph.follow",
+      unblock: "graph.block"
+    ]
+
+    for {action, suffix} <- @deletions do
+      test "#{action} refuses every other record kind before HTTP, including through MCP", ctx do
+        action = unquote(action)
+        suffix = unquote(suffix)
+        effects = post_effects(ctx.session)
+        state = %{effects: effects}
+
+        wrong_collections =
+          for namespace <- ["app.bsky", "town.delve"],
+              {_other_action, other_suffix} <- @deletions,
+              other_suffix != suffix,
+              do: namespace <> "." <> other_suffix
+
+        for collection <- wrong_collections ++ ["evil.example." <> suffix] do
+          uri = "at://did:plc:self/#{collection}/abc"
+
+          assert {:ok, result, ^state} =
+                   AtMcp.MCP.Server.handle_call_tool(
+                     Atom.to_string(action),
+                     %{"uri" => uri},
+                     state
+                   )
+
+          assert result[:isError]
+
+          assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} =
+                   apply(AtMcp.Effects.ProtoRune, action, [ctx.session, uri])
+
+          assert message =~ "record"
+          assert result.structuredContent == %{code: "wrong_record_kind"}
+          assert Enum.find(result.content, &(&1.type == "text")).text == message
+          assert message =~ "nothing was sent"
+          refute Enum.find(result.content, &(&1.type == "text")).text =~ "may have completed"
+
+          refute Map.has_key?(result.structuredContent, :outcome)
+          assert Agent.get(ctx.calls, & &1) == []
+          assert AtMcp.Effects.quota_status(effects).used == 0
+        end
+      end
+
+      test "#{action} retains both supported networks and handle repository references", ctx do
+        for configured <- [:bluesky, :delve],
+            namespace <- ["app.bsky", "town.delve"],
+            repo <- ["did:plc:self", "self.example"] do
+          Application.put_env(:at_mcp, :network, configured)
+          collection = namespace <> "." <> unquote(suffix)
+          uri = "at://#{repo}/#{collection}/abc"
+          action = unquote(action)
+
+          assert {:ok, %{action: ^action, uri: ^uri}} =
+                   apply(AtMcp.Effects.ProtoRune, action, [ctx.session, uri])
+
+          deleted = ctx.calls |> sent("com.atproto.repo.deleteRecord") |> List.last()
+          assert deleted.body == %{"collection" => collection, "repo" => repo, "rkey" => "abc"}
+        end
+      end
+
+      test "#{action} refuses malformed references without HTTP", ctx do
+        for uri <- ["not-a-uri", "at://", "at://did:plc:self", "at://did:plc:self/c/"] do
+          assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
+                   apply(AtMcp.Effects.ProtoRune, unquote(action), [ctx.session, uri])
+        end
+
+        assert Agent.get(ctx.calls, & &1) == []
+      end
+    end
+
     test "a malformed AT URI is refused before anything is sent", %{
       calls: calls,
       session: session
