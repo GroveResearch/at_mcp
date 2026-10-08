@@ -103,6 +103,8 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro identity_status, do: Macro.escape(identity_status_schema())
 
+  defmacro post_images, do: Macro.escape(post_images_schema())
+
   @error_properties %{
     "code" => %{
       "type" => "string",
@@ -317,6 +319,40 @@ defmodule AtMcp.MCP.Schemas do
       }
     })
     |> promising(["logged_in", "login_count"])
+  end
+
+  # The text block of `get_post_images`: every image on the post, by index,
+  # whether or not its picture follows as image content.
+  defp post_images_schema do
+    object(%{
+      "uri" => nullable_string("AT URI of the post"),
+      "count" => %{"type" => "integer", "description" => "Images attached to the post"},
+      "images" => %{
+        "type" => "array",
+        "items" => %{
+          "type" => "object",
+          "properties" => %{
+            "index" => %{"type" => "integer", "description" => "Position in the post, from 1"},
+            "alt" => %{
+              "type" => "string",
+              "description" => "The image's alt text; empty when the author wrote none"
+            },
+            "status" => %{
+              "type" => "string",
+              "description" =>
+                "attached: its image content follows, in index order; unavailable: see reason"
+            },
+            "mime_type" => nullable_string("MIME type of the attached image"),
+            "bytes" => %{
+              "type" => ["integer", "null"],
+              "description" => "Size of the attached image"
+            },
+            "reason" => nullable_string("Why an unavailable image is not attached")
+          }
+        }
+      }
+    })
+    |> promising(["count", "images"])
   end
 
   defp page(item_schema) do

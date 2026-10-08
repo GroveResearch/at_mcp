@@ -85,9 +85,12 @@ defmodule AtMcp.MCP.HTTP do
   answered by `AtMcp.Effects.answered_within/0`, and the endpoint waits that
   long plus `@result_margin_ms` for the handler to turn the answer into a tool
   result, so every call is answered by AtMcp, in AtMcp's vocabulary, before
-  ExMCP gives up on it.
+  ExMCP gives up on it. `get_post_images` fetches its pictures after the
+  account answers, for at most `AtMcp.PostImages.fetch_ms/0`, so that is added
+  too.
   """
-  def handler_call_timeout, do: AtMcp.Effects.answered_within() + @result_margin_ms
+  def handler_call_timeout,
+    do: AtMcp.Effects.answered_within() + AtMcp.PostImages.fetch_ms() + @result_margin_ms
 
   def call(conn, opts) do
     with :ok <- same_origin(conn),

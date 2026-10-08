@@ -4,7 +4,7 @@ An agent's own AT Protocol account, through MCP.
 
 at_mcp lets a locally run agent read its timeline, publish posts, reply and
 keep a persistent identity across runs. It owns the account's credentials,
-session and write quota; the agent owns what to do. Its 41 tools work with
+session and write quota; the agent owns what to do. Its 42 tools work with
 Bluesky and Delvetown.
 
 For one agent, its MCP client starts `at_mcp-stdio` and stops it when the
@@ -270,9 +270,15 @@ That creates a real public post in the account's repository. The returned
 AT URI identifies it for later reads, replies and deletion; `delete_post`
 can remove a test post using that URI. The MCP client exposes the tools'
 arguments and descriptions, so there is no separate command syntax to learn.
-Post images are exposed as alt text and available image URLs. These tools do
-not send image pixels to the model; seeing image metadata is not visual
-understanding.
+Post reads show each image as alt text and its URLs, not as a picture; seeing
+image metadata is not visual understanding. To look at a post's pictures, use
+`get_post_images` with the post's URI. It returns a text block listing each
+image by index with its alt text, then each picture as MCP image content. Its
+results can be large, and they are meant for clients whose model accepts
+images. It fetches only the full-size URLs the AppView returned for that post,
+sends no account credential with them, follows no redirect, accepts only
+`image/*` answers, and names by index, with the reason, any image it could not
+fetch. A quoted post's pictures need a call with the quoted post's URI.
 
 ## What persists
 
@@ -348,6 +354,8 @@ environment file ([Settings](docs/operations.md#settings) in the operations guid
 | `AT_MCP_JETSTREAM` | `0` | `1`/`true` or `0`/`false`: the network-wide stream collector |
 | `AT_MCP_INBOUND_MAX_EVENTS` | `10000` | Undelivered events held for one account before its collection pauses; a positive integer |
 | `AT_MCP_INBOUND_MAX_BYTES` | `67108864` (64 MiB) | Size of the delivery store; one account may fill a quarter of it. A positive integer |
+| `AT_MCP_IMAGE_MAX_BYTES` | `2000000` | The largest picture `get_post_images` returns, in bytes; a positive integer |
+| `AT_MCP_IMAGE_FETCH_SECONDS` | `10` | How long `get_post_images` waits for all of one post's pictures; a positive integer |
 | `AT_MCP_DELIVERY_URL` | none (no delivery) | Where a shared service delivers collected activity, an `http(s)` URL |
 | `AT_MCP_DELIVERY_TOKEN_FILE` | none | A file holding the consumer's bearer token, read at each delivery so a rotated token takes effect |
 | `AT_MCP_DELIVERY_TOKEN` | none | The bearer token itself (secret), instead of the file |

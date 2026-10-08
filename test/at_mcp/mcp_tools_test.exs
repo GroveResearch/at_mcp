@@ -147,6 +147,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"get_thread_chain", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"get_posts", %{"uris" => ["at://did:plc:mock/app.bsky.feed.post/1"]}},
+    {"get_post_images", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"get_profile", %{}},
     {"get_profiles", %{"actors" => ["alice.test"]}},
     {"search_posts", %{"query" => "at_mcp"}},
