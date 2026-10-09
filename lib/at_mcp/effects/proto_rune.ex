@@ -336,12 +336,20 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def search_posts(session, query, opts) when is_binary(query) do
-    limit = Keyword.get(opts, :limit, 20)
+    params =
+      AtMcp.ATProto.params(%{
+        q: query,
+        limit: Keyword.get(opts, :limit, 20),
+        cursor: Keyword.get(opts, :cursor),
+        sort: Keyword.get(opts, :sort),
+        since: Keyword.get(opts, :since),
+        until: Keyword.get(opts, :until),
+        mentions: Keyword.get(opts, :mentions),
+        author: Keyword.get(opts, :author),
+        lang: Keyword.get(opts, :lang)
+      })
 
-    case AtMcp.ATProto.search_posts(
-           session,
-           AtMcp.ATProto.params(%{q: query, limit: limit, cursor: Keyword.get(opts, :cursor)})
-         ) do
+    case AtMcp.ATProto.search_posts(session, params) do
       {:ok, raw} -> page(raw, :posts, &post_view/1)
       {:error, reason} -> {:error, failure(reason)}
     end

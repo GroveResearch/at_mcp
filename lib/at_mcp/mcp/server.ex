@@ -192,7 +192,8 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "search_posts", "Search public posts on this network by query string." do
+  tool "search_posts",
+       "Search public posts on this network by query string. Optional author, mentions, sort, since, until and lang narrow the same search; they are not a second query language." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.post_page())
     param(:query, :string, required: true, description: "Search query")
@@ -201,13 +202,38 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:author, :string, description: "Handle or DID; only posts by this account")
+
+    param(:mentions, :string, description: "Handle or DID; only posts that mention this account")
+
+    param(:sort, :string,
+      description: "latest or top. Omit for the service default.",
+      schema: %{type: "string", enum: ["latest", "top"]}
+    )
+
+    param(:since, :string,
+      description: "ISO 8601 timestamp; only posts indexed after this instant"
+    )
+
+    param(:until, :string,
+      description: "ISO 8601 timestamp; only posts indexed before this instant"
+    )
+
+    param(:lang, :string, description: "BCP-47 language tag, e.g. en")
+
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.search_posts(e, Map.fetch!(a, :query),
           limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
+          cursor: Map.get(a, :cursor),
+          author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
+          mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
+          sort: Map.get(a, :sort),
+          since: Map.get(a, :since),
+          until: Map.get(a, :until),
+          lang: Map.get(a, :lang)
         ),
         state
       )

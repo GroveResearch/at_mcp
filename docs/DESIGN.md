@@ -120,6 +120,12 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
 | Account | `identity_status` |
 
+`search_posts` takes the query string and, optionally, `author`, `mentions`,
+`sort` (`latest` or `top`), `since`, `until` and `lang`. Those filters are
+sent as the search method's own parameters; a leading `@` on a handle is
+stripped the way it is on every other actor argument. A sort that is not
+`latest` or `top` is refused before a session is taken.
+
 `post` and `reply` take `images` (base64 bytes or a file path, a MIME type and
 alt text, uploaded as blobs before the record is built), `quote` (an AT URI, whose CID
 AtMcp reads off the record it names) and `langs`. A post with both images and a

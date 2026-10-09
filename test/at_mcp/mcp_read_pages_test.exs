@@ -216,6 +216,35 @@ defmodule AtMcp.MCP.ReadPagesTest do
     refute item.is_read
   end
 
+  test "search_posts sends author, mentions, sort, since, until and lang on the wire", %{
+    client: client
+  } do
+    result =
+      call(client, "search_posts", %{
+        "query" => "at_mcp",
+        "author" => "@writer.example",
+        "mentions" => "@reader.example",
+        "sort" => "latest",
+        "since" => "2026-09-01T00:00:00Z",
+        "until" => "2026-10-01T00:00:00Z",
+        "lang" => "en",
+        "limit" => 30
+      })
+
+    assert result["count"] == 30
+    assert_receive {:wire, "/xrpc/app.bsky.feed.searchPosts", wire, _headers}
+    pairs = URI.query_decoder(wire) |> Enum.to_list()
+    assert {"q", "at_mcp"} in pairs
+    assert {"author", "writer.example"} in pairs
+    assert {"mentions", "reader.example"} in pairs
+    assert {"sort", "latest"} in pairs
+    assert {"since", "2026-09-01T00:00:00Z"} in pairs
+    assert {"until", "2026-10-01T00:00:00Z"} in pairs
+    assert {"lang", "en"} in pairs
+    refute List.keymember?(pairs, "cursor", 0)
+    refute Enum.any?(pairs, fn {_key, value} -> String.contains?(value, "@") end)
+  end
+
   test "ordinary MCP traverses complete remote pages without losing items or opaque cursors", %{
     client: client
   } do

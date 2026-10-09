@@ -294,9 +294,15 @@
     },
     "search_posts": {
       "arguments": {
+        "author": "string",
         "cursor": "string",
+        "lang": "string",
         "limit": "integer",
-        "query": "string"
+        "mentions": "string",
+        "query": "string",
+        "since": "string",
+        "sort": "string",
+        "until": "string"
       },
       "required": [
         "query"

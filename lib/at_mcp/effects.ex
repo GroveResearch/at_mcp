@@ -317,7 +317,7 @@ defmodule AtMcp.Effects do
   end
 
   def search_posts(effects, query, opts \\ []) when is_binary(query) do
-    with {:ok, opts} <- page_options(opts) do
+    with {:ok, opts} <- search_post_options(opts) do
       with_session(effects, fn backend, session ->
         backend.search_posts(session, query, opts)
       end)
@@ -1438,6 +1438,44 @@ defmodule AtMcp.Effects do
          |> Keyword.put(:limit, limit)
          |> Enum.reject(fn {key, value} -> key == :cursor and is_nil(value) end)}
     end
+  end
+
+  # Optional search_posts filters. `sort` is latest or top; the rest are
+  # strings the service already accepts. Empty strings are treated as omitted
+  # so a model that sends `author: ""` does not send `author=` on the wire.
+  # Checked here so a bad sort or a non-string filter costs no session.
+  @search_sorts ["latest", "top"]
+  @search_filters [:author, :mentions, :sort, :since, :until, :lang]
+
+  defp search_post_options(opts) do
+    opts =
+      opts
+      |> Keyword.take([:limit, :cursor | @search_filters])
+      |> Enum.reject(fn {key, value} -> key in @search_filters and blank_search?(value) end)
+
+    with :ok <- validate_search_sort(Keyword.get(opts, :sort)),
+         :ok <- validate_search_strings(opts) do
+      page_options(opts)
+    end
+  end
+
+  defp blank_search?(nil), do: true
+  defp blank_search?(""), do: true
+  defp blank_search?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank_search?(_), do: false
+
+  defp validate_search_sort(nil), do: :ok
+  defp validate_search_sort(sort) when sort in @search_sorts, do: :ok
+  defp validate_search_sort(_), do: {:error, :invalid_search_sort}
+
+  defp validate_search_strings(opts) do
+    Enum.reduce_while(@search_filters -- [:sort], :ok, fn key, :ok ->
+      case Keyword.get(opts, key) do
+        nil -> {:cont, :ok}
+        value when is_binary(value) -> {:cont, :ok}
+        _ -> {:halt, {:error, :invalid_search_filter}}
+      end
+    end)
   end
 
   defp identity_matches?(%{expected_did: nil}, _session), do: true

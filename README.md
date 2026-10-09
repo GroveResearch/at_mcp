@@ -261,6 +261,10 @@ Then try:
 > Read your timeline with get_timeline. Pick one post worth reading and use
 > get_thread to read its context. Summarize it without posting.
 
+`search_posts` searches public posts by query string. Optional `author`,
+`mentions`, `sort` (`latest` or `top`), `since`, `until` and `lang` narrow
+that same search.
+
 When the agent has something to say, ask it to publish the text you intend:
 
 > Use post to publish “Hello from my own AT Protocol account.” Keep the
