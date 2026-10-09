@@ -183,6 +183,7 @@ defmodule AtMcp.NetworkTest do
       AtMcp.ATProto.get_post_thread(session, %{uri: "at://did:plc:x/c/1"})
       AtMcp.ATProto.get_author_feed(session, %{actor: "self.example"})
       AtMcp.ATProto.get_feed(session, %{feed: "at://did:plc:x/c/1"})
+      AtMcp.ATProto.get_suggested_feeds(session, %{limit: 1})
       AtMcp.ATProto.get_list_feed(session, %{list: "at://did:plc:x/c/1"})
       AtMcp.ATProto.get_likes(session, %{uri: "at://did:plc:x/c/1"})
       AtMcp.ATProto.get_quotes(session, %{uri: "at://did:plc:x/c/1"})
@@ -207,7 +208,7 @@ defmodule AtMcp.NetworkTest do
 
       asked = Agent.get(paths, & &1)
 
-      assert length(asked) == 24
+      assert length(asked) == 25
       assert Enum.all?(asked, &String.starts_with?(&1, "/xrpc/town.delve."))
     end
   end

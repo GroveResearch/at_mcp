@@ -37,6 +37,8 @@ defmodule AtMcp.EffectsTest do
              AtMcp.Effects.get_posts(effects, ["at://did:plc:x/app.bsky.feed.post/1"])
 
     assert {:ok, %{query: "elixir"}} = AtMcp.Effects.search_posts(effects, "elixir")
+    assert {:ok, %{count: 1, items: [%{uri: uri}]}} = AtMcp.Effects.get_suggested_feeds(effects)
+    assert uri =~ "feed.generator"
     assert {:ok, %{query: "alice"}} = AtMcp.Effects.search_actors(effects, "alice")
     assert {:ok, %{count: 1}} = AtMcp.Effects.get_unread_count(effects)
     assert {:ok, %{count: 0}} = AtMcp.Effects.get_timeline(effects)

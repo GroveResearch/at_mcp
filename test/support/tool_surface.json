@@ -190,6 +190,13 @@
         "uri"
       ]
     },
+    "get_suggested_feeds": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
     "get_suggested_follows": {
       "arguments": {
         "actor": "string"

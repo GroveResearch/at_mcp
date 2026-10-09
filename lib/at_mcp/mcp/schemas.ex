@@ -85,6 +85,8 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_page, do: Macro.escape(page(profile_view_schema()))
 
+  defmacro generator_page, do: Macro.escape(page(record(:generator)))
+
   defmacro notification_page, do: Macro.escape(notification_page_schema())
 
   defmacro relationship_page, do: Macro.escape(relationship_page_schema())

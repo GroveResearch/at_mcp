@@ -112,6 +112,8 @@ defmodule AtMcp.Effects.Backend do
   # Feeds other than the home timeline.
   @callback get_feed(state(), feed :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
+  @callback get_suggested_feeds(state(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
   @callback get_list_feed(state(), list :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
 

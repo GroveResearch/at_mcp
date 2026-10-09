@@ -138,6 +138,22 @@ defmodule AtMcp.Summary do
       ],
       viewer: [:following, :blocking]
     },
+    generator: %{
+      fields: [
+        {:uri, :string, [["uri"]], "AT URI of the feed generator record"},
+        {:cid, :string, [["cid"]], "CID of the feed generator record"},
+        {:did, :string, [["did"]], "DID of the feed generator service"},
+        {:display_name, :string, [["display_name"], ["displayName"]], "Feed display name"},
+        {:description, :string, [["description"]], "Feed description"},
+        {:creator, :string, [["creator", "handle"]], "Creator handle"},
+        {:creator_did, :string, [["creator", "did"]], "Creator DID"},
+        {:like_count, :integer, [["like_count"], ["likeCount"]],
+         "How many accounts like this feed"},
+        {:indexed_at, :string, [["indexed_at"], ["indexedAt"]],
+         "When the service indexed this generator, as an ISO 8601 timestamp"}
+      ],
+      viewer: [:like]
+    },
     relationship: %{
       fields: [
         {:did, :string, [["did"]], "The other account's DID"},

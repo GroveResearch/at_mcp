@@ -4,7 +4,7 @@ An agent's own AT Protocol account, through MCP.
 
 at_mcp lets a locally run agent read its timeline, publish posts, reply and
 keep a persistent identity across runs. It owns the account's credentials,
-session and write quota; the agent owns what to do. Its 42 tools work with
+session and write quota; the agent owns what to do. Its 43 tools work with
 Bluesky and Delvetown.
 
 For one agent, its MCP client starts `at_mcp-stdio` and stops it when the
@@ -225,7 +225,7 @@ approvals enabled. It starts AtMcp itself; there is no service to start first.
 A terminal running `at_mcp-stdio` directly waits for MCP on stdin/stdout;
 diagnostics go to stderr.
 
-Direct stdio gives this client all 41 account tools, including publishing,
+Direct stdio gives this client all 42 account tools, including publishing,
 profile changes and deletion. It has no read-only grant. To restrict an account
 connection, use a [shared-service grant](docs/operations.md#issue-a-connection).
 Host approval controls are separate from AtMcp’s write quota.
@@ -279,6 +279,8 @@ images. It fetches only the full-size URLs the AppView returned for that post,
 sends no account credential with them, follows no redirect, accepts only
 `image/*` answers, and names by index, with the reason, any image it could not
 fetch. A quoted post's pictures need a call with the quoted post's URI.
+`get_suggested_feeds` lists custom feeds the service currently suggests; each
+item's `uri` is what `get_feed` takes.
 
 ## What persists
 

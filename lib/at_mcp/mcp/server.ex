@@ -509,6 +509,28 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "get_suggested_feeds",
+       "List custom feeds the service currently suggests. Each item's uri is what get_feed takes." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.generator_page())
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("results"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      e = state.effects
+
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_suggested_feeds(e,
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state
+      )
+    end)
+  end
+
   tool "get_list_feed", "Read the posts of the accounts on one list, by the list's AT URI." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.post_page())
