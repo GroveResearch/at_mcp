@@ -73,6 +73,12 @@ defmodule AtMcp.ATProto do
   def get_feed(session, params),
     do: read(session, "feed.getFeed", params, [feed: {:required, :string}] ++ @page)
 
+  # Feeds the service currently suggests. The URI on each item is what
+  # `get_feed` takes; without this, a caller can read a custom feed only when
+  # it already has that URI.
+  def get_suggested_feeds(session, params),
+    do: read(session, "feed.getSuggestedFeeds", params, @page)
+
   # The posts of the accounts on one list.
   def get_list_feed(session, params),
     do: read(session, "feed.getListFeed", params, [list: {:required, :string}] ++ @page)

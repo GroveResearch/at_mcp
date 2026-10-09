@@ -164,6 +164,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_quotes", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"get_actor_likes", %{"actor" => "alice.test"}},
     {"get_feed", %{"feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
+    {"get_suggested_feeds", %{}},
     {"get_list_feed", %{"list" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
     {"post", %{"text" => "café 日本語 🪁"}},
     {"reply", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "text" => "reply"}},
@@ -246,6 +247,8 @@ defmodule AtMcp.MCP.ToolsTest do
         ] do
       assert Map.has_key?(items.(name), "author_did"), "#{name} does not describe posts"
     end
+
+    assert Map.has_key?(items.("get_suggested_feeds"), "creator_did")
 
     for name <- [
           "get_profiles",

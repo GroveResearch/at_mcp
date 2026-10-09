@@ -214,6 +214,11 @@ defmodule AtMcp.Test.MockBackend do
   def get_feed(_state, feed, opts), do: {:ok, post_page(feed, opts)}
 
   @impl true
+  def get_suggested_feeds(_state, opts) do
+    {:ok, generator_page("at://did:plc:mock/app.bsky.feed.generator/whats-hot", opts)}
+  end
+
+  @impl true
   def get_list_feed(_state, list, opts), do: {:ok, post_page(list, opts)}
 
   defp actor_page(actor, opts) do
@@ -234,6 +239,27 @@ defmodule AtMcp.Test.MockBackend do
           cid: "bafyPOST",
           text: "about #{subject}",
           author: "alice.bsky.social"
+        }
+      ],
+      cursor: nil,
+      limit: Keyword.get(opts, :limit, 20)
+    }
+  end
+
+  defp generator_page(uri, opts) do
+    %{
+      count: 1,
+      items: [
+        %{
+          uri: uri,
+          cid: "bafyGEN",
+          did: "did:web:feeds.example",
+          display_name: "What's hot",
+          description: "suggested #{uri}",
+          creator: "alice.bsky.social",
+          creator_did: "did:plc:alice",
+          like_count: 3,
+          indexed_at: "2026-09-13T12:34:56.123Z"
         }
       ],
       cursor: nil,

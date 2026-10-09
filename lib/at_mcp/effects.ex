@@ -404,6 +404,12 @@ defmodule AtMcp.Effects do
     paged(effects, opts, fn backend, session, opts -> backend.get_feed(session, feed, opts) end)
   end
 
+  def get_suggested_feeds(effects, opts \\ []) do
+    paged(effects, opts, fn backend, session, opts ->
+      backend.get_suggested_feeds(session, opts)
+    end)
+  end
+
   def get_list_feed(effects, list, opts \\ []) when is_binary(list) do
     paged(effects, opts, fn backend, session, opts ->
       backend.get_list_feed(session, list, opts)

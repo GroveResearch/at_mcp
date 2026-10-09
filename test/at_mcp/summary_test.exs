@@ -61,6 +61,17 @@ defmodule AtMcp.SummaryTest do
       "postsCount" => 1,
       "viewer" => %{"following" => "at://did:plc:viewer/app.bsky.graph.follow/1"}
     },
+    generator: %{
+      "uri" => "at://did:plc:author/app.bsky.feed.generator/hot",
+      "cid" => "bafygen",
+      "did" => "did:web:feeds.example",
+      "displayName" => "What's hot",
+      "description" => "posts the service currently surfaces",
+      "creator" => %{"handle" => "author.test", "did" => "did:plc:author"},
+      "likeCount" => 12,
+      "indexedAt" => "2026-09-13T12:34:56.123Z",
+      "viewer" => %{"like" => "at://did:plc:viewer/app.bsky.feed.like/1"}
+    },
     relationship: %{
       "did" => "did:plc:other",
       "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",

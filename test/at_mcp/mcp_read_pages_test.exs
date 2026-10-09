@@ -83,6 +83,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
                 String.ends_with?(uri.path, "getBlocks") -> :blocks
                 String.ends_with?(uri.path, "getMutes") -> :mutes
                 String.ends_with?(uri.path, "getSuggestedFollowsByActor") -> :suggestions
+                String.ends_with?(uri.path, "getSuggestedFeeds") -> :feeds
                 String.ends_with?(uri.path, "getRepostedBy") -> :repostedBy
                 String.ends_with?(uri.path, "getLikes") -> :likes
                 true -> :feed
@@ -120,6 +121,9 @@ defmodule AtMcp.MCP.ReadPagesTest do
                 :posts ->
                   items
 
+                :feeds ->
+                  Enum.map(if(first, do: 1..30, else: 31..32), &generator/1)
+
                 # A like is a record about an account, not the account.
                 :likes ->
                   Enum.map(profiles, &%{actor: &1, createdAt: "1970-01-01T00:00:00Z"})
@@ -147,6 +151,19 @@ defmodule AtMcp.MCP.ReadPagesTest do
         cid: "cid#{n}",
         record: %{text: String.duplicate("🪁日本語é", 60)},
         author: %{did: "did:plc:author#{n}", handle: "author#{n}.example"}
+      }
+
+    defp generator(n),
+      do: %{
+        uri: "at://did:plc:gen/app.bsky.feed.generator/feed#{n}",
+        cid: "cid#{n}",
+        did: "did:web:feed#{n}.example",
+        displayName: "Feed #{n}",
+        description: String.duplicate("🪁日本語é", 60),
+        creator: %{did: "did:plc:author#{n}", handle: "author#{n}.example"},
+        likeCount: n,
+        indexedAt: "2026-09-13T12:34:56.123Z",
+        viewer: %{like: "at://did:plc:reader/app.bsky.feed.like/cid#{n}"}
       }
   end
 
@@ -379,6 +396,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
     {"get_actor_likes", %{"actor" => "reader.example"}, "app.bsky.feed.getActorLikes", :post},
     {"get_feed", %{"feed" => "at://did:plc:gen/app.bsky.feed.generator/hot"},
      "app.bsky.feed.getFeed", :post},
+    {"get_suggested_feeds", %{}, "app.bsky.feed.getSuggestedFeeds", :generator},
     {"get_list_feed", %{"list" => "at://did:plc:list/app.bsky.graph.list/friends"},
      "app.bsky.feed.getListFeed", :post}
   ]
@@ -408,6 +426,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
         case kind do
           :profile -> "handle"
           :post -> "uri"
+          :generator -> "uri"
         end
 
       assert Enum.all?(items, &is_binary(&1[identity])),
@@ -460,6 +479,19 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert result["count"] == 30
     assert hd(result["items"])["handle"] == "author1.example"
     assert_receive {:request, "/xrpc/app.bsky.graph.getSuggestedFollowsByActor", %{"actor" => _}}
+  end
+
+  test "suggested feeds are read from the service's generator list", %{client: client} do
+    result = call(client, "get_suggested_feeds", %{"limit" => 30})
+    assert result["count"] == 30
+    feed = hd(result["items"])
+    assert feed["uri"] == "at://did:plc:gen/app.bsky.feed.generator/feed1"
+    assert feed["display_name"] == "Feed 1"
+    assert feed["creator"] == "author1.example"
+    assert feed["creator_did"] == "did:plc:author1"
+    assert feed["like_count"] == 1
+    assert feed["viewer"]["like"] == "at://did:plc:reader/app.bsky.feed.like/cid1"
+    assert_receive {:request, "/xrpc/app.bsky.feed.getSuggestedFeeds", %{"limit" => "30"}}
   end
 
   # Peri keeps a key whose value is nil, and `URI.encode_query/1` then sends

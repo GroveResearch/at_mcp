@@ -522,6 +522,13 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   @impl true
+  def get_suggested_feeds(session, opts) do
+    session
+    |> AtMcp.ATProto.get_suggested_feeds(paging(opts, %{}))
+    |> read(:feeds, &summarize_generator/1)
+  end
+
+  @impl true
   def get_list_feed(session, list, opts) when is_binary(list) do
     session
     |> AtMcp.ATProto.get_list_feed(paging(opts, %{list: list}))
@@ -1408,6 +1415,8 @@ defmodule AtMcp.Effects.ProtoRune do
   defp post_view(post), do: AtMcp.Summary.extract(:post, post)
 
   defp summarize_profile(p), do: AtMcp.Summary.extract(:profile, p)
+
+  defp summarize_generator(item), do: AtMcp.Summary.extract(:generator, item)
 
   defp mention_warnings(result, []), do: result
 

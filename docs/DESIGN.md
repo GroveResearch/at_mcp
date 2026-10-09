@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 42 tools: 41 network verbs, plus
+`AtMcp.MCP.Server` declares 43 tools: 42 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside the JSON text.
@@ -114,7 +114,7 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Category | Tools |
 | --- | --- |
 | Writing | `post`, `reply`, `delete_post`, `update_profile` |
-| Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_list_feed`, `get_actor_likes` |
+| Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_suggested_feeds`, `get_list_feed`, `get_actor_likes` |
 | Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
@@ -182,10 +182,11 @@ account outlives the run. There is no tool for declining to act; an agent that
 ends its turn without calling a write tool has not posted.
 
 Absent from the surface: lists, starter packs, saved and pinned feeds, pinned
-posts, feed discovery, thread gates and reply controls, self-labels, bookmarks,
+posts, thread gates and reply controls, self-labels, bookmarks,
 video and external link cards, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
-reads a custom feed only from a generator URI it was given, receives every
+reads a custom feed from a generator URI it was given or from
+`get_suggested_feeds`, receives every
 notification and discards locally, and reads a video or link-card post as a
 post with no images.
 
