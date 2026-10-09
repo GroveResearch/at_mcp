@@ -50,7 +50,17 @@ defmodule AtMcp.WriteRecordsTest do
       %{
         uri: "at://#{conn.query_params["repo"]}/#{conn.query_params["collection"]}/x",
         cid: "bafyreiparent",
-        value: %{text: "parent", displayName: "Old name", pinnedPost: "at://kept"}
+        value: %{
+          text: "parent",
+          displayName: "Old name",
+          pinnedPost: "at://kept",
+          banner: %{
+            "$type": "blob",
+            ref: %{"$link": "bafkreioldbanner"},
+            mimeType: "image/jpeg",
+            size: 9
+          }
+        }
       }
     end
 
@@ -582,6 +592,62 @@ defmodule AtMcp.WriteRecordsTest do
       # round trip as `display_name` is a field the lexicon does not define.
       refute Map.has_key?(written.body["record"], "display_name")
       assert written.body["record"]["pinnedPost"] == "at://kept"
+    end
+
+    @tag :tmp_dir
+    test "sets an avatar from a file in the media directory and keeps the banner", %{
+      calls: calls,
+      session: session,
+      tmp_dir: dir
+    } do
+      Application.put_env(:at_mcp, :media_dir, dir)
+      on_exit(fn -> Application.delete_env(:at_mcp, :media_dir) end)
+      File.write!(Path.join(dir, "me.png"), "png")
+
+      assert {:ok, result} =
+               AtMcp.MCP.Tools.update_profile(post_effects(session), %{
+                 avatar: %{"path" => "me.png", "mime_type" => "image/png"}
+               })
+
+      assert result.avatar_cid == "bafkreiblob"
+      assert [%{body: "png"}] = sent(calls, "com.atproto.repo.uploadBlob")
+
+      record = (calls |> sent("com.atproto.repo.putRecord") |> List.last()).body["record"]
+
+      assert record["avatar"] == %{
+               "$type" => "blob",
+               "ref" => %{"$link" => "bafkreiblob"},
+               "mimeType" => "image/png",
+               "size" => 3
+             }
+
+      assert record["banner"]["ref"] == %{"$link" => "bafkreioldbanner"}
+      assert record["banner"]["mimeType"] == "image/jpeg"
+      assert record["displayName"] == "Old name"
+    end
+
+    @tag :tmp_dir
+    test "reads no file outside the media directory, and none at all when it is unset", %{
+      calls: calls,
+      tmp_dir: tmp
+    } do
+      dir = Path.join(tmp, "media")
+      File.mkdir_p!(dir)
+      File.write!(Path.join(tmp, "secret.png"), "secret")
+      File.ln_s!(Path.join(tmp, "secret.png"), Path.join(dir, "link.png"))
+      File.mkdir_p!(Path.join(dir, "sub"))
+      File.write!(Path.join(dir, "big.png"), :binary.copy("x", AtMcp.MediaFile.max_bytes() + 1))
+
+      assert {:error, :media_dir_unset} = AtMcp.MediaFile.read("big.png")
+
+      Application.put_env(:at_mcp, :media_dir, dir)
+      on_exit(fn -> Application.delete_env(:at_mcp, :media_dir) end)
+
+      for path <- ["../secret.png", Path.join(tmp, "secret.png"), "link.png", "sub", "none.png"],
+          do: assert({:error, {:media_path_refused, ^path}} = AtMcp.MediaFile.read(path))
+
+      assert {:error, {:media_too_large, _}} = AtMcp.MediaFile.read(Path.join(dir, "big.png"))
+      assert Agent.get(calls, & &1) == []
     end
   end
 end

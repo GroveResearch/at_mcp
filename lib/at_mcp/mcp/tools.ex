@@ -60,7 +60,9 @@ defmodule AtMcp.MCP.Tools do
     account_authentication_failed:
       "The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied. Check the app password and reconnect; retrying the same request will not help.",
     invalid_image:
-      "An image could not be read. Each entry needs base64 `data`, a `mime_type` and `alt` text; nothing was sent.",
+      "An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type`, and for a post `alt` text; nothing was sent.",
+    media_dir_unset:
+      "This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Send the image as base64 `data` instead; nothing was sent.",
     invalid_post_text:
       "Post/reply text must be valid UTF-8. Nothing was attempted and nothing was counted against the write quota.",
     empty_batch: "Supply at least one URI or actor. Nothing was attempted."
@@ -72,6 +74,24 @@ defmodule AtMcp.MCP.Tools do
         state,
         "batch_too_large",
         "error: Ask for at most #{AtMcp.Effects.max_batch()} URIs or actors in one call. Nothing was attempted; split the list and call again."
+      )
+
+  def respond({:error, {:media_path_refused, path}}, state) do
+    error(
+      state,
+      "media_path_refused",
+      "error: #{path} is not a regular file inside the media directory #{AtMcp.MediaFile.dir()}. " <>
+        "A path is relative to that directory, or absolute and inside it. Nothing was sent.",
+      %{path: path}
+    )
+  end
+
+  def respond({:error, {:media_too_large, bytes}}, state),
+    do:
+      error(
+        state,
+        "media_too_large",
+        "error: an image file may be at most #{bytes} bytes. Nothing was sent."
       )
 
   def respond({:error, reason}, state) when is_map_key(@account_errors, reason),
@@ -275,10 +295,25 @@ defmodule AtMcp.MCP.Tools do
       |> maybe_kw(:display_name, Map.get(args, :display_name) || Map.get(args, "display_name"))
       |> maybe_kw(:description, Map.get(args, :description) || Map.get(args, "description"))
 
-    if updates == [] do
-      {:error, "provide display_name and/or description"}
-    else
-      AtMcp.Effects.update_profile(effects, updates)
+    with {:ok, updates} <- profile_image(updates, :avatar, args),
+         {:ok, updates} <- profile_image(updates, :banner, args) do
+      if updates == [] do
+        {:error, "provide display_name, description, avatar and/or banner"}
+      else
+        AtMcp.Effects.update_profile(effects, updates)
+      end
+    end
+  end
+
+  # An avatar or banner is read here, before anything is sent, like a post's
+  # images: a bad one refuses the whole update.
+  defp profile_image(updates, key, args) do
+    case Map.get(args, key) || Map.get(args, Atom.to_string(key)) do
+      image when image in [nil, %{}] ->
+        {:ok, updates}
+
+      image ->
+        with {:ok, image} <- decode_image(image), do: {:ok, Keyword.put(updates, key, image)}
     end
   end
 
@@ -391,18 +426,33 @@ defmodule AtMcp.MCP.Tools do
 
   defp decode_images(images) when is_list(images) do
     Enum.reduce_while(images, {:ok, []}, fn image, {:ok, acc} ->
-      with {:ok, encoded} <- string_field(image, "data"),
-           {:ok, mime_type} <- string_field(image, "mime_type"),
-           {:ok, alt} <- string_field(image, "alt"),
-           {:ok, data} <- Base.decode64(encoded) do
-        {:cont, {:ok, acc ++ [%{data: data, mime_type: mime_type, alt: alt}]}}
+      with {:ok, alt} <- string_field(image, "alt"),
+           {:ok, image} <- decode_image(image) do
+        {:cont, {:ok, acc ++ [Map.put(image, :alt, alt)]}}
       else
+        {:error, _} = error -> {:halt, error}
         _ -> {:halt, {:error, :invalid_image}}
       end
     end)
   end
 
   defp decode_images(_other), do: {:error, :invalid_image}
+
+  # One image's bytes: base64 `data`, or a `path` the server reads itself
+  # (`AtMcp.MediaFile`), never both. Either way they leave here as bytes.
+  defp decode_image(image) do
+    with {:ok, mime_type} <- string_field(image, "mime_type"),
+         {:ok, data} <- image_bytes(string_field(image, "data"), string_field(image, "path")) do
+      {:ok, %{data: data, mime_type: mime_type}}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_image}
+    end
+  end
+
+  defp image_bytes({:ok, encoded}, :error), do: Base.decode64(encoded)
+  defp image_bytes(:error, {:ok, path}), do: AtMcp.MediaFile.read(path)
+  defp image_bytes(_data, _path), do: :error
 
   defp string_field(map, key) when is_map(map) do
     case AtMcp.Response.fetch(map, key) do

@@ -694,11 +694,11 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def update_profile(session, updates) when is_list(updates) do
-    # Avatar blobs are out of scope for these tools; only text fields.
     safe = Keyword.take(updates, [:display_name, :description])
 
     with {:ok, current} <- current_profile(session),
-         record = AtMcp.ATProto.profile_record(merge_profile(current, safe)),
+         {:ok, blobs} <- upload_profile_images(session, updates),
+         record = AtMcp.ATProto.profile_record(merge_profile(current, safe), blobs),
          {:ok, result} <-
            AtMcp.ATProto.put_record(session, %{
              repo: session.did,
@@ -713,9 +713,51 @@ defmodule AtMcp.Effects.ProtoRune do
          display_name: Keyword.get(safe, :display_name),
          description: Keyword.get(safe, :description),
          uri: Map.get(result, :uri) || Map.get(result, "uri")
-       }}
+       }
+       |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
     else
       {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  # An avatar or banner is a blob the profile record references, so it is
+  # uploaded first, as a post's images are. A failed upload leaves the profile
+  # record unwritten.
+  defp upload_profile_images(session, updates) do
+    Enum.reduce_while([:avatar, :banner], {:ok, %{}}, fn key, {:ok, blobs} ->
+      case Keyword.get(updates, key) do
+        nil ->
+          {:cont, {:ok, blobs}}
+
+        image ->
+          case upload_images(session, [image]) do
+            {:ok, [%{blob: blob}]} -> {:cont, {:ok, Map.put(blobs, key, blob)}}
+            {:error, reason} -> {:halt, {:error, upload_refused(failure(reason), key)}}
+          end
+      end
+    end)
+  end
+
+  # Whatever became of the upload, the profile record was never sent, so the
+  # update is refused rather than of unknown outcome. A refused credential
+  # keeps its kind, so the account recovers its session and retries once.
+  defp upload_refused(%AtMcp.Effects.Failure{kind: :auth_refused} = failure, _key), do: failure
+
+  defp upload_refused(%AtMcp.Effects.Failure{} = failure, key) do
+    %{
+      failure
+      | kind: :refused,
+        message:
+          "The #{key} could not be uploaded (#{failure.message || "no answer"}). The profile was not changed."
+    }
+  end
+
+  defp blob_cid(blob) do
+    with {:ok, ref} when is_map(ref) <- AtMcp.Response.fetch(blob, :ref),
+         {:ok, cid} when is_binary(cid) <- AtMcp.Response.fetch(ref, :"$link") do
+      cid
+    else
+      _ -> nil
     end
   end
 

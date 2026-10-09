@@ -270,6 +270,8 @@ defmodule AtMcp.MCP.Schemas do
       "actor" => nullable_string(),
       "display_name" => nullable_string(),
       "description" => nullable_string(),
+      "avatar_cid" => nullable_string("CID of the avatar blob this update uploaded"),
+      "banner_cid" => nullable_string("CID of the banner blob this update uploaded"),
       "seen_at" => nullable_string("ISO8601 timestamp")
     })
   end

@@ -344,6 +344,8 @@
     },
     "update_profile": {
       "arguments": {
+        "avatar": "object",
+        "banner": "object",
         "description": "string",
         "display_name": "string"
       },

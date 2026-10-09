@@ -443,13 +443,18 @@ defmodule AtMcp.ATProto do
   def block_record(fields), do: did_subject_record(:block, fields)
 
   @doc """
-  Stamp an existing `actor.profile` record with this network's `$type`.
+  Stamp an existing `actor.profile` record with this network's `$type`, and
+  set any new `:avatar` or `:banner` blob reference in `blobs`.
 
   A profile update reads the record it is about to replace, so the fields it
   does not mention survive; only the type is AtMcp's to say.
   """
-  def profile_record(current) when is_map(current) do
-    current
+  def profile_record(current, blobs \\ %{}) when is_map(current) do
+    Enum.reduce(blobs, current, fn {key, blob}, record ->
+      record
+      |> Map.drop([key, Atom.to_string(key)])
+      |> Map.put(Atom.to_string(key), wire_blob(blob))
+    end)
     |> Map.drop(["$type", :"$type"])
     |> Map.put("$type", AtMcp.Network.collection(:profile))
   end

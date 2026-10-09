@@ -120,11 +120,21 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
 | Account | `identity_status` |
 
-`post` and `reply` take `images` (base64 bytes, a MIME type and alt text,
-uploaded as blobs before the record is built), `quote` (an AT URI, whose CID
+`post` and `reply` take `images` (base64 bytes or a file path, a MIME type and
+alt text, uploaded as blobs before the record is built), `quote` (an AT URI, whose CID
 AtMcp reads off the record it names) and `langs`. A post with both images and a
 quote becomes one `embed.recordWithMedia`. A post whose author said nothing
 about its language carries no `langs` at all rather than a default `["en"]`.
+
+`update_profile` takes `avatar` and `banner` in the same shape, without alt
+text. Each is uploaded as a blob and set on the profile record, which is read
+first so the fields the call does not mention are kept; the result carries each
+uploaded blob's CID.
+
+An image `path` is read by the server, so a model need not copy the bytes as
+base64, which it can get wrong partway through. It is off unless
+`AT_MCP_MEDIA_DIR` names a directory, and then reads only regular files inside
+it (`AtMcp.MediaFile`).
 
 The two thread reads answer different questions. `get_thread` is what is
 *around* a post: two levels of parents and two of replies, nested, with what it
