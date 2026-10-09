@@ -278,7 +278,11 @@ defmodule AtMcp.AccountReleaseTest do
     File.write!(env_file, "AT_MCP_DIST_PORT=4371\n")
 
     options = fn command, env ->
-      [env_sh] = Path.wildcard(Path.join(release, "releases/*/env.sh"))
+      # A cached build can leave an older release's directory beside this one.
+      [_erts, version | _] =
+        release |> Path.join("releases/start_erl.data") |> File.read!() |> String.split()
+
+      env_sh = Path.join(release, "releases/#{version}/env.sh")
 
       {output, 0} =
         System.cmd("/bin/sh", ["-c", ~S[. "$0"; printf '%s' "${ELIXIR_ERL_OPTIONS:-}"], env_sh],
