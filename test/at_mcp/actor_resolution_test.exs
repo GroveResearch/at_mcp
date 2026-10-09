@@ -399,6 +399,8 @@ defmodule AtMcp.ActorResolutionTest do
     {"get_suggested_follows", %{"actor" => "@alice.example"}},
     {"get_relationships", %{"actor" => "@alice.example", "others" => ["@bob.example"]}},
     {"get_actor_likes", %{"actor" => "@alice.example"}},
+    {"search_posts",
+     %{"query" => "hello", "author" => "@alice.example", "mentions" => "@bob.example"}},
     {"mute", %{"actor" => "@alice.example"}},
     {"unmute", %{"actor" => "@alice.example"}}
   ]
@@ -426,7 +428,10 @@ defmodule AtMcp.ActorResolutionTest do
     takes_handle =
       for tool <- tools,
           properties = tool.inputSchema[:properties] || %{},
-          Enum.any?(Map.keys(properties), &(to_string(&1) in ["actor", "actors", "others"])),
+          Enum.any?(
+            Map.keys(properties),
+            &(to_string(&1) in ["actor", "actors", "others", "author", "mentions"])
+          ),
           do: to_string(tool.name)
 
     assert Enum.sort(takes_handle) ==

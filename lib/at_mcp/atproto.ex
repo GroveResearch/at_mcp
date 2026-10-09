@@ -110,9 +110,25 @@ defmodule AtMcp.ATProto do
   def get_timeline(session, params),
     do: read(session, "feed.getTimeline", params, @page)
 
-  # Full-text search over posts.
+  # Full-text search over posts. Optional filters are the lexicon's own
+  # scalars: sort, since, until, mentions, author, lang. A list-valued
+  # filter (tag) is not declared here because it would need repeated keys.
   def search_posts(session, params),
-    do: read(session, "feed.searchPosts", params, [q: {:required, :string}] ++ @page)
+    do:
+      read(
+        session,
+        "feed.searchPosts",
+        params,
+        [
+          q: {:required, :string},
+          sort: :string,
+          since: :string,
+          until: :string,
+          mentions: :string,
+          author: :string,
+          lang: :string
+        ] ++ @page
+      )
 
   # --- actor reads ---
 

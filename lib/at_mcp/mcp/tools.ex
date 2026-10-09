@@ -120,6 +120,22 @@ defmodule AtMcp.MCP.Tools do
         "error: before must be the AT URI a previous call returned in chain_before. Nothing was read."
       )
 
+  def respond({:error, :invalid_search_sort}, state),
+    do:
+      error(
+        state,
+        "invalid_search_sort",
+        "error: sort must be latest or top. Nothing was read."
+      )
+
+  def respond({:error, :invalid_search_filter}, state),
+    do:
+      error(
+        state,
+        "invalid_search_filter",
+        "error: author, mentions, since, until and lang must be strings when set. Nothing was read."
+      )
+
   def respond({:error, :write_quota_unavailable}, state),
     do:
       error(
@@ -245,6 +261,16 @@ defmodule AtMcp.MCP.Tools do
   """
   def actor("@" <> actor), do: actor
   def actor(actor), do: actor
+
+  @doc "An optional handle or DID: omit, empty, and whitespace are all absent."
+  def optional_actor(actor) when is_binary(actor) do
+    case String.trim(actor) do
+      "" -> nil
+      trimmed -> actor(trimmed)
+    end
+  end
+
+  def optional_actor(_), do: nil
 
   @doc "Several handles or DIDs, each read as `actor/1` reads one."
   def actors(actors), do: actors |> List.wrap() |> Enum.map(&actor/1)

@@ -153,7 +153,19 @@ defmodule AtMcp.Test.MockBackend do
 
   @impl true
   def search_posts(_state, query, opts) do
-    {:ok, %{count: 0, items: [], query: query, limit: Keyword.get(opts, :limit, 20)}}
+    {:ok,
+     %{
+       count: 0,
+       items: [],
+       query: query,
+       author: Keyword.get(opts, :author),
+       mentions: Keyword.get(opts, :mentions),
+       sort: Keyword.get(opts, :sort),
+       since: Keyword.get(opts, :since),
+       until: Keyword.get(opts, :until),
+       lang: Keyword.get(opts, :lang),
+       limit: Keyword.get(opts, :limit, 20)
+     }}
   end
 
   @impl true
