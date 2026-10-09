@@ -491,6 +491,39 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.0 to 0.2.1
+
+0.2.1 stores data in the same format as 0.2.0, and an environment that started
+0.2.0 starts 0.2.1 unchanged, so rolling back works as below. Every change adds
+to what a client can do; none changes a call that already worked.
+
+**New tools**, all reads, outside the write quota and reachable with a read
+grant:
+
+- `get_post_images` returns a post's pictures as MCP image content, after a
+  text block listing each one with its alt text.
+- `get_suggested_feeds` pages through the custom feeds the service suggests;
+  each item's `uri` is what `get_feed` takes.
+
+**Changed tools.**
+
+- `search_posts` takes optional `author`, `mentions`, `sort` (`latest` or
+  `top`), `since`, `until` and `lang`. A call with only `query` is unchanged.
+- `update_profile` takes optional `avatar` and `banner`. Fields the call does
+  not mention, an existing avatar or banner included, are kept.
+- `get_relationships` resolves handles in `others` before asking the AppView.
+  0.2.0 answered `not_found` for every handle there, even for accounts that
+  exist.
+
+**New settings**, all optional: `AT_MCP_IMAGE_MAX_BYTES` (2,000,000) and
+`AT_MCP_IMAGE_FETCH_SECONDS` (10) for `get_post_images`, and
+`AT_MCP_MEDIA_DIR` (unset, so off), a directory from which `post`, `reply` and
+`update_profile` may read an image named by `path` instead of base64 `data`.
+See the README's [Settings](../README.md#settings).
+
+**Embedding the Hex package.** `{:at_mcp, "~> 0.2.0"}` selects 0.2.1; nothing
+to change.
+
 ### From 0.1.3 to 0.2.0
 
 0.2.0 stores data in the same format as 0.1.3, so rolling back works as below.
