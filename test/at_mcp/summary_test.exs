@@ -19,8 +19,16 @@ defmodule AtMcp.SummaryTest do
     post: %{
       "uri" => "at://did:plc:author/app.bsky.feed.post/1",
       "cid" => "bafypost",
-      "record" => %{"text" => "café 日本語 🪁"},
-      "author" => %{"handle" => "author.test", "did" => "did:plc:author"},
+      "record" => %{
+        "text" => "café 日本語 🪁",
+        "createdAt" => "2026-09-13T12:30:00.000Z",
+        "reply" => %{"parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"}}
+      },
+      "author" => %{
+        "handle" => "author.test",
+        "did" => "did:plc:author",
+        "displayName" => "café 日本語 🪁"
+      },
       "embed" => %{
         "$type" => "app.bsky.embed.images#view",
         "images" => [

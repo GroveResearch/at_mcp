@@ -535,7 +535,8 @@ defmodule AtMcp.MCP.ReadPagesTest do
   defp call(client, name, args) do
     assert {:ok, result} = ExMCP.Client.call_tool(client, name, args, format: :map)
     refute result["isError"] || result[:isError]
-    content = result["content"] || result[:content]
-    content |> Enum.map_join(&(&1["text"] || &1[:text])) |> Jason.decode!()
+    # These reads are about what a program gets: pages, cursors, nesting. A
+    # model reads the text beside it (`AtMcp.ReadingTest`).
+    result["structuredContent"] || result[:structuredContent]
   end
 end

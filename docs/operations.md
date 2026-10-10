@@ -765,7 +765,8 @@ MCP_CLIENT_PATH="$probe_dir/node_modules/@modelcontextprotocol/client" \
 ```
 
 It checks that every tool advertises its output schema, that structured content
-matches the JSON text on real responses, and that refusals arrive as codes. It
+matches the text on real responses (its JSON, or for reads made of posts a text
+naming every post), and that refusals arrive as codes. It
 calls no write tool.
 
 `scripts/pds_read_probe.exs` logs into an authorized account with writes
