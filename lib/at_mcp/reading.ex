@@ -2,10 +2,10 @@ defmodule AtMcp.Reading do
   @moduledoc """
   The text a model reads for a result made of posts.
 
-  A tool result has two halves in MCP: `content`, which a client puts in front
-  of a model, and `structuredContent`, which a program reads against the tool's
-  output schema. For posts and notifications the two readers want different
-  things. A program wants every field, `null`s included, so it can tell absent
+  A tool result has two halves in MCP: `content`, text and images, which most
+  clients give a model, and `structuredContent`, which a client validates
+  against the tool's output schema and a program reads. For posts and
+  notifications the two readers want different things. A program wants every field, `null`s included, so it can tell absent
   from empty. A model reading a page of posts wants what a person scrolling a
   client sees: who wrote it, when, what it replies to, what it says, and the
   identifiers it needs to act on it (`reply` takes the uri, `like` and `repost`

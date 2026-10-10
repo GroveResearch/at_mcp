@@ -106,10 +106,11 @@ The text is the summary's JSON, except for reads made of posts (notifications,
 feeds, searches, `get_posts`, `get_thread`, `get_thread_chain`), where it is
 `AtMcp.Reading`'s text: each post's author, time, what it replies to, its
 text, attachments, and the uri and cid the write tools take, with no `null`s
-and none of the fields only a program uses. The MCP specification keeps
-`content` as what a client shows a model and `structuredContent` as what a
-program validates; its own examples pair readable text with structured
-results.
+and none of the fields only a program uses. Most MCP clients give a model
+`content` and validate `structuredContent` against the output schema; the
+specification's own examples pair readable text with structured results,
+while its text asks for the serialized JSON for older clients
+(`decisions.md`).
 
 Each tool's `readOnlyHint` and `destructiveHint` annotations are the only
 definition of what a scope reaches. Every write tool also carries
