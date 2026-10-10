@@ -101,14 +101,31 @@ async function connect(name, legacy = false, environment = {}) {
   }
 }
 
+// Reads made of posts give a model readable text rather than the JSON.
+const READINGS = new Set(['get_notifications', 'get_timeline', 'get_author_feed', 'get_posts',
+  'search_posts', 'get_quotes', 'get_actor_likes', 'get_feed', 'get_list_feed', 'get_thread',
+  'get_thread_chain']);
+
 async function call(connection, name, args = {}) {
   const result = await connection.client.callTool({name, arguments: args});
   assert.ok(!result.isError, JSON.stringify(result));
-  const summary = JSON.parse(result.content.find(c => c.type === 'text').text);
+  const text = result.content.find(c => c.type === 'text').text;
   // A declared output schema is only worth having if the structured content
-  // carries the same result the text does.
-  assert.deepEqual(result.structuredContent, summary, `${name} structured content`);
-  return summary;
+  // carries the same result the text does: the same JSON, or for posts, text
+  // naming every post in it.
+  if (READINGS.has(name)) {
+    for (const uri of postUris(result.structuredContent)) assert.ok(text.includes(uri), `${name} text omits ${uri}`);
+  } else {
+    assert.deepEqual(result.structuredContent, JSON.parse(text), `${name} structured content`);
+  }
+  return result.structuredContent;
+}
+
+function postUris(value) {
+  if (Array.isArray(value)) return value.flatMap(postUris);
+  if (!value || typeof value !== 'object') return [];
+  const own = typeof value.uri === 'string' && typeof value.text === 'string' ? [value.uri] : [];
+  return own.concat(Object.values(value).flatMap(postUris));
 }
 
 async function rejectInvalidArguments(connection) {

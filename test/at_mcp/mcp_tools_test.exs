@@ -185,6 +185,20 @@ defmodule AtMcp.MCP.ToolsTest do
     {"identity_status", %{}}
   ]
 
+  @readings %{
+    "get_notifications" => :notifications,
+    "get_timeline" => :posts,
+    "get_author_feed" => :posts,
+    "get_posts" => :posts,
+    "search_posts" => :posts,
+    "get_quotes" => :posts,
+    "get_actor_likes" => :posts,
+    "get_feed" => :posts,
+    "get_list_feed" => :posts,
+    "get_thread" => :thread,
+    "get_thread_chain" => :chain
+  }
+
   test "every tool returns structured content its declared schema accepts" do
     {:ok, effects} =
       AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend, quota_limit: 100)
@@ -204,8 +218,17 @@ defmodule AtMcp.MCP.ToolsTest do
       schema = Enum.find(tools, &(&1.name == name)).outputSchema
       assert Schema.valid?(result.structuredContent, schema), "#{name} output schema"
 
+      # What a model reads: the JSON of the structured content, or for a read
+      # made of posts, `AtMcp.Reading`'s text of it and nothing else.
       text = Enum.find(result.content, &(&1.type == "text")).text
-      assert result.structuredContent == Jason.decode!(text), "#{name} structured content"
+
+      case @readings[name] do
+        nil ->
+          assert result.structuredContent == Jason.decode!(text), "#{name} structured content"
+
+        reading ->
+          assert text == apply(AtMcp.Reading, reading, [result.structuredContent]), name
+      end
     end
   end
 
