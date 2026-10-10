@@ -242,6 +242,30 @@ defmodule AtMcp.MCP.Tools do
 
   def respond(other, state), do: {:ok, encode(other), state}
 
+  @doc """
+  `respond/2` for a read made of posts. The structured content is the same;
+  the text a model reads is `AtMcp.Reading`'s `reading` of it (`:posts`,
+  `:notifications`, `:thread` or `:chain`) instead of the serialized JSON. A
+  result that reading does not recognize keeps the JSON text.
+  """
+  def respond({:ok, summary}, state, reading) do
+    case encode(summary) do
+      %{structuredContent: data} = result ->
+        case apply(AtMcp.Reading, reading, [data]) do
+          text when is_binary(text) ->
+            {:ok, %{result | content: [%{type: "text", text: text}]}, state}
+
+          nil ->
+            {:ok, result, state}
+        end
+
+      other ->
+        {:ok, other, state}
+    end
+  end
+
+  def respond(result, state, _reading), do: respond(result, state)
+
   defp upstream_detail(%{message: message, status: status})
        when is_binary(message) and message != "" and is_integer(status),
        do: "the account's service answered #{status}: #{message}."
@@ -410,6 +434,8 @@ defmodule AtMcp.MCP.Tools do
   # and as structured content for clients that validate against the tool's
   # declared output schema. Both carry the same JSON values, so a client
   # reading either sees one result. Only objects can be structured content.
+  # `respond/3` replaces the text with a reading of the same structured
+  # content for results made of posts.
   defp structured(json) do
     case Jason.decode(json) do
       {:ok, data} when is_map(data) ->

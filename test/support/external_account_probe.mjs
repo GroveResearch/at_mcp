@@ -71,7 +71,10 @@ let diagnostics='';transport.stderr?.on('data',s=>diagnostics+=s);
 async function call(name,args={},error=false) {
   const result=await client.callTool({name,arguments:args});
   assert.equal(Boolean(result.isError),error,JSON.stringify(result));
-  if(!error) assert.deepEqual(JSON.parse(result.content.find(x=>x.type==='text').text),result.structuredContent);
+  // Reads made of posts give a model readable text naming each post; every other result's text is its JSON.
+  const text=result.content.find(x=>x.type==='text').text;
+  if(!error&&['get_timeline','get_posts'].includes(name)) for(const item of result.structuredContent.items) assert.ok(text.includes(item.uri),`${name} text omits ${item.uri}`);
+  else if(!error) assert.deepEqual(JSON.parse(text),result.structuredContent);
   return result.structuredContent;
 }
 try {
