@@ -491,6 +491,60 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.0 to 0.2.1
+
+0.2.1 stores data in the same format as 0.2.0, and an environment that started
+0.2.0 starts 0.2.1 unchanged, so rolling back works as below. No tool, argument
+or setting was removed or made stricter, and every call that worked on 0.2.0
+works on 0.2.1. Two things a client reading tool results sees are different.
+
+**What a client reading results sees differently.**
+
+- Reads made of posts (`get_notifications`, `get_timeline`, `get_author_feed`,
+  `get_posts`, `search_posts`, `get_quotes`, `get_actor_likes`, `get_feed`,
+  `get_list_feed`, `get_thread` and `get_thread_chain`) put readable text in
+  `content`: each post as its author, time, what it replies to, its text, its
+  images by alt text, any quoted post, and the uri and cid the write tools
+  take. In 0.2.0 that text was the result's JSON. `structuredContent` is still
+  the whole result, validated against the tool's output schema, so nothing is
+  lost there; feed and thread posts also gain `display_name`, `created_at` and
+  `reply_to`. A client that parsed the `content` text of these tools as JSON
+  must read `structuredContent` instead. Every other tool's text is still its
+  JSON.
+- In `get_thread`, `replies_omitted` on a post at the read's depth limit, and
+  on each parent, now counts the replies that were not read. 0.2.0 said `0`
+  there even when the post had replies. A parent's count leaves out the one
+  reply the read shows below it. It is `null` when the service gave no count
+  (a missing or blocked post), so a client must accept `null` as unknown, which
+  the output schema already allowed.
+
+**New tools**, all reads, outside the write quota and reachable with a read
+grant:
+
+- `get_post_images` returns a post's pictures as MCP image content, after a
+  text block listing each one with its alt text.
+- `get_suggested_feeds` pages through the custom feeds the service suggests;
+  each item's `uri` is what `get_feed` takes.
+
+**Changed arguments and answers.**
+
+- `search_posts` takes optional `author`, `mentions`, `sort` (`latest` or
+  `top`), `since`, `until` and `lang`. A call with only `query` is unchanged.
+- `update_profile` takes optional `avatar` and `banner`. Fields the call does
+  not mention, an existing avatar or banner included, are kept.
+- `get_relationships` resolves handles in `others` before asking the AppView.
+  0.2.0 answered `not_found` for every handle there, even for accounts that
+  exist.
+
+**New settings**, all optional: `AT_MCP_IMAGE_MAX_BYTES` (2,000,000) and
+`AT_MCP_IMAGE_FETCH_SECONDS` (10) for `get_post_images`, and
+`AT_MCP_MEDIA_DIR` (unset, so off), a directory from which `post`, `reply` and
+`update_profile` may read an image named by `path` instead of base64 `data`.
+See the README's [Settings](../README.md#settings).
+
+**Embedding the Hex package.** `{:at_mcp, "~> 0.2.0"}` selects 0.2.1; nothing
+to change.
+
 ### From 0.1.3 to 0.2.0
 
 0.2.0 stores data in the same format as 0.1.3, so rolling back works as below.
