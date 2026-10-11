@@ -6,8 +6,8 @@
 //
 // Connects the way a client does, through a generated stdio connection, and
 // checks what only a live service can show: that every tool advertises its
-// output schema, that structured content matches the JSON text for real
-// application responses, and that refusals arrive as codes rather than as
+// output schema, that structured content matches the text for real
+// application responses (its JSON, or for posts a text naming each one), and that refusals arrive as codes rather than as
 // internal terms. It calls no write tool and creates no record.
 import {isDeepStrictEqual} from 'node:util';
 import {join} from 'node:path';
@@ -36,13 +36,28 @@ await client.connect(
   {timeout: 20_000}
 );
 
+// Reads made of posts give a model readable text rather than the JSON; that
+// text must still name every post the structured content holds.
+const readings = new Set(['get_notifications', 'get_timeline', 'get_author_feed', 'get_posts',
+  'search_posts', 'get_quotes', 'get_actor_likes', 'get_feed', 'get_list_feed', 'get_thread',
+  'get_thread_chain']);
+const postUris = value => Array.isArray(value) ? value.flatMap(postUris)
+  : !value || typeof value !== 'object' ? []
+  : (typeof value.uri === 'string' && typeof value.text === 'string' ? [value.uri] : [])
+      .concat(Object.values(value).flatMap(postUris));
+
 const call = async (name, args = {}) => {
   const result = await client.callTool({name, arguments: args});
   const text = result.content.find(c => c.type === 'text')?.text;
-  const parsed = text && !result.isError ? JSON.parse(text) : undefined;
+  const reading = readings.has(name) && !result.isError;
+  const parsed = text && !result.isError && !reading ? JSON.parse(text) : undefined;
   if (parsed !== undefined) {
     check(isDeepStrictEqual(parsed, result.structuredContent),
       `${name}: structured content differs from the JSON text`);
+  }
+  if (reading) {
+    const omitted = postUris(result.structuredContent).filter(uri => !text?.includes(uri));
+    check(omitted.length === 0, `${name}: the text omits ${omitted.join(', ')}`);
   }
   return {isError: Boolean(result.isError), text, body: result.structuredContent ?? parsed};
 };

@@ -1353,7 +1353,9 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
 
-  defp thread_node(node, parents, depth) when is_map(node) do
+  # `shown_below` is 1 for a parent: one of its replies is the post this read
+  # shows under it.
+  defp thread_node(node, parents, depth, shown_below \\ 0) when is_map(node) do
     post = of_type(node, :post, &is_map/1) || node
     replies = of_type(node, :replies, &is_list/1) || []
     parent = field(node, :parent)
@@ -1363,10 +1365,23 @@ defmodule AtMcp.Effects.ProtoRune do
     |> Map.put(:type, field(node, :"$type"))
     |> Map.put(:not_found, flag(node, [:not_found, :notFound]))
     |> Map.put(:blocked, flag(node, [:blocked]))
-    |> Map.put(:parent, if(parent && parents > 0, do: thread_node(parent, parents - 1, 0)))
+    |> Map.put(:parent, if(parent && parents > 0, do: thread_node(parent, parents - 1, 0, 1)))
     |> Map.put(:parent_omitted, not is_nil(parent) and parents == 0)
     |> Map.put(:replies, Enum.map(visible, &thread_node(&1, 0, depth - 1)))
-    |> Map.put(:replies_omitted, length(replies) - length(visible))
+    |> Map.put(:replies_omitted, replies_omitted(node, post, replies, visible, shown_below))
+  end
+
+  # A post at the read's depth limit, and a parent, come back with no `replies`
+  # at all: the service was not asked for them. Counting the list it sent would
+  # say 0 however many replies the post has, so the count is the post's own
+  # `replyCount` (`reply_count` once decoded), less what this read shows, or
+  # nil when the service gave none.
+  defp replies_omitted(node, post, replies, visible, shown_below) do
+    case {field(node, :replies), field(post, :reply_count) || field(post, :replyCount)} do
+      {nil, count} when is_integer(count) -> max(count - shown_below, 0)
+      {nil, _unknown} -> nil
+      _sent -> length(replies) - length(visible)
+    end
   end
 
   # `false` is a value. Read through a chain of `||` fallbacks it becomes the same

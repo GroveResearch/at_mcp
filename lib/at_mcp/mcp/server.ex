@@ -3,7 +3,9 @@ defmodule AtMcp.MCP.Server do
   HTTP/stdio MCP surface for one identity on this network.
 
   Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
-  JSON text summaries (never raw session dumps).
+  summaries (never raw session dumps): as structured content, and as text for
+  a model, which is the JSON of the summary except for reads made of posts,
+  where it is `AtMcp.Reading`'s text of it.
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -43,7 +45,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :notifications
       )
     end)
   end
@@ -71,7 +74,8 @@ defmodule AtMcp.MCP.Server do
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.get_timeline(e, limit: Map.get(a, :limit), cursor: Map.get(a, :cursor)),
-        state
+        state,
+        :posts
       )
     end)
   end
@@ -93,7 +97,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :posts
       )
     end)
   end
@@ -108,7 +113,7 @@ defmodule AtMcp.MCP.Server do
 
     run(fn a, state ->
       e = state.effects
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri)), state)
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri)), state, :thread)
     end)
   end
 
@@ -128,7 +133,8 @@ defmodule AtMcp.MCP.Server do
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.get_thread_chain(e, Map.fetch!(a, :uri), before: Map.get(a, :before)),
-        state
+        state,
+        :chain
       )
     end)
   end
@@ -142,7 +148,12 @@ defmodule AtMcp.MCP.Server do
 
     run(fn a, state ->
       e = state.effects
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_posts(e, List.wrap(Map.get(a, :uris, []))), state)
+
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_posts(e, List.wrap(Map.get(a, :uris, []))),
+        state,
+        :posts
+      )
     end)
   end
 
@@ -235,7 +246,8 @@ defmodule AtMcp.MCP.Server do
           until: Map.get(a, :until),
           lang: Map.get(a, :lang)
         ),
-        state
+        state,
+        :posts
       )
     end)
   end
@@ -479,7 +491,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :posts
       )
     end)
   end
@@ -501,7 +514,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :posts
       )
     end)
   end
@@ -530,7 +544,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :posts
       )
     end)
   end
@@ -578,7 +593,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :posts
       )
     end)
   end

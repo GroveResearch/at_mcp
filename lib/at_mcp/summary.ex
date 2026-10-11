@@ -78,6 +78,19 @@ defmodule AtMcp.Summary do
      "One attributed quoted record; null when absent"}
   ]
 
+  @post [
+    {:uri, :string, [["uri"]], "AT URI of the post"},
+    {:cid, :string, [["cid"]], "CID of the post"},
+    {:author, :string, [["author", "handle"]], "Author handle"},
+    {:author_did, :string, [["author", "did"]], "Author DID"},
+    {:display_name, :string, [["author", "display_name"], ["author", "displayName"]],
+     "Author display name, as the account set it"},
+    {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
+     "When the author wrote it, as an ISO 8601 timestamp"},
+    {:reply_to, :string, [["record", "reply", "parent", "uri"]],
+     "AT URI of the post this one replies to; null on the root"}
+  ]
+
   @shapes %{
     membership: %{
       fields: [
@@ -94,38 +107,11 @@ defmodule AtMcp.Summary do
       ],
       viewer: []
     },
-    post: %{
-      fields:
-        @content ++
-          [
-            {:uri, :string, [["uri"]], "AT URI of the post"},
-            {:cid, :string, [["cid"]], "CID of the post"},
-            {:author, :string, [["author", "handle"]], "Author handle"},
-            {:author_did, :string, [["author", "did"]], "Author DID"}
-          ],
-      viewer: [:like, :repost]
-    },
-    # One post as an element of a thread chain. A chain element answers
-    # different questions than a timeline post: when it was written, what it
-    # was a reply to, and what to call its author in a sentence. `:post` has
-    # none of those, and none of them belong on a feed item.
-    chain_post: %{
-      fields:
-        @content ++
-          [
-            {:uri, :string, [["uri"]], "AT URI of the post"},
-            {:cid, :string, [["cid"]], "CID of the post"},
-            {:author, :string, [["author", "handle"]], "Author handle"},
-            {:author_did, :string, [["author", "did"]], "Author DID"},
-            {:display_name, :string, [["author", "display_name"], ["author", "displayName"]],
-             "Author display name, as the account set it"},
-            {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
-             "When the author wrote it, as an ISO 8601 timestamp"},
-            {:reply_to, :string, [["record", "reply", "parent", "uri"]],
-             "AT URI of the post this one replies to; null on the root"}
-          ],
-      viewer: []
-    },
+    # A post wherever it is read: in a feed, a thread or a chain. A reader of
+    # any of them needs who wrote it, when, and what it answers, as every
+    # client shows on each post; the chain adds only its own flags beside these.
+    post: %{fields: @content ++ @post, viewer: [:like, :repost]},
+    chain_post: %{fields: @content ++ @post, viewer: []},
     profile: %{
       fields: [
         {:did, :string, [["did"]], "Account DID"},
