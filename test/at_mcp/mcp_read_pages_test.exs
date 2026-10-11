@@ -41,12 +41,20 @@ defmodule AtMcp.MCP.ReadPagesTest do
             %{
               thread: %{
                 post: post(0),
-                parent: %{post: post(-1), parent: %{uri: "at://missing", notFound: true}},
+                parent: %{
+                  post: Map.put(post(-1), :replyCount, 3),
+                  parent: %{uri: "at://missing", notFound: true}
+                },
+                # The second level is the depth limit: the service sends no
+                # `replies` there, only each post's `replyCount`.
                 replies:
                   Enum.map(1..25, fn n ->
                     if n == 1,
                       do: %{uri: "at://blocked", blocked: true},
-                      else: %{post: post(n), replies: [%{post: post(n + 100)}]}
+                      else: %{
+                        post: post(n),
+                        replies: [%{post: Map.put(post(n + 100), :replyCount, 2)}]
+                      }
                   end)
               }
             }
@@ -324,6 +332,15 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert length(thread["replies"]) == 20
     assert thread["replies_omitted"] == 5
     assert get_in(Enum.at(thread["replies"], 1), ["replies", Access.at(0), "cid"]) == "cid102"
+
+    # Replies the read did not reach are counted, not reported as none.
+    assert get_in(Enum.at(thread["replies"], 1), ["replies", Access.at(0), "replies_omitted"]) ==
+             2
+
+    # A parent's count leaves out the post shown under it; a node the service
+    # gave no count for is unknown.
+    assert thread["parent"]["replies_omitted"] == 2
+    assert thread["parent"]["parent"]["replies_omitted"] == nil
 
     assert thread["context"] == %{
              "depth" => 2,
