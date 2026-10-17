@@ -27,6 +27,8 @@ signed in with their full account password can open **Settings → Privacy and
 Security → App passwords → Add App Password**. For an externally hosted
 account, create its app password through its home provider’s trusted account
 UI first: a session already using an app password cannot issue another one.
+For an existing installation, see
+[replace or revoke an app password](docs/operations.md#replace-or-revoke-an-app-password).
 [Use Delvetown](#use-delvetown) shows the network settings and membership check.
 
 ## Run it

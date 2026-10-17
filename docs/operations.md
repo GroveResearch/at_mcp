@@ -247,6 +247,55 @@ the release's Erlang distribution, which listens on 127.0.0.1 only, at
 `AT_MCP_ENV_FILE` names the service's environment file, which carries its
 cookie, port and node name.
 
+### Replace or revoke an app password
+
+Your home PDS issues and revokes app passwords. AtMcp stores one and uses it to
+sign in; it has no MCP tool for creating, rotating or revoking app passwords.
+An app-password session cannot create another app password. Use your home
+provider's trusted account settings to create a replacement.
+
+For an ordinary replacement, keep the old password until the new one works:
+
+1. Create a new app password in the provider's account settings. Keep its name
+   distinct from the old one so you can revoke the right credential later.
+2. Update the installation that holds the credential using the appropriate
+   path below.
+3. Check that AtMcp is ready with the expected DID, then revoke the old app
+   password in the provider's account settings. If replacement fails, correct
+   it before retiring the old credential. If you suspect a credential was
+   exposed, revoke it immediately instead and accept the interruption while
+   setting up its replacement.
+
+**Shared service (`at_mcp-connect` or HTTP clients):** use the same service user,
+absolute command path and `AT_MCP_ENV_FILE` as in
+[Accounts and operator commands](#accounts-and-operator-commands):
+
+```sh
+at_mcp-accounts update NAME   # privately prompts for the new app password
+at_mcp-accounts reload
+at_mcp-accounts status
+```
+
+`update` verifies the new login and saved DID before changing the accounts
+file. `reload` makes the running service use it; changing the environment's
+bootstrap password does not update an existing accounts file. Check that
+`status` reports the expected DID and `ready: true`. A disconnected account
+stays disconnected; use `at_mcp-accounts reconnect NAME` when you intend to
+resume it. Existing MCP grants continue to refer to the same account.
+
+**Client-launched `at_mcp-stdio`:** replace `AT_MCP_APP_PASSWORD` in the source
+the client actually uses. If `AT_MCP_STDIO_ENV_FILE` defines it, update that
+private file: its value takes precedence over the MCP client's environment.
+Otherwise, update the client's private configuration. Restart its AtMcp
+connection so the process reads the new value, then call `identity_status`
+and check the expected DID and `logged_in: true`. This mode does not read the
+shared service's accounts file or use its `update`/`reload` commands.
+
+To revoke without replacing, use the provider's account settings. AtMcp's
+`remove` and `disconnect` change local configuration or runtime;
+`at_mcp-accounts revoke` revokes an MCP grant. None revokes the app password at
+the PDS.
+
 ## Configuration
 
 An installation is configured by its accounts file and nothing else. The
