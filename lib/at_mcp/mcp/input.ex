@@ -14,12 +14,11 @@ defmodule AtMcp.MCP.Input do
       :ok ->
         :ok
 
-      {:error, errors} when is_list(errors) or errors == :duplicate_keys ->
-        {:error,
-         refusal(
-           "invalid_arguments",
-           "Arguments do not match this tool's input schema. Check its required fields, types and limits, then try again. No operation was attempted."
-         )}
+      {:error, errors} when is_list(errors) ->
+        {:error, invalid(Enum.map(errors, &problem/1))}
+
+      {:error, :duplicate_keys} ->
+        {:error, invalid([%{path: "", message: "An argument is given twice."}])}
 
       {:error, _reason} ->
         {:error,
@@ -60,6 +59,37 @@ defmodule AtMcp.MCP.Input do
   end
 
   defp json_keys(value), do: {:ok, value}
+
+  # The refusal names each argument that failed and why, so a caller can
+  # correct the call instead of guessing which field was wrong. The messages
+  # describe the caller's own arguments and go back only to that caller.
+  @shown 5
+
+  defp invalid(problems) do
+    shown = Enum.take(problems, @shown)
+    more = length(problems) - length(shown)
+
+    lines =
+      Enum.map(shown, fn
+        %{path: "", message: m} -> m
+        %{path: p, message: m} -> "#{p}: #{m}"
+      end) ++ if(more > 0, do: ["(#{more} more)"], else: [])
+
+    message =
+      "Arguments do not match this tool's input schema. No operation was attempted. Fix and try again:\n- " <>
+        Enum.join(lines, "\n- ")
+
+    refusal("invalid_arguments", message)
+    |> put_in([:structuredContent, :problems], shown)
+  end
+
+  # ExJsonSchema reports `{message, "#/avatar"}`: the path becomes `avatar`,
+  # and the arguments object itself is "".
+  defp problem({message, "#" <> path}),
+    do: %{path: String.trim_leading(path, "/"), message: message}
+
+  defp problem({message, path}) when is_binary(path), do: %{path: path, message: message}
+  defp problem(other), do: %{path: "", message: inspect(other)}
 
   defp refusal(code, message) do
     ExMCP.Server.DSL.Result.error(message)
