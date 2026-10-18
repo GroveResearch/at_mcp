@@ -155,7 +155,7 @@ defmodule AtMcp.Identities do
         {:ok, specs} -> specs
         # Nothing configured yet is an installation mid-setup, not a failure.
         {:error, :config_missing} -> []
-        {:error, reason} -> raise ArgumentError, "AtMcp account configuration: #{reason}"
+        {:error, reason} -> raise ArgumentError, "AtMcp account configuration: #{inspect(reason)}"
       end
     else
       []
@@ -174,8 +174,26 @@ defmodule AtMcp.Identities do
 
   defp load_identity_specs(path) do
     case AtMcp.AccountConfig.load(path) do
-      {:ok, accounts} -> {:ok, Enum.map(accounts, &configured_identity/1)}
-      error -> error
+      {:ok, accounts} ->
+        explicit? = Enum.any?(accounts, &Map.has_key?(&1, "delivery"))
+
+        cond do
+          explicit? and Application.get_env(:at_mcp, :delivery, [])[:url] ->
+            {:error, :mixed_delivery_configuration}
+
+          explicit? and not Enum.all?(accounts, &Map.has_key?(&1, "delivery")) ->
+            {:error, :incomplete_delivery_configuration}
+
+          Enum.any?(accounts, &is_map(&1["delivery"])) and
+              not AtMcp.Deliver.HTTPBridge.collecting?() ->
+            {:error, {:delivery_bridge_unready, [:no_inbound_collector]}}
+
+          true ->
+            {:ok, Enum.map(accounts, &configured_identity/1)}
+        end
+
+      error ->
+        error
     end
   end
 
@@ -194,13 +212,17 @@ defmodule AtMcp.Identities do
   end
 
   defp configured_identity(account) do
-    [
+    opts = [
       id: account["id"],
       handle: account["handle"],
       password: account["password"],
       service: account["service"],
       expected_did: account["did"]
     ]
+
+    if Map.has_key?(account, "delivery"),
+      do: Keyword.put(opts, :delivery, account["delivery"]),
+      else: opts
   end
 
   @doc false

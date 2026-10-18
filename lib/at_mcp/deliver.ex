@@ -8,7 +8,11 @@ defmodule AtMcp.Deliver do
 
   ## Routing
 
-  `deliver/1` prefers a **per-DID** callback for `event.matched_did` when set;
+  Named account delivery destinations are resolved by `AtMcp.Accounts` from
+  the applied configuration. In that mode an unconfigured destination holds
+  the event; it never falls through to a host callback.
+
+  Without account destinations, `deliver/1` prefers a **per-DID** callback for `event.matched_did` when set;
   otherwise it invokes the global callback. This keeps N identities from
   sharing one communal deliver filter.
 
@@ -109,8 +113,19 @@ defmodule AtMcp.Deliver do
   `{:error, reason}`, raise, throw, or exit are retried by the inbound store.
   """
   def deliver(event) do
-    fun = resolve_callback(event)
-    invoke(fun, event)
+    case AtMcp.Accounts.delivery_route(matched_did(event)) do
+      {:account, %{"url" => url, "token_file" => path}} ->
+        invoke(AtMcp.Deliver.HTTPBridge.callback(url, token_file: path), event)
+
+      {:account, nil} ->
+        {:error, :no_callback}
+
+      :callbacks ->
+        invoke(resolve_callback(event), event)
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp resolve_callback(event) do

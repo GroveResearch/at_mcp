@@ -330,6 +330,43 @@ AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
 AT_MCP_DELIVERY_TOKEN_FILE=/absolute/private/path/consumer-token
 ```
 
+The environment destination above is a **single consumer for every account**.
+For separate agents on the same machine, save a destination for each account:
+
+```sh
+bin/at_mcp-accounts delivery alice --url http://127.0.0.1:4420/inbound --token-file /private/alice/consumer-token
+bin/at_mcp-accounts delivery bob --url http://127.0.0.1:4421/inbound --token-file /private/bob/consumer-token
+bin/at_mcp-accounts reload
+```
+
+Each token file contains that receiver's bearer token, not a PDS app password
+or an MCP grant. Keep it private and readable by the service user. Tokens are
+read again on each attempt, so token rotation does not require a reload.
+The destination and token file are saved in the named account's `delivery`
+field in the existing accounts file; the command never changes its credentials.
+The first destination command explicitly disables delivery for the other saved
+accounts; configure each receiver before reloading. Accounts added later start
+with delivery disabled too. If editing JSON directly, every account must have
+`"delivery"` set to its destination or `null`; a partial migration is rejected.
+Use `delivery alice --disable` followed by `reload` to hold Alice's incoming
+activity without disconnecting her account or discarding queued events.
+
+When switching from the single consumer, remove `AT_MCP_DELIVERY_URL` and its
+`AT_MCP_DELIVERY_TOKEN` / `AT_MCP_DELIVERY_TOKEN_FILE` from the service environment,
+configure each account, then restart the service. Combining the global URL with
+account destinations is rejected rather than guessing where notifications go.
+Once account destinations are configured, an account without a destination
+holds its events; there is no fallback to another agent or global credentials.
+The existing one-consumer configuration remains supported without changes.
+
+Reloading a changed destination cancels that account's current delivery attempt
+before applying the new route; retained events then go to the new receiver.
+An interrupted HTTP attempt may already have been accepted by the old receiver,
+so changing receivers requires the same deduplication care as other retries.
+Removing an account disconnects it and retains its pending events. A restart
+loads the saved destinations again. One unavailable receiver holds only its
+own account's queue.
+
 The URL belongs to the receiving application (Dwell accepts into its
 resident's work queue). The token is re-read for every delivery, so rotation
 needs no restart.

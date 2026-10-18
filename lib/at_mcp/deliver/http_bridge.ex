@@ -82,7 +82,8 @@ defmodule AtMcp.Deliver.HTTPBridge do
   # Inbound has two collectors, and either one is enough to attach. Jetstream is
   # Bluesky's; the notification poll goes through the account's own PDS and works
   # on any network, so a network without a firehose runs on the poll alone.
-  defp collecting? do
+  @doc false
+  def collecting? do
     Application.get_env(:at_mcp, :jetstream_enabled, false) or
       Application.get_env(:at_mcp, :notifications_enabled, true)
   end
@@ -98,7 +99,15 @@ defmodule AtMcp.Deliver.HTTPBridge do
   paused.
   """
   def callback(url, opts \\ []) when is_binary(url) do
-    fn event -> post_inbound(url, access_token(), event, opts) end
+    fn event ->
+      token =
+        case Keyword.fetch(opts, :token_file) do
+          {:ok, path} -> path |> File.read!() |> String.trim()
+          :error -> access_token()
+        end
+
+      post_inbound(url, token, event, Keyword.delete(opts, :token_file))
+    end
   end
 
   @doc false
