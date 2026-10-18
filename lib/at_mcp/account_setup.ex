@@ -9,7 +9,10 @@ defmodule AtMcp.AccountSetup do
     service: :string,
     scope: :string,
     password_stdin: :boolean,
-    transport: :string
+    transport: :string,
+    url: :string,
+    token_file: :string,
+    disable: :boolean
   ]
 
   def main(args) do
@@ -83,6 +86,26 @@ defmodule AtMcp.AccountSetup do
          revoked: true,
          next: "Takes effect on the next request; the service is not restarted."
        }}
+    end
+  end
+
+  defp dispatch(["delivery", id], opts, _) do
+    delivery =
+      case {opts[:disable], opts[:url], opts[:token_file]} do
+        {true, nil, nil} ->
+          {:ok, nil}
+
+        {disabled, url, token_file}
+        when disabled in [nil, false] and is_binary(url) and is_binary(token_file) ->
+          {:ok, %{"url" => url, "token_file" => token_file}}
+
+        _ ->
+          {:error, :usage}
+      end
+
+    with {:ok, destination} <- delivery,
+         {:ok, account} <- AccountConfig.set_delivery(path(opts), id, destination) do
+      {:ok, %{account: public(account), next: reload_message()}}
     end
   end
 
@@ -336,6 +359,8 @@ defmodule AtMcp.AccountSetup do
       update NAME [--handle HANDLE] [--service URL]
                   [--password-stdin]
       remove NAME
+      delivery NAME --url URL --token-file ABSOLUTE_PATH
+      delivery NAME --disable
       list
       connection NAME [--transport http|stdio]
                       [--scope read|write|manage]
