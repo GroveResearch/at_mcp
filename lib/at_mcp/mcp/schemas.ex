@@ -106,7 +106,7 @@ defmodule AtMcp.MCP.Schemas do
   @doc """
   One image a tool uploads: base64 `data` or a file `path`, and its MIME type
   as `mime_type` or as `mimeType`, the AT Protocol blob's own name for it.
-  Either spelling satisfies the schema; the tool builds the blob itself.
+  Either spelling is accepted; the tool builds the blob itself.
   `alt: true` requires alt text and takes a list, as a post's images do.
   These are a `param`'s whole options, since the tool DSL reads them literally.
   """
@@ -316,18 +316,20 @@ defmodule AtMcp.MCP.Schemas do
         description:
           "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
       },
-      mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"},
+      mime_type: %{
+        type: "string",
+        description: "MIME type, e.g. image/png or image/jpeg. Needed, here or as mimeType."
+      },
       mimeType: %{
         type: "string",
         description: "Instead of mime_type, under the AT Protocol blob's name. Give one."
       }
     }
 
-    schema = %{
-      type: "object",
-      properties: properties,
-      anyOf: [%{required: ["mime_type"]}, %{required: ["mimeType"]}]
-    }
+    # Neither is required here: the tool refuses an image with neither as
+    # invalid_image. An `anyOf` requiring one of them was tried, and some
+    # models then left the MIME type out of every call.
+    schema = %{type: "object", properties: properties}
 
     if opts[:alt],
       do: schema |> put_in([:properties, :alt], alt) |> Map.put(:required, ["alt"]),

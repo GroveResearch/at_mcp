@@ -42,52 +42,35 @@ defmodule AtMcp.InputSchemaTest do
     %{effects: effects}
   end
 
-  # Each `required` list in a schema, with the path that reaches it and the
-  # properties it may name. An `anyOf` alternative names its parent's.
-  defp requirements(schema, path, inherited \\ %{})
-
-  defp requirements(schema, path, inherited) when is_map(schema) do
-    properties = Map.get(schema, "properties", inherited)
-    own = for key <- Map.get(schema, "required", []), do: {path, key, properties}
+  # Every object schema inside a schema, with the path that reaches it.
+  defp objects(schema, path) when is_map(schema) do
+    own =
+      if Map.has_key?(schema, "properties") or Map.has_key?(schema, "required"),
+        do: [{path, schema}],
+        else: []
 
     nested =
       Enum.flat_map(schema, fn
-        {"properties", props} ->
-          Enum.flat_map(props, fn {k, v} -> requirements(v, path ++ [k]) end)
-
-        {"items", items} ->
-          requirements(items, path ++ ["[]"])
-
-        {key, list} when key in ~w(anyOf oneOf allOf) ->
-          Enum.flat_map(list, &requirements(&1, path, properties))
-
-        _ ->
-          []
+        {"properties", props} -> Enum.flat_map(props, fn {k, v} -> objects(v, path ++ [k]) end)
+        {"items", items} -> objects(items, path ++ ["[]"])
+        {key, list} when key in ~w(anyOf oneOf allOf) -> Enum.flat_map(list, &objects(&1, path))
+        _ -> []
       end)
 
     own ++ nested
   end
 
-  defp requirements(_, _, _), do: []
+  defp objects(_, _), do: []
 
   test "no tool's schema requires a key it does not define" do
     undefined =
       for {name, schema} <- published(),
-          {path, key, properties} <- requirements(schema, [name]),
-          not Map.has_key?(properties, key),
+          {path, object} <- objects(schema, [name]),
+          key <- Map.get(object, "required", []),
+          not Map.has_key?(Map.get(object, "properties", %{}), key),
           do: {Enum.join(path, "."), key}
 
     assert undefined == []
-  end
-
-  test "the lint sees a required key an anyOf alternative names but no property defines" do
-    schema = %{
-      "properties" => %{"mime_type" => %{}},
-      "anyOf" => [%{"required" => ["mime_type"]}, %{"required" => ["mimeTyp"]}]
-    }
-
-    assert [{_, "mimeTyp", _}] =
-             Enum.reject(requirements(schema, ["x"]), fn {_, k, p} -> Map.has_key?(p, k) end)
   end
 
   test "an image's MIME type may be spelled mime_type or mimeType in every tool that takes one" do
@@ -106,10 +89,6 @@ defmodule AtMcp.InputSchemaTest do
                "#{tool} #{inspect(args)}"
       end
     end
-
-    refute ExJsonSchema.Validator.valid?(schemas["update_profile"], %{
-             "avatar" => %{"data" => @png}
-           })
   end
 
   test "mimeType reaches the backend as the image's MIME type" do
@@ -140,30 +119,51 @@ defmodule AtMcp.InputSchemaTest do
     assert [%{mime_type: "image/png", alt: "a dot"}] = opts[:images]
   end
 
-  test "two different MIME types for one image are refused, and nothing is sent" do
-    avatar = %{"data" => @png, "mime_type" => "image/png", "mimeType" => "image/jpeg"}
+  # Neither MIME type is required by the schema: an `anyOf` requiring one of
+  # them led some models to leave the type out of every call. The tool
+  # refuses instead, before anything is sent.
+  test "an image with no MIME type, or two that differ, is refused and nothing is sent" do
+    state = state()
+
+    for avatar <- [
+          %{"data" => @png},
+          %{"data" => @png, "mime_type" => "image/png", "mimeType" => "image/jpeg"}
+        ] do
+      assert {:ok, %{isError: true} = result, _} =
+               AtMcp.MCP.Server.handle_call_tool("update_profile", %{"avatar" => avatar}, state)
+
+      assert result.structuredContent.code == "invalid_image"
+      [%{text: text}] = result.content
+      assert text =~ "mimeType"
+    end
+
+    images = [%{"data" => @png, "alt" => "a dot"}]
 
     assert {:ok, %{isError: true} = result, _} =
-             AtMcp.MCP.Server.handle_call_tool("update_profile", %{"avatar" => avatar}, state())
+             AtMcp.MCP.Server.handle_call_tool(
+               "post",
+               %{"text" => "t", "images" => images},
+               state
+             )
 
     assert result.structuredContent.code == "invalid_image"
     refute_received {:update_profile, _}
+    refute_received {:post, _, _}
   end
 
   test "a refused call names the argument that failed" do
-    args = %{"avatar" => %{"data" => @png}}
+    args = %{"text" => "t", "images" => [%{"data" => @png, "mime_type" => "image/png"}]}
 
     assert {:ok, %{isError: true} = result, :state} =
-             AtMcp.MCP.Server.handle_call_tool("update_profile", args, :state)
+             AtMcp.MCP.Server.handle_call_tool("post", args, :state)
 
-    assert %{
-             code: "invalid_arguments",
-             problems: [%{path: "avatar", message: "Needs one of: mime_type, mimeType."}]
-           } = result.structuredContent
+    assert %{code: "invalid_arguments", problems: [%{path: "images/0", message: message}]} =
+             result.structuredContent
 
+    assert message =~ "alt"
     [%{text: text}] = result.content
     assert text =~ "No operation was attempted"
-    assert text =~ "avatar: Needs one of: mime_type, mimeType."
+    assert text =~ "images/0: " <> message
   end
 
   test "every failure is named, up to five" do

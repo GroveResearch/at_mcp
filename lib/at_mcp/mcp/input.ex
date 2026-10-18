@@ -15,7 +15,7 @@ defmodule AtMcp.MCP.Input do
         :ok
 
       {:error, errors} when is_list(errors) ->
-        {:error, invalid(Enum.map(errors, &(&1 |> problem() |> plainer(raw(schema)))))}
+        {:error, invalid(Enum.map(errors, &problem/1))}
 
       {:error, :duplicate_keys} ->
         {:error, invalid([%{path: "", message: "An argument is given twice."}])}
@@ -174,38 +174,6 @@ defmodule AtMcp.MCP.Input do
 
   defp problem({message, path}) when is_binary(path), do: %{path: path, message: message}
   defp problem(other), do: %{path: "", message: inspect(other)}
-
-  # "Expected any of the schemata to match" says nothing a caller can act on
-  # when every alternative only requires a key, as an image's `mime_type` or
-  # `mimeType` does. Name the keys instead.
-  defp plainer(
-         %{path: path, message: "Expected any of the schemata to match" <> _} = problem,
-         schema
-       ) do
-    with %{"anyOf" => branches} <- at(schema, String.split(path, "/", trim: true)),
-         keys when keys != [] <- Enum.map(branches, &only_required/1),
-         false <- nil in keys do
-      %{problem | message: "Needs one of: #{keys |> List.flatten() |> Enum.join(", ")}."}
-    else
-      _ -> problem
-    end
-  end
-
-  defp plainer(problem, _schema), do: problem
-
-  defp only_required(%{"required" => keys} = branch) when map_size(branch) == 1, do: keys
-  defp only_required(_branch), do: nil
-
-  defp at(schema, []), do: schema
-
-  defp at(%{"properties" => properties}, [key | rest]) when is_map_key(properties, key),
-    do: at(properties[key], rest)
-
-  defp at(%{"items" => items}, [_index | rest]) when is_map(items), do: at(items, rest)
-  defp at(_schema, _path), do: nil
-
-  defp raw(%ExJsonSchema.Schema.Root{schema: schema}), do: schema
-  defp raw(schema) when is_map(schema), do: SchemaPolicy.json_compatible(schema)
 
   defp refusal(code, message) do
     ExMCP.Server.DSL.Result.error(message)
