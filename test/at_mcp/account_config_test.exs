@@ -83,6 +83,82 @@ defmodule AtMcp.AccountConfigTest do
     assert Config.validate(legacy) == {:error, :invalid_account}
   end
 
+  test "delivery setup preserves credentials and validates its own authority", %{
+    path: path,
+    root: root
+  } do
+    original = account(1)
+    assert {:ok, _} = Config.add(path, original)
+    token_file = Path.join(root, "receiver-token")
+    destination = %{"url" => "http://127.0.0.1:4420/inbound", "token_file" => token_file}
+
+    assert {:ok, saved} = Config.set_delivery(path, original["id"], destination)
+    assert Map.delete(saved, "delivery") == original
+    assert {:ok, [^saved]} = Config.load(path)
+    refute Map.has_key?(Config.public(saved), "delivery")
+
+    for invalid <- [
+          Map.put(destination, "url", "http://remote.test/inbound"),
+          Map.put(destination, "url", "https://user:secret@example.test/inbound"),
+          Map.put(destination, "token_file", "relative-token"),
+          Map.put(destination, "token", "inline-secret"),
+          Map.delete(destination, "token_file")
+        ] do
+      assert {:error, :invalid_account} = Config.set_delivery(path, original["id"], invalid)
+      assert {:ok, [^saved]} = Config.load(path)
+    end
+
+    assert {:ok, result} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "delivery",
+               original["id"],
+               "--disable"
+             ])
+
+    refute inspect(result) =~ "sentinel-secret"
+    assert {:ok, [disabled]} = Config.load(path)
+    assert Map.has_key?(disabled, "delivery") and is_nil(disabled["delivery"])
+    assert Map.delete(disabled, "delivery") == original
+
+    assert {:ok, _} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "delivery",
+               original["id"],
+               "--url",
+               destination["url"],
+               "--token-file",
+               token_file
+             ])
+
+    assert {:ok, [^saved]} = Config.load(path)
+  end
+
+  test "account delivery mode survives removing its only routed account", %{
+    path: path,
+    root: root
+  } do
+    assert {:ok, _} = Config.add(path, account(1))
+    assert {:ok, _} = Config.add(path, account(2))
+
+    assert {:ok, _} =
+             Config.set_delivery(path, "account-1", %{
+               "url" => "http://localhost:4420/inbound",
+               "token_file" => Path.join(root, "token")
+             })
+
+    assert {:ok, [_, second]} = Config.load(path)
+    assert Map.fetch(second, "delivery") == {:ok, nil}
+    assert {:ok, _} = Config.remove(path, "account-1")
+    assert {:ok, [^second]} = Config.load(path)
+    assert {:ok, _} = Config.add(path, account(3))
+    assert {:ok, [^second, third]} = Config.load(path)
+    assert Map.fetch(third, "delivery") == {:ok, nil}
+  end
+
   test "corrupt config preserved", %{path: path} do
     File.mkdir_p!(Path.dirname(path))
 

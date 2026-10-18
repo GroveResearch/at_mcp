@@ -9,6 +9,24 @@ defmodule AtMcp.AccountsReloadTest do
     plug(:match)
     plug(:dispatch)
 
+    post "/inbound/:receiver" do
+      send(
+        Process.whereis(AtMcp.AccountsReloadTest),
+        {:received, receiver, Plug.Conn.get_req_header(conn, "authorization"), conn.body_params,
+         self()}
+      )
+
+      if receiver == "hold" do
+        receive do
+          :release_delivery -> :ok
+        after
+          5_000 -> :ok
+        end
+      end
+
+      send_resp(conn, if(receiver == "fail", do: 503, else: 204), "")
+    end
+
     post "/xrpc/com.atproto.server.createSession" do
       handle = conn.body_params["identifier"]
 
@@ -229,6 +247,193 @@ defmodule AtMcp.AccountsReloadTest do
     assert is_pid(pid)
     assert pid == Identity.whereis(a["id"])
   end
+
+  test "separate destinations survive failures, route edits, removal and owner restart", %{
+    config_file: file,
+    rows: [a, b],
+    service: service
+  } do
+    AtMcp.Test.Settings.put(
+      delivery: [token: "global-token-must-not-be-used"],
+      notifications_enabled: true
+    )
+
+    root = Path.dirname(file)
+    token_a = Path.join(root, "token-a")
+    token_b = Path.join(root, "token-b")
+    File.write!(token_a, "alice-token")
+    File.write!(token_b, "bob-token")
+
+    route = fn row, endpoint, token ->
+      Map.put(row, "delivery", %{
+        "url" => service <> "/inbound/" <> endpoint,
+        "token_file" => token
+      })
+    end
+
+    a = route.(a, "fail", token_a)
+    b = route.(b, "bob", token_b)
+    write(file, [a, b])
+    assert {:ok, _} = Accounts.reload()
+    b_pid = Identity.whereis(b["id"])
+    parent = self()
+    AtMcp.Deliver.set_callback(fn _ -> send(parent, :wrong_fallback) end)
+    on_exit(fn -> AtMcp.Deliver.clear_callback() end)
+
+    ea = notification(a, "first")
+    eb = notification(b, "first")
+    assert {:ok, [_, _]} = Store.accept([ea, eb])
+    assert_receive {:received, "fail", ["Bearer alice-token"], body_a, _}, 2_000
+    assert body_a["matched_did"] == a["did"]
+    assert_receive {:received, "bob", ["Bearer bob-token"], body_b, _}, 2_000
+    assert body_b["matched_did"] == b["did"]
+    assert eventually(fn -> Store.stalls()[a["did"]] != nil end)
+    assert eventually(fn -> Store.stalls()[b["did"]] == nil end)
+    refute_receive :wrong_fallback
+
+    # A failed destination retains its event; a route edit sends that same
+    # event to the new destination without touching Bob's account runtime.
+    a = route.(a, "alice", token_a)
+    File.write!(token_a, "rotated-alice-token")
+    write(file, [a, b])
+    assert {:ok, _} = Accounts.reload()
+    assert Identity.whereis(b["id"]) == b_pid
+    assert_receive {:received, "alice", ["Bearer rotated-alice-token"], replay, _}, 5_000
+    assert replay["uri"] == ea.uri
+
+    restart_accounts!()
+    assert :ok = Accounts.await_initialization()
+    assert {:account, destination} = Accounts.delivery_route(a["did"])
+    assert destination == a["delivery"]
+    assert {:ok, [_]} = Store.accept([notification(a, "after-restart")])
+    assert_receive {:received, "alice", ["Bearer rotated-alice-token"], _, _}, 2_000
+
+    # Disabling a destination retains its queued work without using the host
+    # callback, and does not stop Bob's deliveries or Alice's account access.
+    write(file, [Map.put(a, "delivery", nil), b])
+    assert {:ok, _} = Accounts.reload()
+    held = notification(a, "held")
+    assert {:ok, [_]} = Store.accept([held])
+    assert {:account, nil} = Accounts.delivery_route(a["did"])
+    assert {:error, :no_callback} = AtMcp.Deliver.deliver(held)
+    assert Store.ready(a["id"]) == :ok
+    refute_receive :wrong_fallback
+    write(file, [a, b])
+    assert {:ok, _} = Accounts.reload()
+    assert_receive {:received, "alice", ["Bearer rotated-alice-token"], resumed, _}, 5_000
+    assert resumed["uri"] == held.uri
+
+    # Cancel a request already in flight, then remove its route and identity.
+    a = route.(a, "hold", token_a)
+    write(file, [a, b])
+    assert {:ok, _} = Accounts.reload()
+    assert {:ok, [_]} = Store.accept([notification(a, "remove-in-flight")])
+    assert_receive {:received, "hold", _, _, receiver}, 2_000
+    worker = :sys.get_state(Store).workers[a["did"]].pid
+    write(file, [b])
+    assert {:ok, _} = Accounts.reload()
+    refute Process.alive?(worker)
+    assert Store.accounts()[a["id"]].disabled
+
+    assert Enum.any?(:sys.get_state(Store).data.pending, fn {_, entry} ->
+             entry.event.uri == notification(a, "remove-in-flight").uri
+           end)
+
+    assert {:account, nil} = Accounts.delivery_route(a["did"])
+    assert {:error, :no_callback} = AtMcp.Deliver.deliver(notification(a, "removed"))
+    send(receiver, :release_delivery)
+    refute_receive :wrong_fallback
+    assert {:ok, [_]} = Store.accept([notification(b, "still-running")])
+    assert_receive {:received, "bob", ["Bearer bob-token"], _, _}, 2_000
+  end
+
+  test "entering account delivery fences existing callbacks and removing the last route stays disabled",
+       %{
+         config_file: file,
+         rows: [a, b],
+         service: service
+       } do
+    parent = self()
+
+    AtMcp.Deliver.set_callback(fn event ->
+      send(parent, {:fallback_entered, event.matched_did, self()})
+
+      receive do
+        :continue -> :ok
+      end
+    end)
+
+    on_exit(fn -> AtMcp.Deliver.clear_callback() end)
+    assert {:ok, [_]} = Store.accept([notification(b, "legacy-in-flight")])
+    assert_receive {:fallback_entered, did, old_worker}, 2_000
+    assert did == b["did"]
+    token = Path.join(Path.dirname(file), "only-token")
+    File.write!(token, "alice")
+    AtMcp.Test.Settings.put(notifications_enabled: true)
+
+    assert {:ok, _} =
+             AccountConfig.set_delivery(file, a["id"], %{
+               "url" => service <> "/inbound/alice",
+               "token_file" => token
+             })
+
+    assert {:ok, _} = Accounts.reload()
+    refute Process.alive?(old_worker)
+    assert {:account, nil} = Accounts.delivery_route(b["did"])
+    assert {:ok, _} = AccountConfig.remove(file, a["id"])
+    assert {:ok, _} = Accounts.reload()
+    restart_accounts!()
+    assert :ok = Accounts.await_initialization()
+    assert {:account, nil} = Accounts.delivery_route(b["did"])
+    assert {:error, :no_callback} = AtMcp.Deliver.deliver(notification(b, "still-held"))
+    refute_receive {:fallback_entered, _, _}
+  end
+
+  test "account destinations require a collector and complete explicit configuration", %{
+    config_file: file,
+    rows: [a, b],
+    service: service
+  } do
+    routed =
+      Map.put(a, "delivery", %{
+        "url" => service <> "/inbound/alice",
+        "token_file" => "/private/token"
+      })
+
+    write(file, [routed, b])
+    assert {:error, :incomplete_delivery_configuration} = Identities.named_identity_specs(file)
+    write(file, [routed, Map.put(b, "delivery", nil)])
+    assert {:error, {:delivery_bridge_unready, [:no_inbound_collector]}} = Accounts.reload()
+    assert Store.ready(a["id"]) == :ok
+  end
+
+  test "mixed global and account destinations reject reload without changing owners", %{
+    config_file: file,
+    rows: [a, b],
+    service: service
+  } do
+    before = Identity.whereis(a["id"])
+
+    a =
+      Map.put(a, "delivery", %{
+        "url" => service <> "/inbound/alice",
+        "token_file" => "/private/token"
+      })
+
+    write(file, [a, b])
+    AtMcp.Test.Settings.put(delivery: [url: service <> "/inbound/global"])
+    assert {:error, :mixed_delivery_configuration} = Identities.named_identity_specs(file)
+    assert {:error, :mixed_delivery_configuration} = Accounts.reload()
+    assert Identity.whereis(a["id"]) == before
+  end
+
+  defp notification(account, suffix),
+    do: %{
+      source: :notifications,
+      matched_did: account["did"],
+      uri: "at://author/post/" <> account["id"] <> "-" <> suffix,
+      kind: :inbound_notification
+    }
 
   defp row(id, service),
     do: %{

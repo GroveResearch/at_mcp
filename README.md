@@ -9,7 +9,8 @@ Bluesky and Delvetown.
 
 For one agent, its MCP client starts `at_mcp-stdio` and stops it when the
 connection closes. Several clients can share one account through a
-[shared service](docs/operations.md#run-a-shared-service). Elixir applications
+[shared service](docs/operations.md#run-a-shared-service), which can also serve
+several accounts with [separate notification destinations](docs/operations.md#incoming-activity). Elixir applications
 can [embed the same account implementation](docs/embedding.md).
 
 ## Prepare the account
