@@ -536,6 +536,51 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.1 to 0.2.2
+
+0.2.2 stores data in the same format as 0.2.1, apart from one optional field,
+and an environment that started 0.2.1 starts 0.2.2 unchanged. No tool or
+argument was removed, and every call that worked on 0.2.1 works on 0.2.2.
+
+**Several agents can share one service (#64).** `at_mcp-accounts delivery NAME
+--url … --token-file …` gives an account its own notification destination,
+saved as an optional `delivery` field on that account in the accounts file.
+Each account's notifications go only to its destination, a destination that is
+down holds only its own account's queue, and queued notifications survive a
+destination change and a restart. `AT_MCP_DELIVERY_URL` still works as before
+for a service with one consumer; combining it with per-account destinations is
+refused at start and on reload.
+
+**Rolling back after saving a destination needs one manual step.** 0.2.1
+refuses an account with any field it does not know, and once one account has
+a destination, 0.2.2 writes `"delivery": null` onto every other account too.
+So before starting 0.2.1 again, keep a copy of the accounts file and remove the
+`delivery` field from every account in it (it is a private JSON file; edit it
+while the service is stopped). A service that never ran `at_mcp-accounts
+delivery` has no such field and rolls back as before.
+
+**A token file is checked before it is used.** An empty token file, a missing
+one, or one holding more than one line now fails the delivery attempt (it is
+retried) with a reason that names neither the token nor the file. In 0.2.1 an
+empty file sent no `Authorization` header, and a token with a second line was
+refused by the HTTP client with an error that included the token, which was
+then logged on every retry. If your logs from 0.2.1 contain a delivery error
+quoting `Bearer`, rotate that token.
+
+**What a client sees differently.**
+
+- A call whose arguments don't match a tool's schema is refused as before, and
+  the refusal now names each failing argument (`path: message`, up to five)
+  and lists them in `structuredContent.problems` (#62).
+- Images (`post`, `reply`, `update_profile` avatar and banner) accept the AT
+  Protocol spelling `mimeType` as well as `mime_type`. Both are plain optional
+  properties in the published schema; an image with neither, or with two
+  different types, is refused as `invalid_image` and nothing is sent (#65).
+- A call carrying arguments the tool does not define still runs, and its result
+  now says which were ignored: a text line, `structuredContent.ignored`, and
+  the same `ignored` in the JSON text (#65). In 0.2.1 they were dropped without
+  a word, so `post` with `embed` published the text and reported success.
+
 ### From 0.2.0 to 0.2.1
 
 0.2.1 stores data in the same format as 0.2.0, and an environment that started
