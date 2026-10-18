@@ -220,6 +220,14 @@ defmodule AtMcp.AccountConfig do
         with {:ok, accounts} <- current(contents),
              {:ok, next, result} <- change.(accounts),
              :ok <- unique(next) do
+          # Entering account routing gives every account explicit authority.
+          # Disabled rows retain that mode when the last routed row is removed;
+          # new accounts likewise start disabled instead of inheriting a sink.
+          per_account? = Enum.any?(accounts ++ next, &Map.has_key?(&1, "delivery"))
+
+          next =
+            if per_account?, do: Enum.map(next, &Map.put_new(&1, "delivery", nil)), else: next
+
           {:ok, Jason.encode!(%{"version" => 1, "accounts" => next}), result}
         end
       end)
@@ -262,7 +270,7 @@ defmodule AtMcp.AccountConfig do
   @doc "Validate an account configuration without filesystem or network access."
   def validate(account) when is_map(account) do
     valid =
-      Enum.sort(Map.keys(account)) == Enum.sort(@fields) and
+      Enum.sort(Map.keys(Map.delete(account, "delivery"))) == Enum.sort(@fields) and
         Enum.all?(
           @fields,
           &(is_binary(account[&1]) and String.valid?(account[&1]) and
@@ -271,12 +279,42 @@ defmodule AtMcp.AccountConfig do
 
     if valid and Regex.match?(~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\z/, account["id"]) and
          Regex.match?(~r/\Adid:[a-z0-9]+:[^\s]+\z/, account["did"]) and
-         valid_service?(account["service"]),
+         valid_service?(account["service"]) and valid_delivery?(Map.get(account, "delivery")),
        do: :ok,
        else: {:error, :invalid_account}
   end
 
   def validate(_), do: {:error, :invalid_account}
+
+  @doc "Save a notification destination without changing the account credentials."
+  def set_delivery(path, id, delivery) do
+    if valid_delivery?(delivery) do
+      mutate(path, fn accounts ->
+        case Enum.find(accounts, &(&1["id"] == id)) do
+          nil ->
+            {:error, :not_found}
+
+          account ->
+            updated = Map.put(account, "delivery", delivery)
+            {:ok, Enum.map(accounts, &if(&1["id"] == id, do: updated, else: &1)), updated}
+        end
+      end)
+    else
+      {:error, :invalid_account}
+    end
+  end
+
+  # Null deliberately disables delivery for this account; it does not inherit
+  # installation credentials or a communal destination.
+  defp valid_delivery?(nil), do: true
+
+  defp valid_delivery?(%{"url" => url, "token_file" => path} = delivery) do
+    map_size(delivery) == 2 and is_binary(url) and valid_service?(url) and
+      is_binary(path) and String.valid?(path) and Path.type(path) == :absolute and
+      not String.contains?(path, ["\0", "\n", "\r"])
+  end
+
+  defp valid_delivery?(_), do: false
 
   defp valid_service?(service) do
     uri = URI.parse(service)
