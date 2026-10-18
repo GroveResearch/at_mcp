@@ -342,6 +342,10 @@ bin/at_mcp-accounts reload
 Each token file contains that receiver's bearer token, not a PDS app password
 or an MCP grant. Keep it private and readable by the service user. Tokens are
 read again on each attempt, so token rotation does not require a reload.
+An empty or unreadable token file, or one whose contents are more than one
+header value, fails that attempt and is retried; AtMcp never sends that
+account's activity without its token, and the failure it reports names
+neither the token nor its file.
 The destination and token file are saved in the named account's `delivery`
 field in the existing accounts file; the command never changes its credentials.
 The first destination command explicitly disables delivery for the other saved
