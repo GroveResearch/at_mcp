@@ -628,26 +628,13 @@ defmodule AtMcp.MCP.Server do
         "AT URI of a post to quote. Its CID is read from the record itself, so only the URI is needed."
     )
 
-    param(:images, {:array, :object},
-      description:
+    param(
+      :images,
+      {:array, :object},
+      AtMcp.MCP.Schemas.image_upload(
         "Images to attach. Each is base64 data or a file path, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
-      schema: %{
-        type: "array",
-        items: %{
-          type: "object",
-          properties: %{
-            data: %{type: "string", description: "The image bytes, base64-encoded"},
-            path: %{
-              type: "string",
-              description:
-                "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-            },
-            mime_type: %{type: "string", description: "MIME type, e.g. image/png"},
-            alt: %{type: "string", description: "Alt text describing the image"}
-          },
-          required: ["mime_type", "alt"]
-        }
-      }
+        alt: true
+      )
     )
 
     run(fn a, state ->
@@ -690,26 +677,13 @@ defmodule AtMcp.MCP.Server do
         "AT URI of a post to quote. Its CID is read from the record itself, so only the URI is needed."
     )
 
-    param(:images, {:array, :object},
-      description:
+    param(
+      :images,
+      {:array, :object},
+      AtMcp.MCP.Schemas.image_upload(
         "Images to attach. Each is base64 data or a file path, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
-      schema: %{
-        type: "array",
-        items: %{
-          type: "object",
-          properties: %{
-            data: %{type: "string", description: "The image bytes, base64-encoded"},
-            path: %{
-              type: "string",
-              description:
-                "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-            },
-            mime_type: %{type: "string", description: "MIME type, e.g. image/png"},
-            alt: %{type: "string", description: "Alt text describing the image"}
-          },
-          required: ["mime_type", "alt"]
-        }
-      }
+        alt: true
+      )
     )
 
     run(fn a, state ->
@@ -985,38 +959,20 @@ defmodule AtMcp.MCP.Server do
     param(:display_name, :string, description: "New display name")
     param(:description, :string, description: "New description")
 
-    param(:avatar, :object,
-      description: "New avatar image: base64 data or a file path, and its MIME type",
-      schema: %{
-        type: "object",
-        properties: %{
-          data: %{type: "string", description: "The image bytes, base64-encoded"},
-          path: %{
-            type: "string",
-            description:
-              "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-          },
-          mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"}
-        },
-        required: ["mime_type"]
-      }
+    param(
+      :avatar,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "New avatar image: base64 data or a file path, and its MIME type"
+      )
     )
 
-    param(:banner, :object,
-      description: "New banner image: base64 data or a file path, and its MIME type",
-      schema: %{
-        type: "object",
-        properties: %{
-          data: %{type: "string", description: "The image bytes, base64-encoded"},
-          path: %{
-            type: "string",
-            description:
-              "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-          },
-          mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"}
-        },
-        required: ["mime_type"]
-      }
+    param(
+      :banner,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "New banner image: base64 data or a file path, and its MIME type"
+      )
     )
 
     run(fn a, state ->
