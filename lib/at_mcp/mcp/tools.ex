@@ -60,7 +60,7 @@ defmodule AtMcp.MCP.Tools do
     account_authentication_failed:
       "The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied. Check the app password and reconnect; retrying the same request will not help.",
     invalid_image:
-      "An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type`, and for a post `alt` text; nothing was sent.",
+      "An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type` (or `mimeType`, not two that differ), and for a post `alt` text; nothing was sent.",
     media_dir_unset:
       "This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Send the image as base64 `data` instead; nothing was sent.",
     invalid_post_text:
@@ -493,12 +493,22 @@ defmodule AtMcp.MCP.Tools do
   # One image's bytes: base64 `data`, or a `path` the server reads itself
   # (`AtMcp.MediaFile`), never both. Either way they leave here as bytes.
   defp decode_image(image) do
-    with {:ok, mime_type} <- string_field(image, "mime_type"),
+    with {:ok, mime_type} <- mime_type(image),
          {:ok, data} <- image_bytes(string_field(image, "data"), string_field(image, "path")) do
       {:ok, %{data: data, mime_type: mime_type}}
     else
       {:error, _} = error -> error
       _ -> {:error, :invalid_image}
+    end
+  end
+
+  # `mime_type`, or `mimeType` as the AT Protocol blob names it. Both is fine
+  # when they agree; two different types is not a choice to make for the caller.
+  defp mime_type(image) do
+    case {string_field(image, "mime_type"), string_field(image, "mimeType")} do
+      {{:ok, a}, {:ok, b}} when a != b -> :error
+      {{:ok, a}, _} -> {:ok, a}
+      {:error, other} -> other
     end
   end
 

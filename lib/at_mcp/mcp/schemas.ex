@@ -103,6 +103,19 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro action_result, do: Macro.escape(action_result_schema())
 
+  @doc """
+  One image a tool uploads: base64 `data` or a file `path`, and its MIME type
+  as `mime_type` or as `mimeType`, the AT Protocol blob's own name for it.
+  Either spelling is accepted; the tool builds the blob itself.
+  `alt: true` requires alt text and takes a list, as a post's images do.
+  These are a `param`'s whole options, since the tool DSL reads them literally.
+  """
+  defmacro image_upload(description, opts \\ []) do
+    image = image_upload_schema(opts)
+    schema = if opts[:alt], do: %{type: "array", items: image}, else: image
+    Macro.escape(description: description, schema: schema)
+  end
+
   defmacro identity_status, do: Macro.escape(identity_status_schema())
 
   defmacro post_images, do: Macro.escape(post_images_schema())
@@ -115,6 +128,20 @@ defmodule AtMcp.MCP.Schemas do
     "outcome" => %{
       "type" => "string",
       "description" => "\"unknown\" when a write may or may not have been applied."
+    },
+    "ignored" => %{
+      "type" => "array",
+      "items" => %{"type" => "string"},
+      "description" =>
+        "Paths of arguments this tool does not take, present only when there were some. Nothing was done with them."
+    },
+    "problems" => %{
+      "type" => "array",
+      "items" => %{
+        "type" => "object",
+        "properties" => %{"path" => %{"type" => "string"}, "message" => %{"type" => "string"}}
+      },
+      "description" => "With code invalid_arguments: each argument that failed, and why."
     }
   }
 
@@ -276,6 +303,37 @@ defmodule AtMcp.MCP.Schemas do
       "banner_cid" => nullable_string("CID of the banner blob this update uploaded"),
       "seen_at" => nullable_string("ISO8601 timestamp")
     })
+  end
+
+  # Atom keys, like the schemas written inline in `AtMcp.MCP.Server`.
+  defp image_upload_schema(opts) do
+    alt = %{type: "string", description: "Alt text describing the image"}
+
+    properties = %{
+      data: %{type: "string", description: "The image bytes, base64-encoded"},
+      path: %{
+        type: "string",
+        description:
+          "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
+      },
+      mime_type: %{
+        type: "string",
+        description: "MIME type, e.g. image/png or image/jpeg. Needed, here or as mimeType."
+      },
+      mimeType: %{
+        type: "string",
+        description: "Instead of mime_type, under the AT Protocol blob's name. Give one."
+      }
+    }
+
+    # Neither is required here: the tool refuses an image with neither as
+    # invalid_image. An `anyOf` requiring one of them was tried, and some
+    # models then left the MIME type out of every call.
+    schema = %{type: "object", properties: properties}
+
+    if opts[:alt],
+      do: schema |> put_in([:properties, :alt], alt) |> Map.put(:required, ["alt"]),
+      else: schema
   end
 
   # The account's login state and its write quota.

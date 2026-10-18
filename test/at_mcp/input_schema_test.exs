@@ -4,13 +4,42 @@ defmodule AtMcp.InputSchemaTest do
   encoding. A client validates its arguments against these before it calls,
   so a schema that cannot be satisfied refuses every call before it is sent.
   """
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   @png "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgAAACAAFUok9dAAAAAElFTkSuQmCC"
+
+  # Records what the tools hand the backend, and answers like a service would.
+  defmodule Backend do
+    def prepare_post(_session, _text, opts), do: {:ok, opts}
+    def resolve_references(_session, opts), do: {:ok, opts}
+
+    def post(session, text, opts \\ []) do
+      send(session.test, {:post, text, opts})
+      {:ok, %{uri: "at://did:plc:fixture/app.bsky.feed.post/1", cid: "bafypost", text: text}}
+    end
+
+    def update_profile(session, updates) do
+      send(session.test, {:update_profile, updates})
+      {:ok, %{ok: true, action: :update_profile, uri: "at://did:plc:fixture/self"}}
+    end
+  end
 
   defp published do
     {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
     tools |> Jason.encode!() |> Jason.decode!() |> Map.new(&{&1["name"], &1["inputSchema"]})
+  end
+
+  defp state do
+    effects =
+      start_supervised!(
+        {AtMcp.Effects,
+         write_quota: AtMcp.Test.QuotaFixture.quota(100),
+         backend: Backend,
+         backend_state: %{did: "did:plc:fixture", test: self()}},
+        id: make_ref()
+      )
+
+    %{effects: effects}
   end
 
   # Every object schema inside a schema, with the path that reaches it.
@@ -44,38 +73,97 @@ defmodule AtMcp.InputSchemaTest do
     assert undefined == []
   end
 
-  test "a correctly shaped update_profile call satisfies the published schema" do
-    schema = published() |> Map.fetch!("update_profile") |> ExJsonSchema.Schema.resolve()
+  test "an image's MIME type may be spelled mime_type or mimeType in every tool that takes one" do
+    schemas = Map.new(published(), fn {name, s} -> {name, ExJsonSchema.Schema.resolve(s)} end)
+    image = &%{"data" => @png, &1 => "image/png"}
 
-    for args <- [
-          %{"avatar" => %{"data" => @png, "mime_type" => "image/png"}},
-          %{"banner" => %{"path" => "banner.jpg", "mime_type" => "image/jpeg"}},
-          %{
-            "display_name" => "café 🪁",
-            "avatar" => %{"data" => @png, "mime_type" => "image/png"},
-            "banner" => %{"data" => @png, "mime_type" => "image/png"}
-          }
-        ] do
-      assert ExJsonSchema.Validator.validate(schema, args) == :ok, inspect(args)
+    for key <- ["mime_type", "mimeType"] do
+      for {tool, args} <- [
+            {"update_profile", %{"avatar" => image.(key)}},
+            {"update_profile", %{"banner" => %{"path" => "b.png", key => "image/png"}}},
+            {"post", %{"text" => "t", "images" => [Map.put(image.(key), "alt", "a dot")]}},
+            {"reply",
+             %{"uri" => "at://x", "text" => "t", "images" => [Map.put(image.(key), "alt", "a")]}}
+          ] do
+        assert ExJsonSchema.Validator.validate(schemas[tool], args) == :ok,
+               "#{tool} #{inspect(args)}"
+      end
     end
   end
 
+  test "mimeType reaches the backend as the image's MIME type" do
+    state = state()
+
+    assert {:ok, result, _} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "update_profile",
+               %{"avatar" => %{"data" => @png, "mimeType" => "image/png"}},
+               state
+             )
+
+    refute result[:isError]
+    assert_received {:update_profile, updates}
+    assert %{mime_type: "image/png", data: <<0x89, "PNG", _::binary>>} = updates[:avatar]
+
+    images = [%{"data" => @png, "mimeType" => "image/png", "alt" => "a dot"}]
+
+    assert {:ok, result, _} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "post",
+               %{"text" => "t", "images" => images},
+               state
+             )
+
+    refute result[:isError]
+    assert_received {:post, "t", opts}
+    assert [%{mime_type: "image/png", alt: "a dot"}] = opts[:images]
+  end
+
+  # Neither MIME type is required by the schema: an `anyOf` requiring one of
+  # them led some models to leave the type out of every call. The tool
+  # refuses instead, before anything is sent.
+  test "an image with no MIME type, or two that differ, is refused and nothing is sent" do
+    state = state()
+
+    for avatar <- [
+          %{"data" => @png},
+          %{"data" => @png, "mime_type" => "image/png", "mimeType" => "image/jpeg"}
+        ] do
+      assert {:ok, %{isError: true} = result, _} =
+               AtMcp.MCP.Server.handle_call_tool("update_profile", %{"avatar" => avatar}, state)
+
+      assert result.structuredContent.code == "invalid_image"
+      [%{text: text}] = result.content
+      assert text =~ "mimeType"
+    end
+
+    images = [%{"data" => @png, "alt" => "a dot"}]
+
+    assert {:ok, %{isError: true} = result, _} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "post",
+               %{"text" => "t", "images" => images},
+               state
+             )
+
+    assert result.structuredContent.code == "invalid_image"
+    refute_received {:update_profile, _}
+    refute_received {:post, _, _}
+  end
+
   test "a refused call names the argument that failed" do
-    # `mimeType` is the blob's field in the AT Protocol data model; this tool
-    # takes the image and its MIME type and builds the blob, so its argument
-    # is `mime_type`, like every other argument here.
-    args = %{"avatar" => %{"data" => @png, "mimeType" => "image/png"}}
+    args = %{"text" => "t", "images" => [%{"data" => @png, "mime_type" => "image/png"}]}
 
     assert {:ok, %{isError: true} = result, :state} =
-             AtMcp.MCP.Server.handle_call_tool("update_profile", args, :state)
+             AtMcp.MCP.Server.handle_call_tool("post", args, :state)
 
-    assert %{code: "invalid_arguments", problems: [%{path: "avatar", message: message}]} =
+    assert %{code: "invalid_arguments", problems: [%{path: "images/0", message: message}]} =
              result.structuredContent
 
-    assert message =~ "mime_type"
+    assert message =~ "alt"
     [%{text: text}] = result.content
     assert text =~ "No operation was attempted"
-    assert text =~ "avatar: " <> message
+    assert text =~ "images/0: " <> message
   end
 
   test "every failure is named, up to five" do
@@ -89,5 +177,41 @@ defmodule AtMcp.InputSchemaTest do
     assert Enum.all?(problems, &(&1.path == "text" or String.starts_with?(&1.path, "langs/")))
     [%{text: text}] = result.content
     assert text =~ "(3 more)"
+  end
+
+  test "arguments a tool does not take are named in its result, which otherwise stands" do
+    args = %{
+      "text" => "hello",
+      "embed" => %{"uri" => "at://x"},
+      "facets" => [],
+      "images" => [%{"data" => @png, "mime_type" => "image/png", "alt" => "a", "caption" => "c"}],
+      "_meta" => %{"progressToken" => 1}
+    }
+
+    assert {:ok, result, _} = AtMcp.MCP.Server.handle_call_tool("post", args, state())
+    refute result[:isError]
+    assert_received {:post, "hello", _opts}
+
+    ignored = ["embed", "facets", "images/0/caption"]
+    assert result.structuredContent["ignored"] == ignored
+    assert result.structuredContent["uri"] == "at://did:plc:fixture/app.bsky.feed.post/1"
+
+    [%{text: json}, %{text: line}] = result.content
+    assert Jason.decode!(json) == result.structuredContent
+
+    assert line ==
+             "ignored: embed, facets, images/0/caption (this tool does not take them; nothing was done with them)"
+
+    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+    output = Enum.find(tools, &(&1.name == "post")).outputSchema
+    assert AtMcp.Test.Schema.valid?(result.structuredContent, output)
+  end
+
+  test "a call with only the arguments a tool takes says nothing about ignoring" do
+    assert {:ok, result, _} =
+             AtMcp.MCP.Server.handle_call_tool("post", %{"text" => "hi"}, state())
+
+    refute Map.has_key?(result.structuredContent, "ignored")
+    assert [%{text: _}] = result.content
   end
 end

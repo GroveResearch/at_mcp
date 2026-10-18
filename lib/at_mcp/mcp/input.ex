@@ -60,6 +60,90 @@ defmodule AtMcp.MCP.Input do
 
   defp json_keys(value), do: {:ok, value}
 
+  @doc """
+  The paths of arguments the tool's schema does not define, such as `embed`
+  or `images/0/caption`. They pass validation, since no schema here forbids
+  extra keys, and no handler reads them, so a caller would otherwise believe
+  they took effect.
+  """
+  def ignored(arguments, %ExJsonSchema.Schema.Root{schema: schema}),
+    do: ignored(arguments, schema)
+
+  def ignored(arguments, schema) when is_map(schema) do
+    # `_meta` is MCP's own key, which some clients send among the arguments.
+    case json_keys(arguments) do
+      {:ok, data} -> data |> Map.delete("_meta") |> unknown(schema, [])
+      _ -> []
+    end
+  end
+
+  defp unknown(data, %{"properties" => properties} = schema, path) when is_map(data) do
+    # Extra keys the schema itself governs are not ignored.
+    governed? = Map.get(schema, "additionalProperties", true) not in [true, nil]
+
+    data
+    |> Enum.sort()
+    |> Enum.flat_map(fn {key, value} ->
+      case Map.fetch(properties, key) do
+        {:ok, property} -> unknown(value, property, path ++ [key])
+        :error when governed? -> []
+        :error -> [Enum.join(path ++ [key], "/")]
+      end
+    end)
+  end
+
+  defp unknown(list, %{"items" => items}, path) when is_list(list) and is_map(items) do
+    list
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {value, i} -> unknown(value, items, path ++ [Integer.to_string(i)]) end)
+  end
+
+  defp unknown(_data, _schema, _path), do: []
+
+  @doc """
+  A result that also says which arguments were ignored: a line of text, and
+  `ignored` in the structured content (and in its JSON text, which carries
+  the same values). The call itself is unchanged.
+  """
+  def note_ignored(result, []), do: result
+
+  def note_ignored({:ok, %{content: content} = response, state}, paths) when is_list(content) do
+    line =
+      "ignored: #{Enum.join(paths, ", ")} (this tool does not take #{if match?([_], paths), do: "it", else: "them"}; nothing was done with #{if match?([_], paths), do: "it", else: "them"})"
+
+    structured = Map.get(response, :structuredContent)
+
+    content =
+      Enum.map(content, fn
+        %{type: "text", text: text} = item when is_map(structured) ->
+          if Jason.decode(text) == {:ok, SchemaPolicy.json_compatible(structured)},
+            do: %{item | text: Jason.encode!(Map.put(Jason.decode!(text), "ignored", paths))},
+            else: item
+
+        item ->
+          item
+      end)
+
+    response =
+      response
+      |> Map.put(:content, content ++ [%{type: "text", text: line}])
+      |> then(fn r ->
+        if is_map(structured),
+          do: Map.put(r, :structuredContent, put_ignored(structured, paths)),
+          else: r
+      end)
+
+    {:ok, response, state}
+  end
+
+  def note_ignored(result, _paths), do: result
+
+  defp put_ignored(map, paths) do
+    if Enum.any?(Map.keys(map), &is_atom/1),
+      do: Map.put(map, :ignored, paths),
+      else: Map.put(map, "ignored", paths)
+  end
+
   # The refusal names each argument that failed and why, so a caller can
   # correct the call instead of guessing which field was wrong. The messages
   # describe the caller's own arguments and go back only to that caller.
