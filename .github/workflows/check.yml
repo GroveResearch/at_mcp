@@ -60,10 +60,15 @@ jobs:
           python3 scripts/release_platform_contract_test.py
           python3 scripts/published_release_test.py
 
+      # The runtime is pinned to a version whose upstream license notices are
+      # in rel/notices/, because the release refuses to build without them
+      # (rel/notices.exs). "28" alone picks up each new OTP patch the day it
+      # ships, before its notices are here. To move the runtime, add the new
+      # otp-*/elixir-* notice sets and change these pins (every job) together.
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19"
-          otp-version: "28"
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
 
       - uses: actions/setup-node@v6
         with:
@@ -163,10 +168,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned with the test job's runtime; see the reason there.
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19"
-          otp-version: "28"
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
 
       # Building must not depend on the operator's environment. config/runtime.exs
       # reads AT_MCP_* at boot, not at build, and this fails loudly if that ever
@@ -266,10 +272,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned with the test job's runtime; see the reason there.
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19"
-          otp-version: "28"
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
 
       - name: Confirm no AtMcp variables are set
         run: |
@@ -428,10 +435,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned with the test job's runtime; see the reason there.
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19"
-          otp-version: "28"
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
 
       - run: mix deps.get
 
