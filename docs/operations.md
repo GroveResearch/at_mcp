@@ -345,8 +345,12 @@ read again on each attempt, so token rotation does not require a reload.
 The destination and token file are saved in the named account's `delivery`
 field in the existing accounts file; the command never changes its credentials.
 The first destination command explicitly disables delivery for the other saved
-accounts; configure each receiver before reloading. Accounts added later start
-with delivery disabled too. If editing JSON directly, every account must have
+accounts; configure each receiver before reloading. While any account remains
+in this configuration, accounts added later start with delivery disabled too.
+If you remove every account, configure each new destination before reloading
+again: an empty accounts file does not retain the delivery mode. This workflow
+covers the named shared service, not an embedding host's callback registration.
+If editing JSON directly, every account must have
 `"delivery"` set to its destination or `null`; a partial migration is rejected.
 Use `delivery alice --disable` followed by `reload` to hold Alice's incoming
 activity without disconnecting her account or discarding queued events.
