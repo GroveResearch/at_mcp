@@ -6,9 +6,11 @@ defmodule AtMcp.Test.FakePDS do
   `start/1` takes the records the repository holds, as
   `%{"at://repo/collection/rkey" => value}`, and `answers`, a map from an XRPC
   method to `{status, body}` that replaces the default answer. `getRecord`
-  answers from the records, and 400 `RecordNotFound` for one it does not hold;
-  `listRecords` answers one page of a collection's. Both name a record by its
-  DID-form URI, as a real PDS does.
+  answers from the records, and 400 `RecordNotFound` for one it does not hold.
+  Records are kept under DID-form addresses; `getRecord` named by a handle in
+  `handles` (`%{handle => did}`, the session's own handle included) answers
+  with the DID-form uri, as a real PDS does, and `resolveHandle` resolves them.
+  `listRecords` answers one page of a collection's, by DID-form uri.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
   test can read back what a write left. Any other method answers `{}`.
   """
@@ -23,6 +25,8 @@ defmodule AtMcp.Test.FakePDS do
            %{
              calls: [],
              records: Keyword.get(opts, :records, %{}),
+             handles:
+               Map.merge(%{"self.example" => "did:plc:self"}, Keyword.get(opts, :handles, %{})),
              answers: Keyword.get(opts, :answers, %{})
            }
          end},
@@ -90,7 +94,8 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   defp answer("com.atproto.repo.getRecord", %{query: q}, state) do
-    uri = "at://#{did(q["repo"])}/#{q["collection"]}/#{q["rkey"]}"
+    repo = Map.get(state.handles, q["repo"], q["repo"])
+    uri = "at://#{repo}/#{q["collection"]}/#{q["rkey"]}"
 
     case Map.fetch(state.records, uri) do
       {:ok, value} ->
@@ -135,7 +140,7 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   defp answer("com.atproto.repo.listRecords", %{query: q}, state) do
-    prefix = "at://#{did(q["repo"])}/#{q["collection"]}/"
+    prefix = "at://#{Map.get(state.handles, q["repo"], q["repo"])}/#{q["collection"]}/"
 
     records =
       for {uri, value} <- Enum.sort(state.records),
@@ -145,13 +150,16 @@ defmodule AtMcp.Test.FakePDS do
     {{200, %{records: records}}, state}
   end
 
+  defp answer("com.atproto.identity.resolveHandle", %{query: %{"handle" => handle}}, state) do
+    case Map.fetch(state.handles, handle) do
+      {:ok, did} -> {{200, %{did: did}}, state}
+      :error -> {{400, %{error: "InvalidRequest", message: "Unable to resolve handle"}}, state}
+    end
+  end
+
   defp answer(_method, _call, state), do: {{200, %{}}, state}
 
-  # A real PDS answers with a record's URI in DID form, whichever form the
-  # repository was named in.
-  defp did("self.example"), do: "did:plc:self"
-  defp did(repo), do: repo
-
-  defp cid(uri),
+  @doc "The CID the PDS gives the record at `uri`."
+  def cid(uri),
     do: "bafy" <> Base.encode32(:crypto.hash(:sha256, uri), case: :lower, padding: false)
 end

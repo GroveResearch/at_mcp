@@ -1108,6 +1108,163 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  # --- pins, thread mutes and bookmarks ---
+
+  tool "pin_post",
+       write_description(
+         :pin_post,
+         "Pin one of this account's posts to the top of its profile, replacing any post pinned before. Writes the profile record and keeps every other field of it. The result's replaced_uri is the post that was pinned before, if any."
+       ) do
+    annotations(
+      write_annotations(:pin_post, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of a post this account wrote")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.pin_post(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "unpin_post",
+       write_description(
+         :unpin_post,
+         "Remove the pinned post from this account's profile. The post itself stays. The result's replaced_uri is the post that was pinned; when nothing was pinned, nothing is written and it is null."
+       ) do
+    annotations(
+      write_annotations(:unpin_post, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.unpin_post(state.effects), state)
+    end)
+  end
+
+  tool "mute_thread",
+       write_description(
+         :mute_thread,
+         "Mute a thread: this account gets no notifications from it. Any post in the thread names it; the result's uri is the thread's first post. Thread mutes are private to the account."
+       ) do
+    annotations(
+      write_annotations(:mute_thread, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of any post in the thread")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.mute_thread(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "unmute_thread",
+       write_description(
+         :unmute_thread,
+         "Unmute a thread muted with mute_thread. Any post in the thread names it."
+       ) do
+    annotations(
+      write_annotations(:unmute_thread, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of any post in the thread")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.unmute_thread(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "bookmark",
+       write_description(
+         :bookmark,
+         "Bookmark a post to read later. Bookmarks are private to this account; get_bookmarks lists them."
+       ) do
+    annotations(
+      write_annotations(:bookmark, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the post")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.bookmark(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "unbookmark",
+       write_description(:unbookmark, "Remove a post from this account's bookmarks.") do
+    annotations(
+      write_annotations(:unbookmark, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the bookmarked post")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.unbookmark(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "get_bookmarks",
+       "List this account's bookmarked posts. A bookmarked post that was deleted or is hidden by a block keeps its place and says so." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.bookmark_page())
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("bookmarks"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_bookmarks(state.effects,
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :bookmarks
+      )
+    end)
+  end
+
   tool "get_membership",
        "Read your Delvetown membership. enabled says whether the service uses membership; null membership means no membership record. Otherwise inspect joined, status and suspended together. A service error does not mean you have not joined. Admission currently happens through delve.town; this tool does not join." do
     annotations(%{readOnlyHint: true, openWorldHint: true})

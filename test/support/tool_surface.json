@@ -9,6 +9,14 @@
         "actor"
       ]
     },
+    "bookmark": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "delete_post": {
       "arguments": {
         "uri": "string"
@@ -46,6 +54,13 @@
       ]
     },
     "get_blocks": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_bookmarks": {
       "arguments": {
         "cursor": "string",
         "limit": "integer"
@@ -293,6 +308,22 @@
         "actor"
       ]
     },
+    "mute_thread": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "pin_post": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "post": {
       "arguments": {
         "images": "array",
@@ -361,6 +392,14 @@
         "uri"
       ]
     },
+    "unbookmark": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "unfollow": {
       "arguments": {
         "uri": "string"
@@ -384,6 +423,18 @@
       "required": [
         "actor"
       ]
+    },
+    "unmute_thread": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unpin_post": {
+      "arguments": {},
+      "required": []
     },
     "unrepost": {
       "arguments": {

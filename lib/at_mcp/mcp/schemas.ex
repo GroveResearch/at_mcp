@@ -85,6 +85,8 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_page, do: Macro.escape(page(profile_view_schema()))
 
+  defmacro bookmark_page, do: Macro.escape(page(bookmark_schema()))
+
   defmacro generator_page, do: Macro.escape(page(record(:generator)))
 
   defmacro list_page, do: Macro.escape(list_page_schema())
@@ -309,7 +311,13 @@ defmodule AtMcp.MCP.Schemas do
       "description" => nullable_string(),
       "avatar_cid" => nullable_string("CID of the avatar blob this update uploaded"),
       "banner_cid" => nullable_string("CID of the banner blob this update uploaded"),
-      "seen_at" => nullable_string("ISO8601 timestamp")
+      "seen_at" => nullable_string("ISO8601 timestamp"),
+      "subject_uri" =>
+        nullable_string("AT URI of the post this action applied to, e.g. the post pinned"),
+      "replaced_uri" =>
+        nullable_string(
+          "AT URI of the post that was pinned before this action, if any; pin_post takes it to put it back"
+        )
     })
   end
 
@@ -337,6 +345,28 @@ defmodule AtMcp.MCP.Schemas do
             "With contains: AT URI of the list item that puts that account in this; null when it is not. Absent without contains"
           )
         )
+    }
+  end
+
+  # A bookmarked post, or the placeholder the service sends for one that is
+  # deleted or hidden by a block, with when it was bookmarked.
+  defp bookmark_schema do
+    %{
+      "type" => "object",
+      "properties" =>
+        Map.merge(AtMcp.Summary.properties(:post), %{
+          "not_found" => %{
+            "type" => ["boolean", "null"],
+            "description" =>
+              "True when the service reports the bookmarked post deleted or missing"
+          },
+          "blocked" => %{
+            "type" => ["boolean", "null"],
+            "description" => "True when a block hides the bookmarked post from this account"
+          },
+          "bookmarked_at" =>
+            nullable_string("When this account bookmarked it, as an ISO 8601 timestamp")
+        })
     }
   end
 
