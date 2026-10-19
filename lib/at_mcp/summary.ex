@@ -18,6 +18,10 @@ defmodule AtMcp.Summary do
   is not a second mechanism. `{:list, fields, :omit_null}` is a list whose
   entries leave out the keys the response did not carry.
 
+  A shape's `viewer` relationships are read from the response's `viewer`, or
+  from its `viewer_path` where the view nests them: a list member's are on the
+  account, a starter pack's on its list.
+
   Write and action results are built from what the caller supplied rather than
   read out of a response, so they are not declared here.
   """
@@ -205,6 +209,32 @@ defmodule AtMcp.Summary do
      "Labels on the author's account, including any it applied to itself"}
   ]
 
+  # The viewing account's relationship to a list: a mute or block of the
+  # accounts on it, and its own opt-out from a starter pack's list.
+  @list_viewer [
+    {:muted, :boolean, ["muted"],
+     "True when the viewing account mutes the accounts on this list"},
+    {:blocked, :record, ["blocked"],
+     "AT URI of the viewing account's block of the accounts on this list"},
+    {:opted_out, :record, ["referenceListOptOut", "reference_list_opt_out"],
+     "AT URI of the viewing account's opt-out from this starter pack's list"}
+  ]
+
+  # A feed a starter pack recommends, as its view hydrates it or its record
+  # names it.
+  @pack_feed [
+    {:uri, :string, [["uri"]], "AT URI of the feed generator; get_feed takes it"},
+    {:display_name, :string, [["display_name"], ["displayName"]], "Feed display name"},
+    {:creator, :string, [["creator", "handle"]], "Handle of the account that made the feed"}
+  ]
+
+  @pack_member [
+    {:did, :string, [["subject", "did"]], "Account DID"},
+    {:handle, :string, [["subject", "handle"]], "Account handle"},
+    {:display_name, :string, [["subject", "display_name"], ["subject", "displayName"]],
+     "Display name"}
+  ]
+
   # One post of a draft. Images a draft holds are files on the device that
   # wrote it, so only their alt text is anything an agent can read.
   @draft_post [
@@ -264,6 +294,86 @@ defmodule AtMcp.Summary do
          "When the service indexed this generator, as an ISO 8601 timestamp"}
       ],
       viewer: [{:like, :record, ["like"], "The viewing account's like record AT URI"}]
+    },
+    # A list as the service shows it: `graph.defs#listView`, and the basic
+    # view a starter pack carries. `purpose` is read as the token's name;
+    # `AtMcp.Effects.ProtoRune` says it in the words the list tools take.
+    list: %{
+      fields: [
+        {:uri, :string, [["uri"]], "AT URI of the list record"},
+        {:cid, :string, [["cid"]], "CID of the list record"},
+        {:name, :string, [["name"]], "The list's name"},
+        {:purpose, :string, [["purpose"]],
+         "curate, moderation or reference (a starter pack's list); another value is a purpose this version does not name"},
+        {:description, :string, [["description"]], "The list's description"},
+        {:creator, :string, [["creator", "handle"]], "Handle of the account that made the list"},
+        {:creator_did, :string, [["creator", "did"]], "DID of the account that made the list"},
+        {:creator_display_name, :string,
+         [["creator", "display_name"], ["creator", "displayName"]],
+         "Display name of the account that made the list"},
+        {:item_count, :integer, [["list_item_count"], ["listItemCount"]],
+         "How many accounts are on the list, as the service counts them"},
+        {:labels, {:list, @label, :omit_null}, [["labels"]],
+         "Labels on the list, as the service returned them"}
+      ],
+      viewer: @list_viewer
+    },
+    # One account on a list: `graph.defs#listItemView`, the account and the
+    # list item record that puts it there.
+    list_member: %{
+      fields: [
+        {:item_uri, :string, [["uri"]],
+         "AT URI of the list item record that puts this account on the list"},
+        {:did, :string, [["subject", "did"]], "Account DID"},
+        {:handle, :string, [["subject", "handle"]], "Account handle"},
+        {:display_name, :string, [["subject", "display_name"], ["subject", "displayName"]],
+         "Display name"},
+        {:description, :string, [["subject", "description"]], "Profile description"},
+        {:labels, {:list, @label, :omit_null}, [["subject", "labels"]],
+         "Labels on the account, including any it applied to itself"},
+        {:opted_out, :boolean, [["subject_opted_out"], ["subjectOptedOut"]],
+         "True when the account asked to be left out of this starter pack's list; only its owner is told"}
+      ],
+      viewer: @actor_viewer,
+      viewer_path: ["subject", "viewer"]
+    },
+    # A starter pack: `graph.defs#starterPackView`, or the basic view a list
+    # of packs carries, which has no feeds or sample of its accounts.
+    starter_pack: %{
+      fields: [
+        {:uri, :string, [["uri"]], "AT URI of the starter pack record"},
+        {:cid, :string, [["cid"]], "CID of the starter pack record"},
+        {:name, :string, [["record", "name"]], "The starter pack's name"},
+        {:description, :string, [["record", "description"]], "The starter pack's description"},
+        {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
+         "When it was made, as an ISO 8601 timestamp"},
+        {:list, :string, [["list", "uri"], ["record", "list"]],
+         "AT URI of its list of accounts; get_list reads every one"},
+        {:creator, :string, [["creator", "handle"]], "Handle of the account that made it"},
+        {:creator_did, :string, [["creator", "did"]], "DID of the account that made it"},
+        {:creator_display_name, :string,
+         [["creator", "display_name"], ["creator", "displayName"]],
+         "Display name of the account that made it"},
+        {:item_count, :integer,
+         [
+           ["list", "list_item_count"],
+           ["list", "listItemCount"],
+           ["list_item_count"],
+           ["listItemCount"]
+         ], "How many accounts are in it, as the service counts them"},
+        {:joined_week_count, :integer, [["joined_week_count"], ["joinedWeekCount"]],
+         "How many accounts joined the network through it in the last week"},
+        {:joined_all_time_count, :integer, [["joined_all_time_count"], ["joinedAllTimeCount"]],
+         "How many accounts joined the network through it"},
+        {:feeds, {:list, @pack_feed}, [["feeds"], ["record", "feeds"]],
+         "The feeds it recommends, at most 3"},
+        {:members_sample, {:list, @pack_member}, [["list_items_sample"], ["listItemsSample"]],
+         "Up to 12 of its accounts, as the service chose them; get_list with `list` reads them all. Null in a list of starter packs"},
+        {:labels, {:list, @label, :omit_null}, [["labels"]],
+         "Labels on the starter pack, as the service returned them"}
+      ],
+      viewer: Enum.filter(@list_viewer, &(elem(&1, 0) == :opted_out)),
+      viewer_path: ["list", "viewer"]
     },
     draft: %{
       fields: [
@@ -333,7 +443,7 @@ defmodule AtMcp.Summary do
 
     fields
     |> Map.new(fn {key, type, paths, _doc} -> {key, read(source, paths, type)} end)
-    |> with_viewer(:viewer, source, ["viewer"], relationships)
+    |> with_viewer(:viewer, source, Map.get(declared, :viewer_path, ["viewer"]), relationships)
     |> with_viewer(:author_viewer, source, ["author", "viewer"], author_viewer(declared))
   end
 

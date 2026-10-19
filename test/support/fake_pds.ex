@@ -11,6 +11,7 @@ defmodule AtMcp.Test.FakePDS do
   Records are kept under DID-form addresses; `getRecord` named by a handle in
   `handles` (`%{handle => did}`, the session's own handle included) answers
   with the DID-form uri, as a real PDS does, and `resolveHandle` resolves them.
+  `listRecords` answers one page of a collection's, by DID-form uri.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
   test can read back what a write left. `getLatestCommit` answers a commit that
   any change to the records moves, and `applyWrites` with a `swapCommit` that
@@ -173,6 +174,24 @@ defmodule AtMcp.Test.FakePDS do
       end)
 
     {{200, %{results: results}}, %{state | records: records}}
+  end
+
+  defp answer("com.atproto.repo.listRecords", %{query: q}, state) do
+    prefix = "at://#{Map.get(state.handles, q["repo"], q["repo"])}/#{q["collection"]}/"
+
+    # One page of `limit` (default 50) after the uri `cursor` names.
+    limit = String.to_integer(q["limit"] || "50")
+
+    all =
+      for {uri, value} <- Enum.sort(state.records),
+          String.starts_with?(uri, prefix),
+          q["cursor"] in [nil, ""] or uri > q["cursor"],
+          do: %{uri: uri, cid: cid(uri), value: value}
+
+    {page, rest} = Enum.split(all, limit)
+    cursor = if rest != [], do: List.last(page).uri
+
+    {{200, Map.reject(%{records: page, cursor: cursor}, fn {_, v} -> is_nil(v) end)}, state}
   end
 
   defp answer("com.atproto.repo.uploadBlob", %{body: bytes}, state) do

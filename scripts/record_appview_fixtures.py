@@ -1,6 +1,7 @@
 """Record the AppView responses test/at_mcp/field_coverage_test.exs reads.
 
     python3 scripts/record_appview_fixtures.py OUT_DIR ACTOR GATED_POST_URI
+    python3 scripts/record_appview_fixtures.py OUT_DIR --lists QUERY
 
 ACTOR is a public account with reposts, a pinned post, replies and varied
 embeds in its recent posts; GATED_POST_URI is a post of it with a threadgate.
@@ -13,6 +14,11 @@ every value that could identify a record or a person. Keys, value types and
 the shape of each string (an AT URI stays an AT URI with a TID record key, a
 CID stays a CID of the same length, a timestamp stays a timestamp) are kept.
 
+With --lists, it records lists and starter packs instead: a search for
+QUERY's starter packs, the pack among them recommending the most feeds, its
+creator's packs and its list, and the curation lists of the first creator in
+the results who has any.
+
 Every string is replaced unless its key is in KEEP, a short list of keys whose
 values are enumerations from the lexicon rather than content. A key the
 lexicon adds later is therefore scrubbed until someone decides otherwise.
@@ -24,7 +30,12 @@ hashing candidates.
 """
 import datetime, hashlib, json, os, re, secrets, sys, urllib.parse, urllib.request
 
-out, ACTOR, GATED = sys.argv[1], sys.argv[2], sys.argv[3]
+out = sys.argv[1]
+LISTS = sys.argv[2] == "--lists"
+if LISTS:
+    QUERY = sys.argv[3]
+else:
+    ACTOR, GATED = sys.argv[2], sys.argv[3]
 os.makedirs(out, exist_ok=True)
 APPVIEW = "https://public.api.bsky.app/xrpc/"
 SALT = secrets.token_bytes(32)
@@ -167,14 +178,34 @@ def write(name, value):
         f.write("\n")
 
 
-feed = fetch("app.bsky.feed.getAuthorFeed", actor=ACTOR, limit=100, includePins="true",
-             filter="posts_with_replies")["feed"]
-write("feed.json", {"feed": cover(feed)})
+def record_lists():
+    packs = fetch("app.bsky.graph.searchStarterPacksV2", q=QUERY, limit=25)["starterPacks"]
+    write("starter_packs.json", {"starterPacks": cover(packs)})
+    pack = max(packs, key=lambda p: len(p.get("feeds") or []))
+    write("starter_pack.json", fetch("app.bsky.graph.getStarterPack", starterPack=pack["uri"]))
+    actor = pack["creator"]["did"]
+    write("actor_starter_packs.json",
+          fetch("app.bsky.graph.getActorStarterPacks", actor=actor, limit=10))
+    write("list.json", fetch("app.bsky.graph.getList", list=pack["list"]["uri"], limit=3))
+    for creator in dict.fromkeys(p["creator"]["did"] for p in packs):
+        lists = fetch("app.bsky.graph.getLists", actor=creator, limit=50)["lists"]
+        if lists:
+            write("lists.json", {"lists": cover(lists)})
+            break
 
-thread = fetch("app.bsky.feed.getPostThread", uri=GATED, depth=1, parentHeight=2)
-thread["thread"]["replies"] = cover(thread["thread"].get("replies", []))[:4]
-write("thread.json", thread)
 
-write("profile.json", fetch("app.bsky.actor.getProfile", actor=ACTOR))
-write("likes.json", fetch("app.bsky.feed.getLikes", uri=GATED, limit=2))
-write("feeds.json", fetch("app.bsky.feed.getSuggestedFeeds", limit=3))
+def record_posts():
+    feed = fetch("app.bsky.feed.getAuthorFeed", actor=ACTOR, limit=100, includePins="true",
+                 filter="posts_with_replies")["feed"]
+    write("feed.json", {"feed": cover(feed)})
+
+    thread = fetch("app.bsky.feed.getPostThread", uri=GATED, depth=1, parentHeight=2)
+    thread["thread"]["replies"] = cover(thread["thread"].get("replies", []))[:4]
+    write("thread.json", thread)
+
+    write("profile.json", fetch("app.bsky.actor.getProfile", actor=ACTOR))
+    write("likes.json", fetch("app.bsky.feed.getLikes", uri=GATED, limit=2))
+    write("feeds.json", fetch("app.bsky.feed.getSuggestedFeeds", limit=3))
+
+
+record_lists() if LISTS else record_posts()

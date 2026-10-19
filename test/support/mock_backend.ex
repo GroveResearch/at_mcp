@@ -233,6 +233,109 @@ defmodule AtMcp.Test.MockBackend do
   @impl true
   def get_list_feed(_state, list, opts), do: {:ok, post_page(list, opts)}
 
+  @mock_list "at://did:plc:mock/app.bsky.graph.list/l1"
+  @mock_pack "at://did:plc:mock/app.bsky.graph.starterpack/p1"
+
+  @impl true
+  def get_list(_state, uri, opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [
+         %{
+           item_uri: "at://did:plc:mock/app.bsky.graph.listitem/i1",
+           did: "did:plc:alice",
+           handle: "alice.test",
+           display_name: "Alice",
+           opted_out: nil
+         }
+       ],
+       cursor: nil,
+       list: mock_list(uri),
+       limit: Keyword.get(opts, :limit, 20)
+     }}
+  end
+
+  @impl true
+  def get_lists(_state, actor, opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [mock_list(@mock_list)],
+       cursor: nil,
+       actor: actor,
+       purposes: Keyword.get(opts, :purposes)
+     }}
+  end
+
+  @impl true
+  def get_lists_with_membership(_state, actor, opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [Map.put(mock_list(@mock_list), :member_item, nil)],
+       cursor: nil,
+       contains: actor,
+       purposes: Keyword.get(opts, :purposes)
+     }}
+  end
+
+  @impl true
+  def get_starter_pack(_state, uri), do: {:ok, mock_pack(uri)}
+
+  @impl true
+  def get_actor_starter_packs(_state, actor, _opts),
+    do: {:ok, %{count: 1, items: [mock_pack(@mock_pack)], cursor: nil, actor: actor}}
+
+  @impl true
+  def search_starter_packs(_state, query, _opts),
+    do: {:ok, %{count: 1, items: [mock_pack(@mock_pack)], cursor: nil, query: query}}
+
+  @impl true
+  def get_starter_packs_with_membership(_state, actor, _opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [Map.put(mock_pack(@mock_pack), :member_item, nil)],
+       cursor: nil,
+       contains: actor
+     }}
+  end
+
+  defp mock_list(uri) do
+    %{
+      uri: uri,
+      cid: "bafyLIST",
+      name: "Mock list",
+      purpose: "curate",
+      description: "accounts about #{uri}",
+      creator: "mock.test",
+      creator_did: "did:plc:mock",
+      item_count: 1
+    }
+  end
+
+  defp mock_pack(uri) do
+    %{
+      uri: uri,
+      cid: "bafyPACK",
+      name: "Mock pack",
+      description: "a pack at #{uri}",
+      list: @mock_list,
+      creator: "mock.test",
+      creator_did: "did:plc:mock",
+      item_count: 1,
+      feeds: [
+        %{
+          uri: "at://did:plc:mock/app.bsky.feed.generator/f",
+          display_name: "F",
+          creator: "mock.test"
+        }
+      ],
+      members_sample: [%{did: "did:plc:alice", handle: "alice.test", display_name: "Alice"}]
+    }
+  end
+
   defp actor_page(actor, opts) do
     %{
       count: 1,

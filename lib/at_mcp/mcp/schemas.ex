@@ -163,6 +163,14 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro generator_page, do: Macro.escape(page(record(:generator)))
 
+  defmacro list_page, do: Macro.escape(list_page_schema())
+
+  defmacro lists_page, do: Macro.escape(page(with_member_item(:list)))
+
+  defmacro starter_pack, do: Macro.escape(object(AtMcp.Summary.properties(:starter_pack)))
+
+  defmacro starter_pack_page, do: Macro.escape(page(with_member_item(:starter_pack)))
+
   defmacro notification_page, do: Macro.escape(notification_page_schema())
 
   defmacro relationship_page, do: Macro.escape(relationship_page_schema())
@@ -470,6 +478,33 @@ defmodule AtMcp.MCP.Schemas do
           "The draft as saved; for delete_draft, as it was before it was deleted"
         )
     })
+  end
+
+  # A page of a list's members, with the list itself beside them.
+  defp list_page_schema do
+    schema = page(record(:list_member))
+
+    put_in(schema, ["properties", "list"], %{
+      "type" => ["object", "null"],
+      "description" => "The list these accounts are on",
+      "properties" => AtMcp.Summary.properties(:list)
+    })
+  end
+
+  # A list or starter pack, and, when it was read with `contains`, the list
+  # item that puts that account in it.
+  defp with_member_item(shape) do
+    %{
+      "type" => "object",
+      "properties" =>
+        Map.put(
+          AtMcp.Summary.properties(shape),
+          "member_item",
+          nullable_string(
+            "With contains: AT URI of the list item that puts that account in this; null when it is not. Absent without contains"
+          )
+        )
+    }
   end
 
   # A bookmarked post, or the placeholder the service sends for one that is

@@ -117,6 +117,22 @@ defmodule AtMcp.Effects.Backend do
   @callback get_list_feed(state(), list :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
 
+  # Lists and starter packs. `opts` of a list read also carries `:purposes`,
+  # the list purpose tokens to keep (`"curatelist"`, `"modlist"`), empty for all.
+  @callback get_list(state(), uri :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_lists(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_lists_with_membership(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_starter_pack(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback get_actor_starter_packs(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback search_starter_packs(state(), query :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_starter_packs_with_membership(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+
   @doc """
   Build a complete post before its quota reservation and dispatch mark.
 

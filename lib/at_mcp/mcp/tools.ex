@@ -271,9 +271,10 @@ defmodule AtMcp.MCP.Tools do
   def respond(other, state), do: {:ok, encode(other), state}
 
   @doc """
-  `respond/2` for a read made of posts. The structured content is the same;
-  the text a model reads is `AtMcp.Reading`'s `reading` of it (`:posts`,
-  `:notifications`, `:thread` or `:chain`) instead of the serialized JSON. A
+  `respond/2` for a read made of posts, lists or starter packs. The
+  structured content is the same; the text a model reads is `AtMcp.Reading`'s
+  `reading` of it (`:posts`, `:notifications`, `:thread`, `:chain`, `:list`,
+  `:lists`, `:starter_pack` or `:starter_packs`) instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """
   def respond({:ok, summary}, state, reading) do

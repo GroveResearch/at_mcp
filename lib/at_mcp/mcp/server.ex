@@ -5,7 +5,7 @@ defmodule AtMcp.MCP.Server do
   Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
   summaries (never raw session dumps): as structured content, and as text for
   a model, which is the JSON of the summary except for reads made of posts,
-  where it is `AtMcp.Reading`'s text of it.
+  lists and starter packs, where it is `AtMcp.Reading`'s text of it.
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -607,6 +607,114 @@ defmodule AtMcp.MCP.Server do
         ),
         state,
         :posts
+      )
+    end)
+  end
+
+  # --- lists and starter packs ---
+
+  tool "get_list",
+       "Read one list: its name, purpose, creator and description, and a page of the accounts on it. Each account carries item_uri, the list item record that puts it there." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.list_page())
+    param(:uri, :string, required: true, description: "AT URI of the list record")
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("accounts"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_list(state.effects, Map.fetch!(a, :uri),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :list
+      )
+    end)
+  end
+
+  tool "get_lists",
+       "List the curation and moderation lists an account made. With contains, list this account's own lists instead, each saying whether that account is on it. A starter pack's list is read with get_starter_packs." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.lists_page())
+
+    param(:actor, :string,
+      description: "Handle or DID whose lists to read. Omit for this account's own."
+    )
+
+    param(:purpose, :string,
+      description: "curate or moderation: only lists of that kind. Omit for both.",
+      schema: %{type: "string", enum: ["curate", "moderation"]}
+    )
+
+    param(:contains, :string,
+      description:
+        "Handle or DID. Reads this account's own lists, each with member_item: the list item that puts this account on it, or null."
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("lists"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_lists(state.effects,
+          actor: AtMcp.MCP.Tools.optional_actor(Map.get(a, :actor)),
+          purpose: Map.get(a, :purpose),
+          contains: AtMcp.MCP.Tools.optional_actor(Map.get(a, :contains)),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :lists
+      )
+    end)
+  end
+
+  tool "get_starter_pack",
+       "Read one starter pack: its name, description, creator, the feeds it recommends, a sample of its accounts, and its list, which get_list reads in full." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.starter_pack())
+    param(:uri, :string, required: true, description: "AT URI of the starter pack record")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_starter_pack(state.effects, Map.fetch!(a, :uri)),
+        state,
+        :starter_pack
+      )
+    end)
+  end
+
+  tool "get_starter_packs",
+       "List starter packs by exactly one of: actor, the packs an account made; query, a search; or contains, this account's own packs, each saying whether that account is in it." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.starter_pack_page())
+    param(:actor, :string, description: "Handle or DID whose starter packs to read")
+    param(:query, :string, description: "Search query")
+
+    param(:contains, :string,
+      description:
+        "Handle or DID. Reads this account's own starter packs, each with member_item: the list item that puts this account in it, or null."
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("starter packs"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_starter_packs(state.effects,
+          actor: AtMcp.MCP.Tools.optional_actor(Map.get(a, :actor)),
+          query: Map.get(a, :query),
+          contains: AtMcp.MCP.Tools.optional_actor(Map.get(a, :contains)),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :starter_packs
       )
     end)
   end

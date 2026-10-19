@@ -113,6 +113,9 @@ defmodule AtMcp.Network do
     post_view: "feed.defs#postView",
     not_found_post: "feed.defs#notFoundPost",
     blocked_post: "feed.defs#blockedPost",
+    curatelist: "graph.defs#curatelist",
+    modlist: "graph.defs#modlist",
+    referencelist: "graph.defs#referencelist",
     mention_rule: "feed.threadgate#mentionRule",
     follower_rule: "feed.threadgate#followerRule",
     following_rule: "feed.threadgate#followingRule",
@@ -319,7 +322,8 @@ defmodule AtMcp.Network do
   labeler (`:generator_view`, `:list_view`, `:starter_pack_view`,
   `:labeler_view`), a feed reason (`:reason_repost`, `:reason_pin`), or a
   reply's parent or root in a feed (`:post_view`, `:not_found_post`,
-  `:blocked_post`), or a threadgate or postgate rule (`:mention_rule`,
+  `:blocked_post`), a list's purpose (`:curatelist`, `:modlist`,
+  `:referencelist`), or a threadgate or postgate rule (`:mention_rule`,
   `:follower_rule`, `:following_rule`, `:list_rule`, `:disable_rule`).
   """
   @spec type(atom()) :: String.t()

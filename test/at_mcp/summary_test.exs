@@ -132,6 +132,60 @@ defmodule AtMcp.SummaryTest do
       "indexedAt" => "2026-09-13T12:34:56.123Z",
       "reasonSubject" => "at://did:plc:parent/app.bsky.feed.post/p",
       "isRead" => false
+    },
+    list: %{
+      "uri" => "at://did:plc:author/app.bsky.graph.list/l",
+      "cid" => "bafylist",
+      "name" => "Friends",
+      "purpose" => "app.bsky.graph.defs#curatelist",
+      "description" => "people",
+      "creator" => %{"handle" => "author.test", "did" => "did:plc:author", "displayName" => "A"},
+      "listItemCount" => 2,
+      "labels" => [%{"val" => "spam", "src" => "did:plc:labeler"}],
+      "viewer" => %{"muted" => true}
+    },
+    list_member: %{
+      "uri" => "at://did:plc:author/app.bsky.graph.listitem/i",
+      "subject" => %{
+        "did" => "did:plc:member",
+        "handle" => "member.test",
+        "displayName" => "M",
+        "description" => "about me",
+        "labels" => [%{"val" => "bot", "src" => "did:plc:member"}],
+        "viewer" => %{"muted" => false}
+      },
+      "subjectOptedOut" => true
+    },
+    starter_pack: %{
+      "uri" => "at://did:plc:author/app.bsky.graph.starterpack/p",
+      "cid" => "bafypack",
+      "record" => %{
+        "name" => "Agents",
+        "description" => "who to follow",
+        "createdAt" => "2026-09-13T12:34:56.123Z",
+        "list" => "at://did:plc:author/app.bsky.graph.list/l"
+      },
+      "creator" => %{"handle" => "author.test", "did" => "did:plc:author", "displayName" => "A"},
+      "list" => %{
+        "uri" => "at://did:plc:author/app.bsky.graph.list/l",
+        "listItemCount" => 2,
+        "viewer" => %{
+          "referenceListOptOut" => "at://did:plc:viewer/app.bsky.graph.referencelistoptout/o"
+        }
+      },
+      "joinedWeekCount" => 1,
+      "joinedAllTimeCount" => 5,
+      "feeds" => [
+        %{
+          "uri" => "at://did:plc:f/app.bsky.feed.generator/g",
+          "displayName" => "G",
+          "creator" => %{"handle" => "f.test"}
+        }
+      ],
+      "listItemsSample" => [
+        %{"subject" => %{"did" => "did:plc:m", "handle" => "m.test", "displayName" => "M"}}
+      ],
+      "labels" => [%{"val" => "spam", "src" => "did:plc:labeler"}]
     }
   }
 

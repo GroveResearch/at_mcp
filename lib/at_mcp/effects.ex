@@ -496,7 +496,8 @@ defmodule AtMcp.Effects do
 
   def get_list_feed(effects, list, opts \\ []) when is_binary(list) do
     paged(effects, opts, fn backend, session, opts ->
-      backend.get_list_feed(session, list, opts)
+      with {:ok, list} <- did_uri(backend, session, list),
+           do: backend.get_list_feed(session, list, opts)
     end)
   end
 
@@ -672,6 +673,138 @@ defmodule AtMcp.Effects do
       backend.update_seen(session, seen)
     end)
   end
+
+  # --- lists and starter packs ---
+
+  # The words the list tools use for a list's purpose, and the tokens the
+  # service takes. `graph.getLists` does not return a starter pack's list
+  # (`reference`); `get_starter_packs` reads those.
+  @list_purposes %{"curate" => :curatelist, "moderation" => :modlist}
+
+  @doc "The purposes `get_lists` takes, and the record token each names."
+  def list_purposes, do: @list_purposes
+
+  def get_list(effects, uri, opts \\ []) when is_binary(uri) do
+    paged(effects, opts, fn backend, session, opts ->
+      with {:ok, uri} <- did_uri(backend, session, uri), do: backend.get_list(session, uri, opts)
+    end)
+  end
+
+  @doc """
+  The lists an account made (`:actor`, this account when it is absent), or,
+  with `:contains`, this account's lists, each with the list item that puts
+  that account on it. `:purpose` keeps one kind.
+  """
+  def get_lists(effects, opts \\ []) do
+    actor = present(opts[:actor])
+    contains = present(opts[:contains])
+
+    with {:ok, purposes} <- list_purpose_filter(opts[:purpose]) do
+      paged(effects, Keyword.take(opts, [:limit, :cursor]), fn backend, session, page ->
+        page = Keyword.put(page, :purposes, purposes)
+
+        cond do
+          is_nil(contains) ->
+            backend.get_lists(session, actor || did_of(session), page)
+
+          is_nil(actor) or AtMcp.Interactions.own_repo?(session, actor) ->
+            backend.get_lists_with_membership(session, contains, page)
+
+          true ->
+            invalid(
+              "actor",
+              "with contains, the lists read are this account's own, so leave actor out"
+            )
+        end
+      end)
+    end
+  end
+
+  def get_starter_pack(effects, uri) when is_binary(uri) do
+    with_session(effects, fn backend, session ->
+      with {:ok, uri} <- did_uri(backend, session, uri),
+           do: backend.get_starter_pack(session, uri)
+    end)
+  end
+
+  # A list or starter pack named by an AT URI whose repository is a handle, in
+  # the DID form records and the AppView name it by. The AppView looks a list
+  # up by the URI string it is given, so a handle-form URI of a real list is
+  # "List not found". This account's handle is its DID without a read; any
+  # other handle is resolved, and one that does not resolve is
+  # `{:handle_not_resolved, handle}`. A string that is not an AT URI is left
+  # for the service to refuse.
+  @doc false
+  def did_uri(backend, session, uri) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {"did:" <> _, _collection, _rkey}} ->
+        {:ok, uri}
+
+      {:ok, {repo, collection, rkey}} ->
+        did =
+          if AtMcp.Interactions.own_repo?(session, repo),
+            do: {:ok, did_of(session)},
+            else: backend.resolve_actor(session, repo)
+
+        with {:ok, did} <- did, do: {:ok, "at://#{did}/#{collection}/#{rkey}"}
+
+      {:error, _} ->
+        {:ok, uri}
+    end
+  end
+
+  @doc """
+  Starter packs by exactly one of `:actor` (the packs that account made),
+  `:query` (a search) or `:contains` (this account's packs, each with the list
+  item that puts that account in it).
+  """
+  def get_starter_packs(effects, opts \\ []) do
+    given = for key <- [:actor, :query, :contains], value = present(opts[key]), do: {key, value}
+
+    case given do
+      [{key, value}] ->
+        paged(effects, Keyword.take(opts, [:limit, :cursor]), fn backend, session, page ->
+          case key do
+            :actor -> backend.get_actor_starter_packs(session, value, page)
+            :query -> backend.search_starter_packs(session, value, page)
+            :contains -> backend.get_starter_packs_with_membership(session, value, page)
+          end
+        end)
+
+      _ ->
+        invalid(
+          "query",
+          "give exactly one of actor, query or contains; this call gave #{given_names(given)}"
+        )
+    end
+  end
+
+  defp given_names([]), do: "none"
+  defp given_names(given), do: Enum.map_join(given, " and ", fn {key, _} -> key end)
+
+  defp list_purpose(purpose) do
+    case Map.fetch(@list_purposes, purpose) do
+      {:ok, token} -> {:ok, token}
+      :error -> invalid("purpose", "must be curate or moderation")
+    end
+  end
+
+  # `graph.getLists` takes the token's own name, which is the same on every
+  # network.
+  defp list_purpose_filter(nil), do: {:ok, []}
+
+  defp list_purpose_filter(purpose) do
+    with {:ok, token} <- list_purpose(purpose), do: {:ok, [Atom.to_string(token)]}
+  end
+
+  defp present(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      _ -> value
+    end
+  end
+
+  defp present(_value), do: nil
 
   # --- pins, thread mutes and bookmarks ---
 

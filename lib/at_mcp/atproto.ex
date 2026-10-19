@@ -240,7 +240,50 @@ defmodule AtMcp.ATProto do
   def get_mutes(session, params),
     do: read(session, "graph.getMutes", params, @page)
 
+  # --- lists and starter packs ---
+
+  # One list and a page of its members.
+  def get_list(session, params),
+    do: read(session, "graph.getList", params, [list: {:required, :string}] ++ @page)
+
+  def get_starter_pack(session, params),
+    do: read(session, "graph.getStarterPack", params, starterPack: {:required, :string})
+
+  # The starter packs one account made.
+  def get_actor_starter_packs(session, params),
+    do:
+      read(session, "graph.getActorStarterPacks", params, [actor: {:required, :string}] ++ @page)
+
+  # `searchStarterPacks` is the first version of this method; the app calls V2.
+  def search_starter_packs(session, params),
+    do: read(session, "graph.searchStarterPacksV2", params, [q: {:required, :string}] ++ @page)
+
+  # This account's starter packs, each with the list item that puts `actor` in
+  # it, if one does.
+  def get_starter_packs_with_membership(session, params),
+    do:
+      read(
+        session,
+        "graph.getStarterPacksWithMembership",
+        params,
+        [actor: {:required, :string}] ++ @page
+      )
+
   # --- endpoints whose parameters include a list ---
+
+  @doc """
+  The lists one account made. `purposes` (`modlist`, `curatelist`) is repeated
+  once per entry; the service returns both when it is absent.
+  """
+  def get_lists(session, params) when is_map(params),
+    do: repeated_query(session, AtMcp.Network.nsid("graph.getLists"), params)
+
+  @doc """
+  This account's lists, each with the list item that puts `actor` on it, if
+  one does. `purposes` is repeated as in `get_lists/2`.
+  """
+  def get_lists_with_membership(session, params) when is_map(params),
+    do: repeated_query(session, AtMcp.Network.nsid("graph.getListsWithMembership"), params)
 
   @doc """
   Fetch several profiles. `actors` is repeated once per entry.

@@ -1,6 +1,7 @@
 defmodule AtMcp.Reading do
   @moduledoc """
-  The text a model reads for a result made of posts.
+  The text a model reads for a result made of posts, and for lists and
+  starter packs.
 
   A tool result has two halves in MCP: `content`, text and images, which most
   clients give a model, and `structuredContent`, which a client validates
@@ -179,6 +180,209 @@ defmodule AtMcp.Reading do
   end
 
   def chain(_other), do: nil
+
+  @doc """
+  What `get_list` read: the list as its page in the app heads it, then the
+  accounts on this page, each with the list item that puts it there.
+  """
+  def list(%{"list" => %{} = list, "items" => items} = page) when is_list(items) do
+    header =
+      count(length(items), "account", "accounts") <> " on this page." <> next_page(page)
+
+    members =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {member, n} -> member(member, "[#{n}]") end)
+
+    lines([list_heading(list, "List"), header | members], "\n\n")
+  end
+
+  def list(_other), do: nil
+
+  @doc "A page of lists, from `get_lists`."
+  def lists(%{"items" => items} = page) when is_list(items) do
+    header = count(length(items), "list", "lists") <> "." <> next_page(page)
+
+    blocks =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {list, n} -> lines([list_heading(list, "[#{n}]"), on_it(list)], "\n") end)
+
+    lines([header | blocks], "\n\n")
+  end
+
+  def lists(_other), do: nil
+
+  @doc "One starter pack, from `get_starter_pack`."
+  def starter_pack(%{"uri" => uri} = pack) when is_binary(uri), do: pack(pack, "Starter pack")
+  def starter_pack(_other), do: nil
+
+  @doc "A page of starter packs, from `get_starter_packs`."
+  def starter_packs(%{"items" => items} = page) when is_list(items) do
+    header = count(length(items), "starter pack", "starter packs") <> "." <> next_page(page)
+
+    blocks =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {pack, n} -> lines([pack(pack, "[#{n}]"), on_it(pack)], "\n") end)
+
+    lines([header | blocks], "\n\n")
+  end
+
+  def starter_packs(_other), do: nil
+
+  # A list's name, kind, size and maker on one line, then what it is for, then
+  # its uri and where this account stands with it.
+  defp list_heading(list, label) do
+    viewer = if is_map(list["viewer"]), do: list["viewer"], else: %{}
+
+    lines(
+      [
+        label <>
+          " " <>
+          lines(
+            [
+              named(list["name"]),
+              purpose(list["purpose"]),
+              if(is_integer(list["item_count"]),
+                do: count(list["item_count"], "account", "accounts")
+              ),
+              by(list["creator"], list["creator_display_name"])
+            ],
+            " · "
+          ),
+        one_line(list["description"]),
+        labelled(%{"labels" => list["labels"], "author_did" => list["creator_did"]}),
+        lines(
+          [
+            if(viewer["muted"] == true, do: "You mute the accounts on it"),
+            if(is_binary(viewer["blocked"]),
+              do: "You block the accounts on it: #{viewer["blocked"]}"
+            ),
+            opted_out(viewer)
+          ],
+          " · "
+        ),
+        "uri: #{list["uri"]}"
+      ],
+      "\n"
+    )
+  end
+
+  # A starter pack: its name, maker, size and who joined through it, what it
+  # is for, the feeds it recommends, some of its accounts, and its list.
+  defp pack(pack, label) do
+    joined =
+      case {pack["joined_week_count"], pack["joined_all_time_count"]} do
+        {week, all} when is_integer(week) and is_integer(all) ->
+          "#{all} joined through it, #{week} this week"
+
+        {_week, all} when is_integer(all) ->
+          "#{all} joined through it"
+
+        _ ->
+          nil
+      end
+
+    feeds =
+      case List.wrap(pack["feeds"]) do
+        [] ->
+          nil
+
+        feeds ->
+          "Feeds: " <>
+            Enum.map_join(feeds, "; ", fn feed ->
+              lines([named(feed["display_name"]), by(feed["creator"], nil), feed["uri"]], " · ")
+            end)
+      end
+
+    sample =
+      case List.wrap(pack["members_sample"]) do
+        [] -> nil
+        members -> "Some of its accounts: " <> Enum.map_join(members, ", ", &who(account(&1)))
+      end
+
+    viewer = if is_map(pack["viewer"]), do: pack["viewer"], else: %{}
+
+    lines(
+      [
+        label <>
+          " " <>
+          lines(
+            [
+              named(pack["name"]),
+              by(pack["creator"], pack["creator_display_name"]),
+              if(is_integer(pack["item_count"]),
+                do: count(pack["item_count"], "account", "accounts")
+              ),
+              joined
+            ],
+            " · "
+          ),
+        one_line(pack["description"]),
+        feeds,
+        sample,
+        labelled(%{"labels" => pack["labels"], "author_did" => pack["creator_did"]}),
+        opted_out(viewer),
+        if(is_binary(pack["list"]), do: "list: #{pack["list"]} (get_list reads every account)"),
+        "uri: #{pack["uri"]}"
+      ],
+      "\n"
+    )
+  end
+
+  # One account on a list: who it is, the list item that puts it there, and
+  # whether it asked to be left out.
+  defp member(%{} = member, label) do
+    lines(
+      [
+        label <>
+          " " <>
+          lines(
+            [
+              who(account(member)),
+              if(member["opted_out"] == true, do: "asked to be left out of this list")
+            ],
+            " · "
+          ),
+        one_line(member["description"]),
+        standing(%{"author_viewer" => member["viewer"]}),
+        "item: #{member["item_uri"]}"
+      ],
+      "\n"
+    )
+  end
+
+  defp member(other, label), do: "#{label} #{Jason.encode!(other)}"
+
+  # Read with contains: whether that account is in the list or pack.
+  defp on_it(%{"member_item" => item}) when is_binary(item), do: "Contains the account: #{item}"
+  defp on_it(%{} = item) when is_map_key(item, "member_item"), do: "Does not contain the account"
+  defp on_it(_item), do: nil
+
+  defp opted_out(%{"opted_out" => uri}) when is_binary(uri), do: "You opted out of it: #{uri}"
+  defp opted_out(_viewer), do: nil
+
+  defp account(%{} = account),
+    do: %{
+      "author" => account["handle"],
+      "author_did" => account["did"],
+      "display_name" => account["display_name"]
+    }
+
+  defp named(name) when is_binary(name), do: ~s("#{one_line(name)}")
+  defp named(_name), do: nil
+
+  defp by(handle, name) when is_binary(handle),
+    do: "by " <> who(%{"author" => one_line(handle), "display_name" => name})
+
+  defp by(_handle, _name), do: nil
+
+  defp purpose(purpose) when purpose in ["curate", "moderation", "reference"],
+    do: "#{purpose} list"
+
+  defp purpose(purpose) when is_binary(purpose), do: "list for #{purpose}"
+  defp purpose(_purpose), do: nil
 
   # One post: why a feed shows it, when that is not just that it was posted; a
   # header line saying who, when and what it answers; the text; what is
