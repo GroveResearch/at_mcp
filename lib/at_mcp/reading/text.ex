@@ -9,11 +9,11 @@ defmodule AtMcp.Reading.Text do
     name, a title, a description, a quoted post's text, alt text), as one
     double-quoted literal on one line: `"`, backslash, line breaks, other
     control characters (FS, GS and RS among them, which some readers split
-    lines on) and bidirectional controls are escaped, and so is every
-    quotation mark that can look like the closing `"` (`“ ” „ ‟ ″ ‶ ❝ ❞ 〝 〞
-    〟 ＂`), each as `\\uXXXX`, so a name like `Bob” (@bob.test, verified)`
-    cannot seem to end its quote. `shown/1` and `nonempty/1` first read
-    whitespace runs as one space.
+    lines on) and bidirectional controls are escaped, and so are the
+    double quotation marks and look-alikes listed at `@escaped` below (`« »
+    ʺ ˝ ״ “ ” „ ‟ ″ ‶ ❝ ❞ ⹂ 〃 〝 〞 〟 ＂`), each as `\\uXXXX`, so a name
+    like `Bob” (@bob.test, verified)` cannot seem to end its quote.
+    `shown/1` and `nonempty/1` first read whitespace runs as one space.
   - `fence/1`: a post's own text, every line of it after `> `, which no line
     AtMcp writes starts with. FS, GS and RS start a new fenced line, as `\\R`
     line breaks do, since some readers (Python's `str.splitlines`) read them as
@@ -32,8 +32,11 @@ defmodule AtMcp.Reading.Text do
 
   Some agent hosts put each input after a field marker, `[[ ## name ## ]]`
   (DSPy-style chat adapters), and write the value raw after it, so text
-  holding one could open a field of its own there. A fenced line escapes
-  `[[ ##` as `[[ \\#\\#`, and a literal escapes its `#`s as `\\u0023`.
+  holding one could open a field of its own there. Its opening is matched
+  with any run of blanks, no-break spaces or zero-width characters before
+  and between the `#`s, and in fullwidth (`［［ ＃＃`) too; a fenced line
+  escapes its `#`s as `\\#` (`[[ \\#\\#`), and a literal as `\\u0023`
+  (`\\uFF03` for `＃`).
 
   `cat/1` and `join/2` put pieces together. A raw string given to either is
   refused in the test environment (`:strict_reading` in config/test.exs), so
@@ -92,22 +95,37 @@ defmodule AtMcp.Reading.Text do
   def count(1, {:safe, _} = one, _many), do: cat([int(1), ~L" ", one])
   def count(n, _one, {:safe, _} = many) when is_integer(n), do: cat([int(n), ~L" ", many])
 
-  # U+0085, bidirectional controls, and
-  # quotation marks that can pass for the literal's closing `"`.
-  @escaped ~r/[\x{0085}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{201C}-\x{201F}\x{2033}\x{2036}\x{275D}\x{275E}\x{301D}-\x{301F}\x{FF02}]/u
+  # U+0085, bidirectional controls, and the double quotation marks and
+  # look-alikes that can pass for the literal's closing `"`: guillemets,
+  # double primes and ditto marks among them (U+02BA, U+02DD, U+05F4, U+2033,
+  # U+2036, U+3003).
+  @escaped ~r/[\x{0085}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{00AB}\x{00BB}\x{02BA}\x{02DD}\x{05F4}\x{201C}-\x{201F}\x{2033}\x{2036}\x{275D}\x{275E}\x{2E42}\x{3003}\x{301D}-\x{301F}\x{FF02}]/u
 
-  # A host's field marker, `[[ ## name ## ]]`, from its opening.
-  @marker ~r/\[\[\s*##/u
+  # A host's field marker, `[[ ## name ## ]]`, from its opening: `[[` then two
+  # `#`s, ASCII or fullwidth, with any blanks, no-break spaces or zero-width
+  # characters before and between them.
+  @gap "[\\s\\x{00A0}\\x{200B}-\\x{200D}\\x{FEFF}]"
+  @marker Regex.compile!("[\\[\\x{FF3B}]{2}#{@gap}*[#\\x{FF03}]#{@gap}*[#\\x{FF03}]", "u")
+
+  # The same in a literal, where JSON has already written a tab, a line break
+  # or a control character as an escape (`\\t`, `\\u2028`).
+  @gap_escaped "(?:#{@gap}|\\\\[bfnrt]|\\\\u[0-9A-Fa-f]{4})"
+  @marker_escaped Regex.compile!(
+                    "[\\[\\x{FF3B}]{2}#{@gap_escaped}*[#\\x{FF03}]#{@gap_escaped}*[#\\x{FF03}]",
+                    "u"
+                  )
 
   @doc "Free text on one line as given, quoted and escaped; nil for none."
   def literal(text) when is_binary(text) do
     {:safe,
      text
      |> Jason.encode!(escape: :javascript_safe)
-     |> String.replace(@marker, fn marker -> String.replace(marker, "#", "\\u0023") end)
      |> String.replace(@escaped, fn c ->
        <<code::utf8>> = c
        "\\u" <> String.pad_leading(Integer.to_string(code, 16), 4, "0")
+     end)
+     |> String.replace(@marker_escaped, fn marker ->
+       marker |> String.replace("#", "\\u0023") |> String.replace("＃", "\\uFF03")
      end)}
   end
 
@@ -129,8 +147,11 @@ defmodule AtMcp.Reading.Text do
   def fence(text) when is_binary(text) and text != "" do
     {:safe,
      text
+     |> String.replace(@marker, fn marker ->
+       marker |> String.replace("#", "\\#") |> String.replace("＃", "\\＃")
+     end)
      |> String.split(~r/\R|[\x{1C}-\x{1E}]/u)
-     |> Enum.map(&["> ", String.replace(&1, @marker, fn m -> String.replace(m, "#", "\\#") end)])
+     |> Enum.map(&["> ", &1])
      |> Enum.intersperse("\n")}
   end
 
