@@ -771,7 +771,7 @@ defmodule AtMcp.PreferencesTest do
       assert text =~ "alice.test, did:plc:bob and 1 other liked your post"
 
       assert text =~
-               ~s(at://did:plc:self/app.bsky.feed.post/p · link: https://bsky.app/profile/did%3Aplc%3Aself/post/p · "a kite")
+               ~s(at://did:plc:self/app.bsky.feed.post/p · link: https://bsky.app/profile/did:plc:self/post/p · "a kite")
 
       assert text =~ "alice.test replied"
       assert text =~ "replying to at://did:plc:self/app.bsky.feed.post/p"

@@ -108,7 +108,13 @@ defmodule AtMcp.WebLink do
   defp did?(did),
     do: is_binary(did) and Regex.match?(~r/\Adid:[a-z]+:[a-zA-Z0-9._:%-]*[a-zA-Z0-9._-]\z/, did)
 
-  defp encode(segment), do: URI.encode(segment, &URI.char_unreserved?/1)
+  # A segment as the app writes it: the app joins the handle or DID and the
+  # rkey into the path as they are (`makeProfileLink`), and `toShareUrl`'s
+  # URL leaves `:` alone, so a DID's colons stay. The handle, DID and rkey
+  # syntax checked above allows nothing a path must escape; this escapes
+  # anything else rather than trust that.
+  defp encode(segment),
+    do: URI.encode(segment, &(URI.char_unreserved?(&1) or &1 in [?:, ?%]))
 
   @doc """
   What a web link names: `{:ok, {:profile, name}}`, or `{:ok, {kind, name,

@@ -44,22 +44,22 @@ defmodule AtMcp.WebLinkTest do
         assert WebLink.record(post, "alice.test") == origin <> "/profile/alice.test/post/3kpost"
 
         assert WebLink.record("at://#{@did}/#{Network.collection(:list)}/l") ==
-                 origin <> "/profile/did%3Aplc%3Aalice/lists/l"
+                 origin <> "/profile/did:plc:alice/lists/l"
 
         assert WebLink.record("at://#{@did}/#{Network.collection(:generator)}/f") ==
-                 origin <> "/profile/did%3Aplc%3Aalice/feed/f"
+                 origin <> "/profile/did:plc:alice/feed/f"
 
         assert WebLink.record("at://#{@did}/#{Network.collection(:starter_pack)}/s") ==
-                 origin <> "/start/did%3Aplc%3Aalice/s"
+                 origin <> "/start/did:plc:alice/s"
       end
     end
 
     test "an account without a valid handle is named by its DID; a record with no page has none" do
       assert WebLink.profile("handle.invalid", @did) ==
-               "https://bsky.app/profile/did%3Aplc%3Aalice"
+               "https://bsky.app/profile/did:plc:alice"
 
-      assert WebLink.profile(nil, @did) == "https://bsky.app/profile/did%3Aplc%3Aalice"
-      assert WebLink.record(@post) == "https://bsky.app/profile/did%3Aplc%3Aalice/post/3kpost"
+      assert WebLink.profile(nil, @did) == "https://bsky.app/profile/did:plc:alice"
+      assert WebLink.record(@post) == "https://bsky.app/profile/did:plc:alice/post/3kpost"
       assert WebLink.record("at://#{@did}/app.bsky.feed.like/3k") == nil
       assert WebLink.record(@post <> "?x") == nil
     end
@@ -68,6 +68,10 @@ defmodule AtMcp.WebLinkTest do
       assert WebLink.parse("https://bsky.app/profile/alice.test") ==
                {:ok, {:profile, "alice.test"}}
 
+      assert WebLink.parse("https://bsky.app/profile/did:plc:alice/post/3kpost") ==
+               {:ok, {:post, @did, "3kpost"}}
+
+      # The app writes a DID's colons as they are; an encoded one reads the same.
       assert WebLink.parse("https://bsky.app/profile/did%3Aplc%3Aalice/post/3kpost") ==
                {:ok, {:post, @did, "3kpost"}}
 
@@ -138,7 +142,7 @@ defmodule AtMcp.WebLinkTest do
 
     test "a list, and the accounts on it" do
       list = Summary.extract(:list, %{"uri" => @list, "name" => "Kites", "creator" => @creator})
-      assert list.web_url == "https://bsky.app/profile/did%3Aplc%3Aalice/lists/3klist"
+      assert list.web_url == "https://bsky.app/profile/did:plc:alice/lists/3klist"
 
       member =
         Summary.extract(:list_member, %{
@@ -149,13 +153,13 @@ defmodule AtMcp.WebLinkTest do
       {text, _} = text(%{list: list, items: [member]}, :list)
 
       assert text =~
-               "uri: #{@list}\nlink: https://bsky.app/profile/did%3Aplc%3Aalice/lists/3klist"
+               "uri: #{@list}\nlink: https://bsky.app/profile/did:plc:alice/lists/3klist"
 
       assert text =~
                "item: at://#{@did}/app.bsky.graph.listitem/i\nlink: https://bsky.app/profile/bob.test"
 
       {text, _} = text(%{items: [list]}, :lists)
-      assert text =~ "link: https://bsky.app/profile/did%3Aplc%3Aalice/lists/3klist"
+      assert text =~ "link: https://bsky.app/profile/did:plc:alice/lists/3klist"
     end
 
     test "a feed" do
@@ -170,7 +174,7 @@ defmodule AtMcp.WebLinkTest do
       {text, _} = text(%{items: [feed]}, :feeds)
 
       assert text =~
-               "uri: #{@feed} · cid: bafy\nlink: https://bsky.app/profile/did%3Aplc%3Aalice/feed/kites"
+               "uri: #{@feed} · cid: bafy\nlink: https://bsky.app/profile/did:plc:alice/feed/kites"
     end
 
     test "a starter pack, and the feeds it recommends" do
@@ -181,10 +185,10 @@ defmodule AtMcp.WebLinkTest do
           "creator" => @creator
         })
 
-      assert hd(pack.feeds).web_url == "https://bsky.app/profile/did%3Aplc%3Aalice/feed/kites"
+      assert hd(pack.feeds).web_url == "https://bsky.app/profile/did:plc:alice/feed/kites"
 
       {text, _} = text(pack, :starter_pack)
-      assert text =~ "uri: #{@pack}\nlink: https://bsky.app/start/did%3Aplc%3Aalice/3kpack"
+      assert text =~ "uri: #{@pack}\nlink: https://bsky.app/start/did:plc:alice/3kpack"
     end
 
     test "a labeler, by its account's profile" do

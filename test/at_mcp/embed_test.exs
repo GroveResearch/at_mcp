@@ -289,7 +289,7 @@ defmodule AtMcp.EmbedTest do
              summary["quote"]
 
     assert text =~
-             ~s|[quoting feed "Herons" by @maker.example.test, at://did:plc:maker/app.bsky.feed.generator/herons (link: https://bsky.app/profile/did%3Aplc%3Amaker/feed/herons): Posts about herons]|
+             ~s|[quoting feed "Herons" by @maker.example.test, at://did:plc:maker/app.bsky.feed.generator/herons (link: https://bsky.app/profile/did:plc:maker/feed/herons): Posts about herons]|
 
     {text, summary} =
       read(
@@ -307,7 +307,7 @@ defmodule AtMcp.EmbedTest do
     assert %{"kind" => "list", "name" => "Birders", "description" => nil} = summary["quote"]
 
     assert text =~
-             ~s|[quoting list "Birders" by @maker.example.test, at://did:plc:maker/app.bsky.graph.list/birders (link: https://bsky.app/profile/did%3Aplc%3Amaker/lists/birders)]|
+             ~s|[quoting list "Birders" by @maker.example.test, at://did:plc:maker/app.bsky.graph.list/birders (link: https://bsky.app/profile/did:plc:maker/lists/birders)]|
 
     {text, summary} =
       read(

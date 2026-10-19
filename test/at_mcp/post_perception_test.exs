@@ -131,7 +131,7 @@ defmodule AtMcp.PostPerceptionTest do
       uri = "at://#{did}/#{Network.collection(:post)}/abc"
 
       assert WebLink.record(uri) ==
-               origin <> "/profile/" <> URI.encode(did, &URI.char_unreserved?/1) <> "/post/abc"
+               origin <> "/profile/" <> did <> "/post/abc"
 
       assert WebLink.record(uri, "alice.test") == origin <> "/profile/alice.test/post/abc"
       assert WebLink.record(uri, "handle.invalid") == WebLink.record(uri)
