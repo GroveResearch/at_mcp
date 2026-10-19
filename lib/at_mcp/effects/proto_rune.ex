@@ -1343,6 +1343,16 @@ defmodule AtMcp.Effects.ProtoRune do
     }
   end
 
+  @doc false
+  # The summarizers by the response they read, for the field-coverage test: it
+  # hands each a recorded response and checks every field either reaches the
+  # summary or is listed in `AtMcp.LeftOut`.
+  def summarize(:feed, response), do: page(response, :feed, &feed_item/1)
+  def summarize(:thread, response), do: {:ok, summarize_thread(response)}
+  def summarize(:profile, response), do: {:ok, summarize_profile(response)}
+  def summarize(:likes, response), do: page(response, :likes, &actor_item/1)
+  def summarize(:feeds, response), do: page(response, :feeds, &summarize_generator/1)
+
   defp summarize_thread(thread) when is_map(thread) do
     node = field(thread, :thread) || thread
 

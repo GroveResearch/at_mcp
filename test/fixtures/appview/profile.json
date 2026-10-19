@@ -1,0 +1,35 @@
+{
+  "did": "did:plc:cq4wcrv73vv6bkcgwjpyvpk3",
+  "handle": "nfi7p5s7bm.example.test",
+  "displayName": "xxxxxxx",
+  "avatar": "https://example.test/2wck7disknu4",
+  "associated": {
+    "lists": 827,
+    "feedgens": 969,
+    "starterPacks": 523,
+    "labeler": false,
+    "chat": {
+      "allowIncoming": "none"
+    },
+    "activitySubscription": {
+      "allowSubscriptions": "followers"
+    }
+  },
+  "labels": [],
+  "createdAt": "2023-12-14T20:27:21.057Z",
+  "verification": {
+    "verifications": [],
+    "verifiedStatus": "none",
+    "trustedVerifierStatus": "valid"
+  },
+  "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "indexedAt": "2026-07-01T12:38:50.152Z",
+  "banner": "https://example.test/k627mki56gkw",
+  "followersCount": 624,
+  "followsCount": 297,
+  "postsCount": 165,
+  "pinnedPost": {
+    "cid": "bafy5mlmf7vw7qeeaicmlstpp6qywj3y3suh7aoile75anxgmpxa5fcxx3l",
+    "uri": "at://did:plc:cq4wcrv73vv6bkcgwjpyvpk3/app.bsky.feed.post/s2l6wfwbk7ms4"
+  }
+}
