@@ -317,6 +317,7 @@ defmodule AtMcp.DiscoveryTest do
                "hasMedia" => "true"
              } = query
 
+      assert query["allTime"] == "true"
       assert raw =~ "excludeAuthors=bob.test&excludeAuthors=carol.test"
       refute Map.has_key?(query, "following")
       refute Map.has_key?(query, "excludeReplies")
@@ -328,6 +329,45 @@ defmodule AtMcp.DiscoveryTest do
         |> get_in(["defs", "main", "parameters", "properties"])
 
       for key <- Map.keys(query), do: assert(Map.has_key?(lexicon, key), key)
+    end
+
+    test "search_posts without sort or all_time asks what the first version gave: every post, newest first" do
+      %{effects: effects, pds: pds} =
+        pds(%{"town.delve.feed.searchPostsV2" => {200, %{posts: []}}})
+
+      assert {:ok, _} = AtMcp.Effects.search_posts(effects, "kites")
+      assert {:ok, _} = AtMcp.Effects.search_posts(effects, "kites", sort: "top", all_time: false)
+
+      assert [%{query: default}, %{query: narrowed}] =
+               FakePDS.sent(pds, "town.delve.feed.searchPostsV2")
+
+      assert %{"sort" => "recent", "allTime" => "true"} = default
+      assert narrowed["sort"] == "top"
+      refute Map.has_key?(narrowed, "allTime")
+
+      # all_time alone is not something to search for.
+      assert {:error, {:invalid_argument, "query", _}} =
+               AtMcp.Effects.search_posts(effects, nil, all_time: false)
+    end
+
+    test "a hashtag's # is not counted against its length" do
+      %{effects: effects, pds: pds} =
+        pds(%{"town.delve.feed.searchPostsV2" => {200, %{posts: []}}})
+
+      %{graphemes: graphemes} = AtMcp.Effects.hashtag_limits()
+      tag = String.duplicate("k", graphemes)
+
+      assert {:ok, _} = AtMcp.Effects.search_posts(effects, nil, hashtags: ["#" <> tag])
+
+      assert [%{query: %{"hashtags" => ^tag}}] =
+               FakePDS.sent(pds, "town.delve.feed.searchPostsV2")
+    end
+
+    test "get_invite_codes reads codes without a collection field" do
+      %{effects: effects} =
+        pds(%{"town.delve.invitation.getCodes" => {200, %{codes: []}}})
+
+      assert {:ok, %{count: 0, collection: nil}} = AtMcp.Effects.get_invite_codes(effects)
     end
 
     test "get_record returns the record as stored, every key as written" do

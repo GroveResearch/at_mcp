@@ -138,6 +138,10 @@ counting an account's publishing reads the same classification AtMcp enforces.
 `search_posts` calls `feed.searchPostsV2`, the version the app calls. It takes
 a query string, filters, or both: `author`, `mentions`, `sort` (`latest` or
 `top`, sent as `recent` or `top`), `since`, `until` and `lang` as before, and
+`all_time`. A call that gives neither `sort` nor `all_time` is sent as
+`sort=recent&allTime=true`, which is what the first version's lexicon default
+and handler gave it (V2 alone defaults to `top` over a recent window), so an
+existing call means what it did. It also takes
 the filters the first version lacked, each sent under the lexicon's own name
 (a list as a repeated key). A leading `@` on a handle is stripped the way it is
 on every other actor argument, and a post named by a handle-form AT URI is

@@ -268,6 +268,8 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert {"since", "2026-09-01T00:00:00Z"} in pairs
     assert {"until", "2026-10-01T00:00:00Z"} in pairs
     assert {"languages", "en"} in pairs
+    # As the first version searched: every post, not the recent window.
+    assert {"allTime", "true"} in pairs
     refute List.keymember?(pairs, "cursor", 0)
     refute Enum.any?(pairs, fn {_key, value} -> String.contains?(value, "@") end)
   end
