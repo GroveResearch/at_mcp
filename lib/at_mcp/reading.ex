@@ -89,12 +89,59 @@ defmodule AtMcp.Reading do
       end
 
     lines(
-      omitted ++ above ++ [post(node, "[this post]")] ++ replies(node, "reply "),
+      omitted ++
+        above ++ [post(node, "[this post]")] ++ replies(node, "reply ") ++ hidden(node),
       "\n\n"
     )
   end
 
   def thread(_other), do: nil
+
+  # Asked for with `include_hidden`: the replies the app leaves out of the
+  # thread. Those the read returned are marked where they stand; the rest are
+  # listed after it, each saying why. Not asked for, there is no
+  # `hidden_replies` and no line.
+  defp hidden(%{"hidden_replies_unread" => why}) when is_binary(why), do: [why]
+
+  defp hidden(%{"hidden_replies" => hidden} = node) when is_list(hidden) do
+    in_place = count_left_out(node)
+
+    marked =
+      if in_place > 0,
+        do: [
+          "Replies above that the app leaves out of the thread, each marked where it stands: #{in_place}."
+        ],
+        else: []
+
+    case hidden do
+      [] when in_place == 0 ->
+        ["No replies under this post are left out."]
+
+      [] ->
+        marked
+
+      hidden ->
+        marked ++
+          [
+            "Replies under this post left out of the thread: #{length(hidden)}."
+            | hidden
+              |> Enum.with_index(1)
+              |> Enum.map(fn {reply, n} -> post(reply, "[left out #{n}]") end)
+          ]
+    end
+  end
+
+  defp hidden(_node), do: []
+
+  defp count_left_out(node) do
+    node
+    |> Map.get("replies")
+    |> List.wrap()
+    |> Enum.map(fn reply ->
+      if(reply["left_out"] == true, do: 1, else: 0) + count_left_out(reply)
+    end)
+    |> Enum.sum()
+  end
 
   @doc """
   What `get_thread_chain` read: a conversation from its root down to one post,
@@ -460,9 +507,11 @@ defmodule AtMcp.Reading do
         if(author["blocked_by"] == true, do: "They blocked you"),
         cond do
           is_binary(author["muted_by_list"]) -> "You muted them via a list"
-          author["muted"] == true -> "You muted them"
+          author["muted"] == true or post["muted_by_viewer"] == true -> "You muted them"
           true -> nil
         end,
+        if(post["hidden_by_threadgate"] == true, do: "Hidden by the thread's author"),
+        left_out_reason(post),
         if(viewer["reply_disabled"] == true, do: "You cannot reply to this post"),
         if(viewer["embedding_disabled"] == true, do: "You cannot quote this post"),
         if(viewer["thread_muted"] == true, do: "You muted this thread")
@@ -470,6 +519,26 @@ defmodule AtMcp.Reading do
       " · "
     )
   end
+
+  # A left-out reply the service gave no reason for. The read of left-out
+  # replies also returns the replies under one it leaves out, and replies left
+  # out for reasons it does not name (moderation, a rule), so no reason is
+  # claimed: only that the app leaves it out, or that it sits under a reply
+  # the app leaves out.
+  defp left_out_reason(%{"left_out" => true} = post) do
+    cond do
+      post["hidden_by_threadgate"] == true or post["muted_by_viewer"] == true ->
+        nil
+
+      is_integer(post["depth"]) and post["depth"] > 1 ->
+        "Under a reply the app leaves out of the thread"
+
+      true ->
+        "Left out of the thread by the app"
+    end
+  end
+
+  defp left_out_reason(_post), do: nil
 
   defp ids(post) do
     lines(

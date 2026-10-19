@@ -290,6 +290,23 @@ defmodule AtMcp.Test.MockBackend do
 
   @impl true
   def post(state, text, opts \\ []) do
+    with {:ok, result} <- written_post(state, text, opts) do
+      gates =
+        [
+          if(Keyword.has_key?(opts, :reply_rule),
+            do: {:threadgate_uri, "at://did:plc:test/app.bsky.feed.threadgate/new"}
+          ),
+          if(Keyword.get(opts, :quotes) == :disabled,
+            do: {:postgate_uri, "at://did:plc:test/app.bsky.feed.postgate/new"}
+          )
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      {:ok, Map.merge(result, Map.new(gates))}
+    end
+  end
+
+  defp written_post(state, text, opts) do
     case Keyword.get(opts, :reply) do
       nil ->
         {:ok,
@@ -524,5 +541,51 @@ defmodule AtMcp.Test.MockBackend do
        id: id,
        draft: AtMcp.Summary.extract(:draft, %{"id" => id, "draft" => draft})
      }}
+  end
+
+  # The mock reads nothing, so an edit to a post's gates names what it would
+  # change and changes nothing; `AtMcp.PostGatesTest` checks the real records.
+  @impl true
+  def prepare_gates(_state, {:interactions, uri, _allow, _quotes}),
+    do: {:ok, %{action: :set_post_interactions, uri: uri, threadgate_uri: nil, postgate_uri: nil}}
+
+  def prepare_gates(_state, {:hide_reply, uri, hide?}),
+    do:
+      {:ok,
+       %{
+         action: if(hide?, do: :hide_reply, else: :unhide_reply),
+         uri: uri,
+         subject_uri: "at://did:plc:mock/app.bsky.feed.post/root",
+         threadgate_uri: "at://did:plc:mock/app.bsky.feed.threadgate/root"
+       }}
+
+  def prepare_gates(_state, {:detach_quote, uri, detach?}),
+    do:
+      {:ok,
+       %{
+         action: if(detach?, do: :detach_quote, else: :reattach_quote),
+         uri: uri,
+         subject_uri: "at://did:plc:mock/app.bsky.feed.post/1",
+         postgate_uri: "at://did:plc:mock/app.bsky.feed.postgate/1"
+       }}
+
+  @impl true
+  def write_gates(_state, result), do: {:ok, Map.put(result, :ok, true)}
+
+  @impl true
+  def get_hidden_replies(_state, uri) do
+    {:ok,
+     [
+       %{
+         uri: "at://did:plc:muted/app.bsky.feed.post/hidden",
+         cid: "bafyHIDDEN",
+         text: "under #{uri}",
+         author: "muted.test",
+         reply_to: uri,
+         depth: 1,
+         hidden_by_threadgate: true,
+         muted_by_viewer: false
+       }
+     ]}
   end
 end

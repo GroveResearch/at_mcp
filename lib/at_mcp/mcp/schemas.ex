@@ -57,6 +57,62 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `reply_rule` parameter: who may reply. Its limit comes from
+  `AtMcp.Interactions`, which reads it, as do the words it lists
+  (`AtMcp.Interactions.reply_rule_words/0`). `default` says what omitting it
+  means.
+  """
+  defmacro reply_rule(default) do
+    %{rules: max} = AtMcp.Interactions.limits()
+
+    Macro.escape(
+      description:
+        "Who may reply. #{default} [\"everyone\"] for everyone, [] for nobody. Otherwise up to #{max} of: " <>
+          ~s["mentioned" (accounts the post mentions), "following" (accounts this account follows), "followers" (accounts that follow this account), and the AT URI of a list (its members; a handle in it is resolved to the DID form the app matches).],
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc "The `quotes` parameter: whether others may quote the post."
+  defmacro quotes(default) do
+    Macro.escape(
+      description: ~s("disabled": nobody may quote it. "allowed": anyone may. #{default}),
+      schema: %{type: "string", enum: ["allowed", "disabled"]}
+    )
+  end
+
+  @doc "The `labels` parameter: a post's self-labels, from `AtMcp.Interactions.self_labels/0`."
+  defmacro self_labels do
+    labels = AtMcp.Interactions.self_labels()
+
+    Macro.escape(
+      description:
+        "Content warnings the post gives itself, any of #{Enum.join(labels, ", ")}. Readers' apps hide or blur it to match.",
+      schema: %{type: "array", items: %{type: "string", enum: labels}}
+    )
+  end
+
+  @doc "The `link` parameter: a link card the caller describes."
+  defmacro link do
+    thumb = image_upload_schema([])
+
+    Macro.escape(
+      description:
+        "A link card: url (http or https), and the title and description the card shows. at_mcp does not fetch the page, so they are yours to give. thumb is an optional image for the card, base64 data or a file path with its MIME type. A post carries a link card or images, not both.",
+      schema: %{
+        type: "object",
+        required: ["url"],
+        properties: %{
+          url: %{type: "string", description: "The page the card links to"},
+          title: %{type: "string", description: "The card's title"},
+          description: %{type: "string", description: "The card's description"},
+          thumb: Map.put(thumb, :description, "The card's image")
+        }
+      }
+    )
+  end
+
+  @doc """
   The required list parameter of a batch read, stated from the batch limit
   the account enforces (`AtMcp.Effects.max_batch/0`).
   """
@@ -211,6 +267,48 @@ defmodule AtMcp.MCP.Schemas do
         "context" => %{
           "type" => "object",
           "description" => "The depth, parent height and per-node reply cap applied"
+        },
+        "hidden_by_threadgate" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "True when the thread's author hid this post; the app leaves it out of the thread. Replies repeat this flag"
+        },
+        "muted_by_viewer" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "With include_hidden: true when the app leaves this post out because this account muted its author. Replies repeat this flag"
+        },
+        "left_out" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "With include_hidden: true when the app leaves this post out of the thread; hidden_by_threadgate or muted_by_viewer says why when the service says, and a depth above 1 means it may be left out only because a reply above it is. Replies repeat this flag and depth"
+        },
+        "hidden_replies_unread" =>
+          nullable_string(
+            "With include_hidden: why the replies the thread leaves out could not be read. The thread is as read"
+          ),
+        "hidden_replies" => %{
+          "type" => ["array", "null"],
+          "description" =>
+            "With include_hidden: the replies the app leaves out that this read did not return (those it returned are marked left_out in place). Absent otherwise",
+          "items" => %{
+            "type" => "object",
+            "properties" =>
+              Map.merge(post_view_schema()["properties"], %{
+                "depth" => %{
+                  "type" => ["integer", "null"],
+                  "description" => "Levels below the post read: 1 is a direct reply"
+                },
+                "hidden_by_threadgate" => %{
+                  "type" => ["boolean", "null"],
+                  "description" => "True when the thread's author hid this reply"
+                },
+                "muted_by_viewer" => %{
+                  "type" => ["boolean", "null"],
+                  "description" => "True when this account muted the reply's author"
+                }
+              })
+          }
         }
       })
     )
@@ -294,7 +392,11 @@ defmodule AtMcp.MCP.Schemas do
         "items" => %{"type" => "string"},
         "description" => "Handles published as plain text, without a mention facet"
       },
-      "warning" => nullable_string()
+      "warning" => nullable_string(),
+      "threadgate_uri" =>
+        nullable_string("AT URI of the threadgate written with the post: who may reply"),
+      "postgate_uri" =>
+        nullable_string("AT URI of the postgate written with the post: whether it may be quoted")
     })
   end
 
@@ -327,7 +429,29 @@ defmodule AtMcp.MCP.Schemas do
       "replaced_uri" =>
         nullable_string(
           "AT URI of the post that was pinned before this action, if any; pin_post takes it to put it back"
-        )
+        ),
+      "threadgate_uri" =>
+        nullable_string(
+          "AT URI of the post's threadgate after this action; null when the post has none"
+        ),
+      "postgate_uri" =>
+        nullable_string(
+          "AT URI of the post's postgate after this action; null when the post has none"
+        ),
+      "reply_rule" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "set_post_interactions: who may reply now, in reply_rule's words: [\"everyone\"], [] for nobody, or the rules. Null for a reply, whose thread's first post sets it"
+      },
+      "quotes" =>
+        nullable_string(
+          "set_post_interactions: whether others may quote the post now: allowed or disabled"
+        ),
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" => "True when the post already had these settings, so nothing was written"
+      }
     })
   end
 

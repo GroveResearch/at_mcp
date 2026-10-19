@@ -111,9 +111,21 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.thread())
     param(:uri, :string, required: true, description: "AT URI of the post")
 
+    param(:include_hidden, :boolean,
+      description:
+        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. A reply this read already shows is marked where it stands; the others are listed after the thread. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
+    )
+
     run(fn a, state ->
       e = state.effects
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri)), state, :thread)
+
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri),
+          include_hidden: Map.get(a, :include_hidden) == true
+        ),
+        state,
+        :thread
+      )
     end)
   end
 
@@ -605,7 +617,11 @@ defmodule AtMcp.MCP.Server do
   # frozen at whatever the build machine was configured for and a release pointed
   # at another network would advertise the wrong one. `identity_status` reports
   # the limit, and a refusal names it; both run at call time.
-  tool "post", write_description(:post, "Publish a top-level post as this account.") do
+  tool "post",
+       write_description(
+         :post,
+         "Publish a top-level post as this account. reply_rule and quotes set who may reply and quote; they are written with the post in one commit, so it never exists without them."
+       ) do
     annotations(
       write_annotations(:post, %{readOnlyHint: false, destructiveHint: false, openWorldHint: true})
     )
@@ -636,6 +652,17 @@ defmodule AtMcp.MCP.Server do
         alt: true
       )
     )
+
+    param(:link, :object, AtMcp.MCP.Schemas.link())
+    param(:labels, {:array, :string}, AtMcp.MCP.Schemas.self_labels())
+
+    param(
+      :reply_rule,
+      {:array, :string},
+      AtMcp.MCP.Schemas.reply_rule("Omit for everyone.")
+    )
+
+    param(:quotes, :string, AtMcp.MCP.Schemas.quotes("Omit for anyone."))
 
     run(fn a, state ->
       e = state.effects
@@ -685,6 +712,10 @@ defmodule AtMcp.MCP.Server do
         alt: true
       )
     )
+
+    param(:link, :object, AtMcp.MCP.Schemas.link())
+    param(:labels, {:array, :string}, AtMcp.MCP.Schemas.self_labels())
+    param(:quotes, :string, AtMcp.MCP.Schemas.quotes("Omit for anyone."))
 
     run(fn a, state ->
       e = state.effects
@@ -997,6 +1028,147 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       e = state.effects
       AtMcp.MCP.Tools.respond(AtMcp.Effects.update_seen(e, Map.get(a, :seen_at)), state)
+    end)
+  end
+
+  # --- who may reply and quote ---
+
+  tool "set_post_interactions",
+       write_description(
+         :set_post_interactions,
+         "Set who may reply to one of this account's posts and whether others may quote it. A rule left out is kept as the post has it, as the app's dialog starts from the current settings; a rule given replaces it. Replies hidden and quotes detached stay as they are. Who may reply belongs to a thread's first post; for a reply, give no reply_rule. The result states both rules now in force (reply_rule, quotes) and names the threadgate and postgate the post has afterwards. When nothing would change, nothing is written and unchanged is true."
+       ) do
+    annotations(
+      write_annotations(:set_post_interactions, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of a post this account wrote")
+
+    param(
+      :reply_rule,
+      {:array, :string},
+      AtMcp.MCP.Schemas.reply_rule("Omit to keep the post's current rule; given, it replaces it.")
+    )
+
+    param(
+      :quotes,
+      :string,
+      AtMcp.MCP.Schemas.quotes("Omit to keep the post's current rule; given, it replaces it.")
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_post_interactions(
+          state.effects,
+          Map.fetch!(a, :uri),
+          Map.get(a, :reply_rule),
+          AtMcp.MCP.Tools.optional(Map.get(a, :quotes))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "hide_reply",
+       write_description(
+         :hide_reply,
+         "Hide a reply in a thread this account started. Readers see it behind a warning, as hidden by the author. The reply stays; unhide_reply shows it again."
+       ) do
+    annotations(
+      write_annotations(:hide_reply, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the reply")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.hide_reply(state.effects, Map.fetch!(a, :uri), true),
+        state
+      )
+    end)
+  end
+
+  tool "unhide_reply",
+       write_description(:unhide_reply, "Show a reply hidden with hide_reply again.") do
+    annotations(
+      write_annotations(:unhide_reply, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the reply")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.hide_reply(state.effects, Map.fetch!(a, :uri), false),
+        state
+      )
+    end)
+  end
+
+  tool "detach_quote",
+       write_description(
+         :detach_quote,
+         "Detach a post that quotes one of this account's posts: readers of the quoting post no longer see this account's post in it. The quoting post stays; reattach_quote undoes this."
+       ) do
+    annotations(
+      write_annotations(:detach_quote, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the post that quotes")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.detach_quote(state.effects, Map.fetch!(a, :uri), true),
+        state
+      )
+    end)
+  end
+
+  tool "reattach_quote",
+       write_description(
+         :reattach_quote,
+         "Undo detach_quote: show this account's post in the post quoting it again."
+       ) do
+    annotations(
+      write_annotations(:reattach_quote, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the post that quotes")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.detach_quote(state.effects, Map.fetch!(a, :uri), false),
+        state
+      )
     end)
   end
 

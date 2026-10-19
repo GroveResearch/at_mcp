@@ -485,12 +485,55 @@ defmodule AtMcp.MCP.Tools do
   refused here, before the write quota is charged and before anything is sent.
   """
   def post_options(args) when is_map(args) do
-    with {:ok, images} <- decode_images(Map.get(args, :images)) do
+    with {:ok, images} <- decode_images(Map.get(args, :images)),
+         {:ok, link} <- decode_link(Map.get(args, :link)) do
       {:ok,
        Enum.reject(
-         [langs: Map.get(args, :langs), quote: Map.get(args, :quote), images: images],
+         [
+           langs: Map.get(args, :langs),
+           quote: Map.get(args, :quote),
+           images: images,
+           quotes: Map.get(args, :quotes),
+           labels: Map.get(args, :labels),
+           link: link
+         ],
          fn {_key, value} -> absent?(value) end
-       )}
+       ) ++ reply_rule(Map.get(args, :reply_rule))}
+    end
+  end
+
+  # `[]` is a rule: nobody may reply. Only an omitted rule is absent.
+  defp reply_rule(nil), do: []
+  defp reply_rule(rule), do: [reply_rule: rule]
+
+  # A link card's fields as given, and its thumbnail's bytes. Whether the url
+  # is one is `AtMcp.Interactions.link/1`'s to say.
+  defp decode_link(link) when link in [nil, %{}], do: {:ok, nil}
+
+  defp decode_link(link) when is_map(link) do
+    thumb =
+      case AtMcp.Response.fetch(link, "thumb") do
+        {:ok, image} when image not in [nil, %{}] -> decode_image(image)
+        _ -> {:ok, nil}
+      end
+
+    with {:ok, thumb} <- thumb do
+      {:ok,
+       %{
+         url: field(link, "url"),
+         title: field(link, "title"),
+         description: field(link, "description"),
+         thumb: thumb
+       }}
+    end
+  end
+
+  defp decode_link(other), do: {:ok, other}
+
+  defp field(map, key) do
+    case AtMcp.Response.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> nil
     end
   end
 
