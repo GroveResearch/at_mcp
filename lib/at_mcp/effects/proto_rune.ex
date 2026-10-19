@@ -159,7 +159,7 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  # The chain becomes a woken resident's context for one turn, so its length is
+  # The chain becomes a woken agent's context for one turn, so its length is
   # the input size that matters. 100 elements of ordinary posts is on the order
   # of 50 KB of JSON; a conversation taller than that is cut to its last 100
   # elements — the ones nearest the post being answered — and the number
@@ -170,14 +170,14 @@ defmodule AtMcp.Effects.ProtoRune do
   # `town.delve.feed.getPostThread` and `app.bsky.feed.getPostThread` both
   # declare `parentHeight` minimum 0, maximum 1000. Neither lexicon is vendored
   # here — priv/lexicons/README.md keeps only each network's `feed/post.json`,
-  # deliberately — so that range is read from
-  # delvetown-sdk/lexicons/town/delve/feed/getPostThread.json. Asking for more
+  # deliberately — so that range is read from the upstream town lexicon
+  # `town/delve/feed/getPostThread.json`. Asking for more
   # ancestors than the chain can carry only moves bytes that are then dropped,
   # so the request asks for exactly the cap.
   @chain_parent_height @chain_max_elements
 
-  # One level of replies: the posts directly under the requested one. A
-  # resident answering a notification is placed in the conversation it was
+  # One level of replies: the posts directly under the requested one. An
+  # agent answering a notification is placed in the conversation it was
   # named in, not handed the subtree below it.
   @chain_depth 1
   @chain_max_replies 20
@@ -3639,7 +3639,7 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   # `notFoundPost` and `blockedPost` carry a uri and nothing else worth
-  # reading. The element keeps its place in the chain: a resident that cannot
+  # reading. The element keeps its place in the chain: an agent that cannot
   # see one post of a conversation is somewhere different from one reading a
   # conversation that is one post shorter.
   defp node_placeholder(node) do

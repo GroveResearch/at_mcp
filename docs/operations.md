@@ -375,8 +375,8 @@ Removing an account disconnects it and retains its pending events. A restart
 loads the saved destinations again. One unavailable receiver holds only its
 own account's queue.
 
-The URL belongs to the receiving application (Dwell accepts into its
-resident's work queue). The token is re-read for every delivery, so rotation
+The URL belongs to the receiving application (for example, an agent host
+that accepts each event into its agent's work queue). The token is re-read for every delivery, so rotation
 needs no restart.
 
 The contract, in full in `AtMcp.Deliver.HTTPBridge`: AtMcp POSTs the normalized

@@ -25,7 +25,7 @@ defmodule AtMcp.Identities do
 
       AtMcp.Identities.start_identity(
         id: "grug",
-        handle: "grug.bsky.social",
+        handle: "grug.example.test",
         password: "..."
       )
   """
