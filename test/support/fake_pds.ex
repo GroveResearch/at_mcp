@@ -18,7 +18,9 @@ defmodule AtMcp.Test.FakePDS do
   for the bytes it was sent. `drafts` is the account's drafts, as
   `getDrafts` lists them (`%{id, draft, ...}`); `createDraft`, `updateDraft` and
   `deleteDraft` change them, and an update to an id it does not hold is ignored
-  and answered `{}`, as the lexicon says. Any other method answers `{}`.
+  and answered `{}`, as the lexicon says. With `drafts_lag: true` an update is
+  accepted and not applied yet, as a service that queues it does. Any other
+  method answers `{}`.
   """
   import Plug.Conn
 
@@ -34,7 +36,8 @@ defmodule AtMcp.Test.FakePDS do
              handles:
                Map.merge(%{"self.example" => "did:plc:self"}, Keyword.get(opts, :handles, %{})),
              answers: Keyword.get(opts, :answers, %{}),
-             drafts: Keyword.get(opts, :drafts, [])
+             drafts: Keyword.get(opts, :drafts, []),
+             drafts_lag: Keyword.get(opts, :drafts_lag, false)
            }
          end},
         id: make_ref()
@@ -203,6 +206,8 @@ defmodule AtMcp.Test.FakePDS do
     id = "3draft#{length(state.drafts) + 1}"
     {{200, %{id: id}}, %{state | drafts: state.drafts ++ [%{id: id, draft: b["draft"]}]}}
   end
+
+  defp draft("updateDraft", _call, %{drafts_lag: true} = state), do: {{200, %{}}, state}
 
   defp draft("updateDraft", %{body: %{"draft" => %{"id" => id, "draft" => draft}}}, state) do
     drafts = Enum.map(state.drafts, &if(&1.id == id, do: %{&1 | draft: draft}, else: &1))
