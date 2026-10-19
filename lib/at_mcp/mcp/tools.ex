@@ -231,6 +231,30 @@ defmodule AtMcp.MCP.Tools do
         "error: account write quota unavailable; writes remain paused until AtMcp recovers"
       )
 
+  # A like or repost whose CID was left out, of a subject the AppView has no
+  # view of: there is no current CID to take.
+  def respond({:error, {:subject_cid_unknown, uri}}, state) do
+    error(
+      state,
+      "subject_cid_unknown",
+      "error: the AppView has no view of #{uri}, so its CID could not be read. Nothing was sent. " <>
+        "Check the URI, or pass cid if you have it (get_record gives it).",
+      %{uri: uri}
+    )
+  end
+
+  # A like or repost whose given CID is not the subject's current one. The
+  # caller decides which version it meant.
+  def respond({:error, {:subject_cid_mismatch, uri, given, current}}, state) do
+    error(
+      state,
+      "subject_cid_mismatch",
+      "error: #{given} is not the CID of #{uri}; its current CID is #{current}. Nothing was sent. " <>
+        "Pass cid #{current}, or leave cid out to use the current one.",
+      %{uri: uri, cid: given, current_cid: current}
+    )
+  end
+
   # A reply or a quote names a record AtMcp has to read to build the write. That
   # read runs before the write quota is charged, so this refusal costs nothing —
   # and saying so is the difference between a caller that tries a different

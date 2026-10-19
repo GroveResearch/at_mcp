@@ -645,6 +645,10 @@ defmodule AtMcp.Test.MockBackend do
   @impl true
   def viewer_record(_state, _action, _subject), do: {:ok, nil}
 
+  # The mock has no AppView: it knows no subject's current CID.
+  @impl true
+  def subject_view(_state, _action, _subject), do: {:ok, %{record: nil, cid: nil}}
+
   @impl true
   def prepare_undo(_state, action, uri), do: {:ok, %{action: action, uri: uri}}
 
