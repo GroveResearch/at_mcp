@@ -536,6 +536,35 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.4 to 0.2.5
+
+0.2.5 stores data in the same format as 0.2.4 and starts from the same
+environment, so rolling back works as below. Existing tools keep their
+arguments; `post` and `get_thread` gain optional ones. New tools bring the app's
+remaining post, list and starter pack actions.
+
+- **Pins, thread mutes and bookmarks** (#98): `pin_post`, `unpin_post`,
+  `mute_thread`, `unmute_thread`, `bookmark`, `unbookmark`, `get_bookmarks`.
+  A post named by a handle-form address is written by the DID form the service
+  answers with, since the AppView matches pins, mutes and bookmarks by it.
+- **Drafts** (#99): `get_drafts`, `save_draft`, `delete_draft`. A saved draft
+  returns the text sent; the service may take a moment to show it.
+- **Who may reply and quote** (#100): `post` takes `reply_rule`, `quotes`,
+  `labels` (self-labels) and `link` (a link card); `set_post_interactions`, `hide_reply` and
+  `detach_quote` change them afterwards, keeping any rule not named.
+  `get_thread` marks replies the app leaves out, and with `include_hidden`
+  reads them.
+- **Lists and starter packs** (#89): `get_list`, `get_lists`,
+  `get_starter_pack`, `get_starter_packs`, `create_list`, `update_list`,
+  `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`,
+  `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`.
+- **Edits don't overwrite a concurrent change.** Every read-modify-write
+  (profile, pins, gates, lists) is sent with `swapRecord` or `swapCommit`; if
+  the account changed in between, the tool answers `changed_meanwhile` and
+  writes nothing. A multi-commit delete that stops partway answers
+  `partially_written` with what was deleted.
+- None of the new writes count against the public write quota except a post.
+
 ### From 0.2.3 to 0.2.4
 
 0.2.4 stores data in the same format as 0.2.3 and starts from the same
