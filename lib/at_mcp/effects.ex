@@ -404,7 +404,9 @@ defmodule AtMcp.Effects do
   def get_author_feed(effects, actor, opts \\ []) when is_binary(actor) do
     with {:ok, opts} <- page_options(opts) do
       with_session(effects, fn backend, session ->
-        session |> backend.get_author_feed(actor, opts) |> moderated(backend, session, :posts)
+        session
+        |> backend.get_author_feed(actor, opts)
+        |> moderated(backend, session, {:author_feed, actor})
       end)
     end
   end

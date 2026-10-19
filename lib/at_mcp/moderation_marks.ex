@@ -16,7 +16,8 @@ defmodule AtMcp.ModerationMarks do
 
   @doc """
   `result` marked. `kind` is what it holds: `:posts` (a page of posts),
-  `:thread`, `:chain`, `:profile` or `:profiles` (a page of accounts).
+  `{:author_feed, actor}` (a profile's posts, `actor` the profile's handle or
+  DID), `:thread`, `:chain`, `:profile` or `:profiles` (a page of accounts).
   """
   def mark(backend, session, user_did, {:ok, result}, kind) when is_map(result) do
     case subjects(result, kind) do
@@ -94,6 +95,8 @@ defmodule AtMcp.ModerationMarks do
 
   # --- what each kind of result holds ---
 
+  defp subjects(result, {:author_feed, _actor}), do: subjects(result, :posts)
+
   defp subjects(result, kind) when kind in [:posts, :profiles],
     do: Enum.filter(List.wrap(get(result, :items)), &subject?/1)
 
@@ -124,6 +127,9 @@ defmodule AtMcp.ModerationMarks do
   defp apply_marks(result, :posts, opts),
     do: update(result, :items, &Enum.map(&1, fn post -> post(post, opts, :content_list) end))
 
+  defp apply_marks(result, {:author_feed, actor}, opts),
+    do: update(result, :items, &Enum.map(&1, fn post -> profile_post(post, opts, actor) end))
+
   defp apply_marks(result, :profiles, opts),
     do:
       update(
@@ -135,14 +141,17 @@ defmodule AtMcp.ModerationMarks do
   defp apply_marks(result, :profile, opts), do: account(result, opts, :profile_view)
 
   # The post a thread is opened on is shown as a post's own view; its parents
-  # and replies as a list. A reply covered or left out of a list moves, as
-  # the app's thread moves it.
+  # and replies as a thread shows them: covered, never left out. A reply
+  # covered or left out of a list moves, as the app's thread moves it.
   defp apply_marks(result, :thread, opts) do
     result
     |> post(opts, :content_view)
     |> update(:parent, &parents(&1, opts))
     |> update(:replies, &replies(&1, opts, 1, :main))
-    |> update(:hidden_replies, &Enum.map(&1, fn reply -> post(reply, opts, :content_list) end))
+    |> update(
+      :hidden_replies,
+      &Enum.map(&1, fn reply -> post(reply, opts, :content_list, :thread) end)
+    )
   end
 
   defp apply_marks(result, :chain, opts) do
@@ -154,57 +163,112 @@ defmodule AtMcp.ModerationMarks do
       chain
       |> Enum.with_index()
       |> Enum.map(fn {post, index} ->
-        post(post, opts, if(index == last, do: :content_view, else: :content_list))
+        if index == last,
+          do: post(post, opts, :content_view),
+          else: post(post, opts, :content_list, :thread)
       end)
     end)
-    |> update(:replies, &Enum.map(&1, fn reply -> post(reply, opts, :content_list) end))
+    |> update(:replies, &Enum.map(&1, fn reply -> post(reply, opts, :content_list, :thread) end))
   end
 
   defp parents(parent, opts) do
     if subject?(parent),
-      do: parent |> post(opts, :content_list) |> update(:parent, &parents(&1, opts)),
+      do: parent |> post(opts, :content_list, :thread) |> update(:parent, &parents(&1, opts)),
       else: parent
   end
 
   # The app's thread view (social-app src/state/queries/usePostThread/
   # traversal.ts:166-271 at 62b95002): a moved reply directly under the post
   # goes under "Show more replies" with the replies under it that are not
-  # moved themselves; a moved reply deeper down is left out with everything
-  # under it, shown only when its parent is opened. A reply the read of
-  # left-out replies already marks (`left_out`) keeps that mark alone.
+  # moved themselves, up to the first that is blocked or gone, where the
+  # walk of that branch stops (traversal.ts:255-260); a moved reply deeper
+  # down is left out with everything under it, shown only when its parent
+  # is opened. A reply the read of left-out replies already marks
+  # (`left_out`) keeps that mark alone. Each is covered as a thread covers it.
   defp replies(replies, opts, depth, branch) when is_list(replies) do
-    Enum.map(replies, fn reply ->
-      if subject?(reply) do
-        decision = Decision.post(reply, opts)
-        moved? = Decision.moved_in_thread?(decision, get(reply, :hidden_by_threadgate) == true)
-
-        {place, below} =
-          case {branch, moved?} do
-            {:dropped, _} -> {"under_left_out", :dropped}
-            {:main, true} when depth == 1 -> {"show_more_replies", :other}
-            {:main, true} -> {"left_out", :dropped}
-            {:main, false} -> {nil, :main}
-            {:other, true} -> {"left_out", :dropped}
-            {:other, false} -> {"show_more_replies", :other}
-          end
-
-        place = if get(reply, :left_out) == true, do: nil, else: place
-
-        reply
-        |> marked(Decision.marks(decision, :content_list), place)
-        |> update(:replies, &replies(&1, opts, depth + 1, below))
-      else
-        reply
-      end
-    end)
+    {replies, _stopped} = walk(replies, opts, depth, branch, false)
+    replies
   end
 
   defp replies(other, _opts, _depth, _branch), do: other
 
-  defp post(post, opts, context) do
+  # `stopped` carries the stop through the rest of a moved branch, in the
+  # order the app walks it: each reply, then the replies under it.
+  defp walk(replies, opts, depth, branch, stopped) when is_list(replies) do
+    Enum.map_reduce(replies, stopped, fn reply, stopped ->
+      cond do
+        not available?(reply) ->
+          {reply, stopped or branch == :other}
+
+        true ->
+          decision = Decision.post(reply, opts)
+          moved? = Decision.moved_in_thread?(decision, get(reply, :hidden_by_threadgate) == true)
+
+          {place, below} =
+            case {branch, moved?} do
+              {:dropped, _} -> {"under_left_out", :dropped}
+              {:other, _} when stopped -> {"left_out", :other}
+              {:main, true} when depth == 1 -> {"show_more_replies", :other}
+              {:main, true} -> {"left_out", :dropped}
+              {:main, false} -> {nil, :main}
+              {:other, true} -> {"left_out", :dropped}
+              {:other, false} -> {"show_more_replies", :other}
+            end
+
+          place = if get(reply, :left_out) == true, do: nil, else: place
+
+          # A moved reply directly under the post starts its own walk.
+          {children, stopped} =
+            case get(reply, :replies) do
+              list when is_list(list) and below == :other and depth == 1 ->
+                {walk(list, opts, depth + 1, below, false) |> elem(0), stopped}
+
+              list when is_list(list) ->
+                walk(list, opts, depth + 1, below, stopped)
+
+              other ->
+                {other, stopped}
+            end
+
+          reply =
+            reply
+            |> marked(Decision.marks(decision, :content_list, :post, :thread), place)
+            |> then(&if(is_list(children), do: put(&1, :replies, children), else: &1))
+
+          {reply, stopped}
+      end
+    end)
+  end
+
+  defp available?(reply),
+    do:
+      subject?(reply) and is_binary(get(reply, :author_did)) and get(reply, :blocked) != true and
+        get(reply, :not_found) != true
+
+  defp post(post, opts, context, mode \\ :list) do
     if subject?(post) and is_binary(get(post, :author_did)),
-      do: marked(post, Decision.marks(Decision.post(post, opts), context), nil),
+      do: marked(post, Decision.marks(Decision.post(post, opts), context, :post, mode), nil),
       else: post
+  end
+
+  # A post on a profile by the profile's own account (`ignoreFilterFor`,
+  # Profile.tsx:440,467 and post-feed.ts:303-316 at 62b95002): its mutes are
+  # dropped, and nothing leaves it out.
+  defp profile_post(post, opts, actor) do
+    if subject?(post) and by?(post, actor) do
+      decision = Decision.post(post, opts)
+      decision = %{decision | causes: Enum.reject(decision.causes, &(&1.type == :muted))}
+      marked(post, Decision.marks(decision, :content_list, :post, :author_feed), nil)
+    else
+      post(post, opts, :content_list)
+    end
+  end
+
+  defp by?(post, actor) do
+    actor = String.downcase(actor)
+
+    String.downcase(get(post, :author_did) || "") == actor or
+      String.downcase(get(post, :author) || "") == String.trim_leading(actor, "@")
   end
 
   defp account(account, opts, context) do

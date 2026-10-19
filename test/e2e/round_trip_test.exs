@@ -1330,8 +1330,15 @@ defmodule AtMcp.E2E.RoundTripTest do
              } =
                post["moderation"]
 
-      assert text.(read) =~ "Hidden by the app: matches your muted word 'kumquat'"
+      assert text.(read) =~ "Hidden by the app: matches your muted word \"kumquat\""
       assert text.(read) =~ "I love kumquat pie"
+
+      # On the author's own profile the app leaves none of their posts out.
+      feed = call!(me, "get_author_feed", %{"actor" => them.did})["items"]
+      on_profile = Enum.find(feed, &(&1["uri"] == muted["uri"]))
+
+      assert %{"causes" => [%{"type" => "muted_word", "effect" => "cover"}]} =
+               on_profile["moderation"]
 
       # In a thread, the reply goes under "Show more replies".
       root = post!(me, "what fruit?")
@@ -1343,7 +1350,10 @@ defmodule AtMcp.E2E.RoundTripTest do
       replies = thread.structuredContent["replies"]
       moved = Enum.find(replies, &(&1["raw_text"] == "kumquat, always"))
       kept = Enum.find(replies, &(&1["raw_text"] == "pears"))
-      assert %{"in_thread" => "show_more_replies"} = moved["moderation"]
+      # A thread covers it, never leaves it out.
+      assert %{"in_thread" => "show_more_replies", "causes" => [%{"effect" => "cover"}]} =
+               moved["moderation"]
+
       refute Map.has_key?(kept, "moderation")
       assert text.(thread) =~ ~s(Under "Show more replies" in the app)
 
@@ -1378,7 +1388,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert is_binary(handle)
 
       read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
-      assert text.(read) =~ "Hidden by the app: labeled 'spam' (Spam) by #{handle}"
+      assert text.(read) =~ "Hidden by the app: labeled 'spam' (\"Spam\") by #{handle}"
 
       call!(me, "set_label_visibility", %{
         "label" => "spam",
@@ -1390,7 +1400,7 @@ defmodule AtMcp.E2E.RoundTripTest do
                only_post(me, labelled["uri"])["moderation"]
 
       read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
-      assert text.(read) =~ "Behind a warning in the app: labeled 'spam' (Spam) by #{handle}"
+      assert text.(read) =~ "Behind a warning in the app: labeled 'spam' (\"Spam\") by #{handle}"
 
       call!(me, "set_label_visibility", %{
         "label" => "spam",

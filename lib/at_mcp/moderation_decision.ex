@@ -1,9 +1,12 @@
 defmodule AtMcp.ModerationDecision do
   @moduledoc """
   What the app would do with a post or an account, and why: the decision
-  `@atproto/api`'s moderation module makes (`moderatePost`, `moderateProfile`,
-  bluesky-social/atproto at 9f66a7e, packages/api/src/moderation), from the
-  account's own settings and the labelers' definitions. The app reads it to
+  the app's moderation module makes (`moderatePost`, `moderateProfile`),
+  from the account's own settings and the labelers' definitions. The app
+  runs `@bsky/sdk` 1.2.0 (bluesky-social/bsky packages/sdk at 4d511036),
+  whose moderation logic is that of `@atproto/api` at bluesky-social/atproto
+  9f66a7e (packages/api/src/moderation); the file and line references here
+  are to the latter. The app reads it to
   hide, cover or flag what it shows (social-app's ContentHider and
   PostAlerts); here it is marked, never applied, so a model reads what a
   person sees and can still read what the app would cover.
@@ -454,10 +457,12 @@ defmodule AtMcp.ModerationDecision do
   account's avatar and banner, covered), `:alert` or `:inform` (a badge),
   highest priority first. A cause the app shows nothing for is dropped.
   """
-  def ui(%{me?: me?, causes: causes}, context) do
+  def ui(decision, context, mode \\ :list)
+
+  def ui(%{me?: me?, causes: causes}, context, mode) do
     causes
     |> Enum.flat_map(fn cause ->
-      case effect(cause, context, me?) do
+      case effect(cause, context, me?, mode) do
         nil -> []
         {effect, no_override} -> [Map.merge(cause, %{effect: effect, no_override: no_override})]
       end
@@ -465,32 +470,41 @@ defmodule AtMcp.ModerationDecision do
     |> Enum.sort_by(& &1.priority)
   end
 
-  defp effect(%{type: type}, _context, true)
+  defp effect(%{type: type}, _context, true, _mode)
        when type in [:blocking, :blocked_by, :muted, :muted_word],
        do: nil
 
-  defp effect(%{type: type} = cause, context, _me?) when type in [:blocking, :blocked_by] do
+  defp effect(%{type: type} = cause, context, _me?, mode) when type in [:blocking, :blocked_by] do
     shown(
       cause,
       context in [:profile_list, :content_list],
       Map.get(@block_behavior, context),
-      true
+      true,
+      mode
     )
   end
 
-  defp effect(%{type: :muted} = cause, context, _me?),
+  defp effect(%{type: :muted} = cause, context, _me?, mode),
     do:
       shown(
         cause,
         context in [:profile_list, :content_list],
         Map.get(@mute_behavior, context),
-        false
+        false,
+        mode
       )
 
-  defp effect(%{type: :muted_word} = cause, context, _me?),
-    do: shown(cause, context == :content_list, Map.get(@muteword_behavior, context), false)
+  defp effect(%{type: :muted_word} = cause, context, _me?, mode),
+    do:
+      shown(
+        cause,
+        context == :content_list,
+        Map.get(@muteword_behavior, context),
+        false,
+        mode
+      )
 
-  defp effect(%{type: :label} = cause, context, me?) do
+  defp effect(%{type: :label} = cause, context, me?, mode) do
     filter? =
       cause.setting == "hide" and not me? and
         ((context == :profile_list and cause.target == :account) or
@@ -501,21 +515,37 @@ defmodule AtMcp.ModerationDecision do
         do: cause.behavior[:content_media],
         else: cause.behavior[:avatar] || cause.behavior[:banner]
 
-    case shown(cause, filter?, cause.behavior[context], cause.no_override and not me?) do
-      nil when media == :blur and not is_map_key(cause, :downgraded) -> {:cover_media, false}
-      other -> other
+    no_override = cause.no_override and not me?
+
+    case shown(cause, filter?, cause.behavior[context], no_override, mode) do
+      nil when media == :blur and not is_map_key(cause, :downgraded) ->
+        {:cover_media, no_override}
+
+      other ->
+        other
     end
   end
 
   # A cause in a list may be left out of it; one not downgraded is then
   # covered, flagged or noted as its behavior says.
-  defp shown(cause, filter?, behavior, no_override) do
+  #
+  # `mode` is where the list is. `:list` is a feed (decision.ts:78-187 as
+  # post-feed.ts:303-316 at 62b95002 applies it: a filtered post is left
+  # out). `:thread` is a thread's reply or parent, which is never left out:
+  # PostHider with `interpretFilterAsBlur` (ThreadItemPost.tsx:266-275,
+  # PostHider.tsx:58-60, 155-157) covers it for the first cause that blurs,
+  # or else for the first that filters and is not downgraded, so a quoted
+  # post's cause covers nothing there. `:author_feed` is a profile's posts
+  # by that profile's account, which the app shows whatever filters them
+  # (`ignoreFilterFor`, Profile.tsx:440,467 and post-feed.ts:303-316).
+  defp shown(cause, filter?, behavior, no_override, mode) do
     downgraded? = Map.get(cause, :downgraded, false)
+    filter? = filter? and mode != :author_feed
 
     cond do
-      filter? -> {:hide, behavior == :blur and not downgraded? and no_override}
+      filter? and mode == :list -> {:hide, behavior == :blur and not downgraded? and no_override}
       downgraded? -> nil
-      behavior == :blur -> {:cover, no_override}
+      behavior == :blur or filter? -> {:cover, no_override}
       behavior in [:alert, :inform] -> {behavior, false}
       true -> nil
     end
@@ -526,9 +556,9 @@ defmodule AtMcp.ModerationDecision do
   the app acts on there, highest priority first, with what it does and why,
   ready for the structured content. `subject` is `:post` or `:account`.
   """
-  def marks(decision, context, subject \\ :post) do
+  def marks(decision, context, subject \\ :post, mode \\ :list) do
     decision
-    |> ui(context)
+    |> ui(context, mode)
     |> Enum.map(fn cause ->
       %{
         type: Atom.to_string(cause.type),
@@ -606,9 +636,10 @@ defmodule AtMcp.ModerationDecision do
           group = Enum.filter(causes, &(&1["effect"] == effect)),
           group != [] do
         locked =
-          if effect in ["hide", "cover"] and Enum.any?(group, &(&1["no_override"] == true)),
-            do: " (it cannot be opened)",
-            else: ""
+          if effect in ["hide", "cover", "cover_media"] and
+               Enum.any?(group, &(&1["no_override"] == true)),
+             do: " (it cannot be opened)",
+             else: ""
 
         heading <> locked <> ": " <> Enum.map_join(group, "; ", &why/1)
       end
@@ -631,7 +662,9 @@ defmodule AtMcp.ModerationDecision do
         _ -> "labeled"
       end
 
-    name = if is_binary(cause["label_name"]), do: " (#{cause["label_name"]})", else: ""
+    # A name is the labeler's own text, quoted so it cannot pass for a line
+    # of the reading.
+    name = if is_binary(cause["label_name"]), do: " (#{inspect(cause["label_name"])})", else: ""
 
     by =
       cond do
@@ -645,7 +678,7 @@ defmodule AtMcp.ModerationDecision do
   end
 
   defp why(%{"type" => "muted_word", "words" => words}) when is_list(words) do
-    quoted = Enum.map_join(words, ", ", &"'#{&1}'")
+    quoted = Enum.map_join(words, ", ", &inspect/1)
 
     if length(words) == 1,
       do: "matches your muted word " <> quoted,
@@ -771,7 +804,18 @@ defmodule AtMcp.ModerationDecision do
           author
         )
       end
-    ] ++ alts(quote, words, langs, author) ++ [fn -> card(get(quote, :link), words, author) end]
+    ] ++
+      alts(quote, words, image_langs(quote, langs), author) ++
+      [fn -> card(get(quote, :link), words, author) end]
+  end
+
+  # A quoted post's images are matched in its languages, except those beside
+  # a post it quotes in turn (a record with media), which are matched in
+  # none: the library reads them from `embeddedPost.record`, which a post
+  # record does not have (subjects/post.ts:313-318). A quoted post with both
+  # images and a quote of its own has them that way.
+  defp image_langs(quote, langs) do
+    if is_binary(get(quote, :nested_uri)), do: [], else: langs
   end
 
   defp alts(subject, words, langs, author) do

@@ -146,7 +146,7 @@ defmodule AtMcp.ModerationMarksTest do
     # The post the thread is opened on is covered, not left out; a parent is
     # shown as in a list.
     assert %{causes: [%{effect: "cover"}]} = marked.moderation
-    assert %{causes: [%{effect: "hide"}]} = marked.parent.moderation
+    assert %{causes: [%{effect: "cover"}]} = marked.parent.moderation
 
     [one, two, three, four] = marked.replies
     assert %{in_thread: "show_more_replies", causes: [%{type: "muted_word"}]} = one.moderation
@@ -165,7 +165,46 @@ defmodule AtMcp.ModerationMarksTest do
     refute Map.has_key?(four, :moderation)
 
     assert AtMcp.ModerationDecision.line(stringify(one.moderation)) ==
-             "Under \"Show more replies\" in the app · Hidden by the app: matches your muted word 'spoiler'"
+             "Under \"Show more replies\" in the app · Behind a warning in the app: matches your muted word \"spoiler\""
+  end
+
+  test "a moved branch stops at the first reply that is blocked or gone, as the app's walk does" do
+    reply = fn n, text, replies -> Map.put(post(n, text), :replies, replies) end
+    blocked = %{uri: "at://did:plc:x/app.bsky.feed.post/b", blocked: true, replies: []}
+
+    thread =
+      post(0, "root")
+      |> Map.put(:replies, [
+        reply.(1, "spoiler", [
+          reply.(11, "fine", []),
+          Map.put(blocked, :replies, []),
+          reply.(12, "fine", [reply.(121, "fine", [])])
+        ])
+      ])
+
+    assert {:ok, marked} = mark(session({:ok, [muted(["spoiler"])]}), thread, :thread)
+    [one] = marked.replies
+    [eleven, _blocked, twelve] = one.replies
+    assert %{in_thread: "show_more_replies"} = eleven.moderation
+    assert %{in_thread: "left_out"} = twelve.moderation
+    assert %{in_thread: "left_out"} = hd(twelve.replies).moderation
+  end
+
+  test "a profile's posts by its own account: mutes dropped, nothing left out; others' as in a feed" do
+    page = %{
+      items: [
+        post(1, "a spoiler", %{author_viewer: %{muted: true}}),
+        post(2, "a spoiler", %{author_did: "did:plc:other", author_viewer: %{muted: true}})
+      ]
+    }
+
+    assert {:ok, %{items: [own, other]}} =
+             mark(session({:ok, [muted(["spoiler"])]}), page, {:author_feed, @them})
+
+    assert %{causes: [%{type: "muted_word", effect: "cover"}]} = own.moderation
+    assert %{causes: causes} = other.moderation
+    assert Enum.all?(causes, &(&1.effect == "hide"))
+    assert Enum.any?(causes, &(&1.type == "muted"))
   end
 
   defp stringify(value), do: value |> Jason.encode!() |> Jason.decode!()
