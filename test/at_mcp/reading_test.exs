@@ -156,7 +156,7 @@ defmodule AtMcp.ReadingTest do
         "viewer" => %{"blockedBy" => true, "muted" => true, "following" => nil}
       },
       "record" => %{"text" => "hello", "createdAt" => "2026-10-01T00:00:00.000Z"},
-      "viewer" => %{"replyDisabled" => true}
+      "viewer" => %{"replyDisabled" => true, "embeddingDisabled" => true}
     }
 
     read = fn post ->
@@ -165,13 +165,14 @@ defmodule AtMcp.ReadingTest do
 
     assert read.(post) ==
              "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\nhello\n" <>
-               "They blocked you · You muted them · You cannot reply to this post\n" <>
+               "They blocked you · You muted them · You cannot reply to this post · You cannot quote this post\n" <>
                "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
 
     blocking =
       put_in(post, ["author", "viewer"], %{"blocking" => "at://did:plc:me/app.bsky.graph.block/1"})
 
-    assert read.(blocking) =~ "\nYou blocked them · You cannot reply to this post\n"
+    assert read.(blocking) =~
+             "\nYou blocked them · You cannot reply to this post · You cannot quote this post\n"
 
     # The ordinary case reads exactly as a post with no viewer state at all.
     ordinary =
@@ -182,7 +183,11 @@ defmodule AtMcp.ReadingTest do
         "blockedBy" => false,
         "muted" => false
       })
-      |> Map.put("viewer", %{"replyDisabled" => false})
+      |> Map.put("viewer", %{
+        "replyDisabled" => false,
+        "embeddingDisabled" => false,
+        "threadMuted" => false
+      })
 
     assert read.(ordinary) ==
              read.(

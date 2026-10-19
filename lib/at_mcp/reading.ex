@@ -309,7 +309,7 @@ defmodule AtMcp.Reading do
 
   # Where the account stands with the author, said only when it is not the
   # ordinary case: a block either way, a mute, or a post the service says the
-  # account cannot reply to. Follows are on almost every timeline post and stay
+  # account cannot reply to or quote. Follows are on almost every timeline post and stay
   # in the structured content.
   defp standing(post) do
     author = if is_map(post["author_viewer"]), do: post["author_viewer"], else: %{}
@@ -328,7 +328,9 @@ defmodule AtMcp.Reading do
           author["muted"] == true -> "You muted them"
           true -> nil
         end,
-        if(viewer["reply_disabled"] == true, do: "You cannot reply to this post")
+        if(viewer["reply_disabled"] == true, do: "You cannot reply to this post"),
+        if(viewer["embedding_disabled"] == true, do: "You cannot quote this post"),
+        if(viewer["thread_muted"] == true, do: "You muted this thread")
       ],
       " · "
     )

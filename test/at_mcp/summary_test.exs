@@ -281,7 +281,10 @@ defmodule AtMcp.SummaryTest do
     full = %{
       "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",
       "followedBy" => "at://did:plc:other/app.bsky.graph.follow/2",
-      "blocking" => "at://did:plc:viewer/app.bsky.graph.listblock/3",
+      # Blocked only through a list, the AppView puts the list's own URI in
+      # `blocking` (bsky views `blocking: viewer.blocking || blockingByList`):
+      # it is not a block record, and `unblock` refuses it.
+      "blocking" => list["uri"],
       "blockingByList" => list,
       "blockedBy" => true,
       "muted" => true,
@@ -291,7 +294,7 @@ defmodule AtMcp.SummaryTest do
     expected = %{
       following: "at://did:plc:viewer/app.bsky.graph.follow/1",
       followed_by: "at://did:plc:other/app.bsky.graph.follow/2",
-      blocking: "at://did:plc:viewer/app.bsky.graph.listblock/3",
+      blocking: list["uri"],
       blocking_by_list: list["uri"],
       blocked_by: true,
       muted: true,
@@ -302,12 +305,14 @@ defmodule AtMcp.SummaryTest do
 
     post = %{
       "author" => %{"did" => "did:plc:other", "viewer" => full},
-      "viewer" => %{"replyDisabled" => true}
+      "viewer" => %{"replyDisabled" => true, "embeddingDisabled" => true, "threadMuted" => false}
     }
 
     assert AtMcp.Summary.extract(:post, post).author_viewer == expected
     assert AtMcp.Summary.extract(:chain_post, post).author_viewer == expected
-    assert AtMcp.Summary.extract(:post, post).viewer == %{reply_disabled: true}
+
+    assert AtMcp.Summary.extract(:post, post).viewer ==
+             %{reply_disabled: true, embedding_disabled: true, thread_muted: false}
 
     # Every key read is a key the output schema declares, with the type it has.
     for {shape, key} <- [profile: "viewer", post: "author_viewer", chain_post: "author_viewer"] do

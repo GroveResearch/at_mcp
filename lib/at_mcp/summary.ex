@@ -83,7 +83,11 @@ defmodule AtMcp.Summary do
     {:like, :record, ["like"], "The viewing account's like record AT URI"},
     {:repost, :record, ["repost"], "The viewing account's repost record AT URI"},
     {:reply_disabled, :boolean, ["replyDisabled", "reply_disabled"],
-     "True when the service says the viewing account cannot reply to this post"}
+     "True when the service says the viewing account cannot reply to this post"},
+    {:embedding_disabled, :boolean, ["embeddingDisabled", "embedding_disabled"],
+     "True when the service says the viewing account cannot quote this post"},
+    {:thread_muted, :boolean, ["threadMuted", "thread_muted"],
+     "True when the viewing account has muted this post's thread"}
   ]
 
   @actor_viewer [
