@@ -1001,7 +1001,32 @@ defmodule AtMcp.Effects.ProtoRune do
   def save_draft(session, id, draft) when is_binary(id) do
     case AtMcp.ATProto.update_draft(session, %{draft: %{"id" => id, "draft" => draft}}) do
       {:error, reason} -> {:error, failure(reason)}
-      _ok -> {:ok, draft_result(:save_draft, id, draft)}
+      _ok -> saved_draft(session, id)
+    end
+  end
+
+  # `updateDraft` answers success for an id it does not hold and ignores the
+  # update (its lexicon says so), so a draft deleted between the read that
+  # found it and the update would be reported saved when nothing was. The
+  # draft is read again: what the result carries is what the service holds. A
+  # draft gone by then is a refusal; a read that fails says nothing either way,
+  # so the update's outcome is unknown.
+  defp saved_draft(session, id) do
+    case find_draft(session, id) do
+      {:ok, saved} ->
+        {:ok, draft_result(:save_draft, id, saved)}
+
+      {:error, {:invalid_argument, "id", _}} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved. " <>
+               "Call save_draft without an id to keep the text as a new draft.",
+           detail: {:draft_gone, id}
+         )}
+
+      {:error, reason} ->
+        {:error, AtMcp.Effects.Failure.new(:indeterminate, detail: {:draft_unconfirmed, reason})}
     end
   end
 

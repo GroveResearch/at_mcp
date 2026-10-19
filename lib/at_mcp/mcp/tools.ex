@@ -30,6 +30,12 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "changed_meanwhile", "error: " <> failure.message)
 
+  def respond(
+        {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:draft_gone, id}} = failure},
+        state
+      ),
+      do: error(state, "draft_not_found", "error: " <> failure.message, %{id: id})
+
   def respond({:error, :not_connected}, state),
     do:
       error(

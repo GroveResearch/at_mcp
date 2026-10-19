@@ -69,8 +69,8 @@ defmodule AtMcp.DraftsTest do
       :ok
     end
 
-    defp pds(answers) do
-      {session, pds} = FakePDS.start(answers: answers)
+    defp pds(answers, drafts \\ []) do
+      {session, pds} = FakePDS.start(answers: answers, drafts: drafts)
 
       effects =
         start_supervised!(
@@ -124,13 +124,14 @@ defmodule AtMcp.DraftsTest do
 
     test "saving to an existing draft replaces its first post's text and keeps the rest" do
       %{effects: effects, pds: pds} =
-        pds(%{
-          "app.bsky.draft.getDrafts" =>
-            drafts([view("3other", %{"posts" => []}), view("3held", @held)])
-        })
+        pds(%{}, [view("3other", %{"posts" => []}), view("3held", @held)])
 
       assert {:ok, %{id: "3held", draft: draft}} =
                AtMcp.Effects.save_draft(effects, "first, after", "3held")
+
+      # The draft is read again after the update: the result is what the
+      # service holds, not what was sent.
+      assert length(FakePDS.sent(pds, "app.bsky.draft.getDrafts")) == 2
 
       assert [%{text: "first, after", images: [%{alt: "a kite"}]}, %{text: "second"}] =
                draft.posts
@@ -145,6 +146,28 @@ defmodule AtMcp.DraftsTest do
              }
 
       assert Lexicon.problems(update.body, "app.bsky.draft.updateDraft") == []
+    end
+
+    # updateDraft ignores an id it does not hold and answers success anyway.
+    test "a draft deleted between the read and the update is reported unsaved" do
+      %{effects: effects, pds: pds} =
+        pds(%{
+          "app.bsky.draft.getDrafts" => [drafts([view("3held", @held)]), drafts([])]
+        })
+
+      state = %{effects: effects}
+
+      {:ok, result, ^state} =
+        AtMcp.MCP.Server.handle_call_tool(
+          "save_draft",
+          %{"text" => "first, after", "id" => "3held"},
+          state
+        )
+
+      assert result.isError
+      assert %{code: "draft_not_found", id: "3held"} = result.structuredContent
+      assert hd(result.content).text =~ "nothing was saved"
+      assert [_] = FakePDS.sent(pds, "app.bsky.draft.updateDraft")
     end
 
     test "a draft the account does not have is refused, and nothing is updated" do
