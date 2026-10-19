@@ -105,16 +105,23 @@ async function connect(name, legacy = false, environment = {}) {
 const READINGS = new Set(['get_notifications', 'get_timeline', 'get_author_feed', 'get_posts',
   'search_posts', 'get_quotes', 'get_actor_likes', 'get_feed', 'get_list_feed', 'get_thread',
   'get_thread_chain']);
+// Reads made of accounts give text naming each account by handle.
+const ACCOUNT_READINGS = new Set(['get_profile', 'get_profiles', 'search_actors', 'get_followers',
+  'get_follows', 'get_known_followers', 'get_suggested_follows', 'get_blocks', 'get_mutes',
+  'get_likes', 'get_reposted_by']);
 
 async function call(connection, name, args = {}) {
   const result = await connection.client.callTool({name, arguments: args});
   assert.ok(!result.isError, JSON.stringify(result));
   const text = result.content.find(c => c.type === 'text').text;
   // A declared output schema is only worth having if the structured content
-  // carries the same result the text does: the same JSON, or for posts, text
-  // naming every post in it.
+  // carries the same result the text does: the same JSON, or for posts and
+  // accounts, text naming every post or account in it.
   if (READINGS.has(name)) {
     for (const uri of postUris(result.structuredContent)) assert.ok(text.includes(uri), `${name} text omits ${uri}`);
+  } else if (ACCOUNT_READINGS.has(name)) {
+    const accounts = result.structuredContent.items ?? [result.structuredContent];
+    for (const {handle} of accounts) assert.ok(text.includes(`@${handle}`), `${name} text omits @${handle}`);
   } else {
     assert.deepEqual(result.structuredContent, JSON.parse(text), `${name} structured content`);
   }
