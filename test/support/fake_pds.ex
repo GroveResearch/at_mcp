@@ -142,12 +142,19 @@ defmodule AtMcp.Test.FakePDS do
   defp answer("com.atproto.repo.listRecords", %{query: q}, state) do
     prefix = "at://#{Map.get(state.handles, q["repo"], q["repo"])}/#{q["collection"]}/"
 
-    records =
+    # One page of `limit` (default 50) after the uri `cursor` names.
+    limit = String.to_integer(q["limit"] || "50")
+
+    all =
       for {uri, value} <- Enum.sort(state.records),
           String.starts_with?(uri, prefix),
+          q["cursor"] in [nil, ""] or uri > q["cursor"],
           do: %{uri: uri, cid: cid(uri), value: value}
 
-    {{200, %{records: records}}, state}
+    {page, rest} = Enum.split(all, limit)
+    cursor = if rest != [], do: List.last(page).uri
+
+    {{200, Map.reject(%{records: page, cursor: cursor}, fn {_, v} -> is_nil(v) end)}, state}
   end
 
   defp answer("com.atproto.identity.resolveHandle", %{query: %{"handle" => handle}}, state) do

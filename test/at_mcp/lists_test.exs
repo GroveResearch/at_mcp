@@ -155,6 +155,20 @@ defmodule AtMcp.ListsTest do
                FakePDS.sent(pds, "town.delve.graph.getStarterPack")
     end
 
+    test "a list's feed named with a handle is asked for in DID form" do
+      %{effects: effects, pds: pds} =
+        pds(%{
+          "com.atproto.identity.resolveHandle" => {200, %{did: @alice}},
+          "town.delve.feed.getListFeed" => {200, %{feed: []}}
+        })
+
+      assert {:ok, _} =
+               AtMcp.Effects.get_list_feed(effects, "at://alice.test/town.delve.graph.list/l1")
+
+      assert [%{query: %{"list" => "at://did:plc:alice/town.delve.graph.list/l1"}}] =
+               FakePDS.sent(pds, "town.delve.feed.getListFeed")
+    end
+
     test "reads ask this network's methods, with the purpose the service takes" do
       %{effects: effects, pds: pds} =
         pds(%{

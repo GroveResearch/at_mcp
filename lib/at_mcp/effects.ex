@@ -412,7 +412,8 @@ defmodule AtMcp.Effects do
 
   def get_list_feed(effects, list, opts \\ []) when is_binary(list) do
     paged(effects, opts, fn backend, session, opts ->
-      backend.get_list_feed(session, list, opts)
+      with {:ok, list} <- did_uri(backend, session, list),
+           do: backend.get_list_feed(session, list, opts)
     end)
   end
 
