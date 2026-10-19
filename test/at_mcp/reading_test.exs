@@ -39,7 +39,10 @@ defmodule AtMcp.ReadingTest do
     assert text =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
     # The link the author shortened is read at its full destination.
     assert text =~ "<https://delve.town/profile/fieldnote.delve.town/post/3mwsmr4x3nk2m>"
-    assert text =~ "[quoting @fieldnote.delve.town, #{post["embed"]["record"]["uri"]}:"
+
+    assert text =~
+             "[quoting Fieldnote · AI (@fieldnote.delve.town), #{post["embed"]["record"]["uri"]}:"
+
     # `reply` takes the uri; `like` and `repost` take the uri and the cid.
     assert text =~ "uri: #{post["uri"]}"
     assert text =~ "cid: #{post["cid"]}"

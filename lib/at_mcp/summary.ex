@@ -47,19 +47,46 @@ defmodule AtMcp.Summary do
              {key, :string, [[Atom.to_string(key)]], doc}
            end)
 
+  # A link card as the AppView hydrated it, or as a raw record wrote it.
+  @link [
+    {:uri, :string, [["uri"]], "The link's destination"},
+    {:title, :string, [["title"]], "The card's title"},
+    {:description, :string, [["description"]], "The card's description"},
+    {:thumb, :string, [["thumb"]], "URL of the AppView's copy of the card's image"}
+  ]
+
+  @video [
+    {:alt, :string, [["alt"]], "The video's alt text; null or empty when the author wrote none"},
+    {:thumbnail, :string, [["thumbnail"]], "URL of the AppView's thumbnail of the video"},
+    {:playlist, :string, [["playlist"]], "URL of the AppView's HLS playlist for the video"}
+  ]
+
   @quote [
     {:status, :string, [["status"]],
      "available, not_found, blocked, detached, unhydrated or unsupported"},
+    {:kind, :string, [["kind"]],
+     "What an available quote is: post, feed, list, starter_pack or labeler"},
     {:uri, :string, [["uri"]], "Quoted record's AT URI"},
     {:record_type, :string, [["record_type"]], "Quoted record or unavailable view type"},
     {:web_url, :string, [["web_url"]], "Quoted post's web permalink"},
     {:author, :string, [["author"]], "Quoted author's handle"},
     {:author_did, :string, [["author_did"]], "Quoted author's DID"},
+    {:display_name, :string, [["display_name"]], "Quoted author's display name"},
+    {:created_at, :string, [["created_at"]],
+     "When the quoted post was written, as an ISO 8601 timestamp"},
     {:raw_text, :string, [["raw_text"]], "Exact quoted author's text"},
     {:text, :string, [["text"]], "Quoted text with full link destinations"},
     {:facets, {:list, @facets}, [["facets"]], "Quoted text's normalized facets"},
     {:images, {:list, @image_view}, [["images"]], "Quoted post's image metadata, not pixels"},
-    {:nested_uri, :string, [["nested_uri"]], "A further quote; deliberately not expanded"}
+    {:link, {:object, @link}, [["link"]], "Quoted post's link card"},
+    {:video, {:object, @video}, [["video"]], "Quoted post's video"},
+    {:nested_uri, :string, [["nested_uri"]], "A further quote; deliberately not expanded"},
+    {:name, :string, [["name"]], "A quoted feed's, list's or starter pack's name"},
+    {:description, :string, [["description"]],
+     "A quoted feed's, list's or starter pack's description"},
+    {:creator, :string, [["creator"]],
+     "Handle of the account that made the quoted feed, list, starter pack or labeler"},
+    {:creator_did, :string, [["creator_did"]], "DID of that account"}
   ]
 
   # A label as the AppView returns it on a post or an account: what it says and
@@ -114,11 +141,13 @@ defmodule AtMcp.Summary do
     {:web_url, :string, [["perception", "web_url"]],
      "Web permalink; the AT URI remains canonical"},
     {:images, {:list, @image_view}, [["perception", "images"]],
-     "Image alt text and available URLs, not image pixels"},
+     "Image alt text and available URLs, not image pixels; a gallery's images too"},
+    {:link, {:object, @link}, [["perception", "link"]], "The post's link card; null when absent"},
+    {:video, {:object, @video}, [["perception", "video"]], "The post's video; null when absent"},
     {:embed_type, :string, [["perception", "embed_type"]],
      "Embed type, including kinds not otherwise projected"},
     {:quote, {:object, @quote}, [["perception", "quote"]],
-     "One attributed quoted record; null when absent"}
+     "One attributed quoted record: a post, feed, list, starter pack or labeler; null when absent"}
   ]
 
   # Why a feed shows a post, read from the feed item around it

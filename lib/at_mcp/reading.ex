@@ -18,7 +18,7 @@ defmodule AtMcp.Reading do
   Each function here takes the structured content exactly as it is sent and
   returns that text. It reads the result, never the service, so it cannot say
   anything the structured content does not. What it leaves out is still in the
-  structured content: author DIDs, `raw_text`, facets, web URLs, image URLs and
+  structured content: author DIDs, `raw_text`, facets, web URLs, image, video and link-card image URLs and
   blob metadata, which labeler applied a label, the record URIs of likes,
   reposts and follows (which no tool takes), read notifications' `is_read`, and
   the read limits of a thread.
@@ -251,9 +251,10 @@ defmodule AtMcp.Reading do
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
   end
 
-  # Images by their alt text, the post a quote points at, and the kind of any
-  # other embed, so a reader knows something is attached that the text does
-  # not say. `get_post_images` shows the pictures themselves.
+  # Images by their alt text, a link card, a video by its alt text, what a
+  # quote points at, and the kind of any other embed, so a reader knows
+  # something is attached that the text does not say. `get_post_images` shows
+  # the pictures themselves.
   defp attachments(post) do
     images = List.wrap(post["images"])
 
@@ -262,24 +263,101 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.map(fn {image, n} -> "[image #{n} of #{length(images)}: #{alt(image)}]" end)
 
+    link = link(post["link"], :card)
+    video = video(post["video"])
     quote = quoted(post["quote"])
 
     other =
-      if images == [] and is_nil(quote) and is_binary(post["embed_type"]),
-        do: "[embed: #{post["embed_type"]}]"
+      if images == [] and Enum.all?([link, video, quote], &is_nil/1) and
+           is_binary(post["embed_type"]),
+         do: "[embed: #{post["embed_type"]}]"
 
-    image_lines ++ [quote, other]
+    image_lines ++ [link, video, quote, other]
   end
 
-  defp alt(%{"alt" => alt}) when is_binary(alt) and alt != "", do: alt
+  # Alt text on one line: what the author wrote cannot start a line of its own
+  # that reads as another post.
+  defp alt(%{"alt" => alt}) when is_binary(alt) do
+    case one_line(alt) do
+      "" -> "no alt text"
+      alt -> alt
+    end
+  end
+
   defp alt(_image), do: "no alt text"
+
+  # "[link: Title — description (https://...)]", leaving out what the card does
+  # not have. Inside a quote, the description is left out.
+  defp link(%{"uri" => uri} = link, form) when is_binary(uri) do
+    said =
+      lines(
+        [one_line(link["title"]), if(form == :card, do: capped(link["description"]))],
+        " — "
+      )
+
+    uri = escape_uri(uri)
+    if said == "", do: "[link: #{uri}]", else: "[link: #{said} (#{uri})]"
+  end
+
+  defp link(_link, _form), do: nil
+
+  # A card's title or description on one line, as the app's card shows it.
+  defp one_line(text) when is_binary(text),
+    do: text |> String.replace(~r/\s+/u, " ") |> String.trim()
+
+  defp one_line(_text), do: nil
+
+  @description_limit 300
+
+  # A card's description, on one line and at most 300
+  # characters: a page's summary, not the page. The structured content keeps it
+  # whole.
+  defp capped(text) do
+    case one_line(text) do
+      text when is_binary(text) ->
+        if String.length(text) > @description_limit,
+          do: String.slice(text, 0, @description_limit - 1) <> "…",
+          else: text
+
+      other ->
+        other
+    end
+  end
+
+  # A URL has no whitespace; one that arrives with some has it percent-encoded,
+  # so it stays one URL on one line.
+  defp escape_uri(uri), do: String.replace(uri, ~r/\s/u, &URI.encode/1)
+
+  defp video(%{} = video), do: "[video: #{alt(video)}]"
+  defp video(_video), do: nil
+
+  defp quoted(%{"status" => "available", "kind" => kind} = quote)
+       when kind in ["feed", "list", "starter_pack", "labeler"] do
+    name = one_line(quote["name"])
+    name = if name not in [nil, ""], do: ~s( "#{name}")
+    by = if is_binary(quote["creator"]), do: " by @#{one_line(quote["creator"])}"
+    about = one_line(quote["description"])
+    about = if about not in [nil, ""], do: ": #{about}"
+
+    "[quoting #{String.replace(kind, "_", " ")}#{name}#{by}, #{quote["uri"]}#{about}]"
+  end
 
   defp quoted(%{"status" => "available"} = quote) do
     images = length(List.wrap(quote["images"]))
     pictures = if images > 0, do: " [#{count(images, "image", "images")}]", else: ""
-    author = if is_binary(quote["author"]), do: "@#{quote["author"]}", else: "a post"
 
-    "[quoting #{author}, #{quote["uri"]}: #{quote["text"]}#{pictures}]"
+    media =
+      Enum.map_join([link(quote["link"], :quote), video(quote["video"])], fn
+        nil -> ""
+        attached -> " " <> attached
+      end)
+
+    author =
+      if is_binary(quote["author"]),
+        do: who(%{"author" => quote["author"], "display_name" => quote["display_name"]}),
+        else: "a post"
+
+    "[quoting #{author}, #{quote["uri"]}: #{quote["text"]}#{pictures}#{media}]"
   end
 
   defp quoted(%{"status" => status} = quote) when is_binary(status),
