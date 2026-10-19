@@ -53,7 +53,7 @@ the leading `v`.
 macOS on Apple silicon:
 
 ```sh
-VERSION=0.2.6
+VERSION=0.2.7
 PLATFORM=macos-arm64
 AT_MCP="$HOME/at_mcp"
 ```
@@ -61,7 +61,7 @@ AT_MCP="$HOME/at_mcp"
 Linux on x86-64:
 
 ```sh
-VERSION=0.2.6
+VERSION=0.2.7
 PLATFORM=linux-x86_64
 AT_MCP="$HOME/at_mcp"
 ```

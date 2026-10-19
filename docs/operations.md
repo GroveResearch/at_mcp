@@ -536,6 +536,26 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.6 to 0.2.7
+
+0.2.7 stores data in the same format as 0.2.6 and starts from the same
+environment, so rolling back works as below. Fixes found by running the write
+tools against the reference PDS and AppView (#107, #109):
+
+- **`repost` by a handle-form address** now writes the DID form; before, the
+  repost was written and counted nowhere.
+- **`update_seen`** keeps milliseconds, so a notification from the same second
+  is marked seen; an unparseable `seen_at` is refused instead of becoming now
+  (#112).
+- **`like`, `repost`, `follow` and `block` write once** (#110). When this account
+  already has that record for the subject, confirmed in its own repository, the
+  tool returns it as `unchanged` and sends nothing. The undo tools also delete a
+  second record of the same kind for the subject when the AppView names one.
+- **`reply` refuses a reply the thread's reply rule excludes** (#113), with
+  nothing sent; if that rule can't be read, nothing is sent either.
+- **A deleted record, list or starter pack reads as `not_found`** (#111), not as
+  a malformed request.
+
 ### From 0.2.5 to 0.2.6
 
 0.2.6 stores data in the same format as 0.2.5 and starts from the same
