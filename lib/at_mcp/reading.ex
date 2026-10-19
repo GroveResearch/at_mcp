@@ -1,7 +1,7 @@
 defmodule AtMcp.Reading do
   @moduledoc """
   The text a model reads for a result made of posts, and for accounts, lists,
-  starter packs, feeds, trends and invitation codes.
+  starter packs, feeds, trends, invitation codes and the account's settings.
 
   A tool result has two halves in MCP: `content`, text and images, which most
   clients give a model, and `structuredContent`, which a client validates
