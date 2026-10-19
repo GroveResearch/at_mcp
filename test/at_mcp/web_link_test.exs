@@ -87,6 +87,35 @@ defmodule AtMcp.WebLinkTest do
       assert WebLink.parse("https://bsky.app/starter-pack/alice.test/s?x=1") ==
                {:ok, {:starter_pack, "alice.test", "s"}}
 
+      # A page under an object names the object.
+      for page <- ["liked-by", "reposted-by", "quotes"] do
+        assert WebLink.parse("https://bsky.app/profile/alice.test/post/p/#{page}") ==
+                 {:ok, {:post, "alice.test", "p"}}
+      end
+
+      for page <- ["rss", "followers", "follows", "known-followers", "search", "labeler/liked-by"] do
+        assert WebLink.parse("https://bsky.app/profile/alice.test/#{page}") ==
+                 {:ok, {:profile, "alice.test"}}
+      end
+
+      assert WebLink.parse("https://bsky.app/profile/alice.test/feed/f/liked-by") ==
+               {:ok, {:feed, "alice.test", "f"}}
+
+      # Without its scheme, as a link is often pasted.
+      assert WebLink.parse("bsky.app/profile/alice.test") == {:ok, {:profile, "alice.test"}}
+
+      # A DID is read exactly as written; an escape inside it stays.
+      assert WebLink.parse("https://bsky.app/profile/did:web:localhost%3A3000") ==
+               {:ok, {:profile, "did:web:localhost%3A3000"}}
+
+      assert {:error, "does not name a record"} =
+               WebLink.parse("https://bsky.app/profile/alice.test/post/a%2Fb")
+
+      # A short link is not followed.
+      for short <- ["https://go.bsky.app/AbCdE", "https://bsky.app/starter-pack-short/AbCdE"] do
+        assert {:error, "is a short link" <> _} = WebLink.parse(short)
+      end
+
       assert WebLink.parse(@post) == :not_a_link
       assert WebLink.parse("alice.test") == :not_a_link
 
@@ -275,6 +304,21 @@ defmodule AtMcp.WebLinkTest do
       for {tool, args} <- AtMcp.MCP.WebLinks.takes(), arg <- Map.keys(args) do
         assert arg in Enum.map(Map.fetch!(served, tool), &to_string/1), "#{tool}(#{arg})"
       end
+    end
+
+    test "every served argument that takes an AT URI, handle or DID takes a link" do
+      {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+      takes = AtMcp.MCP.WebLinks.takes()
+      names = ~r/AT URI|handles? or DIDs?|handle or DID|DID or handle/i
+
+      missing =
+        for tool <- tools,
+            {arg, schema} <- tool.inputSchema[:properties] || %{},
+            Regex.match?(names, inspect(schema)),
+            not Map.has_key?(Map.get(takes, tool.name, %{}), to_string(arg)),
+            do: "#{tool.name}(#{arg})"
+
+      assert missing == []
     end
 
     test "an AT URI is passed on as before, with nothing resolved" do

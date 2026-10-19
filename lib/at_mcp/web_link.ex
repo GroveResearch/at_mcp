@@ -116,20 +116,34 @@ defmodule AtMcp.WebLink do
   defp encode(segment),
     do: URI.encode(segment, &(URI.char_unreserved?(&1) or &1 in [?:, ?%]))
 
+  @short "is a short link, which is not followed here; give the link it opens instead"
+
   @doc """
   What a web link names: `{:ok, {:profile, name}}`, or `{:ok, {kind, name,
   rkey}}` where kind is `:post`, `:list`, `:feed` or `:starter_pack` and name
-  is a handle or a DID. `:not_a_link` for a string that is not an http(s) URL,
-  so it is passed on unchanged; `{:error, message}` for a link that names
-  none of these on this network.
+  is a handle or a DID. A link to one of the app's pages under an object (a
+  post's likes, a profile's followers) names that object. A link without its
+  scheme (`bsky.app/profile/...`) is read as https. `:not_a_link` for a
+  string that is not such a link, so it is passed on unchanged;
+  `{:error, message}` for a link that names none of these on this network.
   """
   def parse(value) when is_binary(value) do
-    case URI.new(String.trim(value)) do
+    value = String.trim(value)
+    origin = URI.parse(Network.web_origin()).host
+
+    value =
+      if String.starts_with?(String.downcase(value), origin <> "/"),
+        do: "https://" <> value,
+        else: value
+
+    case URI.new(value) do
       {:ok, %URI{scheme: scheme, host: host} = uri}
       when scheme in ["http", "https"] and is_binary(host) ->
-        if String.downcase(host) == URI.parse(Network.web_origin()).host,
-          do: route(uri),
-          else: {:error, "is a link to #{host}, not to #{Network.web_origin()}"}
+        case String.downcase(host) do
+          ^origin -> route(uri)
+          "go.bsky.app" -> {:error, @short}
+          host -> {:error, "is a link to #{host}, not to #{Network.web_origin()}"}
+        end
 
       _ ->
         :not_a_link
@@ -138,36 +152,53 @@ defmodule AtMcp.WebLink do
 
   def parse(_value), do: :not_a_link
 
-  defp route(%URI{path: path}) do
-    segments =
-      (path || "")
-      |> String.split("/", trim: true)
-      |> Enum.map(&URI.decode/1)
+  # The app's pages for each object, at the commit cited above
+  # (src/routes.ts): a profile and its RSS, followers, follows, known
+  # followers, search and labeler likes; a post and its likes, reposts and
+  # quotes; a feed and its likes; a list; a starter pack's share link and page.
+  @profile_pages ~w(rss followers follows known-followers search)
+  @post_pages ~w(liked-by reposted-by quotes)
 
-    case segments do
+  defp route(%URI{path: path}) do
+    case String.split(path || "", "/", trim: true) do
       ["profile", name] -> named({:profile, name})
+      ["profile", name, page] when page in @profile_pages -> named({:profile, name})
+      ["profile", name, "labeler", "liked-by"] -> named({:profile, name})
       ["profile", name, "post", rkey] -> named({:post, name, rkey})
+      ["profile", name, "post", rkey, page] when page in @post_pages -> named({:post, name, rkey})
       ["profile", name, "lists", rkey] -> named({:list, name, rkey})
       ["profile", name, "feed", rkey] -> named({:feed, name, rkey})
+      ["profile", name, "feed", rkey, "liked-by"] -> named({:feed, name, rkey})
       ["start", name, rkey] -> named({:starter_pack, name, rkey})
+      ["starter-pack-short", _code] -> {:error, @short}
       ["starter-pack", name, rkey] -> named({:starter_pack, name, rkey})
       _ -> {:error, "is not a link to a post, account, list, feed or starter pack"}
     end
   end
 
+  # The account segment as written. The app writes a DID as it is, so one
+  # that reads as a DID is kept exactly: `did:web:localhost%3A3000` is that
+  # DID, not `did:web:localhost:3000`. Only a segment that does not, such as
+  # `did%3Aplc%3Aabc`, is decoded. The rkey is never decoded: its syntax has
+  # no `%`, so an escaped one is refused rather than changed.
+  defp account(name) do
+    name = if String.starts_with?(name, "did:"), do: name, else: URI.decode(name)
+    String.trim_leading(name, "@")
+  end
+
   defp named(target) do
-    name = elem(target, 1)
+    name = account(elem(target, 1))
     rkey = if tuple_size(target) == 3, do: elem(target, 2)
 
     cond do
-      not (did?(name) or valid_handle?(String.trim_leading(name, "@"))) ->
+      not (did?(name) or valid_handle?(name)) ->
         {:error, "does not name an account by handle or DID"}
 
       is_binary(rkey) and not rkey?(rkey) ->
         {:error, "does not name a record"}
 
       true ->
-        {:ok, put_elem(target, 1, String.trim_leading(name, "@"))}
+        {:ok, put_elem(target, 1, name)}
     end
   end
 

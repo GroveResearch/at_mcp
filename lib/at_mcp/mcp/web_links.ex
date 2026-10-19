@@ -67,6 +67,8 @@ defmodule AtMcp.MCP.WebLinks do
     "update_starter_pack" => %{"uri" => @pack, "feeds" => @feed},
     "delete_starter_pack" => %{"uri" => @pack},
     "set_list_opt_out" => %{"list" => @pack ++ @list},
+    "set_preference" => %{"reply_rule" => @list},
+    "set_label_visibility" => %{"labeler" => @account},
     "post" => %{"quote" => @embeddable, "reply_rule" => @list},
     "reply" => %{"uri" => @post, "quote" => @embeddable},
     "like" => %{"uri" => @post ++ @feed},
