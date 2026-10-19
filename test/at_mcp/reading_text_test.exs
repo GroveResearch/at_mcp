@@ -87,6 +87,20 @@ defmodule AtMcp.ReadingTextTest do
     assert to_text(time("2026 · archived")) == ~s("2026 · archived")
   end
 
+  test "a literal escapes a field marker's #s across any blank, escaped or hidden" do
+    for {text, quoted} <- [
+          {"[[  ## a", ~S("[[  \u0023\u0023 a")},
+          {"[[\t#\n# a", ~S("[[\t\u0023\n\u0023 a")},
+          {"[[\u2028\u00A0\u200D\uFEFF## a",
+           ~S("[[\u2028) <> "\u00A0\u200D\uFEFF" <> ~S(\u0023\u0023 a")},
+          {"\uFF3B[ \uFF03# a", "\"\uFF3B[ " <> ~S(\uFF03\u0023 a")}
+        ] do
+      assert to_text(literal(text)) == quoted
+    end
+
+    assert to_text(literal("[[ a ## b")) == ~S("[[ a ## b")
+  end
+
   test "a fenced text has no line that does not start with the fence" do
     text = "a\nb\r\nc\rd\u2028e\u2029f\u0085g\vh\fi"
     lines = text |> fence() |> to_text() |> String.split(~r/\R/u)
