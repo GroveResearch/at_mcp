@@ -175,27 +175,36 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       call!(me, "delete_post", %{"uri" => post["uri"]})
       sync(net)
-      assert record(me, post["uri"]) == nil
+
+      assert %{code: "not_found", uri: uri} = refused(me, "get_record", %{"uri" => post["uri"]})
+      assert uri == post["uri"]
       assert %{"items" => []} = call!(me, "get_posts", %{"uris" => [post["uri"]]})
     end
 
-    test "a reply the thread's rule forbids is still written; the AppView leaves it out of the thread",
+    test "a reply the thread's rule forbids is refused before it is written",
          %{net: net, me: me, them: them} do
-      # The PDS does not enforce a threadgate; the AppView does, when it
-      # builds the thread. The reply tool cannot tell from the write alone.
+      # The PDS accepts a reply the threadgate excludes and the AppView leaves
+      # it out of the thread, so the reply tool reads the parent's
+      # viewer.reply_disabled first, as the app does.
       root = post!(me, "only people I follow may reply", %{"reply_rule" => ["following"]})
       sync(net)
       assert call!(them, "get_thread", %{"uri" => root["uri"]})["viewer"]["reply_disabled"]
 
-      reply = call!(them, "reply", %{"uri" => root["uri"], "text" => "replying anyway"})
+      assert %{code: "reply_disabled", uri: uri} =
+               refused(them, "reply", %{"uri" => root["uri"], "text" => "replying anyway"})
+
+      assert uri == root["uri"]
       sync(net)
 
-      assert record(them, reply["uri"])["text"] == "replying anyway"
+      refute Enum.any?(
+               call!(them, "get_author_feed", %{"actor" => them.did})["items"],
+               &(&1["text"] == "replying anyway")
+             )
+
       thread = call!(me, "get_thread", %{"uri" => root["uri"]})
       assert thread["replies"] == []
       assert thread["reply_count"] == 0
 
-      call!(them, "delete_post", %{"uri" => reply["uri"]})
       call!(me, "delete_post", %{"uri" => root["uri"]})
     end
 
@@ -490,6 +499,85 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert view["like_count"] == 0 and view["repost_count"] == 0
     end
 
+    test "like, repost, follow and block twice: the second answers the first, unchanged; an undo deletes every record of its kind for the subject",
+         %{net: net, me: me, them: them, session: session} do
+      post = post!(them, "like me twice")
+      sync(net)
+
+      on_post = %{"uri" => post["uri"], "cid" => post["cid"]}
+      on_them = %{"actor" => them.handle}
+
+      twice = fn name, args ->
+        first = call!(me, name, args)
+        refute first["unchanged"], name
+        sync(net)
+        again = call!(me, name, args)
+        assert again["unchanged"] == true, name
+        assert again["uri"] == first["uri"], name
+        first
+      end
+
+      like = twice.("like", on_post)
+      repost = twice.("repost", on_post)
+      follow = twice.("follow", on_them)
+      # Last, so the reads above are made with no block between the accounts.
+      block = twice.("block", on_them)
+
+      # A second record of each, as another client could leave. The reference
+      # PDS's createRecord deletes a like, repost, follow or block with the
+      # same subject before it writes a new one; applyWrites does not.
+      subject = %{uri: post["uri"], cid: post["cid"]}
+
+      second =
+        for {kind, record} <- [
+              like: AtMcp.ATProto.like_record(subject: subject),
+              repost: AtMcp.ATProto.repost_record(subject: subject),
+              follow: AtMcp.ATProto.follow_record(subject: them.did),
+              block: AtMcp.ATProto.block_record(subject: them.did)
+            ],
+            into: %{} do
+          collection = AtMcp.Network.collection(kind)
+          [rkey] = AtMcp.ATProto.tids(1)
+
+          {:ok, _} =
+            AtMcp.ATProto.apply_writes(session, me.did, [{:create, collection, rkey, record}])
+
+          {kind, "at://#{me.did}/#{collection}/#{rkey}"}
+        end
+
+      sync(net)
+
+      for {name, first, kind} <- [
+            {"unlike", like, :like},
+            {"unrepost", repost, :repost},
+            {"unfollow", follow, :follow},
+            {"unblock", block, :block}
+          ] do
+        assert %{"deleted" => deleted} = call!(me, name, %{"uri" => first["uri"]})
+
+        assert Enum.sort(deleted) == Enum.sort([first["uri"], second[kind]]),
+               "#{name} deleted #{inspect(deleted)}"
+      end
+
+      sync(net)
+
+      for uri <- Map.values(second) ++ Enum.map([like, repost, follow, block], & &1["uri"]),
+          do: assert(record(me, uri) == nil, uri)
+
+      view = only_post(me, post["uri"])
+      refute view["viewer"]["like"]
+      refute view["viewer"]["repost"]
+      assert view["like_count"] == 0 and view["repost_count"] == 0
+      assert %{"items" => []} = call!(me, "get_blocks", %{})
+
+      assert %{"items" => [relationship]} =
+               call!(me, "get_relationships", %{"actor" => me.did, "others" => [them.did]})
+
+      assert relationship["following"] == nil
+
+      call!(them, "delete_post", %{"uri" => post["uri"]})
+    end
+
     test "follow and unfollow: get_relationships names the follow record, then none",
          %{net: net, me: me, them: them} do
       follow = call!(me, "follow", %{"actor" => them.handle})
@@ -583,6 +671,13 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
       assert call!(me, "get_unread_count", %{})["count"] > 0
 
+      # A time that does not parse is refused, not read as now.
+      assert %{code: "invalid_arguments", problems: [%{path: "seen_at"}]} =
+               refused(me, "update_seen", %{"seen_at" => "yesterday"})
+
+      sync(net)
+      assert call!(me, "get_unread_count", %{})["count"] > 0
+
       call!(me, "update_seen", %{})
       sync(net)
       assert call!(me, "get_unread_count", %{})["count"] == 0
@@ -664,8 +759,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert list["uri"] in deleted and length(deleted) == 2
       sync(net)
 
-      assert %{upstream_message: "List not found"} =
-               refused(me, "get_list", %{"uri" => list["uri"]})
+      assert %{code: "not_found", uri: uri} = refused(me, "get_list", %{"uri" => list["uri"]})
+      assert uri == list["uri"]
 
       assert %{"items" => []} = call!(me, "get_lists", %{})
     end
@@ -717,7 +812,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
       assert record(me, pack["uri"]) == nil
       assert record(me, list) == nil
-      refused(me, "get_starter_pack", %{"uri" => pack["uri"]})
+
+      assert %{code: "not_found"} = refused(me, "get_starter_pack", %{"uri" => pack["uri"]})
     end
   end
 

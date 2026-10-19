@@ -850,7 +850,8 @@ defmodule AtMcp.Effects do
   Like a post, a custom feed or a labeler: what the app shows a like count on.
   Any other record is refused before anything is sent, since nothing would
   count the like. A record named by a handle-form AT URI is liked by its DID
-  form, which is how the AppView counts likes.
+  form, which is how the AppView counts likes. One this account has liked
+  already is not liked again: the like it has comes back, `unchanged: true`.
   """
   def like(effects, uri, cid) when is_binary(uri) and is_binary(cid) do
     with {:ok, _} <-
@@ -863,15 +864,16 @@ defmodule AtMcp.Effects do
       take_and_write(
         effects,
         :like,
-        fn backend, session -> did_uri(backend, session, uri) end,
+        fn backend, session ->
+          with {:ok, uri} <- did_uri(backend, session, uri),
+               do: once(backend, session, :like, uri, %{subject_uri: uri, subject_cid: cid})
+        end,
         fn uri -> fn backend, session -> backend.like(session, uri, cid) end end
       )
     end
   end
 
-  def unlike(effects, like_uri) when is_binary(like_uri) do
-    take_and_write(effects, :unlike, fn backend, session -> backend.unlike(session, like_uri) end)
-  end
+  def unlike(effects, like_uri) when is_binary(like_uri), do: undo(effects, :unlike, like_uri)
 
   # A repost, like a like, names its subject by DID: the AppView counts a
   # repost whose subject is a handle-form AT URI nowhere.
@@ -879,16 +881,16 @@ defmodule AtMcp.Effects do
     take_and_write(
       effects,
       :repost,
-      fn backend, session -> did_uri(backend, session, uri) end,
+      fn backend, session ->
+        with {:ok, uri} <- did_uri(backend, session, uri),
+             do: once(backend, session, :repost, uri, %{subject_uri: uri, subject_cid: cid})
+      end,
       fn uri -> fn backend, session -> backend.repost(session, uri, cid) end end
     )
   end
 
-  def unrepost(effects, repost_uri) when is_binary(repost_uri) do
-    take_and_write(effects, :unrepost, fn backend, session ->
-      backend.unrepost(session, repost_uri)
-    end)
-  end
+  def unrepost(effects, repost_uri) when is_binary(repost_uri),
+    do: undo(effects, :unrepost, repost_uri)
 
   # A follow, block or mute names its subject by DID, so a handle is resolved
   # first, with a session, like a reply's parent. A handle that names no
@@ -897,30 +899,66 @@ defmodule AtMcp.Effects do
     take_and_write(
       effects,
       :follow,
-      fn backend, session -> backend.resolve_actor(session, actor) end,
+      fn backend, session ->
+        with {:ok, did} <- backend.resolve_actor(session, actor),
+             do: once(backend, session, :follow, did, %{actor: did})
+      end,
       fn did -> fn backend, session -> backend.follow(session, did) end end
     )
   end
 
-  def unfollow(effects, follow_uri) when is_binary(follow_uri) do
-    take_and_write(effects, :unfollow, fn backend, session ->
-      backend.unfollow(session, follow_uri)
-    end)
-  end
+  def unfollow(effects, follow_uri) when is_binary(follow_uri),
+    do: undo(effects, :unfollow, follow_uri)
 
   def block(effects, actor) when is_binary(actor) do
     take_and_write(
       effects,
       :block,
-      fn backend, session -> backend.resolve_actor(session, actor) end,
+      fn backend, session ->
+        with {:ok, did} <- backend.resolve_actor(session, actor),
+             do: once(backend, session, :block, did, %{actor: did})
+      end,
       fn did -> fn backend, session -> backend.block(session, did) end end
     )
   end
 
-  def unblock(effects, block_uri) when is_binary(block_uri) do
-    take_and_write(effects, :unblock, fn backend, session ->
-      backend.unblock(session, block_uri)
-    end)
+  def unblock(effects, block_uri) when is_binary(block_uri),
+    do: undo(effects, :unblock, block_uri)
+
+  # The app makes one like, repost, follow or block of a subject: it reads the
+  # account's own record from the AppView (`viewer.like`, `viewer.repost`,
+  # `viewer.following`, `viewer.blocking`) and offers the undo instead. A
+  # second one goes wrong either way: the reference PDS's createRecord deletes
+  # the first, so the uri the first call returned names nothing and an undo of
+  # it changes nothing; a service that keeps both has the AppView count one,
+  # and an undo of either leaves the other. So the record the AppView names is
+  # returned as `unchanged: true`, and nothing is sent or counted. A record
+  # written moments ago that the AppView has not indexed yet is not seen.
+  defp once(backend, session, action, subject, summary) do
+    case backend.viewer_record(session, action, subject) do
+      {:ok, nil} ->
+        {:ok, subject}
+
+      {:ok, existing} ->
+        {:ok, {:unchanged, Map.merge(summary, %{uri: existing, action: action, unchanged: true})}}
+
+      error ->
+        error
+    end
+  end
+
+  # An undo deletes every record of its kind this account has for the same
+  # subject, as `remove_from_list` deletes every item for an account, so a
+  # second record (another client's, or one `once/5` could not see yet) does
+  # not leave the like, repost, follow or block in place. The backend reads
+  # them before anything is sent.
+  defp undo(effects, action, uri) do
+    take_and_write(
+      effects,
+      action,
+      fn backend, session -> backend.prepare_undo(session, action, uri) end,
+      fn prepared -> fn backend, session -> backend.undo(session, prepared) end end
+    )
   end
 
   def mute(effects, actor) when is_binary(actor) do
@@ -1074,7 +1112,10 @@ defmodule AtMcp.Effects do
 
   defp profile_link(_link, field, _seen), do: invalid(field, "must be {url, title}")
 
-  @doc "Mark notifications seen."
+  @doc """
+  Mark notifications seen up to `seen_at`, now when it is nil. A `seen_at`
+  that is not an ISO 8601 date-time is refused before anything is sent.
+  """
   def update_seen(effects, seen_at \\ nil) do
     # Now is kept to the millisecond: the AppView counts a notification unread
     # when it was indexed after the seen time, so a time cut to the second
@@ -1082,21 +1123,29 @@ defmodule AtMcp.Effects do
     seen =
       case seen_at do
         %DateTime{} = dt ->
-          dt
+          {:ok, dt}
 
         nil ->
-          DateTime.utc_now() |> DateTime.truncate(:millisecond)
+          {:ok, DateTime.utc_now() |> DateTime.truncate(:millisecond)}
 
         iso when is_binary(iso) ->
           case DateTime.from_iso8601(iso) do
-            {:ok, dt, _} -> dt
-            {:error, _} -> DateTime.utc_now() |> DateTime.truncate(:millisecond)
+            {:ok, dt, _} ->
+              {:ok, dt}
+
+            {:error, _} ->
+              invalid(
+                "seen_at",
+                "must be an ISO 8601 date-time with a time zone, e.g. 2026-01-01T12:00:00Z; got #{inspect(iso)}"
+              )
           end
       end
 
-    take_and_write(effects, :update_seen, fn backend, session ->
-      backend.update_seen(session, seen)
-    end)
+    with {:ok, seen} <- seen do
+      take_and_write(effects, :update_seen, fn backend, session ->
+        backend.update_seen(session, seen)
+      end)
+    end
   end
 
   # --- saved feeds, live status, feed feedback ---
@@ -2049,11 +2098,18 @@ defmodule AtMcp.Effects do
 
     run(effects, :write, fn ->
       with {:ok, backend, session} <- ready_session(),
-           {:ok, prepared} <- prepare(prepare, backend, session),
-           # A failed/ambiguous write still consumes its slot. Retrying unknown
-           # remote outcomes must not bypass the write quota.
-           {:ok, backend, session} <- reserve(counted, backend, session) do
-        invoke_write(backend, session, build.(prepared), counted)
+           {:ok, prepared} <- prepare(prepare, backend, session) do
+        case prepared do
+          # Already as asked: nothing is sent and no slot is taken.
+          {:unchanged, summary} ->
+            {:ok, summary}
+
+          prepared ->
+            # A failed/ambiguous write still consumes its slot. Retrying unknown
+            # remote outcomes must not bypass the write quota.
+            with {:ok, backend, session} <- reserve(counted, backend, session),
+                 do: invoke_write(backend, session, build.(prepared), counted)
+        end
       end
     end)
   end

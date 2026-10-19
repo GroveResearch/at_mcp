@@ -225,15 +225,30 @@ defmodule AtMcp.Effects.Backend do
               {:ok, summary()} | {:error, reason()}
   @callback like(state(), uri :: String.t(), cid :: String.t()) ::
               {:ok, summary()} | {:error, reason()}
-  @callback unlike(state(), like_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback repost(state(), uri :: String.t(), cid :: String.t()) ::
               {:ok, summary()} | {:error, reason()}
-  @callback unrepost(state(), repost_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   # `follow`, `block`, `mute` and `unmute` take the DID `resolve_actor/2` returned.
   @callback follow(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
-  @callback unfollow(state(), follow_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback block(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
-  @callback unblock(state(), block_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  This account's `:like`, `:repost`, `:follow` or `:block` record for
+  `subject` (an AT URI, or for a follow or block a DID), as the AppView's
+  viewer state names it, or nil. Read before a like, repost, follow or block
+  is written, with no quota slot taken.
+  """
+  @callback viewer_record(state(), action :: atom(), subject :: String.t()) ::
+              {:ok, String.t() | nil} | {:error, reason()}
+
+  @doc """
+  Read what `:unlike`, `:unrepost`, `:unfollow` or `:unblock` of the record at
+  `uri` deletes: that record and this account's others of its kind for the
+  same subject. Nothing is sent. `{:ok, {:unchanged, summary}}` when there is
+  nothing to delete; otherwise the prepared value `undo/2` takes.
+  """
+  @callback prepare_undo(state(), action :: atom(), uri :: String.t()) ::
+              {:ok, term()} | {:error, reason()}
+  @callback undo(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
   @callback mute(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback unmute(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback delete_post(state(), post_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}

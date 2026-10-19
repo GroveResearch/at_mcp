@@ -75,6 +75,19 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "draft_not_found", "error: " <> failure.message, %{id: id})
 
+  # A read of a record, list or starter pack the service says does not exist.
+  def respond(
+        {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:not_found, what, uri}}},
+        state
+      ),
+      do:
+        error(
+          state,
+          "not_found",
+          "error: there is no #{what} at #{uri}: it was deleted, or never existed. Nothing was changed.",
+          %{uri: uri}
+        )
+
   def respond({:error, :not_connected}, state),
     do:
       error(
@@ -228,6 +241,18 @@ defmodule AtMcp.MCP.Tools do
       "referenced_record_unreadable",
       "error: the record at #{uri} could not be read, so the reference could not be built. " <>
         "It may be deleted, not indexed yet, or not a post. Nothing was written and nothing was counted against the write quota.",
+      %{uri: uri}
+    )
+  end
+
+  # A reply the thread's reply rule does not let this account make, refused
+  # before anything was written.
+  def respond({:error, {:reply_disabled, uri}}, state) do
+    error(
+      state,
+      "reply_disabled",
+      "error: the thread's reply rule (its threadgate) does not let this account reply to #{uri}; the app disables reply to it too. " <>
+        "Nothing was written and nothing was counted against the write quota.",
       %{uri: uri}
     )
   end

@@ -49,6 +49,17 @@ defmodule AtMcp.ViewerContextTest do
 
           String.contains?(url, "getProfile") ->
             actor
+
+          # The like an unlike reads for its subject, and no other like of it.
+          String.contains?(url, "getRecord") ->
+            %{
+              "uri" => relation(owner, "like"),
+              "cid" => "like-cid",
+              "value" => %{"subject" => %{"uri" => post["uri"], "cid" => "subject-cid"}}
+            }
+
+          String.contains?(url, "listRecords") ->
+            %{"records" => []}
         end
 
       {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
@@ -109,7 +120,8 @@ defmodule AtMcp.ViewerContextTest do
       assert feed_post == post
       {:ok, %{items: [timeline_post]}} = Backend.get_timeline(session, [])
       assert timeline_post == post
-      assert {:ok, %{action: :unlike}} = Backend.unlike(session, post.viewer.like)
+      assert {:ok, prepared} = Backend.prepare_undo(session, :unlike, post.viewer.like)
+      assert {:ok, %{action: :unlike}} = Backend.undo(session, prepared)
       assert_receive {:delete, url, opts}
       assert url =~ "com.atproto.repo.deleteRecord"
 

@@ -226,6 +226,17 @@ defmodule AtMcp.ATProto do
   def get_feed_generators(session, feeds) when is_list(feeds),
     do: repeated_query(session, AtMcp.Network.nsid("feed.getFeedGenerators"), %{feeds: feeds})
 
+  @doc """
+  Labelers by DID, detailed, each with the viewer's like of it. `dids` is
+  repeated once per entry.
+  """
+  def get_services(session, dids) when is_list(dids),
+    do:
+      repeated_query(session, AtMcp.Network.nsid("labeler.getServices"), %{
+        dids: dids,
+        detailed: true
+      })
+
   # --- actor reads ---
 
   def get_profile(session, params),

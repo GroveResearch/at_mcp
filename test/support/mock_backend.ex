@@ -602,9 +602,6 @@ defmodule AtMcp.Test.MockBackend do
   end
 
   @impl true
-  def unlike(_state, like_uri), do: {:ok, %{ok: true, uri: like_uri, action: :unlike}}
-
-  @impl true
   def repost(_state, uri, cid) do
     {:ok,
      %{
@@ -615,9 +612,6 @@ defmodule AtMcp.Test.MockBackend do
        action: :repost
      }}
   end
-
-  @impl true
-  def unrepost(_state, repost_uri), do: {:ok, %{ok: true, uri: repost_uri, action: :unrepost}}
 
   @impl true
   def resolve_actor(_state, "did:" <> _ = did), do: {:ok, did}
@@ -636,9 +630,6 @@ defmodule AtMcp.Test.MockBackend do
   end
 
   @impl true
-  def unfollow(_state, follow_uri), do: {:ok, %{ok: true, uri: follow_uri, action: :unfollow}}
-
-  @impl true
   def block(_state, actor) do
     {:ok,
      %{
@@ -649,8 +640,17 @@ defmodule AtMcp.Test.MockBackend do
      }}
   end
 
+  # The mock account has no like, repost, follow or block yet, and an undo
+  # deletes the one record it names.
   @impl true
-  def unblock(_state, block_uri), do: {:ok, %{ok: true, uri: block_uri, action: :unblock}}
+  def viewer_record(_state, _action, _subject), do: {:ok, nil}
+
+  @impl true
+  def prepare_undo(_state, action, uri), do: {:ok, %{action: action, uri: uri}}
+
+  @impl true
+  def undo(_state, %{action: action, uri: uri}),
+    do: {:ok, %{ok: true, uri: uri, action: action, deleted: [uri]}}
 
   @impl true
   def mute(_state, actor), do: {:ok, %{ok: true, actor: actor, action: :mute}}

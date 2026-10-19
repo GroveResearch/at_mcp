@@ -1340,7 +1340,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "reply", write_description(:reply, "Reply to a post by AT URI.") do
+  tool "reply",
+       write_description(
+         :reply,
+         "Reply to a post by AT URI. A reply the thread's reply rule does not let this account make is refused before anything is sent, as the app disables reply there."
+       ) do
     annotations(
       write_annotations(:reply, %{
         readOnlyHint: false,
@@ -1396,7 +1400,7 @@ defmodule AtMcp.MCP.Server do
   tool "like",
        write_description(
          :like,
-         "Like a post, a custom feed or a labeler by AT URI and CID. get_posts, get_feed_info and get_record give the CID. Anything else is refused: nothing would count the like."
+         "Like a post, a custom feed or a labeler by AT URI and CID. get_posts, get_feed_info and get_record give the CID. Anything else is refused: nothing would count the like. One this account has liked already is not liked again: the result names the like it has, with unchanged true."
        ) do
     annotations(
       write_annotations(:like, %{readOnlyHint: false, destructiveHint: false, openWorldHint: true})
@@ -1421,7 +1425,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "unlike", write_description(:unlike, "Remove a like by the like record AT URI.") do
+  tool "unlike",
+       write_description(
+         :unlike,
+         "Remove a like by the like record AT URI, and this account's other likes of the same subject with it; deleted lists every one."
+       ) do
     annotations(
       write_annotations(:unlike, %{
         readOnlyHint: false,
@@ -1445,7 +1453,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "repost", write_description(:repost, "Repost by AT URI and CID.") do
+  tool "repost",
+       write_description(
+         :repost,
+         "Repost by AT URI and CID. A post this account has reposted already is not reposted again: the result names the repost it has, with unchanged true, and nothing is counted."
+       ) do
     annotations(
       write_annotations(:repost, %{
         readOnlyHint: false,
@@ -1468,7 +1480,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "unrepost", write_description(:unrepost, "Remove a repost by the repost record AT URI.") do
+  tool "unrepost",
+       write_description(
+         :unrepost,
+         "Remove a repost by the repost record AT URI, and this account's other reposts of the same post with it; deleted lists every one."
+       ) do
     annotations(
       write_annotations(:unrepost, %{
         readOnlyHint: false,
@@ -1492,7 +1508,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "follow", write_description(:follow, "Follow an actor by handle or DID.") do
+  tool "follow",
+       write_description(
+         :follow,
+         "Follow an actor by handle or DID. One this account follows already is not followed again: the result names the follow it has, with unchanged true."
+       ) do
     annotations(
       write_annotations(:follow, %{
         readOnlyHint: false,
@@ -1514,7 +1534,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "unfollow", write_description(:unfollow, "Unfollow by the follow record AT URI.") do
+  tool "unfollow",
+       write_description(
+         :unfollow,
+         "Unfollow by the follow record AT URI, deleting this account's other follows of the same account with it; deleted lists every one."
+       ) do
     annotations(
       write_annotations(:unfollow, %{
         readOnlyHint: false,
@@ -1538,7 +1562,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "block", write_description(:block, "Block an actor by handle or DID.") do
+  tool "block",
+       write_description(
+         :block,
+         "Block an actor by handle or DID. One this account blocks already is not blocked again: the result names the block it has, with unchanged true."
+       ) do
     annotations(
       write_annotations(:block, %{readOnlyHint: false, destructiveHint: true, openWorldHint: true})
     )
@@ -1556,7 +1584,11 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "unblock", write_description(:unblock, "Unblock by the block record AT URI.") do
+  tool "unblock",
+       write_description(
+         :unblock,
+         "Unblock by the block record AT URI, deleting this account's other blocks of the same account with it; deleted lists every one."
+       ) do
     annotations(
       write_annotations(:unblock, %{
         readOnlyHint: false,
@@ -1704,11 +1736,16 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.action_result())
-    param(:seen_at, :string, description: "ISO8601 timestamp")
+
+    param(:seen_at, :string,
+      description:
+        "ISO 8601 date-time to mark seen up to, e.g. 2026-01-01T12:00:00Z; omitted, now. One that does not parse is refused and nothing is sent"
+    )
 
     run(fn a, state ->
       e = state.effects
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.update_seen(e, Map.get(a, :seen_at)), state)
+      seen_at = AtMcp.MCP.Tools.optional(Map.get(a, :seen_at))
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.update_seen(e, seen_at), state)
     end)
   end
 
