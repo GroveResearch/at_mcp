@@ -42,6 +42,13 @@ defmodule AtMcp.Test.DevNetwork do
   """
   def report(pid, id) when is_integer(id), do: GenServer.call(pid, {:report, id}, @sync_timeout)
 
+  @doc """
+  Label the record at `uri` (`cid`) with `value` as the network's moderation
+  service (ozone), where the AppView reads labels.
+  """
+  def label(pid, uri, cid, value),
+    do: GenServer.call(pid, {:label, uri, cid, value}, @sync_timeout + 1_000)
+
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   @impl true
@@ -72,6 +79,11 @@ defmodule AtMcp.Test.DevNetwork do
     {:noreply, %{state | waiting: state.waiting ++ [{:report, from}]}}
   end
 
+  def handle_call({:label, uri, cid, value}, from, state) do
+    Port.command(state.port, "label #{uri} #{cid} #{value}\n")
+    {:noreply, %{state | waiting: state.waiting ++ [{:label, from}]}}
+  end
+
   def handle_call(:sync, from, state) do
     Port.command(state.port, "sync\n")
     {:noreply, %{state | waiting: state.waiting ++ [{:sync, from}]}}
@@ -96,6 +108,9 @@ defmodule AtMcp.Test.DevNetwork do
 
       {:ok, %{"report" => report}} ->
         reply_first(state, :report, report)
+
+      {:ok, %{"labeled" => true}} ->
+        reply_first(state, :label, :ok)
 
       # A command's failure answers whichever command is waiting first:
       # commands are answered in the order they were sent.

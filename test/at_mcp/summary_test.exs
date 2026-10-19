@@ -57,6 +57,8 @@ defmodule AtMcp.SummaryTest do
       "cid" => "bafypost",
       "record" => %{
         "text" => "café 日本語 🪁",
+        "langs" => ["fr", "ja"],
+        "tags" => ["kites"],
         "createdAt" => "2026-09-13T12:30:00.000Z",
         "reply" => %{"parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"}}
       },
@@ -95,6 +97,8 @@ defmodule AtMcp.SummaryTest do
       "cid" => "bafychain",
       "record" => %{
         "text" => "café 日本語 🪁",
+        "langs" => ["fr", "ja"],
+        "tags" => ["kites"],
         "createdAt" => "2026-09-13T12:30:00.000Z",
         "reply" => %{
           "parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"},
@@ -249,6 +253,8 @@ defmodule AtMcp.SummaryTest do
       },
       "record" => %{
         "text" => "hello",
+        "langs" => ["en"],
+        "tags" => ["kites"],
         "reply" => %{
           "parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"},
           "root" => %{"uri" => "at://did:plc:root/app.bsky.feed.post/r"}

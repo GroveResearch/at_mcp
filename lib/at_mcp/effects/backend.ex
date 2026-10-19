@@ -414,4 +414,23 @@ defmodule AtMcp.Effects.Backend do
 
   @doc "The replies a thread read leaves out under `uri`, each saying why."
   @callback get_hidden_replies(state(), uri :: String.t()) :: {:ok, [map()]} | {:error, reason()}
+
+  # Optional: a backend without them returns reads unmarked
+  # (`AtMcp.ModerationMarks`).
+  @optional_callbacks moderation_preferences: 1, labeler_definitions: 2
+
+  @doc """
+  The account's preferences as stored, which the app's moderation reads: its
+  muted words, labelers, label settings and adult content setting
+  (`AtMcp.ModerationMarks`).
+  """
+  @callback moderation_preferences(state()) :: {:ok, [map()]} | {:error, reason()}
+
+  @doc """
+  Labelers by DID, each the detailed view the service sent (`labeler.getServices`
+  with `detailed`), every key as sent: the label definitions the app reads a
+  labeler's labels by.
+  """
+  @callback labeler_definitions(state(), dids :: [String.t()]) ::
+              {:ok, [map()]} | {:error, reason()}
 end

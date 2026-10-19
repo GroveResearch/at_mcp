@@ -17,6 +17,8 @@ defmodule AtMcp.Post do
     %{
       text: text,
       raw_text: get(record, [:text]),
+      langs: get(record, [:langs]),
+      tags: get(record, [:tags]),
       facets: facets,
       web_url: AtMcp.WebLink.record(get(source, [:uri]), get(source, [:author, :handle])),
       images: images(embed),
@@ -198,6 +200,14 @@ defmodule AtMcp.Post do
     }
 
     cond do
+      # A blocked quote names its author and where the account stands with
+      # them, which the app's moderation reads (`decideBlockedQuotedPost`).
+      status == "blocked" ->
+        Map.merge(base, %{
+          author_did: get(view, [:author, :did]),
+          author_viewer: get(view, [:author, :viewer])
+        })
+
       status != "available" ->
         base
 
@@ -217,6 +227,8 @@ defmodule AtMcp.Post do
           display_name: get(view, [:author, :display_name]) || get(view, [:author, :displayName]),
           created_at: get(value, [:created_at]) || get(value, [:createdAt]),
           raw_text: get(value, [:text]),
+          langs: get(value, [:langs]),
+          tags: get(value, [:tags]),
           text: text,
           facets: facets,
           images: Enum.find_value(embeds, &images/1) || images(raw),

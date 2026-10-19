@@ -3221,6 +3221,12 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  @impl true
+  def moderation_preferences(session), do: stored_preferences(session)
+
+  @impl true
+  def labeler_definitions(session, dids), do: labeler_views(session, dids)
+
   @moderation_note "The app applies this on the device; the service does not, so at_mcp's reads return what it serves either way."
 
   @doc """
