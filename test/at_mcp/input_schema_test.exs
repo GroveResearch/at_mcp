@@ -219,7 +219,7 @@ defmodule AtMcp.InputSchemaTest do
   # validator module on its first use, inside that deadline, is what made
   # correct calls fail as input_validation_unavailable on a loaded machine.
   test "the schema validator is loaded before any argument is checked" do
-    {:ok, modules} = :application.get_key(:ex_json_schema, :modules)
+    modules = [Float | Application.spec(:ex_json_schema, :modules)]
     assert Enum.reject(modules, &:code.is_loaded/1) == []
   end
 end
