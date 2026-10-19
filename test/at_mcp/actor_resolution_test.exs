@@ -419,7 +419,14 @@ defmodule AtMcp.ActorResolutionTest do
     {"remove_from_list",
      %{"list" => "at://did:plc:self/town.delve.graph.list/l", "actor" => "@alice.example"}},
     {"create_starter_pack", %{"name" => "n", "actors" => ["@alice.example"]}},
-    {"subscribe_to_activity", %{"actor" => "@alice.example", "posts" => true, "replies" => false}}
+    {"subscribe_to_activity",
+     %{"actor" => "@alice.example", "posts" => true, "replies" => false}},
+    {"get_labelers", %{"actors" => ["@alice.example"]}},
+    {"subscribe_labeler", %{"actor" => "@alice.example"}},
+    {"unsubscribe_labeler", %{"actor" => "@alice.example"}},
+    {"report", %{"subject" => "@alice.example", "reason" => "spam", "labeler" => "@bob.example"}},
+    {"set_label_visibility",
+     %{"label" => "spoiler", "visibility" => "hide", "labeler" => "@alice.example"}}
   ]
 
   test "every tool that takes a handle sends it without the leading @" do
@@ -452,6 +459,10 @@ defmodule AtMcp.ActorResolutionTest do
           do: to_string(tool.name)
 
     assert Enum.sort(takes_handle) ==
-             Enum.sort(["follow", "block" | Enum.uniq(Enum.map(@handle_tools, &elem(&1, 0)))])
+             Enum.sort(
+               ["follow", "block"] ++
+                 (Enum.uniq(Enum.map(@handle_tools, &elem(&1, 0))) --
+                    ["report", "set_label_visibility"])
+             )
   end
 end

@@ -698,6 +698,47 @@ defmodule AtMcp.Test.MockBackend do
   def prepare_saved_feed(_state, {verb, uri, pinned}),
     do: {:ok, %{verb: verb, uri: uri, pinned: pinned}}
 
+  # Moderation (#90): the request each tool builds comes back as its result;
+  # `test/at_mcp/moderation_test.exs` checks the preferences against a fake PDS.
+  @impl true
+  def prepare_report(_state, request), do: {:ok, %{report: request}}
+
+  @impl true
+  def send_report(_state, %{report: request}) do
+    {:ok,
+     %{
+       ok: true,
+       action: :report,
+       id: 1,
+       labeler: request.labeler,
+       subject: inspect(request.subject),
+       reason: request.reason
+     }}
+  end
+
+  @impl true
+  def prepare_moderation_preference(_state, request), do: {:ok, %{moderation: request}}
+
+  @impl true
+  def prepare_list_mute(_state, {verb, uri}), do: {:ok, %{verb: verb, list: uri}}
+
+  @impl true
+  def mute_list(_state, %{verb: verb, list: list}),
+    do: {:ok, %{ok: true, action: verb, list: list, muted: verb == :mute_list}}
+
+  @impl true
+  def get_moderation_lists(_state, kind, _opts),
+    do: {:ok, %{count: 1, items: [mock_list(@mock_list)], cursor: nil, kind: kind}}
+
+  @impl true
+  def get_labelers(_state, dids), do: {:ok, %{count: 0, items: [], missing: dids || []}}
+
+  @impl true
+  def write_preferences(_state, %{moderation: request}) do
+    action = elem(request, 0)
+    {:ok, %{ok: true, action: action, request: inspect(request), unchanged: false}}
+  end
+
   @impl true
   def write_preferences(_state, %{verb: verb, uri: uri, pinned: pinned}),
     do: {:ok, %{ok: true, action: verb, uri: uri, pinned: pinned, unchanged: false}}

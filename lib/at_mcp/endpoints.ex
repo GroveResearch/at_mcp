@@ -38,7 +38,6 @@ defmodule AtMcp.Endpoints do
   """
 
   @posts 88
-  @moderation 90
   @dms 92
   @video 96
 
@@ -138,13 +137,19 @@ defmodule AtMcp.Endpoints do
      {:tool, "get_suggested_starter_packs"}},
 
     # --- Moderation ---
-    {"com.atproto.moderation.createReport", {:todo, @moderation}},
-    {"app.bsky.graph.muteActorList", {:todo, @moderation}},
-    {"app.bsky.graph.unmuteActorList", {:todo, @moderation}},
-    {"app.bsky.graph.listblock", {:todo, @moderation}},
-    {"app.bsky.graph.getListMutes", {:todo, @moderation}},
-    {"app.bsky.graph.getListBlocks", {:todo, @moderation}},
-    {"app.bsky.labeler.getServices", {:todo, @moderation}},
+    # Muted words, label settings and labeler subscriptions are preferences
+    # (`AtMcp.Moderation`): `mute_word`, `unmute_word`,
+    # `set_label_visibility`, `subscribe_labeler` and `unsubscribe_labeler`
+    # write `actor.putPreferences`, under `set_preference`'s entry. Hidden
+    # posts (`hiddenPostsPref`) are left out: the app keeps them on the
+    # device, so a post hidden there would be hidden nowhere.
+    {"com.atproto.moderation.createReport", {:tool, "report"}},
+    {"app.bsky.graph.muteActorList", {:tool, "mute_list"}},
+    {"app.bsky.graph.unmuteActorList", {:tool, "unmute_list"}},
+    {"app.bsky.graph.listblock", {:tool, "block_list"}},
+    {"app.bsky.graph.getListMutes", {:tool, "get_moderation_lists"}},
+    {"app.bsky.graph.getListBlocks", {:tool, "get_moderation_lists"}},
+    {"app.bsky.labeler.getServices", {:tool, "get_labelers"}},
     {"app.bsky.labeler.service",
      {:left_out,
       "Declares this account a labeler, which needs a labeling service behind it; the app does not create one"}},
@@ -314,6 +319,8 @@ defmodule AtMcp.Endpoints do
       {"app.bsky.unspecced.getTrendingTopics", @delve_501},
       {"app.bsky.unspecced.getSuggestedUsers", @delve_501},
       {"app.bsky.unspecced.getSuggestedFeeds", @delve_501},
+      {"com.atproto.moderation.createReport",
+       "delve.town names no moderation service: its AppView's DID document lists none and its AppView answers 501. Whether the town's PDS forwards a town account's report to another network's moderation service (`atproto-proxy: <did>#atproto_labeler`) is untested (checked 2026-10-19)"},
       {"app.bsky.actor.link", @delve_absent},
       {"app.bsky.notification.getGroupedNotifications", @delve_absent}
     ]

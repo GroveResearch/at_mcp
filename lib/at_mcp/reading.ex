@@ -651,6 +651,40 @@ defmodule AtMcp.Reading do
              get_in(p, ["discoverable", "hide_from_recommendations"])}
           ]),
         "activity_subscriptions: allow #{get_in(p, ["activity_subscriptions", "allow"])}",
+        "content_labels (set_label_visibility): " <>
+          ((p["content_labels"] || %{})
+           |> Enum.sort()
+           |> Enum.map_join(", ", fn {label, visibility} -> "#{label} #{visibility}" end)),
+        "Labelers the app takes labels from (get_labelers): " <>
+          case List.wrap(p["labelers"]) do
+            [] -> "none"
+            dids -> Enum.join(dids, ", ")
+          end,
+        case List.wrap(p["muted_words"]) do
+          [] ->
+            "Muted words: none"
+
+          words ->
+            "Muted words (mute_word, unmute_word):\n" <>
+              Enum.map_join(words, "\n", fn word ->
+                "- " <>
+                  lines(
+                    [
+                      inspect(word["value"]),
+                      if(word["tags_only"] == true, do: "tags only", else: "text and tags"),
+                      if(word["only_non_followed"] == true,
+                        do: "only accounts not followed"
+                      ),
+                      cond do
+                        word["expired"] == true -> "expired #{word["expires_at"]}"
+                        is_binary(word["expires_at"]) -> "until #{word["expires_at"]}"
+                        true -> nil
+                      end
+                    ],
+                    " · "
+                  )
+              end)
+        end,
         case List.wrap(p["saved_feeds"]) do
           [] ->
             "Saved feeds: none"
@@ -671,6 +705,79 @@ defmodule AtMcp.Reading do
   end
 
   def preferences(_other), do: nil
+
+  @doc "Labelers in detail, from `get_labelers`."
+  def labelers(%{"items" => items} = page) when is_list(items) do
+    header =
+      count(length(items), "labeler", "labelers") <>
+        "." <>
+        case List.wrap(page["missing"]) do
+          [] -> ""
+          missing -> " Running no labeler: #{Enum.join(missing, ", ")}."
+        end
+
+    blocks =
+      Enum.map(items, fn labeler ->
+        lines(
+          [
+            lines(
+              [
+                "#{labeler["display_name"] || labeler["handle"]} (@#{labeler["handle"]}, #{labeler["did"]})",
+                cond do
+                  labeler["built_in"] == true -> "the network's own moderation service"
+                  labeler["subscribed"] == true -> "subscribed"
+                  true -> "not subscribed"
+                end
+              ],
+              " · "
+            ),
+            case List.wrap(labeler["labels"]) do
+              [] ->
+                "Defines no labels of its own."
+
+              labels ->
+                "Labels it defines:\n" <>
+                  Enum.map_join(labels, "\n", fn label ->
+                    "- " <>
+                      lines(
+                        [
+                          label["identifier"],
+                          label["name"],
+                          if(label["setting"],
+                            do: "set to #{label["setting"]}",
+                            else: "default #{label["default"]}"
+                          ),
+                          if(label["adult_only"] == true, do: "adult content")
+                        ],
+                        " · "
+                      ) <>
+                      if(is_binary(label["description"]),
+                        do: ": #{label["description"]}",
+                        else: ""
+                      )
+                  end)
+            end,
+            "Takes reports: " <>
+              lines(
+                [
+                  "reasons #{any(labeler["reason_types"])}",
+                  "on #{any(labeler["subject_types"])}",
+                  "records #{any(labeler["subject_collections"])}"
+                ],
+                ", "
+              )
+          ],
+          "\n"
+        )
+      end)
+
+    lines([header | blocks], "\n\n")
+  end
+
+  def labelers(_other), do: nil
+
+  defp any(values) when is_list(values), do: Enum.join(values, ", ")
+  defp any(_values), do: "any"
 
   defp on_off(settings),
     do:

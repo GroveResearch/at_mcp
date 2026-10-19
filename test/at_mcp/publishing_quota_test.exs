@@ -107,7 +107,17 @@ defmodule AtMcp.PublishingQuotaTest do
     },
     "set_preference" => %{"kind" => "home_feed", "hide_reposts" => true},
     "set_notification_setting" => %{"reason" => "like", "push" => false},
-    "subscribe_to_activity" => %{"actor" => "alice.example", "posts" => true, "replies" => false}
+    "subscribe_to_activity" => %{"actor" => "alice.example", "posts" => true, "replies" => false},
+    "report" => %{"subject" => "alice.example", "reason" => "spam"},
+    "mute_word" => %{"value" => "spoilers"},
+    "unmute_word" => %{"value" => "spoilers"},
+    "mute_list" => %{"uri" => "at://did:plc:x/app.bsky.graph.list/l"},
+    "unmute_list" => %{"uri" => "at://did:plc:x/app.bsky.graph.list/l"},
+    "block_list" => %{"uri" => "at://did:plc:x/app.bsky.graph.list/l"},
+    "unblock_list" => %{"uri" => "at://did:plc:x/app.bsky.graph.list/l"},
+    "subscribe_labeler" => %{"actor" => "labeler.example"},
+    "unsubscribe_labeler" => %{"actor" => "labeler.example"},
+    "set_label_visibility" => %{"label" => "porn", "visibility" => "hide"}
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

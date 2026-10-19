@@ -52,8 +52,9 @@ defmodule AtMcp.Preferences do
     * `bskyAppStatePref` (the app's nudges, progress guides and beta opt-in)
       and `liveEventPreferences` (which live-event banners it shows): the
       app's state about itself, which changes nothing an agent reads or does.
-    * Muted words, hidden posts, content labels and labelers are #90; saved
-      feeds are `save_feed` and `unsave_feed`.
+    * Muted words, content labels and labelers are `AtMcp.Moderation`'s,
+      which also says why hidden posts are left out; saved feeds are
+      `save_feed` and `unsave_feed`.
 
   Everything here is pure: `AtMcp.Effects` validates a request with
   `request/2` before a session is taken, and the backend reads with `view/1`
@@ -260,7 +261,8 @@ defmodule AtMcp.Preferences do
   The settings as the app shows them, from the preferences as stored: one map
   per preference kind, each field as `get_preferences` reports it, and
   `adult_content` with whether a birth date is set (`birth_date_set`) and
-  whether the account's declared age is 18 or over (`declared_over_18`).
+  whether the account's declared age is 18 or over (`declared_over_18`); and
+  the moderation settings `AtMcp.Moderation.view/1` reads.
   """
   def view(preferences) when is_list(preferences) do
     %{
@@ -275,6 +277,7 @@ defmodule AtMcp.Preferences do
       interests: kind_view(preferences, "interests"),
       verification: kind_view(preferences, "verification")
     }
+    |> Map.merge(AtMcp.Moderation.view(preferences))
   end
 
   @doc "The fields of one preference kind as the app shows them."

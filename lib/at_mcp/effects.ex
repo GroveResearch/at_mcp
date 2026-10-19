@@ -1349,6 +1349,310 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  # --- moderation: reports, muted words, moderation lists, labelers ---
+
+  @doc """
+  Report a post, list, feed, starter pack or account to a moderation service.
+  `subject` is an AT URI, or a handle or DID for an account; `reason` one of
+  `AtMcp.Moderation.reasons/0`; `opts` takes `:details` and `:labeler` (a
+  handle or DID; the network's own moderation service when nil). Everything
+  the report names is read before it is sent: the service must be one this
+  account subscribes to, or the network's own, and must take reports on this
+  kind of subject and for this reason, as the app's report dialog checks. A
+  report reaches the people who moderate that service; it cannot be
+  withdrawn.
+  """
+  def report(effects, subject, reason, opts \\ []) when is_binary(subject) do
+    details = present(opts[:details])
+    labeler = present(opts[:labeler])
+
+    with :ok <- served_nsid("com.atproto.moderation.createReport"),
+         {:ok, reason} <- AtMcp.Moderation.reason(reason),
+         :ok <- report_details(details),
+         {:ok, named} <- report_subject(subject) do
+      take_and_write(
+        effects,
+        :report,
+        fn backend, session ->
+          with {:ok, subject} <- resolve_report_subject(backend, session, named),
+               {:ok, service} <- report_service(backend, session, labeler) do
+            backend.prepare_report(session, %{
+              subject: subject,
+              reason: reason,
+              details: details,
+              labeler: service
+            })
+          end
+        end,
+        fn prepared -> fn backend, session -> backend.send_report(session, prepared) end end
+      )
+    end
+  end
+
+  # `createReport.reason`: at most 20,000 bytes and 2,000 graphemes.
+  defp report_details(nil), do: :ok
+
+  defp report_details(details) when is_binary(details) do
+    cond do
+      not String.valid?(details) -> invalid("details", "must be valid UTF-8")
+      byte_size(details) > 20_000 -> invalid("details", "may be at most 20000 bytes")
+      String.length(details) > 2_000 -> invalid("details", "may be at most 2000 characters")
+      true -> :ok
+    end
+  end
+
+  defp report_details(_details), do: invalid("details", "must be a string")
+
+  # What the app's report dialog reports (`parseReportSubject` in social-app's
+  # ReportDialog/utils at 485405a): a post, list, feed or starter pack, or an
+  # account. A live status and a profile link go only to Bluesky's own
+  # service in the app, and are not offered here.
+  defp report_subject("at://" <> _ = uri) do
+    with {:ok, parts} <-
+           record_argument(
+             uri,
+             "subject",
+             [:post, :list, :generator, :starter_pack],
+             "a post, list, feed or starter pack, or a handle or DID for an account"
+           ),
+         do: {:ok, {:record, parts}}
+  end
+
+  defp report_subject(actor) do
+    case present(actor) do
+      nil -> invalid("subject", "must be an AT URI, or a handle or DID for an account")
+      actor -> {:ok, {:account, actor}}
+    end
+  end
+
+  # The app offers no report of the account's own posts, lists or itself.
+  defp resolve_report_subject(backend, session, {:record, {repo, collection, rkey}}) do
+    with :ok <- not_own_report(session, repo),
+         {:ok, did} <- backend.resolve_actor(session, repo),
+         :ok <- not_own_report(session, did),
+         do: {:ok, {:record, "at://#{did}/#{collection}/#{rkey}", collection}}
+  end
+
+  defp resolve_report_subject(backend, session, {:account, actor}) do
+    with :ok <- not_own_report(session, actor),
+         {:ok, did} <- backend.resolve_actor(session, actor),
+         :ok <- not_own_report(session, did),
+         do: {:ok, {:account, did}}
+  end
+
+  defp not_own_report(session, actor) do
+    if own_actor?(session, actor),
+      do:
+        invalid(
+          "subject",
+          "this is this account or its own record; the app offers no report of either"
+        ),
+      else: :ok
+  end
+
+  defp report_service(_backend, _session, nil) do
+    case AtMcp.Network.moderation_service() do
+      nil ->
+        invalid(
+          "labeler",
+          "#{AtMcp.Network.label()} names no moderation service of its own, so give the labeler to send the report to"
+        )
+
+      did ->
+        {:ok, did}
+    end
+  end
+
+  defp report_service(backend, session, labeler), do: backend.resolve_actor(session, labeler)
+
+  defp served_nsid(nsid) do
+    case AtMcp.Endpoints.not_served(AtMcp.Network.name(), nsid) do
+      nil -> :ok
+      evidence -> {:error, {:not_served, nsid, evidence}}
+    end
+  end
+
+  @doc """
+  Mute a word, tag or phrase (`AtMcp.Moderation.word_request/2`): `opts` takes
+  `:tags_only`, `:duration` and `:only_non_followed`. A word muted already is
+  changed to what is asked rather than muted twice; one already muted exactly
+  so is left alone.
+  """
+  def mute_word(effects, value, opts \\ []) do
+    with {:ok, word} <- AtMcp.Moderation.word_request(value, opts),
+         do: moderation_preference(effects, :mute_word, {:mute_word, word})
+  end
+
+  @doc "Unmute every muted word with this value, ignoring case."
+  def unmute_word(effects, value) do
+    with {:ok, value} <- AtMcp.Moderation.unmute_request(value),
+         do: moderation_preference(effects, :unmute_word, {:unmute_word, value})
+  end
+
+  @doc """
+  Subscribe to a labeler (`subscribe?` true) or unsubscribe from one. The
+  account is read first: one that runs no labeler is refused, and so is the
+  network's own moderation service, which every account has.
+  """
+  def subscribe_labeler(effects, actor, subscribe?) when is_binary(actor) do
+    verb = if subscribe?, do: :subscribe_labeler, else: :unsubscribe_labeler
+
+    take_and_write(
+      effects,
+      verb,
+      fn backend, session ->
+        with {:ok, did} <- backend.resolve_actor(session, actor),
+             do: backend.prepare_moderation_preference(session, {verb, did})
+      end,
+      fn prepared -> fn backend, session -> backend.write_preferences(session, prepared) end end
+    )
+  end
+
+  @doc """
+  What the app does with a label: `show`, `warn` or `hide`. Without
+  `labeler`, one of the four labels of the app's moderation screen
+  (`AtMcp.Moderation.global_labels/0`), whichever labeler applies it; with
+  one, a label that labeler defines.
+  """
+  def set_label_visibility(effects, label, visibility, labeler \\ nil) do
+    labeler = present(labeler)
+
+    with {:ok, stored} <- label_visibility(visibility),
+         :ok <- label_argument(label, labeler) do
+      take_and_write(
+        effects,
+        :set_label_visibility,
+        fn backend, session ->
+          with {:ok, did} <-
+                 if(labeler, do: backend.resolve_actor(session, labeler), else: {:ok, nil}),
+               do:
+                 backend.prepare_moderation_preference(
+                   session,
+                   {:set_label_visibility, label, stored, did}
+                 )
+        end,
+        fn prepared -> fn backend, session -> backend.write_preferences(session, prepared) end end
+      )
+    end
+  end
+
+  defp label_visibility(visibility) do
+    case AtMcp.Moderation.stored_visibility(visibility) do
+      {:ok, stored} -> {:ok, stored}
+      :error -> invalid("visibility", "must be show, warn or hide")
+    end
+  end
+
+  defp label_argument(label, nil) do
+    if label in AtMcp.Moderation.global_labels(),
+      do: :ok,
+      else:
+        invalid(
+          "label",
+          "without labeler, must be one of the labels of the app's moderation screen: #{Enum.join(AtMcp.Moderation.global_labels(), ", ")}; a label a labeler defines takes that labeler"
+        )
+  end
+
+  defp label_argument(label, _labeler) when is_binary(label) and label != "", do: :ok
+  defp label_argument(_label, _labeler), do: invalid("label", "must be a label's identifier")
+
+  defp moderation_preference(effects, verb, request) do
+    take_and_write(
+      effects,
+      verb,
+      fn backend, session -> backend.prepare_moderation_preference(session, request) end,
+      fn prepared -> fn backend, session -> backend.write_preferences(session, prepared) end end
+    )
+  end
+
+  @doc """
+  Mute every account on a moderation list (`graph.muteActorList`), or unmute
+  them. The list is read first, so a list that is gone, or one that is not a
+  moderation list, is refused before anything is sent; the app offers muting
+  for moderation lists alone. The service keeps the mute by the list's AT URI
+  in DID form.
+  """
+  def mute_list(effects, uri) when is_binary(uri), do: list_mute(effects, :mute_list, uri)
+  def unmute_list(effects, uri) when is_binary(uri), do: list_mute(effects, :unmute_list, uri)
+
+  defp list_mute(effects, verb, uri) do
+    with {:ok, _parts} <- record_argument(uri, "uri", [:list], "a list") do
+      take_and_write(
+        effects,
+        verb,
+        fn backend, session ->
+          with {:ok, uri} <- did_uri(backend, session, uri),
+               do: backend.prepare_list_mute(session, {verb, uri})
+        end,
+        fn prepared -> fn backend, session -> backend.mute_list(session, prepared) end end
+      )
+    end
+  end
+
+  @doc """
+  Block every account on a moderation list: a `graph.listblock` record naming
+  the list in DID form. The list is read first; the app offers blocking for
+  moderation lists alone. A list this account blocks already is left as it
+  is, and the result names that block.
+  """
+  def block_list(effects, uri) when is_binary(uri) do
+    with {:ok, _parts} <- record_argument(uri, "uri", [:list], "a list") do
+      list_write(effects, :block_list, fn backend, session ->
+        with {:ok, uri} <- did_uri(backend, session, uri), do: {:ok, {:block_list, uri}}
+      end)
+    end
+  end
+
+  @doc """
+  Stop blocking the accounts on a list: every `graph.listblock` record of
+  this account's that names it is deleted. `uri` is the list, or one of those
+  records.
+  """
+  def unblock_list(effects, uri) when is_binary(uri) do
+    with {:ok, {_repo, collection, _rkey} = parts} <-
+           record_argument(uri, "uri", [:list, :list_block], "a list or a list block") do
+      list_write(effects, :unblock_list, fn backend, session ->
+        if AtMcp.Network.collection?(collection, :list_block) do
+          with {:ok, uri} <-
+                 own_record(
+                   session,
+                   parts,
+                   "uri",
+                   "unblock_list deletes a list block this account made"
+                 ),
+               do: {:ok, {:unblock_list, uri}}
+        else
+          with {:ok, uri} <- did_uri(backend, session, uri), do: {:ok, {:unblock_list, uri}}
+        end
+      end)
+    end
+  end
+
+  @doc "The moderation lists this account mutes (`muted`) or blocks (`blocked`), a page at a time."
+  def get_moderation_lists(effects, kind, opts \\ []) do
+    if kind in ["muted", "blocked"] do
+      paged(effects, opts, fn backend, session, page ->
+        backend.get_moderation_lists(session, kind, page)
+      end)
+    else
+      invalid("kind", "must be muted or blocked")
+    end
+  end
+
+  @doc """
+  Labelers in detail: the labels each defines and its policies, what reports
+  it takes, and this account's settings for it. `actors` are handles or DIDs;
+  none reads the labelers this account takes labels from.
+  """
+  def get_labelers(effects, actors) when is_list(actors) do
+    with :ok <- if(actors == [], do: :ok, else: validate_batch(actors)) do
+      with_session(effects, fn backend, session ->
+        with {:ok, dids} <- resolve_actors(backend, session, Enum.uniq(actors)),
+             do: backend.get_labelers(session, if(dids == [], do: nil, else: Enum.uniq(dids)))
+      end)
+    end
+  end
+
   # The AppView counts a live status as lasting at least 5 minutes and at
   # most 4 hours, whatever the record says (`status` in
   # packages/bsky/src/views/index.ts), so a duration outside that is refused

@@ -305,6 +305,10 @@ verification checks, discoverability, who may subscribe);
 `get_notification_settings` and `set_notification_setting` are the app's
 notification settings, reason by reason; `subscribe_to_activity` is the bell
 on a profile, and `get_activity_subscriptions` lists what it subscribed to.
+The moderation settings are there too: `mute_word` and `unmute_word`,
+`mute_list`, `block_list` and their inverses for moderation lists,
+`subscribe_labeler`, `set_label_visibility` and `get_labelers` for labelers
+and their labels, and `report`, which sends a report to a moderation service.
 `get_notifications` with `grouped` reads the groups the app's Notifications
 screen shows ("alice and 5 others liked your post"). Wherever a post appears (a feed, a thread, a conversation, a
 notification or a quote) it carries the same facts: its labels and its

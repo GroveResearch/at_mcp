@@ -142,6 +142,7 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Lists | `create_list`, `update_list`, `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`, `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`, and the reads `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
 | Notifications | `get_notifications` (one at a time, or `grouped` as the app shows them), `get_unread_count`, `update_seen`, `subscribe_to_activity`, and the reads `get_activity_subscriptions`, `get_notification_settings` |
 | Settings | `set_preference`, `set_notification_setting`, and the read `get_preferences` |
+| Moderation | `report`, `mute_word`, `unmute_word`, `mute_list`, `unmute_list`, `block_list`, `unblock_list`, `subscribe_labeler`, `unsubscribe_labeler`, `set_label_visibility`, and the reads `get_moderation_lists`, `get_labelers` |
 | Account | `identity_status` |
 
 `search_posts` calls `feed.searchPostsV2`, the version the app calls. It takes
@@ -341,8 +342,30 @@ marked where it stands, saying whether its author hid it or the account muted
 its writer, and only the rest are listed after the thread. If that read fails,
 the thread is returned with a line saying why.
 
-Absent from the surface: posting video, direct messages, reporting, mute
-words and content label preferences. `get_notifications` takes the service's own
+The moderation tools do what the app's moderation settings and Report menu
+do (`AtMcp.Moderation`). `report` sends `com.atproto.moderation.createReport`
+through the account's PDS to a moderation service's labeler endpoint
+(`atproto-proxy: <did>#atproto_labeler`), as the app sends it: to the
+network's own service unless another the account subscribes to is named, and
+only after reading that the service takes reports on this kind of subject,
+record type and reason; the result names the report's id and the service.
+A report reaches the people who run that service and cannot be withdrawn;
+delve.town names no moderation service, so there it is refused unsent.
+Muted words, labeler subscriptions and label settings are preferences,
+changed as `@atproto/api`'s `addMutedWord`, `updateMutedWord`,
+`removeMutedWord`, `addLabeler`, `removeLabeler` and `setContentLabelPref`
+change them, every other preference kept as stored, and `get_preferences`
+reads them back. The app applies them on the device, so at_mcp's reads still
+return muted posts and labelled content as served; and at_mcp's reads do not
+yet ask for the labels of the labelers an account subscribes to (#83).
+`mute_list` and `block_list` take a moderation list by its DID-form URI,
+which is how reads name it (`muted_by_list`, `blocking_by_list`); a list
+block is a `graph.listblock` record written over the commit read, and
+`unblock_list` deletes every one naming the list. Hidden posts
+(`hiddenPostsPref`) are left out: the app keeps "Hide post for me" on the
+device and reads nothing from that preference.
+
+Absent from the surface: posting video and direct messages. `get_notifications` takes the service's own
 filter by reason (`reasons`). An agent reads a video by its alt text and a
 link card by its text, without the video or the card's image.
 

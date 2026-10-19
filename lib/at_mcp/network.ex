@@ -73,7 +73,12 @@ defmodule AtMcp.Network do
       web_origin: "https://bsky.app",
       default_service: "https://bsky.social",
       lexicon_dir: "app/bsky",
-      label: "Bluesky"
+      label: "Bluesky",
+      # Bluesky's moderation service: the labeler every account of the app
+      # has, which cannot be unsubscribed (`BSKY_LABELER_DID` in
+      # @atproto/api's const.ts, the app's `appLabelers`), and where a report
+      # goes when no other service is chosen.
+      moderation_service: "did:plc:ar7c4by46qjdydhdevvrndac"
     },
     delve: %{
       namespace: "town.delve",
@@ -82,7 +87,11 @@ defmodule AtMcp.Network do
       web_origin: "https://delve.town",
       default_service: "https://pds.delve.town",
       lexicon_dir: "town/delve",
-      label: "delve.town"
+      label: "delve.town",
+      # The town names no moderation service: its AppView's DID document
+      # lists none, and its AppView knows no labeler by Bluesky's DID
+      # (checked 2026-10-19).
+      moderation_service: nil
     }
   }
 
@@ -100,6 +109,7 @@ defmodule AtMcp.Network do
     generator: "feed.generator",
     list: "graph.list",
     list_item: "graph.listitem",
+    list_block: "graph.listblock",
     starter_pack: "graph.starterpack",
     list_opt_out: "graph.referencelistoptout",
     threadgate: "feed.threadgate",
@@ -150,6 +160,10 @@ defmodule AtMcp.Network do
     verification_prefs: "actor.defs#verificationPrefs",
     personal_details_pref: "actor.defs#personalDetailsPref",
     declared_age_pref: "actor.defs#declaredAgePref",
+    muted_words_pref: "actor.defs#mutedWordsPref",
+    hidden_posts_pref: "actor.defs#hiddenPostsPref",
+    labelers_pref: "actor.defs#labelersPref",
+    content_label_pref: "actor.defs#contentLabelPref",
     request_more: "feed.defs#requestMore",
     request_less: "feed.defs#requestLess"
   }
@@ -274,6 +288,30 @@ defmodule AtMcp.Network do
                   "config :at_mcp, :appview must give both service and url as strings, " <>
                     "got #{inspect(appview)}"
         end
+    end
+  end
+
+  @doc """
+  The DID of this network's own moderation service: the labeler every account
+  has whether or not it subscribes, and where a report goes when no other
+  service is named. Nil when the network names none. `config :at_mcp,
+  moderation_service: did` replaces it; only the end-to-end suite sets it, to
+  the moderation service of the network running on localhost.
+  """
+  def moderation_service do
+    case Application.fetch_env(:at_mcp, :moderation_service) do
+      {:ok, did} when is_binary(did) ->
+        did
+
+      {:ok, nil} ->
+        nil
+
+      {:ok, other} ->
+        raise ArgumentError,
+              "config :at_mcp, :moderation_service must be a DID, got #{inspect(other)}"
+
+      :error ->
+        @networks |> Map.fetch!(name()) |> Map.fetch!(:moderation_service)
     end
   end
 

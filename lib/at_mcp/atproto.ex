@@ -366,6 +366,58 @@ defmodule AtMcp.ATProto do
   def unmute_thread(session, params),
     do: write(session, "graph.unmuteThread", params, root: {:required, :string})
 
+  # A list mute is AppView state too, keyed by the list's AT URI as given: a
+  # handle-form URI mutes nothing the AppView ever matches, so callers pass
+  # the DID form.
+  def mute_actor_list(session, params),
+    do: write(session, "graph.muteActorList", params, list: {:required, :string})
+
+  def unmute_actor_list(session, params),
+    do: write(session, "graph.unmuteActorList", params, list: {:required, :string})
+
+  # The moderation lists this account mutes, and those it blocks.
+  def get_list_mutes(session, params), do: read(session, "graph.getListMutes", params, @page)
+  def get_list_blocks(session, params), do: read(session, "graph.getListBlocks", params, @page)
+
+  @doc """
+  Labelers by DID, detailed (`labeler.getServices`), every key as the service
+  sent it: a labeler's policies and report settings hold lexicon tokens and
+  label identifiers that are read as they are.
+  """
+  def labeler_services(session, dids) when is_list(dids) do
+    method = Network.nsid("labeler.getServices")
+
+    query =
+      method
+      |> Query.new(base_url: base_url(session), response: :binary)
+      |> Map.put(:params, flatten_query(%{dids: dids, detailed: true}))
+
+    answer =
+      if Network.direct_read?(method, session),
+        do: ServiceAuth.execute(session, query),
+        else: execute(session, query, "GET")
+
+    with {:ok, %{body: body}} <- answer, do: decode_raw(body)
+  end
+
+  @doc """
+  Send a report to a moderation service (`com.atproto.moderation.createReport`).
+  The account's PDS forwards it to `service_did`'s labeler endpoint
+  (`atproto-proxy: <did>#atproto_labeler`), as the app sends it. `input` is
+  sent as given and the service's answer read as it sent it.
+  """
+  def create_report(session, service_did, input) when is_binary(service_did) and is_map(input) do
+    proc =
+      "com.atproto.moderation.createReport"
+      |> Procedure.new(base_url: base_url(session), response: :binary)
+      |> Procedure.put_raw_body(Jason.encode!(input))
+      |> Procedure.put_header("content-type", "application/json")
+
+    with {:ok, %{body: answer}} <-
+           execute(session, proc, "POST", %{"atproto-proxy" => service_did <> "#atproto_labeler"}),
+         do: decode_raw(answer)
+  end
+
   # --- bookmarks ---
 
   # Bookmarks are private, kept by the AppView rather than in the repository,
@@ -1053,6 +1105,19 @@ defmodule AtMcp.ATProto do
   def list_opt_out_record(fields) do
     %{
       "$type" => AtMcp.Network.collection(:list_opt_out),
+      "subject" => Keyword.fetch!(fields, :subject),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+  end
+
+  @doc """
+  A block of every account on a moderation list (`graph.listblock`): its
+  `:subject` is the list's AT URI in DID form, which is how the AppView
+  matches it to the list.
+  """
+  def list_block_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list_block),
       "subject" => Keyword.fetch!(fields, :subject),
       "createdAt" => timestamp(Keyword.get(fields, :created_at))
     }

@@ -2060,7 +2060,7 @@ defmodule AtMcp.MCP.Server do
   # --- settings: preferences, notification settings, activity subscriptions ---
 
   tool "get_preferences",
-       "Read this account's settings as the app shows them: the Following feed's (home_feed), threads', the reply and quote rules each new post starts with (interaction_defaults), adult content (with whether the account has a birth date and whether it makes the account 18 or over; the date itself is not read out), interests, verification checks, the saved feeds, whether the account asks apps to keep its posts out of recommendations (discoverable), and who may subscribe to its posts (activity_subscriptions). set_preference changes them, save_feed and unsave_feed the saved feeds." do
+       "Read this account's settings as the app shows them: the Following feed's (home_feed), threads', the reply and quote rules each new post starts with (interaction_defaults), adult content (with whether the account has a birth date and whether it makes the account 18 or over; the date itself is not read out), interests, verification checks, the saved feeds, whether the account asks apps to keep its posts out of recommendations (discoverable), and who may subscribe to its posts (activity_subscriptions); and the moderation settings: muted words (mute_word, unmute_word), the labelers the app takes labels from (subscribe_labeler, get_labelers) and what the app does with each adult content label (content_labels, set_label_visibility). set_preference changes the rest, save_feed and unsave_feed the saved feeds." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.preferences())
 
@@ -2240,6 +2240,368 @@ defmodule AtMcp.MCP.Server do
         ),
         state,
         :profiles
+      )
+    end)
+  end
+
+  # --- moderation: reports, muted words, moderation lists, labelers ---
+
+  tool "report",
+       write_description(
+         :report,
+         "Report a post, list, feed, starter pack or account to a moderation service, as the app's Report menu does. A report is sent to the people who run that service, who decide what, if anything, to do about it; it is not public, and it cannot be withdrawn. labeler names the service: the network's own moderation service when omitted, or a labeler this account subscribes to that takes reports on this kind of subject and for this reason (get_labelers says which). The result names the report's id at that service (id) and the service it went to (labeler, labeler_handle). The account's own posts and the account itself cannot be reported."
+       ) do
+    annotations(
+      write_annotations(:report, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+
+    param(:subject, :string,
+      required: true,
+      description:
+        "AT URI of the post, list, feed or starter pack, or a handle or DID for an account"
+    )
+
+    param(:reason, :string, AtMcp.MCP.Schemas.report_reason())
+
+    param(:details, :string,
+      description: "What the moderators should know, up to 2,000 characters"
+    )
+
+    param(:labeler, :string,
+      description:
+        "Handle or DID of the moderation service to send it to; the network's own when omitted"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.report(
+          state.effects,
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :subject)),
+          Map.fetch!(a, :reason),
+          details: AtMcp.MCP.Tools.optional(Map.get(a, :details)),
+          labeler: AtMcp.MCP.Tools.optional_actor(Map.get(a, :labeler))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "mute_word",
+       write_description(
+         :mute_word,
+         "Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. tags_only mutes it only as a hashtag; only_non_followed mutes it only in posts by accounts this account does not follow; duration is 24h, 7d, 30d or forever (the default). A word muted already, ignoring case, is changed to this rather than muted twice; one muted exactly so is left alone and unchanged is true. The app applies muted words on the device: at_mcp's reads return the posts as the service serves them. The result gives the muted word before (previous, empty when it was not muted) and after (now). Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:mute_word, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+
+    param(:value, :string,
+      required: true,
+      description: "The word, tag or phrase; a leading # is dropped, as the app drops it"
+    )
+
+    param(:tags_only, :boolean,
+      description: "Mute it only as a hashtag, not in post text (default false)"
+    )
+
+    param(:duration, :string, AtMcp.MCP.Schemas.mute_duration())
+
+    param(:only_non_followed, :boolean,
+      description:
+        "Mute it only in posts by accounts this account does not follow (default false)"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.mute_word(state.effects, Map.fetch!(a, :value),
+          tags_only: Map.get(a, :tags_only),
+          duration: AtMcp.MCP.Tools.optional(Map.get(a, :duration)),
+          only_non_followed: Map.get(a, :only_non_followed)
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "unmute_word",
+       write_description(
+         :unmute_word,
+         "Unmute a muted word, tag or phrase: every muted word with this value, ignoring case, is removed. The result lists each one removed as it was (removed), so mute_word can mute it again; a value that is not muted is left alone and unchanged is true. Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:unmute_word, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:value, :string, required: true, description: "The muted word, tag or phrase")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.unmute_word(state.effects, Map.fetch!(a, :value)),
+        state
+      )
+    end)
+  end
+
+  tool "mute_list",
+       write_description(
+         :mute_list,
+         "Mute every account on a moderation list, as the app's Mute list does: while the list is muted, each account on it is muted for this account as mute would mute it, and reads say so (muted_by_list). Mutes are private to the account. Only a moderation list can be muted. The result names the list and whether it was muted before (previous); unmute_list undoes it."
+       ) do
+    annotations(
+      write_annotations(:mute_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:uri, :string, required: true, description: "AT URI of the moderation list")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.mute_list(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "unmute_list",
+       write_description(
+         :unmute_list,
+         "Unmute the accounts on a list muted with mute_list. The result names the list and whether it was muted before (previous)."
+       ) do
+    annotations(
+      write_annotations(:unmute_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:uri, :string, required: true, description: "AT URI of the list")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.unmute_list(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "block_list",
+       write_description(
+         :block_list,
+         "Block every account on a moderation list, as the app's Block list does: while the list is blocked, each account on it is blocked for this account as block would block it, and reads say so (blocking_by_list). The block is a list block record in this account's repository, and records are public. Only a moderation list can be blocked. A list this account blocks already is left as it is and unchanged is true. The result's uri is the list block; unblock_list takes it or the list."
+       ) do
+    annotations(
+      write_annotations(:block_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:uri, :string, required: true, description: "AT URI of the moderation list")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.block_list(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "unblock_list",
+       write_description(
+         :unblock_list,
+         "Stop blocking the accounts on a list: every list block record of this account's that names the list is deleted, in one commit. uri is the list, or a list block from block_list or a list's viewer.blocked. deleted names each record deleted; a list this account does not block is left alone and unchanged is true."
+       ) do
+    annotations(
+      write_annotations(:unblock_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:uri, :string, required: true, description: "AT URI of the list, or of a list block")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.unblock_list(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "get_moderation_lists",
+       "List the moderation lists this account mutes (kind muted, mute_list) or blocks (kind blocked, block_list), each with its viewer state." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.lists_page())
+
+    param(:kind, :string,
+      required: true,
+      description: "muted or blocked",
+      schema: %{type: "string", enum: ["muted", "blocked"]}
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("lists"))
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_moderation_lists(state.effects, Map.fetch!(a, :kind),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :lists
+      )
+    end)
+  end
+
+  tool "get_labelers",
+       AtMcp.MCP.Schemas.describe(
+         "Read labelers (moderation services) in detail: the labels each defines, with what the app does with each for this account (setting), the reports it takes (reason_types, subject_types, subject_collections; null means any), and whether this account subscribes to it. Without actors, the labelers the app takes labels from for this account: the network's own moderation service and those it subscribes to ({batch} actors per call)."
+       ) do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.labelers())
+
+    param(:actors, {:array, :string}, AtMcp.MCP.Schemas.labeler_actors())
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_labelers(
+          state.effects,
+          AtMcp.MCP.Tools.actors(AtMcp.MCP.Tools.optional(Map.get(a, :actors)) || [])
+        ),
+        state,
+        :labelers
+      )
+    end)
+  end
+
+  tool "subscribe_labeler",
+       write_description(
+         :subscribe_labeler,
+         "Subscribe to a labeler, as its Subscribe button in the app does: the app then applies the labels it puts on posts and accounts (as set_label_visibility sets them for this account) and offers it in the report dialog. The network's own moderation service is always on and is not subscribed to. The app allows 20 labelers, the network's own included. at_mcp's reads do not yet ask for the labels of the labelers this account subscribes to, so they may not carry this one's. The result gives whether it was subscribed before (previous) and now (now); one subscribed already is left alone and unchanged is true. Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:subscribe_labeler, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:actor, :string, required: true, description: "Handle or DID of the labeler")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.subscribe_labeler(
+          state.effects,
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+          true
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "unsubscribe_labeler",
+       write_description(
+         :unsubscribe_labeler,
+         "Unsubscribe from a labeler subscribed to with subscribe_labeler: the app stops applying its labels. Its label settings stay stored, as the app keeps them. The result gives whether it was subscribed before (previous); one not subscribed to is left alone and unchanged is true. Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:unsubscribe_labeler, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+    param(:actor, :string, required: true, description: "Handle or DID of the labeler")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.subscribe_labeler(
+          state.effects,
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+          false
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "set_label_visibility",
+       write_description(
+         :set_label_visibility,
+         "Set what the app does with posts and accounts that carry a label: show them, warn (cover them with a warning to click through) or hide them. Without labeler, label is one of the app's adult content filters (porn, sexual, graphic-media, nudity), which apply whichever labeler applied the label; the app shows these only while adult content is on. With labeler, a label that labeler defines (get_labelers lists them), for a labeler the app takes labels from for this account. The app applies this on the device: at_mcp's reads return each post's labels as served. The result gives the setting before (previous) and after (now); one already as asked is left alone and unchanged is true. Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:set_label_visibility, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.moderation_result())
+
+    param(:label, :string,
+      required: true,
+      description:
+        "The label: porn, sexual, graphic-media or nudity without labeler, or a label the labeler defines"
+    )
+
+    param(:visibility, :string, AtMcp.MCP.Schemas.label_visibility())
+
+    param(:labeler, :string,
+      description:
+        "Handle or DID of the labeler that defines the label; omit for the app's adult content filters"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_label_visibility(
+          state.effects,
+          Map.fetch!(a, :label),
+          Map.fetch!(a, :visibility),
+          AtMcp.MCP.Tools.optional_actor(Map.get(a, :labeler))
+        ),
+        state
       )
     end)
   end

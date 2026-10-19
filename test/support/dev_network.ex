@@ -35,6 +35,13 @@ defmodule AtMcp.Test.DevNetwork do
   @doc "Wait until the AppView has indexed everything the PDS has sequenced."
   def sync(pid), do: GenServer.call(pid, :sync, @sync_timeout + 1_000)
 
+  @doc """
+  The report with this id as the network's moderation service recorded it:
+  its subject, the comment and who made it, and in `meta` its reason type.
+  Nil when the service has none.
+  """
+  def report(pid, id) when is_integer(id), do: GenServer.call(pid, {:report, id}, @sync_timeout)
+
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
   @impl true
@@ -60,6 +67,11 @@ defmodule AtMcp.Test.DevNetwork do
   def handle_call(:info, from, state),
     do: {:noreply, %{state | waiting: state.waiting ++ [{:info, from}]}}
 
+  def handle_call({:report, id}, from, state) do
+    Port.command(state.port, "report #{id}\n")
+    {:noreply, %{state | waiting: state.waiting ++ [{:report, from}]}}
+  end
+
   def handle_call(:sync, from, state) do
     Port.command(state.port, "sync\n")
     {:noreply, %{state | waiting: state.waiting ++ [{:sync, from}]}}
@@ -82,8 +94,16 @@ defmodule AtMcp.Test.DevNetwork do
       {:ok, %{"synced" => true}} ->
         reply_first(state, :sync, :ok)
 
+      {:ok, %{"report" => report}} ->
+        reply_first(state, :report, report)
+
+      # A command's failure answers whichever command is waiting first:
+      # commands are answered in the order they were sent.
       {:ok, %{"error" => error}} ->
-        reply_first(state, :sync, {:error, error})
+        case Enum.find(state.waiting, &match?({kind, _} when kind != :info, &1)) do
+          {kind, _from} -> reply_first(state, kind, {:error, error})
+          nil -> {:noreply, state}
+        end
 
       _ ->
         # Anything else a service printed to stdout.

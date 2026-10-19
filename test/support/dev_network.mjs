@@ -7,6 +7,9 @@
 //                                           accounts and the feed generator
 //   stdin "sync":        wait until the AppView has indexed every write the
 //                        PDS has sequenced, then answer {"synced": true}
+//   stdin "report <id>": the report with this id as the moderation service
+//                        (ozone) recorded it, {"report": {...}} or
+//                        {"report": null}
 //   stdin "close", or stdin closing: stop every service, answer
 //                        {"closed": true} and exit
 //
@@ -93,6 +96,31 @@ feeds[feed.uriStr] = async () => {
   }
 }
 
+// The other account runs a labeler defining one label of its own, for the
+// labeler subscription and label setting round trips. Its DID document names
+// no labeler service, so reports go to ozone, not to it.
+await seed.agent.app.bsky.labeler.service.create(
+  { repo: other.did, rkey: 'self' },
+  {
+    policies: {
+      labelValues: ['spoiler'],
+      labelValueDefinitions: [
+        {
+          identifier: 'spoiler',
+          severity: 'inform',
+          blurs: 'content',
+          defaultSetting: 'warn',
+          locales: [
+            { lang: 'en', name: 'Spoiler', description: 'Gives away the plot' },
+          ],
+        },
+      ],
+    },
+    createdAt: new Date().toISOString(),
+  },
+  seed.getHeaders(other.did),
+)
+
 await network.processAll()
 
 say({
@@ -103,6 +131,9 @@ say({
     plc: network.plc.url,
     accounts: { self, other },
     feed: feed.uriStr,
+    // The moderation service (ozone) every account's reports go to, and a
+    // labeler: its DID document names it as one and it declares labels.
+    moderation: network.ozone.ctx.cfg.service.did,
   },
 })
 
@@ -121,7 +152,18 @@ const close = () => {
 const lines = readline.createInterface({ input: process.stdin })
 lines.on('line', async (line) => {
   try {
-    switch (line.trim()) {
+    const [command, arg] = line.trim().split(' ')
+    switch (command) {
+      case 'report': {
+        const report = await network.ozone.ctx.db.db
+          .selectFrom('moderation_event')
+          .where('id', '=', Number(arg))
+          .where('action', '=', 'tools.ozone.moderation.defs#modEventReport')
+          .select(['id', 'subjectDid', 'subjectUri', 'subjectCid', 'comment', 'createdBy', 'meta'])
+          .executeTakeFirst()
+        say({ report: report ?? null })
+        break
+      }
       case 'sync':
         await network.processAll()
         say({ synced: true })

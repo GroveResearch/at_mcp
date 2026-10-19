@@ -195,6 +195,45 @@ defmodule AtMcp.Effects.Backend do
               {:ok, summary()} | {:error, reason()}
 
   @doc """
+  Read what a report names and build it: `request` is `%{subject, reason,
+  details, labeler}`, `subject` `{:account, did}` or `{:record, uri,
+  collection}` and `labeler` a DID. The labeler is read for the reports it
+  takes and the preferences for whether this account has it, and a record
+  for its CID. The result is passed to `send_report/2`.
+  """
+  @callback prepare_report(state(), request :: map()) :: {:ok, term()} | {:error, reason()}
+  @callback send_report(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read the preferences and build a moderation change of them
+  (`AtMcp.Moderation`): `{:mute_word, word}`, `{:unmute_word, value}`,
+  `{:subscribe_labeler, did}`, `{:unsubscribe_labeler, did}` or
+  `{:set_label_visibility, label, visibility, labeler}`. Answers what
+  `write_preferences/2` takes, or `{:unchanged, summary}`.
+  """
+  @callback prepare_moderation_preference(state(), request :: tuple()) ::
+              {:ok, term()} | {:error, reason()}
+
+  @doc """
+  Read the list a `{:mute_list, uri}` or `{:unmute_list, uri}` names (DID
+  form) and build the change, refusing a mute of a list that is not a
+  moderation list. The result is passed to `mute_list/2`.
+  """
+  @callback prepare_list_mute(state(), request :: tuple()) :: {:ok, term()} | {:error, reason()}
+  @callback mute_list(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc "A page of the moderation lists this account mutes (`\"muted\"`) or blocks (`\"blocked\"`)."
+  @callback get_moderation_lists(state(), kind :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Labelers by DID in detail, with this account's settings for each; `nil`
+  reads the labelers this account takes labels from.
+  """
+  @callback get_labelers(state(), dids :: [String.t()] | nil) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc """
   Read the account's status record and build what replaces it: `{:live,
   %{url, minutes, title, description}}` or `:clear`. `write_status/2` writes it.
   """
