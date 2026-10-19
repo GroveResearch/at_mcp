@@ -4306,14 +4306,8 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def resolve_post(session, uri) when is_binary(uri) do
     with {:ok, ref, response} <- fetch_strong_ref(session, uri) do
-      case root_of(response) do
-        nil ->
-          {:ok, Map.put(ref, :root, ref.uri)}
-
-        root ->
-          with {:ok, root_uri} <- root_did_uri(session, root.uri, ref.uri),
-               do: {:ok, Map.put(ref, :root, root_uri)}
-      end
+      root = root_of(response)
+      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: ref.uri))}
     end
   end
 
@@ -4656,40 +4650,30 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   # The parent's record names the root as its writer spelled it, and a client
-  # may have spelled it with the root author's handle. An AppView files a
-  # thread under the root's DID-form URI: the reference AppView serves no
-  # reply that copied a handle-form root, and another was seen counting such a
-  # reply on its parent while listing it in no thread. The root is written
-  # here as its DID-form URI with the CID the root has now, read like the
-  # parent's. A root that is gone (RecordNotFound) keeps the CID the parent
-  # declared: a thread whose first post was deleted can still be answered. A
-  # handle that does not resolve, or any other failed read, refuses the reply
-  # before anything is written: there is no DID-form root to write.
+  # may have spelled it with the root author's handle. An AppView matches a
+  # reply to its thread by the string in reply.root.uri, filed under the DID
+  # form: the reference AppView serves no reply that copied a handle-form
+  # root, and another was seen counting such a reply on its parent while
+  # listing it in no thread. So a DID-form root is copied as declared, CID and
+  # all, as the app copies it; a handle-form one has its handle resolved and
+  # keeps the CID the parent declared. The root is not read: the app does not
+  # read it, and a root whose author's repository is gone must still be
+  # answerable. A handle that does not resolve refuses the reply before
+  # anything is written: there is no DID-form root to write.
   defp reply_root(_session, nil, parent), do: {:ok, %{root: parent, parent: parent}}
 
-  defp reply_root(session, %{uri: declared, cid: declared_cid}, parent) do
+  defp reply_root(session, %{uri: declared, cid: cid}, parent) do
     with {:ok, root_uri} <- root_did_uri(session, declared, parent.uri) do
-      root =
-        case fetch_strong_ref(session, root_uri) do
-          {:ok, ref, _response} ->
-            {:ok, ref}
-
-          {:error, {:referenced_record_unreadable, _, :not_found}} ->
-            {:ok, %{uri: root_uri, cid: declared_cid}}
-
-          {:error, _} = error ->
-            error
-        end
-
-      with {:ok, root} <- root do
-        refs = %{root: root, parent: parent}
-        {:ok, if(root.uri == declared, do: refs, else: Map.put(refs, :declared_root, declared))}
-      end
+      refs = %{root: %{uri: root_uri, cid: cid}, parent: parent}
+      {:ok, if(root_uri == declared, do: refs, else: Map.put(refs, :declared_root, declared))}
     end
   end
 
   # The DID-form URI of the root a parent declares. A DID-form one is taken as
-  # it is; a handle-form one has its handle resolved.
+  # it is; a handle-form one has its handle resolved. A moved handle would name
+  # another account's record; the declared CID then names nothing there, and
+  # catching that would cost a read of the root on every such reply. It is not
+  # checked.
   defp root_did_uri(session, declared, parent_uri) do
     case AtMcp.ATProto.parse_uri(declared) do
       {:ok, {"did:" <> _, _collection, _rkey}} ->
@@ -4711,12 +4695,9 @@ defmodule AtMcp.Effects.ProtoRune do
             error
         end
 
+      # Not an AT URI: no form of it is the root's, so it is left as written.
       {:error, _} ->
-        {:error,
-         AtMcp.Effects.Failure.new(:refused,
-           message:
-             "The post #{parent_uri} names its thread's root as #{inspect(declared)}, which is not an AT URI. Nothing was sent."
-         )}
+        {:ok, declared}
     end
   end
 

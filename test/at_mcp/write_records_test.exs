@@ -52,15 +52,17 @@ defmodule AtMcp.WriteRecordsTest do
     defp response("com.atproto.repo.putRecord", _conn),
       do: %{uri: "at://did:plc:self/c/self", cid: "bafyreiself"}
 
-    # A parent whose writer named its thread's root by handle, and one whose
-    # root is gone.
+    # Parents whose writers named their thread's root by handle, or by DID
+    # with a CID the root no longer has, or by DID in a repository that is
+    # gone.
     defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "under-" <> root}}) do
-      repo = if root == "unresolvable", do: "nobody.example", else: "other.example"
-
       declared =
-        if root == "gone",
-          do: "at://did:plc:other/town.delve.feed.post/gone",
-          else: "at://#{repo}/town.delve.feed.post/#{root}"
+        case root do
+          "unresolvable" -> "at://nobody.example/town.delve.feed.post/root"
+          "handle" -> "at://other.example/town.delve.feed.post/root"
+          "stale" -> "at://did:plc:other/town.delve.feed.post/root"
+          "gone" -> "at://did:plc:gone/town.delve.feed.post/root"
+        end
 
       %{
         uri: "at://did:plc:other/town.delve.feed.post/under-#{root}",
@@ -69,8 +71,10 @@ defmodule AtMcp.WriteRecordsTest do
       }
     end
 
-    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "gone"}}),
-      do: {400, %{error: "RecordNotFound", message: "Could not locate record"}}
+    # The root has moved on from the CID its replies declare, and a
+    # repository that is gone is answered as the AppView answers it.
+    defp response("com.atproto.repo.getRecord", %{query_params: %{"repo" => "did:plc:gone"}}),
+      do: {400, %{error: "InvalidRequest", message: "Could not find repo: did:plc:gone"}}
 
     defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "root"}}),
       do: %{uri: "at://did:plc:other/town.delve.feed.post/root", cid: "bafyreiroot", value: %{}}
@@ -543,52 +547,83 @@ defmodule AtMcp.WriteRecordsTest do
   end
 
   describe "a reply under a parent that names its root by handle (#144)" do
-    test "names the root by DID with the root's current CID, and says the parent did not", %{
+    # The root is not read: only the parent is.
+    defp root_reads(calls) do
+      calls
+      |> sent("com.atproto.repo.getRecord")
+      |> Enum.reject(&String.starts_with?(&1.query["rkey"], "under-"))
+    end
+
+    test "names the root by DID with the declared CID, and says the parent did not", %{
       calls: calls,
       session: session
     } do
-      parent = "at://did:plc:other/town.delve.feed.post/under-root"
+      parent = "at://did:plc:other/town.delve.feed.post/under-handle"
       assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
 
       assert written(calls).body["record"]["reply"] == %{
                "root" => %{
                  "uri" => "at://did:plc:other/town.delve.feed.post/root",
-                 "cid" => "bafyreiroot"
+                 "cid" => "bafyreideclared"
                },
                "parent" => %{"uri" => parent, "cid" => "bafyreiparent"}
              }
 
       assert result.warning ==
                "The parent names its thread's root as at://other.example/town.delve.feed.post/root, not by DID; the app may not show the parent in that thread. This reply names the root as at://did:plc:other/town.delve.feed.post/root."
+
+      assert root_reads(calls) == []
     end
 
-    test "a root that is gone keeps the CID the parent declared", %{
+    test "a DID-form root is copied as declared, a CID the root no longer has included", %{
       calls: calls,
       session: session
     } do
-      parent = "at://did:plc:other/town.delve.feed.post/under-gone"
-      assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "still here", reply: parent)
+      parent = "at://did:plc:other/town.delve.feed.post/under-stale"
+      assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
 
       assert written(calls).body["record"]["reply"]["root"] == %{
-               "uri" => "at://did:plc:other/town.delve.feed.post/gone",
+               "uri" => "at://did:plc:other/town.delve.feed.post/root",
                "cid" => "bafyreideclared"
              }
 
       refute Map.has_key?(result, :warning)
+      assert root_reads(calls) == []
     end
 
-    test "a root whose handle does not resolve is refused before anything is written", %{
+    test "a root whose repository is gone does not stop the reply", %{
       calls: calls,
       session: session
     } do
+      parent = "at://did:plc:other/town.delve.feed.post/under-gone"
+      assert {:ok, _} = AtMcp.Effects.ProtoRune.post(session, "still here", reply: parent)
+
+      assert written(calls).body["record"]["reply"]["root"] == %{
+               "uri" => "at://did:plc:gone/town.delve.feed.post/root",
+               "cid" => "bafyreideclared"
+             }
+    end
+
+    test "a root whose handle does not resolve is refused before anything is written, at no cost",
+         %{calls: calls, session: session} do
+      effects = post_effects(session)
       parent = "at://did:plc:other/town.delve.feed.post/under-unresolvable"
 
       assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} =
-               AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
+               AtMcp.Effects.reply(effects, parent, "agreed")
 
-      assert message =~ "at://nobody.example/town.delve.feed.post/unresolvable"
+      assert message =~ "at://nobody.example/town.delve.feed.post/root"
       assert message =~ "Nothing was sent"
       assert sent(calls, "com.atproto.repo.createRecord") == []
+      assert AtMcp.Effects.quota_status(effects).used == 0
+    end
+
+    test "bookmarking such a parent does not need its root", %{calls: calls, session: session} do
+      effects = post_effects(session)
+      parent = "at://did:plc:other/town.delve.feed.post/under-unresolvable"
+
+      assert {:ok, %{action: :bookmark, uri: ^parent}} = AtMcp.Effects.bookmark(effects, parent)
+      assert sent(calls, "com.atproto.identity.resolveHandle") == []
     end
   end
 

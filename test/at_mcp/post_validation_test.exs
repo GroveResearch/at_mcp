@@ -46,26 +46,6 @@ defmodule AtMcp.PostValidationTest do
     assert %{used: 0} = AtMcp.WriteQuota.status(ctx.quota, "did:plc:text")
   end
 
-  test "text that is only an AT URI is refused as an argument slip; a URI among words is not",
-       ctx do
-    for text <- [@parent, "  #{@parent}\n"] do
-      assert {:error, {:invalid_argument, "text", message}} =
-               AtMcp.Effects.post(ctx.effects, text)
-
-      assert message =~ "pass it as uri"
-
-      assert {:error, {:invalid_argument, "text", _}} =
-               AtMcp.Effects.reply(ctx.effects, @parent, text)
-    end
-
-    refute_received {:backend, _, _, _}
-    assert %{used: 0} = AtMcp.WriteQuota.status(ctx.quota, "did:plc:text")
-
-    for text <- ["see #{@parent}", "https://bsky.app/profile/x/post/1", "at://"] do
-      assert {:ok, %{text: ^text}} = AtMcp.Effects.post(ctx.effects, text)
-    end
-  end
-
   test "exact grapheme and byte boundaries and empty text remain unchanged", ctx do
     texts = [String.duplicate("🪁", 300), "a" <> String.duplicate("\u0301", 1499) <> "b", ""]
     assert byte_size(Enum.at(texts, 1)) == 3000

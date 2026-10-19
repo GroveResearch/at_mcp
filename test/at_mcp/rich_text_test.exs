@@ -31,17 +31,18 @@ defmodule AtMcp.RichTextTest do
               _ -> {400, %{error: "InvalidRequest", message: "private upstream diagnostic"}}
             end
 
-          # The root, read for its current CID.
           "/xrpc/com.atproto.repo.getRecord" ->
-            if conn.query_params["rkey"] == "root",
-              do:
-                {200,
-                 %{
-                   uri: "at://did:plc:root/app.bsky.feed.post/root",
-                   cid: "root-cid",
-                   value: %{text: "root"}
-                 }},
-              else: parent_record()
+            {200,
+             %{
+               uri: "at://did:plc:parent/app.bsky.feed.post/parent",
+               cid: "parent-cid",
+               value: %{
+                 text: "parent",
+                 reply: %{
+                   root: %{uri: "at://did:plc:root/app.bsky.feed.post/root", cid: "root-cid"}
+                 }
+               }
+             }}
 
           "/xrpc/com.atproto.repo.createRecord" ->
             {200, %{uri: "at://did:plc:owner/app.bsky.feed.post/new", cid: "new-cid"}}
@@ -55,20 +56,6 @@ defmodule AtMcp.RichTextTest do
       conn
       |> put_resp_content_type("application/json")
       |> send_resp(status, Jason.encode!(result))
-    end
-
-    defp parent_record do
-      {200,
-       %{
-         uri: "at://did:plc:parent/app.bsky.feed.post/parent",
-         cid: "parent-cid",
-         value: %{
-           text: "parent",
-           reply: %{
-             root: %{uri: "at://did:plc:root/app.bsky.feed.post/root", cid: "root-cid"}
-           }
-         }
-       }}
     end
   end
 
