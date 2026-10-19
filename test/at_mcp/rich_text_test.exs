@@ -46,6 +46,11 @@ defmodule AtMcp.RichTextTest do
 
           "/xrpc/com.atproto.repo.createRecord" ->
             {200, %{uri: "at://did:plc:owner/app.bsky.feed.post/new", cid: "new-cid"}}
+
+          # The parent as the AppView shows it: no reply rule shuts this
+          # account out.
+          "/xrpc/app.bsky.feed.getPosts" ->
+            {200, %{posts: []}}
         end
 
       conn

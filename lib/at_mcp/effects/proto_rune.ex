@@ -725,9 +725,40 @@ defmodule AtMcp.Effects.ProtoRune do
         {:error, unreadable("a record", %{})}
 
       {:error, reason} ->
-        {:error, failure(reason)}
+        {:error, not_found_or_failure(reason, "record", uri)}
     end
   end
+
+  # What a read answers for a record, list or starter pack that does not exist,
+  # deleted or never written, as the reference services at the vendored
+  # lexicons' commit word it: `repo.getRecord` with the lexicon's
+  # `RecordNotFound`; `graph.getList` and `graph.getStarterPack`, which declare
+  # no error of their own, with `InvalidRequest` and these messages. Any other
+  # failure keeps its kind.
+  @not_found %{
+    "record" => {:record_not_found, nil},
+    "list" => {:invalid_request, "List not found"},
+    "starter pack" => {:invalid_request, "Starter pack not found"}
+  }
+
+  defp not_found_or_failure(%ProtoRune.XRPC.Error{} = error, what, uri) do
+    {reason, message} = Map.fetch!(@not_found, what)
+
+    # proto_rune gives an error name it has an atom for as that atom, and any
+    # other as its snake_case string.
+    if error.reason in [reason, Atom.to_string(reason)] and
+         (is_nil(message) or error.message == message) do
+      AtMcp.Effects.Failure.new(:refused,
+        status: error.http_status,
+        message: error.message,
+        detail: {:not_found, what, uri}
+      )
+    else
+      failure(error)
+    end
+  end
+
+  defp not_found_or_failure(reason, _what, _uri), do: failure(reason)
 
   # Invitation codes are delve.town's: the town's app lists them, and asks for
   # used ones and newly earned ones as it does here.
@@ -770,7 +801,7 @@ defmodule AtMcp.Effects.ProtoRune do
   def get_list(session, uri, opts) when is_binary(uri) do
     case AtMcp.ATProto.get_list(session, paging(opts, %{list: uri})) do
       {:ok, response} -> list_page(response)
-      {:error, reason} -> {:error, failure(reason)}
+      {:error, reason} -> {:error, not_found_or_failure(reason, "list", uri)}
     end
   end
 
@@ -811,7 +842,7 @@ defmodule AtMcp.Effects.ProtoRune do
         end
 
       {:error, reason} ->
-        {:error, failure(reason)}
+        {:error, not_found_or_failure(reason, "starter pack", uri)}
     end
   end
 
@@ -1534,6 +1565,7 @@ defmodule AtMcp.Effects.ProtoRune do
        }}
     else
       {:error, {:referenced_record_unreadable, _uri}} = error -> error
+      {:error, {:reply_disabled, _uri}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
     end
   rescue
@@ -1645,10 +1677,6 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   @impl true
-  def unlike(session, like_uri) when is_binary(like_uri),
-    do: delete(session, like_uri, :unlike, :like)
-
-  @impl true
   def repost(session, uri, cid) when is_binary(uri) and is_binary(cid) do
     case create(session, :repost, AtMcp.ATProto.repost_record(subject: %{uri: uri, cid: cid})) do
       {:ok, result} ->
@@ -1665,20 +1693,12 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   @impl true
-  def unrepost(session, repost_uri) when is_binary(repost_uri),
-    do: delete(session, repost_uri, :unrepost, :repost)
-
-  @impl true
   def follow(session, "did:" <> _ = did) do
     case create(session, :follow, AtMcp.ATProto.follow_record(subject: did)) do
       {:ok, result} -> {:ok, Map.merge(summarize_record(result), %{actor: did, action: :follow})}
       {:error, reason} -> {:error, failure(reason)}
     end
   end
-
-  @impl true
-  def unfollow(session, follow_uri) when is_binary(follow_uri),
-    do: delete(session, follow_uri, :unfollow, :follow)
 
   @impl true
   def block(session, "did:" <> _ = did) do
@@ -1689,8 +1709,193 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   @impl true
-  def unblock(session, block_uri) when is_binary(block_uri),
-    do: delete(session, block_uri, :unblock, :block)
+  def viewer_record(session, action, subject) when action in [:like, :repost] do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(subject)
+
+    {read, key} =
+      cond do
+        AtMcp.Network.collection?(collection, :generator) ->
+          {AtMcp.ATProto.get_feed_generators(session, [subject]), :feeds}
+
+        AtMcp.Network.collection?(collection, :labeler) ->
+          {:ok, {did, _, _}} = AtMcp.ATProto.parse_uri(subject)
+          {AtMcp.ATProto.get_services(session, [did]), :views}
+
+        true ->
+          {AtMcp.ATProto.get_posts(session, [subject]), :posts}
+      end
+
+    with {:ok, uri} <- viewer_field(read, key, action),
+         do: confirmed(session, uri, subject)
+  end
+
+  def viewer_record(session, action, did) when action in [:follow, :block] do
+    read = AtMcp.ATProto.get_profile(session, %{actor: did})
+
+    with {:ok, uri} <-
+           viewer_field(read, nil, if(action == :follow, do: :following, else: :blocking)),
+         do: confirmed(session, uri, did)
+  end
+
+  # The viewer's record in the view a read returned: the response itself, or
+  # the first of its `key` list. A subject the AppView does not have (no view,
+  # or for a profile its "Profile not found") has no record there to find.
+  # Any other failure, a rate limit included, is the read's, and nothing was
+  # sent.
+  defp viewer_field({:ok, response}, key, field) do
+    view =
+      cond do
+        is_nil(key) -> response
+        match?([_ | _], field(response, key)) -> hd(field(response, key))
+        true -> %{}
+      end
+
+    case AtMcp.Response.dig(view, [:viewer, field]) do
+      uri when is_binary(uri) -> {:ok, uri}
+      _ -> {:ok, nil}
+    end
+  end
+
+  defp viewer_field(
+         {:error, %ProtoRune.XRPC.Error{reason: reason, message: "Profile not found"}},
+         nil,
+         _field
+       )
+       when reason in [:invalid_request, "invalid_request"],
+       do: {:ok, nil}
+
+  defp viewer_field({:error, reason}, _key, _field), do: {:error, failure(reason)}
+
+  # The AppView's viewer state can be behind the repository: a record deleted
+  # moments ago can still be named. So a record it names counts only once this
+  # account's PDS still holds it, with this subject.
+  defp confirmed(_session, nil, _subject), do: {:ok, nil}
+
+  defp confirmed(session, uri, subject) do
+    with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri),
+         true <- AtMcp.Interactions.own_repo?(session, repo) do
+      case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+        {:ok, response} ->
+          if undo_subject(field(response, :value)) == subject, do: {:ok, uri}, else: {:ok, nil}
+
+        {:error, %ProtoRune.XRPC.Error{reason: reason}}
+        when reason in [:record_not_found, "record_not_found"] ->
+          {:ok, nil}
+
+        {:error, reason} ->
+          {:error, failure(reason)}
+      end
+    else
+      _ -> {:ok, nil}
+    end
+  end
+
+  @undo_kinds %{unlike: :like, unrepost: :repost, unfollow: :follow, unblock: :block}
+
+  @impl true
+  def prepare_undo(session, action, uri) do
+    kind = Map.fetch!(@undo_kinds, action)
+
+    with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri),
+         :ok <- require_record_kind(collection, kind, action),
+         {:ok, deleted} <- undo_records(session, kind, repo, collection, rkey, uri) do
+      prepared = %{action: action, uri: uri, deleted: deleted}
+
+      if deleted == [],
+        do: {:ok, {:unchanged, undo_summary(Map.put(prepared, :unchanged, true))}},
+        else: {:ok, prepared}
+    else
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  # The record named, read for its subject, and the record the AppView's
+  # viewer state names for that subject when it is another one, confirmed as
+  # `viewer_record/3` confirms it. That second one is what a retried like,
+  # repost, follow or block leaves behind. A record that is not there has
+  # nothing to delete; one in another repository is deleted alone, for its
+  # service to refuse.
+  defp undo_records(session, kind, repo, collection, rkey, uri) do
+    case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+      {:ok, response} ->
+        subject = undo_subject(field(response, :value))
+        own = "at://#{session.did}/#{collection}/#{rkey}"
+
+        if is_binary(subject) and AtMcp.Interactions.own_repo?(session, repo) do
+          case viewer_record(session, kind, subject) do
+            {:ok, other} when is_binary(other) and other != own -> {:ok, [uri, other]}
+            {:ok, _} -> {:ok, [uri]}
+            error -> error
+          end
+        else
+          {:ok, [uri]}
+        end
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:record_not_found, "record_not_found"] ->
+        {:ok, []}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # A like's or repost's subject is a strong reference; a follow's or block's
+  # is a DID.
+  defp undo_subject(value) do
+    case field(value, :subject) do
+      subject when is_binary(subject) -> subject
+      subject when is_map(subject) -> string_value(subject, :uri)
+      _ -> nil
+    end
+  end
+
+  # One record is deleted as it is named; two are deleted together, in one
+  # commit of this account's repository.
+  @impl true
+  def undo(session, %{deleted: [uri]} = prepared) do
+    with {:ok, %{ok: true}} <- delete(session, uri, prepared.action, @undo_kinds[prepared.action]),
+         do: {:ok, undo_summary(prepared)}
+  end
+
+  def undo(session, %{deleted: deleted} = prepared) do
+    case AtMcp.ATProto.apply_writes(session, session.did, Enum.map(deleted, &removal/1)) do
+      {:ok, _} ->
+        {:ok, undo_summary(prepared)}
+
+      # A record read a moment ago and gone by the commit: the commit applies
+      # all of its writes or none.
+      {:error, %ProtoRune.XRPC.Error{reason: reason} = error}
+      when reason in [:record_not_found, "record_not_found"] ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           status: error.http_status,
+           message:
+             "#{error.message}. One of #{Enum.join(deleted, ", ")} was gone before the deletion; nothing was applied.",
+           detail: reason
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # A record that was not there says nothing about other records of its
+  # subject, so the result says so.
+  defp undo_summary(%{unchanged: true} = prepared) do
+    %{
+      ok: true,
+      uri: prepared.uri,
+      action: prepared.action,
+      deleted: [],
+      unchanged: true,
+      note:
+        "There is no record at #{prepared.uri}, so nothing was deleted. This says nothing about other records of the same subject."
+    }
+  end
+
+  defp undo_summary(prepared),
+    do: %{ok: true, uri: prepared.uri, action: prepared.action, deleted: prepared.deleted}
 
   # A mute is server-side state rather than a record, so it is a method call
   # and not a write to the repository.
@@ -3197,8 +3402,43 @@ defmodule AtMcp.Effects.ProtoRune do
   defp reply_refs(_session, nil), do: {:ok, nil}
 
   defp reply_refs(session, uri) when is_binary(uri) do
-    with {:ok, parent, response} <- fetch_strong_ref(session, uri) do
+    with {:ok, parent, response} <- fetch_strong_ref(session, uri),
+         :ok <- reply_allowed(session, parent.uri) do
       {:ok, %{root: root_of(response) || parent, parent: parent}}
+    end
+  end
+
+  # Whether this account may reply to a post is the AppView's answer,
+  # `viewer.replyDisabled`, from the thread's reply rule (its threadgate); the
+  # app disables its reply button on it. The PDS accepts a reply the rule
+  # excludes, and the AppView then leaves it out of the thread, so such a reply
+  # is refused here, before anything is written. A post the AppView does not
+  # return (`getPosts` leaves out what it does not have) says nothing either
+  # way, and the reply goes ahead. Any failure of the read, a rate limit or a
+  # refused credential included, fails the reply with nothing sent.
+  defp reply_allowed(session, uri) do
+    case AtMcp.ATProto.get_posts(session, [uri]) do
+      {:ok, response} ->
+        case field(response, :posts) do
+          [post | _] when is_map(post) ->
+            # The client snake-cases the keys of every body it decodes.
+            if AtMcp.Response.dig(post, [:viewer, :reply_disabled]) == true,
+              do: {:error, {:reply_disabled, uri}},
+              else: :ok
+
+          _ ->
+            :ok
+        end
+
+      {:error, reason} ->
+        failure = failure(reason)
+
+        {:error,
+         %{
+           failure
+           | message:
+               "Could not read whether the thread's reply rule lets this account reply to #{uri}, so nothing was sent: #{failure.message || "no message"}"
+         }}
     end
   end
 

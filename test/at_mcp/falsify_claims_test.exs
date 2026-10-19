@@ -64,10 +64,11 @@ defmodule AtMcp.FalsifyClaimsTest do
     mcp_src = File.read!(Path.join(lib, "at_mcp/mcp/server.ex"))
     refute mcp_src =~ ~r/tool "reset_turn_budget"/
 
-    mute_chunk = mcp_src |> String.split(~s(tool "mute")) |> Enum.at(1) |> String.slice(0, 180)
-    block_chunk = mcp_src |> String.split(~s(tool "block")) |> Enum.at(1) |> String.slice(0, 180)
-    assert mute_chunk =~ "destructiveHint: true"
-    assert block_chunk =~ "destructiveHint: true"
+    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+
+    for name <- ["mute", "block"] do
+      assert Enum.find(tools, &(&1.name == name)).annotations.destructiveHint == true
+    end
   end
 
   # --- Claim 6: Inbound starts jetstream with empty wanted_dids ---

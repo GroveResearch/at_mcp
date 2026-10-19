@@ -502,15 +502,23 @@ defmodule AtMcp.MCP.Schemas do
     })
   end
 
-  # A created like, repost, follow or block record.
+  # A created like, repost, follow or block record, or the one already there.
   defp record_result_schema do
     object(%{
-      "uri" => nullable_string("AT URI of the created record; pass this to the inverse tool"),
+      "uri" =>
+        nullable_string(
+          "AT URI of the created record, or of the one already there; pass this to the inverse tool"
+        ),
       "cid" => nullable_string(),
       "subject_uri" => nullable_string("AT URI this record refers to"),
       "subject_cid" => nullable_string(),
       "actor" => nullable_string("Handle or DID this record refers to"),
-      "action" => nullable_string()
+      "action" => nullable_string(),
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" =>
+          "True when this account already had this like, repost, follow or block (named by the AppView and found in this account's repository with this subject), so nothing was written; uri is that record"
+      }
     })
   end
 
@@ -553,7 +561,13 @@ defmodule AtMcp.MCP.Schemas do
       "unchanged" => %{
         "type" => ["boolean", "null"],
         "description" =>
-          "True when nothing would change, so nothing was written: the post already had these settings, the feed was already saved as asked, or there was no status to clear"
+          "True when nothing would change, so nothing was written: the post already had these settings, the feed was already saved as asked, there was no status to clear, or the record to undo was not there"
+      },
+      "deleted" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "unlike, unrepost, unfollow and unblock: AT URIs of every record deleted: the one named, and the record the AppView names for the same subject when that is another one"
       },
       "pronouns" => nullable_string("update_profile: the pronouns written; empty when removed"),
       "website" => nullable_string("update_profile: the website written; empty when removed"),
@@ -596,7 +610,9 @@ defmodule AtMcp.MCP.Schemas do
         "description" => "save_feed: whether the feed is now pinned as a home screen tab"
       },
       "note" =>
-        nullable_string("save_feed and unsave_feed: what the write could not guard against"),
+        nullable_string(
+          "save_feed and unsave_feed: what the write could not guard against; an undo of a record that is not there: that nothing was deleted"
+        ),
       "status" => nullable_string("set_status: live, or clear"),
       "duration_minutes" => %{
         "type" => ["integer", "null"],

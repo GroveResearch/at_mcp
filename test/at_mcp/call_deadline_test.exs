@@ -57,6 +57,9 @@ defmodule AtMcp.CallDeadlineTest do
     defp answer("/xrpc/com.atproto.repo.createRecord", opts),
       do: {200, %{uri: "at://#{opts[:did]}/app.bsky.feed.post/reply", cid: "bafyreireply"}}
 
+    # The AppView has no view of the parent, so no reply rule is in the way.
+    defp answer("/xrpc/app.bsky.feed.getPosts", _opts), do: {200, %{posts: []}}
+
     defp answer(_path, _opts), do: {404, %{error: "NotFound"}}
   end
 

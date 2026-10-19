@@ -224,6 +224,16 @@ defmodule AtMcp.WriteRecordsTest do
       assert deleted.body["repo"] == "did:plc:self"
     end
 
+    # delete_post deletes the record it names; an undo first reads what it
+    # deletes.
+    defp delete_by(:delete_post, session, uri),
+      do: AtMcp.Effects.ProtoRune.delete_post(session, uri)
+
+    defp delete_by(action, session, uri) do
+      with {:ok, prepared} <- AtMcp.Effects.ProtoRune.prepare_undo(session, action, uri),
+           do: AtMcp.Effects.ProtoRune.undo(session, prepared)
+    end
+
     @deletions [
       delete_post: "feed.post",
       unlike: "feed.like",
@@ -258,7 +268,7 @@ defmodule AtMcp.WriteRecordsTest do
           assert result[:isError]
 
           assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} =
-                   apply(AtMcp.Effects.ProtoRune, action, [ctx.session, uri])
+                   delete_by(action, ctx.session, uri)
 
           assert message =~ "record"
           assert result.structuredContent == %{code: "wrong_record_kind"}
@@ -282,7 +292,7 @@ defmodule AtMcp.WriteRecordsTest do
           action = unquote(action)
 
           assert {:ok, %{action: ^action, uri: ^uri}} =
-                   apply(AtMcp.Effects.ProtoRune, action, [ctx.session, uri])
+                   delete_by(action, ctx.session, uri)
 
           deleted = ctx.calls |> sent("com.atproto.repo.deleteRecord") |> List.last()
           assert deleted.body == %{"collection" => collection, "repo" => repo, "rkey" => "abc"}
@@ -292,7 +302,7 @@ defmodule AtMcp.WriteRecordsTest do
       test "#{action} refuses malformed references without HTTP", ctx do
         for uri <- ["not-a-uri", "at://", "at://did:plc:self", "at://did:plc:self/c/"] do
           assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
-                   apply(AtMcp.Effects.ProtoRune, unquote(action), [ctx.session, uri])
+                   delete_by(unquote(action), ctx.session, uri)
         end
 
         assert Agent.get(ctx.calls, & &1) == []
@@ -304,7 +314,7 @@ defmodule AtMcp.WriteRecordsTest do
       session: session
     } do
       assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
-               AtMcp.Effects.ProtoRune.unlike(session, "not-a-uri")
+               AtMcp.Effects.ProtoRune.prepare_undo(session, :unlike, "not-a-uri")
 
       assert Agent.get(calls, & &1) == []
     end
