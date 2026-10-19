@@ -281,7 +281,7 @@ defmodule AtMcp.MCP.Schemas do
         "left_out" => %{
           "type" => ["boolean", "null"],
           "description" =>
-            "With include_hidden: true when the app leaves this post out of the thread; hidden_by_threadgate or muted_by_viewer says why when the service says. Replies repeat this flag"
+            "With include_hidden: true when the app leaves this post out of the thread; hidden_by_threadgate or muted_by_viewer says why when the service says, and a depth above 1 means it may be left out only because a reply above it is. Replies repeat this flag and depth"
         },
         "hidden_replies_unread" =>
           nullable_string(

@@ -511,11 +511,7 @@ defmodule AtMcp.Reading do
           true -> nil
         end,
         if(post["hidden_by_threadgate"] == true, do: "Hidden by the thread's author"),
-        if(
-          post["left_out"] == true and post["hidden_by_threadgate"] != true and
-            post["muted_by_viewer"] != true,
-          do: "Left out of the thread by this account's settings"
-        ),
+        left_out_reason(post),
         if(viewer["reply_disabled"] == true, do: "You cannot reply to this post"),
         if(viewer["embedding_disabled"] == true, do: "You cannot quote this post"),
         if(viewer["thread_muted"] == true, do: "You muted this thread")
@@ -523,6 +519,26 @@ defmodule AtMcp.Reading do
       " · "
     )
   end
+
+  # A left-out reply the service gave no reason for. The read of left-out
+  # replies also returns the replies under one it leaves out, and replies left
+  # out for reasons it does not name (moderation, a rule), so no reason is
+  # claimed: only that the app leaves it out, or that it sits under a reply
+  # the app leaves out.
+  defp left_out_reason(%{"left_out" => true} = post) do
+    cond do
+      post["hidden_by_threadgate"] == true or post["muted_by_viewer"] == true ->
+        nil
+
+      is_integer(post["depth"]) and post["depth"] > 1 ->
+        "Under a reply the app leaves out of the thread"
+
+      true ->
+        "Left out of the thread by the app"
+    end
+  end
+
+  defp left_out_reason(_post), do: nil
 
   defp ids(post) do
     lines(

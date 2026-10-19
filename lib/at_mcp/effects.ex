@@ -317,9 +317,12 @@ defmodule AtMcp.Effects do
 
   defp mark_left_out(node, _by_uri, shown), do: {node, shown}
 
+  # `depth` is where the left-out read found it: a reply at depth 1 is left
+  # out itself, one deeper may be there only because a reply above it is.
   defp left_out(reply, hidden) do
     Map.merge(reply, %{
       left_out: true,
+      depth: Map.get(hidden, :depth),
       hidden_by_threadgate:
         Map.get(reply, :hidden_by_threadgate) == true or
           Map.get(hidden, :hidden_by_threadgate) == true,

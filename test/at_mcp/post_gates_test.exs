@@ -618,6 +618,8 @@ defmodule AtMcp.PostGatesTest do
 
     @rude "at://did:plc:other/app.bsky.feed.post/r"
     @deep "at://did:plc:other/app.bsky.feed.post/deep"
+    @child "at://did:plc:other/app.bsky.feed.post/child"
+    @tagged "at://did:plc:other/app.bsky.feed.post/tagged"
 
     defp view(uri, text),
       do: %{
@@ -640,11 +642,18 @@ defmodule AtMcp.PostGatesTest do
             record: %{text: "mine", createdAt: "2026-10-01T00:00:00.000Z"}
           },
           replies: [
-            %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@rude, "rude")},
+            %{
+              "$type" => "app.bsky.feed.defs#threadViewPost",
+              post: view(@rude, "rude"),
+              replies: [
+                %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@child, "child")}
+              ]
+            },
             %{
               "$type" => "app.bsky.feed.defs#threadViewPost",
               post: view("at://did:plc:other/app.bsky.feed.post/kind", "kind")
-            }
+            },
+            %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@tagged, "tagged")}
           ]
         },
         threadgate: %{
@@ -675,18 +684,32 @@ defmodule AtMcp.PostGatesTest do
         }
       }
 
+    # A reply left out for a reason the service does not name: a moderation
+    # tag, say, or a reply under one it leaves out.
+    defp unflagged_item(uri, text, depth) do
+      item = other_item(uri, text, depth, false)
+      put_in(item, [:value, :mutedByViewer], false)
+    end
+
     test "a reply the thread's author hid is marked where it stands, without include_hidden" do
       %{state: state} = pds(%{}, %{"app.bsky.feed.getPostThread" => {200, thread()}})
 
       result = call(state, "get_thread", %{"uri" => @mine})
-      [rude, kind] = result.structuredContent["replies"]
+      [rude, kind, _tagged] = result.structuredContent["replies"]
       assert rude["hidden_by_threadgate"] == true
       refute kind["hidden_by_threadgate"]
       assert hd(result.content).text =~ "Hidden by the thread's author"
     end
 
     test "get_thread with include_hidden marks the left-out replies it read, and lists the rest once" do
-      other = %{thread: [other_item(@rude, "rude", 1, true), other_item(@deep, "deep", 3, false)]}
+      other = %{
+        thread: [
+          other_item(@rude, "rude", 1, true),
+          unflagged_item(@child, "child", 2),
+          other_item(@deep, "deep", 3, false),
+          unflagged_item(@tagged, "tagged", 1)
+        ]
+      }
 
       %{effects: effects, pds: pds, state: state} =
         pds(%{}, %{
@@ -694,13 +717,15 @@ defmodule AtMcp.PostGatesTest do
           "app.bsky.unspecced.getPostThreadOtherV2" => {200, other}
         })
 
-      assert {:ok, %{replies: [rude, kind], hidden_replies: [deep]}} =
+      assert {:ok, %{replies: [rude, kind, tagged], hidden_replies: [deep]}} =
                AtMcp.Effects.get_thread(effects, @mine, include_hidden: true)
 
       assert %{uri: @rude, left_out: true, hidden_by_threadgate: true, muted_by_viewer: false} =
                rude
 
       refute Map.get(kind, :left_out)
+      assert [%{uri: @child, left_out: true, depth: 2}] = rude.replies
+      assert %{uri: @tagged, left_out: true, depth: 1, hidden_by_threadgate: false} = tagged
 
       assert %{uri: @deep, text: "deep", depth: 3, hidden_by_threadgate: false} = deep
       assert deep.muted_by_viewer == true
@@ -714,7 +739,11 @@ defmodule AtMcp.PostGatesTest do
       # Each reply appears once.
       assert length(String.split(text, "uri: #{@rude}")) == 2
       assert length(String.split(text, "uri: #{@deep}")) == 2
-      assert text =~ "each marked where it stands: 1."
+      assert text =~ "each marked where it stands: 3."
+      # No reason is claimed where the service named none.
+      assert text =~ "Under a reply the app leaves out of the thread"
+      assert text =~ "Left out of the thread by the app"
+      refute text =~ "this account's settings"
       assert text =~ "Replies under this post left out of the thread: 1."
     end
 
@@ -731,7 +760,7 @@ defmodule AtMcp.PostGatesTest do
       # the result says so in one line.
       result = call(state, "get_thread", %{"uri" => @mine, "include_hidden" => true})
       refute result[:isError]
-      assert [_, _] = result.structuredContent["replies"]
+      assert [_, _, _] = result.structuredContent["replies"]
       refute Map.has_key?(result.structuredContent, "hidden_replies")
       text = hd(result.content).text
       assert text =~ "[this post]"
