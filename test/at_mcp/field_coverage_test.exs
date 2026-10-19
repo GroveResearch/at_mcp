@@ -15,7 +15,11 @@ defmodule AtMcp.FieldCoverageTest do
     lists: "lists.json",
     starter_pack: "starter_pack.json",
     starter_packs: "starter_packs.json",
-    starter_packs: "actor_starter_packs.json"
+    starter_packs: "actor_starter_packs.json",
+    starter_packs: "suggested_starter_packs.json",
+    feed_info: "feed_generator.json",
+    trends: "trends.json",
+    topics: "trending_topics.json"
   ]
 
   @dir Path.expand("../fixtures/appview", __DIR__)

@@ -400,7 +400,14 @@ defmodule AtMcp.ActorResolutionTest do
     {"get_relationships", %{"actor" => "@alice.example", "others" => ["@bob.example"]}},
     {"get_actor_likes", %{"actor" => "@alice.example"}},
     {"search_posts",
-     %{"query" => "hello", "author" => "@alice.example", "mentions" => "@bob.example"}},
+     %{
+       "query" => "hello",
+       "author" => "@alice.example",
+       "mentions" => "@bob.example",
+       "exclude_authors" => ["@carol.example"],
+       "exclude_mentions" => ["@dan.example"]
+     }},
+    {"get_actor_feeds", %{"actor" => "@alice.example"}},
     {"mute", %{"actor" => "@alice.example"}},
     {"unmute", %{"actor" => "@alice.example"}},
     {"get_lists", %{"actor" => "@alice.example"}},

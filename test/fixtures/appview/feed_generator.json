@@ -1,0 +1,55 @@
+{
+  "view": {
+    "uri": "at://did:plc:nsne6glzd35roxpbsus52tia/app.bsky.feed.generator/dzjzg6skjvhm7",
+    "cid": "bafyh2qqtmmxly7hso7ickqsqbm5l7sjugqnstnbkjcjffh6oayzngwogsd",
+    "did": "did:plc:fqib7qd3fj3xiqvg4q2mvhtw",
+    "creator": {
+      "did": "did:plc:nsne6glzd35roxpbsus52tia",
+      "handle": "om7iqwbfxf.example.test",
+      "displayName": "xxxxxxxxxxxxx",
+      "avatar": "https://example.test/wt6dxgs4mwfh",
+      "associated": {
+        "chat": {
+          "allowIncoming": "following"
+        },
+        "activitySubscription": {
+          "allowSubscriptions": "none"
+        }
+      },
+      "labels": [
+        {
+          "src": "did:plc:nsne6glzd35roxpbsus52tia",
+          "uri": "at://did:plc:nsne6glzd35roxpbsus52tia/app.bsky.actor.profile/self",
+          "cid": "bafyop6q2in7via6knbuudkwxgz62tdmckkhckzk2ajc4gubeb4ao2tnwls",
+          "val": "!no-unauthenticated",
+          "cts": "1970-09-08T04:52:10.000Z"
+        }
+      ],
+      "createdAt": "2023-12-31T20:48:12.155Z",
+      "verification": {
+        "verifications": [
+          {
+            "issuer": "did:plc:a7xxchiyeqdlxvwqr7rodp5v",
+            "issuerDisplayName": "xxxxxxx",
+            "issuerHandle": "hlnmhutjrt.example.test",
+            "uri": "at://did:plc:a7xxchiyeqdlxvwqr7rodp5v/app.bsky.graph.verification/zy777lijjfbg7",
+            "isValid": true,
+            "createdAt": "2026-03-11T09:42:37.155Z"
+          }
+        ],
+        "verifiedStatus": "valid",
+        "trustedVerifierStatus": "none"
+      },
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "indexedAt": "2027-06-09T07:59:03.457Z"
+    },
+    "displayName": "xxxx",
+    "description": "xxxxxxxxxxxxxxxxxxxxxxxxx",
+    "avatar": "https://example.test/o7t3gsgoasoe",
+    "likeCount": 28,
+    "labels": [],
+    "indexedAt": "2025-10-04T02:17:20.566Z"
+  },
+  "isOnline": true,
+  "isValid": true
+}

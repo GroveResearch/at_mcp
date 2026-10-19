@@ -334,20 +334,63 @@ defmodule AtMcp.Effects.ProtoRune do
     |> read(:posts, &post_view/1)
   end
 
+  # `AtMcp.Effects.search_posts/3`'s filters in the words the tool takes, and
+  # the `feed.searchPostsV2` parameter each becomes. A single author, mention
+  # or language is the one-entry list the service takes.
+  @search_params %{
+    author: "authors",
+    mentions: "mentions",
+    lang: "languages",
+    exclude_authors: "excludeAuthors",
+    exclude_mentions: "excludeMentions",
+    domains: "domains",
+    exclude_domains: "excludeDomains",
+    urls: "urls",
+    exclude_urls: "excludeUrls",
+    embeds: "embeddedAtUris",
+    exclude_embeds: "excludeEmbeddedAtUris",
+    hashtags: "hashtags",
+    exclude_hashtags: "excludeHashtags",
+    exclude_langs: "excludeLanguages",
+    since: "since",
+    until: "until",
+    has_media: "hasMedia",
+    has_video: "hasVideo",
+    reply_to: "replyParentUri",
+    thread_root: "threadRootUri",
+    following: "following",
+    query_language: "queryLanguage"
+  }
+
   @impl true
-  def search_posts(session, query, opts) when is_binary(query) do
+  def search_posts(session, query, opts) do
+    filters =
+      for {key, value} <- opts, wire = @search_params[key], into: %{} do
+        {wire, if(key in [:author, :mentions, :lang], do: [value], else: value)}
+      end
+
     params =
-      AtMcp.ATProto.params(%{
-        q: query,
-        limit: Keyword.get(opts, :limit, 20),
-        cursor: Keyword.get(opts, :cursor),
-        sort: Keyword.get(opts, :sort),
-        since: Keyword.get(opts, :since),
-        until: Keyword.get(opts, :until),
-        mentions: Keyword.get(opts, :mentions),
-        author: Keyword.get(opts, :author),
-        lang: Keyword.get(opts, :lang)
+      filters
+      |> Map.merge(%{
+        "query" => query,
+        "limit" => Keyword.get(opts, :limit, 20),
+        "cursor" => Keyword.get(opts, :cursor),
+        # A call that says nothing gets what the first version gave it, whose
+        # lexicon defaults `sort` to latest and whose handler always searches
+        # every post (`allTime: true // match v1 behavior, v2 defaults to
+        # false`, packages/bsky/src/api/app/bsky/feed/searchPosts.ts). This
+        # version defaults to top and to its recent window. The tool says
+        # latest, as the first version did; this version says recent.
+        "sort" =>
+          case Keyword.get(opts, :sort) do
+            "top" -> "top"
+            _latest_or_nil -> "recent"
+          end,
+        "allTime" => if(Keyword.get(opts, :all_time, true), do: true),
+        "excludeReplies" => if(Keyword.get(opts, :replies) == "exclude", do: true),
+        "repliesOnly" => if(Keyword.get(opts, :replies) == "only", do: true)
       })
+      |> AtMcp.ATProto.params()
 
     case AtMcp.ATProto.search_posts(session, params) do
       {:ok, raw} -> page(raw, :posts, &post_view/1)
@@ -396,6 +439,25 @@ defmodule AtMcp.Effects.ProtoRune do
     session
     |> AtMcp.ATProto.get_suggested_follows_by_actor(%{actor: actor})
     |> read(:suggestions, &summarize_profile/1)
+  end
+
+  @impl true
+  def get_suggested_accounts(session, "actor.getSuggestions", opts) do
+    session
+    |> AtMcp.ATProto.get_suggestions(paging(opts, %{}))
+    |> read(:actors, &summarize_profile/1)
+  end
+
+  def get_suggested_accounts(session, suffix, opts) do
+    params =
+      AtMcp.ATProto.params(%{
+        limit: Keyword.get(opts, :limit, 20),
+        category: Keyword.get(opts, :category)
+      })
+
+    session
+    |> AtMcp.ATProto.get_suggested_users(suffix, params)
+    |> read(:actors, &summarize_profile/1)
   end
 
   @impl true
@@ -531,9 +593,168 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def get_suggested_feeds(session, opts) do
+    if Keyword.get(opts, :source) == :unspecced do
+      session
+      |> AtMcp.ATProto.get_unspecced_suggested_feeds(%{limit: Keyword.get(opts, :limit, 20)})
+      |> read(:feeds, &summarize_generator/1)
+    else
+      session
+      |> AtMcp.ATProto.get_suggested_feeds(paging(opts, %{}))
+      |> read(:feeds, &summarize_generator/1)
+    end
+  end
+
+  # One feed is read with `getFeedGenerator`, which says whether its service
+  # is online and valid. Several are read with `getFeedGenerators`, which does
+  # not say, and leaves out a feed it does not know; those are `not_found`.
+  @impl true
+  def get_feed_info(session, [uri]) do
+    case AtMcp.ATProto.get_feed_generator(session, %{feed: uri}) do
+      {:ok, response} -> feed_info(response)
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  def get_feed_info(session, uris) when is_list(uris) do
+    with {:ok, page} <-
+           session
+           |> AtMcp.ATProto.get_feed_generators(uris)
+           |> read(:feeds, &summarize_generator/1) do
+      found = MapSet.new(page.items, &Map.get(&1, :uri))
+      items = Enum.map(page.items, &Map.merge(&1, %{is_online: nil, is_valid: nil}))
+      {:ok, %{page | items: items} |> Map.put(:not_found, Enum.reject(uris, &(&1 in found)))}
+    end
+  end
+
+  defp feed_info(response) do
+    case AtMcp.Response.fetch(response, :view) do
+      {:ok, view} when is_map(view) ->
+        item =
+          view
+          |> summarize_generator()
+          |> Map.merge(%{
+            is_online: boolean_field(response, :is_online),
+            is_valid: boolean_field(response, :is_valid)
+          })
+
+        {:ok, %{count: 1, items: [item], cursor: nil, not_found: []}}
+
+      _ ->
+        {:error, unreadable("a feed generator", response)}
+    end
+  end
+
+  defp boolean_field(map, key) do
+    case field(map, key) do
+      value when is_boolean(value) -> value
+      _ -> nil
+    end
+  end
+
+  @impl true
+  def get_actor_feeds(session, actor, opts) when is_binary(actor) do
     session
-    |> AtMcp.ATProto.get_suggested_feeds(paging(opts, %{}))
+    |> AtMcp.ATProto.get_actor_feeds(paging(opts, %{actor: actor}))
     |> read(:feeds, &summarize_generator/1)
+  end
+
+  @impl true
+  def search_feeds(session, query, opts) do
+    session
+    |> AtMcp.ATProto.get_popular_feed_generators(paging(opts, %{query: query}))
+    |> read(:feeds, &summarize_generator/1)
+  end
+
+  @impl true
+  def get_suggested_starter_packs(session, suffix, opts) do
+    session
+    |> AtMcp.ATProto.get_suggested_starter_packs(suffix, %{limit: Keyword.get(opts, :limit, 20)})
+    |> read(:starter_packs, &pack_view/1)
+  end
+
+  @impl true
+  def get_trends(session, "unspecced.getTrends", opts) do
+    session
+    |> AtMcp.ATProto.get_trends(%{limit: Keyword.get(opts, :limit, 20)})
+    |> read(:trends, &trend/1)
+  end
+
+  def get_trends(session, "unspecced.getTrendingTopics", opts) do
+    case AtMcp.ATProto.get_trending_topics(session, %{limit: Keyword.get(opts, :limit, 20)}) do
+      {:ok, response} -> topics(response)
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  # Trending topics, and beside them the topics the service suggests.
+  defp topics(response) do
+    with {:ok, page} <- page(response, :topics, &trend/1) do
+      case field(response, :suggested) do
+        suggested when is_list(suggested) ->
+          {:ok, Map.put(page, :suggested, Enum.map(suggested, &trend/1))}
+
+        _ ->
+          {:error, unreadable("trending topics", response)}
+      end
+    end
+  end
+
+  defp trend(item), do: AtMcp.Summary.extract(:trend, item)
+
+  @impl true
+  def get_record(session, uri) when is_binary(uri) do
+    {:ok, {repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    case AtMcp.ATProto.get_record_as_stored(session, %{
+           repo: repo,
+           collection: collection,
+           rkey: rkey
+         }) do
+      {:ok, %{"value" => value} = response} ->
+        {:ok,
+         %{
+           uri: canonical(response, uri),
+           cid: Map.get(response, "cid"),
+           value: value
+         }}
+
+      {:ok, other} ->
+        {:error, unreadable("a record", other)}
+
+      {:error, :unreadable_record} ->
+        {:error, unreadable("a record", %{})}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # Invitation codes are delve.town's: the town's app lists them, and asks for
+  # used ones and newly earned ones as it does here.
+  @impl true
+  def get_invite_codes(session) do
+    if AtMcp.Network.name() == :delve do
+      case AtMcp.ATProto.get_invite_codes(session, %{includeUsed: true, createAvailable: true}) do
+        {:ok, response} -> invite_codes(response)
+        {:error, reason} -> {:error, failure(reason)}
+      end
+    else
+      {:error, AtMcp.Effects.Failure.new(:refused, detail: :invite_codes_not_supported)}
+    end
+  end
+
+  defp invite_codes(response) do
+    with {:ok, page} <- page(response, :codes, &AtMcp.Summary.extract(:invite_code, &1)) do
+      # Whether the town issues earned codes. Read when it is there and never
+      # required: the method has no published lexicon to promise it.
+      collection =
+        case field(response, :collection) do
+          collection when is_binary(collection) -> collection
+          _ -> nil
+        end
+
+      {:ok, page |> Map.delete(:cursor) |> Map.put(:collection, collection)}
+    end
   end
 
   @impl true
@@ -2838,6 +3059,9 @@ defmodule AtMcp.Effects.ProtoRune do
   def summarize(:profile, response), do: {:ok, summarize_profile(response)}
   def summarize(:likes, response), do: page(response, :likes, &actor_item/1)
   def summarize(:feeds, response), do: page(response, :feeds, &summarize_generator/1)
+  def summarize(:feed_info, response), do: feed_info(response)
+  def summarize(:trends, response), do: page(response, :trends, &trend/1)
+  def summarize(:topics, response), do: topics(response)
   def summarize(:list, response), do: list_page(response)
   def summarize(:lists, response), do: page(response, :lists, &list_view/1)
 

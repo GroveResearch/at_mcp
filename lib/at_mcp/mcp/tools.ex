@@ -15,6 +15,28 @@ defmodule AtMcp.MCP.Tools do
         )
 
   def respond(
+        {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :invite_codes_not_supported}},
+        state
+      ),
+      do:
+        error(
+          state,
+          "invite_codes_not_supported",
+          "error: Invitation codes are delve.town's, and this account is on #{AtMcp.Network.label()}. Nothing was sent."
+        )
+
+  # A method this network's deployment is known not to serve
+  # (`AtMcp.Endpoints.deployments/0`), refused before anything was sent.
+  def respond({:error, {:not_served, nsid, evidence}}, state),
+    do:
+      error(
+        state,
+        "not_served",
+        "error: #{AtMcp.Network.label()} does not serve #{nsid}: #{evidence}. Nothing was sent and nothing was counted against the write quota.",
+        %{method: nsid}
+      )
+
+  def respond(
         {:error,
          %AtMcp.Effects.Failure{kind: :refused, detail: {:wrong_record_kind, _, _}} = failure},
         state
@@ -288,10 +310,11 @@ defmodule AtMcp.MCP.Tools do
   def respond(other, state), do: {:ok, encode(other), state}
 
   @doc """
-  `respond/2` for a read made of posts, lists or starter packs. The
-  structured content is the same; the text a model reads is `AtMcp.Reading`'s
-  `reading` of it (`:posts`, `:notifications`, `:thread`, `:chain`, `:list`,
-  `:lists`, `:starter_pack` or `:starter_packs`) instead of the serialized JSON. A
+  `respond/2` for a read made of posts, lists, starter packs, feeds, trends
+  or invitation codes. The structured content is the same; the text a model
+  reads is `AtMcp.Reading`'s `reading` of it (`:posts`, `:notifications`,
+  `:thread`, `:chain`, `:list`, `:lists`, `:starter_pack`, `:starter_packs`,
+  `:feeds`, `:trends` or `:invite_codes`) instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """
   def respond({:ok, summary}, state, reading) do

@@ -96,8 +96,30 @@ defmodule AtMcp.SummaryTest do
       "description" => "posts the service currently surfaces",
       "creator" => %{"handle" => "author.test", "did" => "did:plc:author"},
       "likeCount" => 12,
+      "acceptsInteractions" => true,
+      "labels" => [%{"val" => "spam", "src" => "did:plc:labeler"}],
       "indexedAt" => "2026-09-13T12:34:56.123Z",
       "viewer" => %{"like" => "at://did:plc:viewer/app.bsky.feed.like/1"}
+    },
+    trend: %{
+      "topic" => "kites",
+      "displayName" => "Kites",
+      "description" => "kite season",
+      "link" => "/search?q=kites",
+      "startedAt" => "2026-10-18T00:00:00.000Z",
+      "postCount" => 12,
+      "status" => "hot",
+      "category" => "sports",
+      "actors" => [%{"did" => "did:plc:a", "handle" => "a.test", "displayName" => "A"}]
+    },
+    invite_code: %{
+      "code" => "town-abcde",
+      "available" => 1,
+      "disabled" => false,
+      "forAccount" => "did:plc:self",
+      "createdBy" => "admin",
+      "createdAt" => "2026-10-18T00:00:00.000Z",
+      "uses" => [%{"usedBy" => "did:plc:b", "usedAt" => "2026-10-18T01:00:00.000Z"}]
     },
     draft: %{
       "id" => "3draft",

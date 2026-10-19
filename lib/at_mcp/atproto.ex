@@ -84,6 +84,50 @@ defmodule AtMcp.ATProto do
   def get_suggested_feeds(session, params),
     do: read(session, "feed.getSuggestedFeeds", params, @page)
 
+  # The newer suggestion service's feeds. It takes no cursor.
+  def get_unspecced_suggested_feeds(session, params),
+    do: read(session, "unspecced.getSuggestedFeeds", params, limit: :integer)
+
+  # One feed generator, with whether its service is online and valid.
+  def get_feed_generator(session, params),
+    do: read(session, "feed.getFeedGenerator", params, feed: {:required, :string})
+
+  # The feed generators an account declared.
+  def get_actor_feeds(session, params),
+    do: read(session, "feed.getActorFeeds", params, [actor: {:required, :string}] ++ @page)
+
+  # Popular feeds, or those whose name or description matches `query`. This is
+  # what the app's feed search calls.
+  def get_popular_feed_generators(session, params),
+    do: read(session, "unspecced.getPopularFeedGenerators", params, [query: :string] ++ @page)
+
+  # Accounts suggested without a subject: `actor.getSuggestions` pages with a
+  # cursor; the `unspecced.getSuggested*` methods take `suffix` and a category.
+  def get_suggestions(session, params),
+    do: read(session, "actor.getSuggestions", params, @page)
+
+  def get_suggested_users(session, suffix, params),
+    do: read(session, suffix, params, category: :string, limit: :integer)
+
+  # Suggested starter packs: `unspecced.getSuggestedStarterPacks` or the
+  # onboarding one, named by `suffix`.
+  def get_suggested_starter_packs(session, suffix, params),
+    do: read(session, suffix, params, limit: :integer)
+
+  def get_trends(session, params),
+    do: read(session, "unspecced.getTrends", params, limit: :integer)
+
+  def get_trending_topics(session, params),
+    do: read(session, "unspecced.getTrendingTopics", params, limit: :integer)
+
+  # The town's invitation codes for this account. Only delve.town has them.
+  def get_invite_codes(session, params),
+    do:
+      read(session, "invitation.getCodes", params,
+        includeUsed: :boolean,
+        createAvailable: :boolean
+      )
+
   # The posts of the accounts on one list.
   def get_list_feed(session, params),
     do: read(session, "feed.getListFeed", params, [list: {:required, :string}] ++ @page)
@@ -115,25 +159,18 @@ defmodule AtMcp.ATProto do
   def get_timeline(session, params),
     do: read(session, "feed.getTimeline", params, @page)
 
-  # Full-text search over posts. Optional filters are the lexicon's own
-  # scalars: sort, since, until, mentions, author, lang. A list-valued
-  # filter (tag) is not declared here because it would need repeated keys.
-  def search_posts(session, params),
-    do:
-      read(
-        session,
-        "feed.searchPosts",
-        params,
-        [
-          q: {:required, :string},
-          sort: :string,
-          since: :string,
-          until: :string,
-          mentions: :string,
-          author: :string,
-          lang: :string
-        ] ++ @page
-      )
+  @doc """
+  Search posts with `feed.searchPostsV2`, the version the app calls. Its
+  filters are mostly lists (`authors`, `hashtags`, `excludeDomains`, …), so
+  every list-valued parameter is repeated once per entry. Parameter names are
+  the lexicon's.
+  """
+  def search_posts(session, params) when is_map(params),
+    do: repeated_query(session, AtMcp.Network.nsid("feed.searchPostsV2"), params)
+
+  @doc "Several feed generators by AT URI. `feeds` is repeated once per entry."
+  def get_feed_generators(session, feeds) when is_list(feeds),
+    do: repeated_query(session, AtMcp.Network.nsid("feed.getFeedGenerators"), %{feeds: feeds})
 
   # --- actor reads ---
 
@@ -534,6 +571,30 @@ defmodule AtMcp.ATProto do
   @doc "Read one record out of a repository."
   def get_record(session, params),
     do: query(session, "com.atproto.repo.getRecord", @repo_get, params)
+
+  @doc """
+  One record exactly as its repository holds it: `%{"uri", "cid", "value"}`,
+  every key as the service sent it. `get_record/2` reads through proto_rune's
+  XRPC client, which renames every key to snake_case; a record of another
+  application may have keys that do not survive the rename and back, so this
+  reads the body itself.
+  """
+  def get_record_as_stored(session, params) do
+    query =
+      Query.new("com.atproto.repo.getRecord",
+        from: @repo_get,
+        base_url: base_url(session),
+        response: :binary
+      )
+
+    with {:ok, query} <- Query.add_params(query, params),
+         {:ok, %{body: body}} <- execute(session, query, "GET") do
+      case Jason.decode(body) do
+        {:ok, %{} = decoded} -> {:ok, decoded}
+        _ -> {:error, :unreadable_record}
+      end
+    end
+  end
 
   @repo_list %{
     repo: {:required, :string},

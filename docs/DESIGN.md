@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 71 tools: 70 network verbs, plus
+`AtMcp.MCP.Server` declares 78 tools: 77 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -127,18 +127,30 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Category | Tools |
 | --- | --- |
 | Writing | `post`, `reply`, `delete_post`, `update_profile` |
-| Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_suggested_feeds`, `get_list_feed`, `get_actor_likes` |
+| Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_list_feed`, `get_actor_likes`, `get_record` |
+| Discovery | `get_suggested_feeds`, `get_feed_info`, `get_actor_feeds`, `search_feeds`, `get_suggested_starter_packs`, `get_trends`, `get_invite_codes` (delve.town) |
 | Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
 | Lists | `create_list`, `update_list`, `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`, `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`, and the reads `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
 | Account | `identity_status` |
 
-`search_posts` takes the query string and, optionally, `author`, `mentions`,
-`sort` (`latest` or `top`), `since`, `until` and `lang`. Those filters are
-sent as the search method's own parameters; a leading `@` on a handle is
-stripped the way it is on every other actor argument. A sort that is not
-`latest` or `top` is refused before a session is taken.
+`search_posts` calls `feed.searchPostsV2`, the version the app calls. It takes
+a query string, filters, or both: `author`, `mentions`, `sort` (`latest` or
+`top`, sent as `recent` or `top`), `since`, `until` and `lang` as before, and
+`all_time`. A call that gives neither `sort` nor `all_time` is sent as
+`sort=recent&allTime=true`, which is what the first version's lexicon default
+and handler gave it (V2 alone defaults to `top` over a recent window), so an
+existing call means what it did. It also takes
+the filters the first version lacked, each sent under the lexicon's own name
+(a list as a repeated key). A leading `@` on a handle is stripped the way it is
+on every other actor argument, and a post named by a handle-form AT URI is
+searched for by its DID form. A sort that is not `latest` or `top`, or a call
+with neither a query nor a filter, is refused before a session is taken.
+
+A read that a deployment is known not to serve (`AtMcp.Endpoints.deployments/0`:
+on delve.town, trends and two of the suggestion methods) is refused with
+`not_served` before anything is sent, naming the method and the evidence.
 
 `post` and `reply` take `images` (base64 bytes or a file path, a MIME type and
 alt text, uploaded as blobs before the record is built), `quote` (an AT URI, whose CID
@@ -289,8 +301,8 @@ the thread is returned with a line saying why.
 Absent from the surface: saved and pinned feeds,
 posting video, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
-reads a custom feed from a generator URI it was given or from
-`get_suggested_feeds`, receives every
+finds a custom feed with `get_suggested_feeds`, `search_feeds` or
+`get_actor_feeds` rather than from a saved list, receives every
 notification and discards locally, and reads a video by its alt text and a
 link card by its text, without the video or the card's image.
 

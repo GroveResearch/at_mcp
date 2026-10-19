@@ -83,7 +83,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
               cond do
                 String.ends_with?(uri.path, "listNotifications") -> :notifications
                 String.ends_with?(uri.path, "searchActors") -> :actors
-                String.ends_with?(uri.path, "searchPosts") -> :posts
+                String.ends_with?(uri.path, "searchPostsV2") -> :posts
                 String.ends_with?(uri.path, "getQuotes") -> :posts
                 String.ends_with?(uri.path, "getFollowers") -> :followers
                 String.ends_with?(uri.path, "getKnownFollowers") -> :followers
@@ -241,9 +241,10 @@ defmodule AtMcp.MCP.ReadPagesTest do
     refute item.is_read
   end
 
-  test "search_posts sends author, mentions, sort, since, until and lang on the wire", %{
-    client: client
-  } do
+  test "search_posts sends author, mentions, sort, since, until and lang on the wire, as searchPostsV2 names them",
+       %{
+         client: client
+       } do
     result =
       call(client, "search_posts", %{
         "query" => "at_mcp",
@@ -257,15 +258,18 @@ defmodule AtMcp.MCP.ReadPagesTest do
       })
 
     assert result["count"] == 30
-    assert_receive {:wire, "/xrpc/app.bsky.feed.searchPosts", wire, _headers}
+    assert_receive {:wire, "/xrpc/app.bsky.feed.searchPostsV2", wire, _headers}
     pairs = URI.query_decoder(wire) |> Enum.to_list()
-    assert {"q", "at_mcp"} in pairs
-    assert {"author", "writer.example"} in pairs
+    assert {"query", "at_mcp"} in pairs
+    assert {"authors", "writer.example"} in pairs
     assert {"mentions", "reader.example"} in pairs
-    assert {"sort", "latest"} in pairs
+    # The first version said latest; this one says recent.
+    assert {"sort", "recent"} in pairs
     assert {"since", "2026-09-01T00:00:00Z"} in pairs
     assert {"until", "2026-10-01T00:00:00Z"} in pairs
-    assert {"lang", "en"} in pairs
+    assert {"languages", "en"} in pairs
+    # As the first version searched: every post, not the recent window.
+    assert {"allTime", "true"} in pairs
     refute List.keymember?(pairs, "cursor", 0)
     refute Enum.any?(pairs, fn {_key, value} -> String.contains?(value, "@") end)
   end
@@ -277,7 +281,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
           {"get_notifications", %{}, "listNotifications"},
           {"get_timeline", %{}, "getTimeline"},
           {"get_author_feed", %{"actor" => "reader.example"}, "getAuthorFeed"},
-          {"search_posts", %{"query" => "at_mcp"}, "searchPosts"},
+          {"search_posts", %{"query" => "at_mcp"}, "searchPostsV2"},
           {"search_actors", %{"query" => "at_mcp"}, "searchActors"}
         ] do
       first = call(client, name, Map.put(args, "limit", 30))

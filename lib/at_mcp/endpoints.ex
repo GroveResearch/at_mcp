@@ -56,15 +56,16 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.feed.getRepostedBy", {:tool, "get_reposted_by"}},
     {"app.bsky.feed.getQuotes", {:tool, "get_quotes"}},
     {"app.bsky.feed.getActorLikes", {:tool, "get_actor_likes"}},
-    {"app.bsky.feed.searchPosts", {:tool, "search_posts"}},
-    {"app.bsky.feed.searchPostsV2", {:todo, @feeds}},
+    {"app.bsky.feed.searchPosts",
+     {:left_out, "The first version of `feed.searchPostsV2`, which `search_posts` calls"}},
+    {"app.bsky.feed.searchPostsV2", {:tool, "search_posts"}},
     {"app.bsky.feed.getFeed", {:tool, "get_feed"}},
     {"app.bsky.feed.getListFeed", {:tool, "get_list_feed"}},
     {"app.bsky.feed.getSuggestedFeeds", {:tool, "get_suggested_feeds"}},
-    {"app.bsky.feed.getFeedGenerator", {:todo, @feeds}},
-    {"app.bsky.feed.getFeedGenerators", {:todo, @feeds}},
-    {"app.bsky.feed.getActorFeeds", {:todo, @feeds}},
-    {"app.bsky.unspecced.getPopularFeedGenerators", {:todo, @feeds}},
+    {"app.bsky.feed.getFeedGenerator", {:tool, "get_feed_info"}},
+    {"app.bsky.feed.getFeedGenerators", {:tool, "get_feed_info"}},
+    {"app.bsky.feed.getActorFeeds", {:tool, "get_actor_feeds"}},
+    {"app.bsky.unspecced.getPopularFeedGenerators", {:tool, "search_feeds"}},
     {"app.bsky.feed.describeFeedGenerator",
      {:left_out, "Asked of a feed generator service by an AppView, not by a client"}},
     {"app.bsky.feed.getFeedSkeleton",
@@ -97,7 +98,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.actor.searchActorsTypeahead",
      {:left_out,
       "Prefix search for the app's search box; `search_actors` finds the same accounts"}},
-    {"app.bsky.actor.getSuggestions", {:todo, @feeds}},
+    {"app.bsky.actor.getSuggestions", {:tool, "get_suggested_follows"}},
     {"app.bsky.actor.profile", {:tool, "update_profile"}},
     {"app.bsky.actor.status", {:todo, @feeds}},
     {"app.bsky.actor.link", {:todo, @feeds}},
@@ -134,8 +135,9 @@ defmodule AtMcp.Endpoints do
       "The first version of `graph.searchStarterPacksV2`, which `get_starter_packs` calls"}},
     {"app.bsky.graph.searchStarterPacksV2", {:tool, "get_starter_packs"}},
     {"app.bsky.graph.starterpack", {:tool, "create_starter_pack"}},
-    {"app.bsky.unspecced.getSuggestedStarterPacks", {:todo, @feeds}},
-    {"app.bsky.unspecced.getOnboardingSuggestedStarterPacks", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedStarterPacks", {:tool, "get_suggested_starter_packs"}},
+    {"app.bsky.unspecced.getOnboardingSuggestedStarterPacks",
+     {:tool, "get_suggested_starter_packs"}},
 
     # --- Moderation ---
     {"com.atproto.moderation.createReport", {:todo, @moderation}},
@@ -179,19 +181,23 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.unspecced.*Skeleton",
      {:left_out,
       "What an AppView asks its search or suggestion service; a client calls the hydrated form"}},
-    {"app.bsky.unspecced.getSuggestedFeeds", {:todo, @feeds}},
-    {"app.bsky.unspecced.getSuggestedUsers", {:todo, @feeds}},
-    {"app.bsky.unspecced.getSuggestedUsersForExplore", {:todo, @feeds}},
-    {"app.bsky.unspecced.getSuggestedUsersForDiscover", {:todo, @feeds}},
-    {"app.bsky.unspecced.getSuggestedUsersForSeeMore", {:todo, @feeds}},
-    {"app.bsky.unspecced.getSuggestedOnboardingUsers", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedFeeds", {:tool, "get_suggested_feeds"}},
+    {"app.bsky.unspecced.getSuggestedUsers", {:tool, "get_suggested_follows"}},
+    {"app.bsky.unspecced.getSuggestedUsersForExplore", {:tool, "get_suggested_follows"}},
+    {"app.bsky.unspecced.getSuggestedUsersForDiscover", {:tool, "get_suggested_follows"}},
+    {"app.bsky.unspecced.getSuggestedUsersForSeeMore", {:tool, "get_suggested_follows"}},
+    {"app.bsky.unspecced.getSuggestedOnboardingUsers", {:tool, "get_suggested_follows"}},
     {"app.bsky.unspecced.getTaggedSuggestions",
      {:left_out,
       "Suggested accounts grouped by interest tag; the current app does not call it, and the suggestion endpoints it does call are in #93"}},
-    {"app.bsky.unspecced.getTrends", {:todo, @feeds}},
-    {"app.bsky.unspecced.getTrendingTopics", {:todo, @feeds}},
-    {"app.bsky.unspecced.getAtmosphereExploreTab", {:todo, @feeds}},
-    {"app.bsky.unspecced.getAtmosphereExploreArticleRecommendations", {:todo, @feeds}},
+    {"app.bsky.unspecced.getTrends", {:tool, "get_trends"}},
+    {"app.bsky.unspecced.getTrendingTopics", {:tool, "get_trends"}},
+    {"app.bsky.unspecced.getAtmosphereExploreTab",
+     {:left_out,
+      "The app's Explore tab is behind a feature gate the AppView keeps off: it answers 403 \"Atmosphere Explore is not enabled\" (checked 2026-10-18), so there is no response to read a summary from. Build it when the gate is on"}},
+    {"app.bsky.unspecced.getAtmosphereExploreArticleRecommendations",
+     {:left_out,
+      "A skeleton the AppView asks its recommendation service, which `getAtmosphereExploreTab` hydrates (its lexicon says so); the AppView does not serve it to clients"}},
     {"app.bsky.unspecced.getConfig",
      {:left_out, "The app's own feature configuration, not the account's"}},
     {"app.bsky.feed.generator",
@@ -228,7 +234,7 @@ defmodule AtMcp.Endpoints do
     {"com.atproto.repo.deleteRecord", {:tool, "delete_post"}},
     {"com.atproto.repo.uploadBlob", {:tool, "post"}},
     {"com.atproto.repo.applyWrites", {:tool, "post"}},
-    {"com.atproto.repo.getRecord", {:todo, 70}},
+    {"com.atproto.repo.getRecord", {:tool, "get_record"}},
     {"com.atproto.repo.listRecords", {:tool, "remove_from_list"}},
     {"com.atproto.repo.describeRepo",
      {:left_out, "Describes a repository's collections, for tools that inspect repositories"}},
@@ -275,7 +281,7 @@ defmodule AtMcp.Endpoints do
     {"town.delve.membership.withdraw",
      {:left_out,
       "A policy choice, not a limit of the app: withdrawing ends the account's membership, and at_mcp leaves that to the person responsible for the account"}},
-    {"town.delve.invitation.getCodes", {:todo, @feeds}},
+    {"town.delve.invitation.getCodes", {:tool, "get_invite_codes"}},
     {"town.delve.admin.*", {:left_out, "The town operator's administration API"}},
 
     # --- Other applications' records that Bluesky's AppView reads ---
@@ -310,9 +316,7 @@ defmodule AtMcp.Endpoints do
       {"app.bsky.unspecced.getSuggestedUsers", @delve_501},
       {"app.bsky.unspecced.getSuggestedFeeds", @delve_501},
       {"app.bsky.actor.link", @delve_absent},
-      {"app.bsky.notification.getGroupedNotifications", @delve_absent},
-      {"app.bsky.unspecced.getAtmosphereExploreTab", @delve_absent},
-      {"app.bsky.unspecced.getAtmosphereExploreArticleRecommendations", @delve_absent}
+      {"app.bsky.notification.getGroupedNotifications", @delve_absent}
     ]
   }
 
@@ -325,6 +329,17 @@ defmodule AtMcp.Endpoints do
   serves everything in `entries/0`.
   """
   def deployments, do: @deployments
+
+  @doc """
+  Why `network` does not serve `nsid` (written in the `app.bsky` namespace),
+  or nil when nothing says it does not. A tool asks before it sends anything,
+  so a call a deployment cannot answer is refused at no cost.
+  """
+  def not_served(network, nsid) do
+    Enum.find_value(Map.get(@deployments, network, []), fn {pattern, evidence} ->
+      if covers?(pattern, nsid), do: evidence
+    end)
+  end
 
   @doc "Whether `pattern` covers `nsid`. `*` stands for any run of characters."
   def covers?(pattern, nsid) do

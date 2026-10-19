@@ -79,7 +79,7 @@ defmodule AtMcp.Effects.Backend do
   @callback get_profile(state(), actor :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_profiles(state(), actors :: [String.t()]) :: {:ok, summary()} | {:error, reason()}
   @callback get_posts(state(), uris :: [String.t()]) :: {:ok, summary()} | {:error, reason()}
-  @callback search_posts(state(), query :: String.t(), opts :: keyword()) ::
+  @callback search_posts(state(), query :: String.t() | nil, opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
   @callback search_actors(state(), query :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
@@ -116,6 +116,22 @@ defmodule AtMcp.Effects.Backend do
               {:ok, summary()} | {:error, reason()}
   @callback get_list_feed(state(), list :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
+
+  # Feeds and discovery. `suffix` names the method within the namespace,
+  # chosen by `AtMcp.Effects` from the place in the app the caller named.
+  @callback get_feed_info(state(), uris :: [String.t()]) :: {:ok, summary()} | {:error, reason()}
+  @callback get_actor_feeds(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback search_feeds(state(), query :: String.t() | nil, opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_suggested_accounts(state(), suffix :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_suggested_starter_packs(state(), suffix :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_trends(state(), suffix :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_record(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback get_invite_codes(state()) :: {:ok, summary()} | {:error, reason()}
 
   # Lists and starter packs. `opts` of a list read also carries `:purposes`,
   # the list purpose tokens to keep (`"curatelist"`, `"modlist"`), empty for all.

@@ -5,7 +5,8 @@ defmodule AtMcp.MCP.Server do
   Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
   summaries (never raw session dumps): as structured content, and as text for
   a model, which is the JSON of the summary except for reads made of posts,
-  lists and starter packs, where it is `AtMcp.Reading`'s text of it.
+  lists, starter packs, feeds, trends and invitation codes, where it is
+  `AtMcp.Reading`'s text of it.
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -216,10 +217,13 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "search_posts",
-       "Search public posts on this network by query string. Optional author, mentions, sort, since, until and lang narrow the same search; they are not a second query language." do
+       "Search public posts on this network, as the app's search does. Give a query, filters, or both. Without sort or all_time it searches every post, newest first, as before. author, mentions, since, until and lang narrow the search as before, and the rest include or exclude posts by who wrote them, who they mention, what they link to or quote, their hashtags, language, media, and where they sit in a thread. Filters are not a second query language." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.post_page())
-    param(:query, :string, required: true, description: "Search query")
+
+    param(:query, :string,
+      description: "Search query. May be left out when a filter says what to find."
+    )
 
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("results"))
 
@@ -230,33 +234,130 @@ defmodule AtMcp.MCP.Server do
     param(:mentions, :string, description: "Handle or DID; only posts that mention this account")
 
     param(:sort, :string,
-      description: "latest or top. Omit for the service default.",
+      description: "latest (the default: newest first) or top (the service's ranking)",
       schema: %{type: "string", enum: ["latest", "top"]}
     )
 
     param(:since, :string,
-      description: "ISO 8601 timestamp; only posts indexed after this instant"
+      description: "ISO 8601 timestamp or date (YYYY-MM-DD); only posts indexed at or after it"
     )
 
     param(:until, :string,
-      description: "ISO 8601 timestamp; only posts indexed before this instant"
+      description: "ISO 8601 timestamp or date (YYYY-MM-DD); only posts indexed before it"
     )
 
-    param(:lang, :string, description: "BCP-47 language tag, e.g. en")
+    param(:lang, :string, description: "BCP-47 language tag, e.g. en; only posts in it")
+
+    param(:exclude_langs, {:array, :string},
+      description: "BCP-47 language tags; leave out posts in any of them"
+    )
+
+    param(:exclude_authors, {:array, :string},
+      description: "Handles or DIDs; leave out posts by any of them"
+    )
+
+    param(:exclude_mentions, {:array, :string},
+      description: "Handles or DIDs; leave out posts that mention any of them"
+    )
+
+    param(:domains, {:array, :string},
+      description: "Domains, e.g. example.com; only posts that link to one of them"
+    )
+
+    param(:exclude_domains, {:array, :string},
+      description: "Domains; leave out posts that link to any of them"
+    )
+
+    param(:urls, {:array, :string}, description: "URLs; only posts that link to one of them")
+
+    param(:exclude_urls, {:array, :string},
+      description: "URLs; leave out posts that link to any of them"
+    )
+
+    param(:embeds, {:array, :string},
+      description:
+        "AT URIs of posts, feeds, lists or starter packs; only posts that quote or embed one of them"
+    )
+
+    param(:exclude_embeds, {:array, :string},
+      description: "AT URIs; leave out posts that quote or embed any of them"
+    )
+
+    param(:hashtags, {:array, :string},
+      description: "Hashtags, with or without the #; only posts tagged with one of them"
+    )
+
+    param(:exclude_hashtags, {:array, :string},
+      description: "Hashtags; leave out posts tagged with any of them"
+    )
+
+    param(:has_media, :boolean, description: "true: only posts with images or video")
+    param(:has_video, :boolean, description: "true: only posts with video")
+
+    param(:reply_to, :string, description: "AT URI of a post; only the replies directly under it")
+
+    param(:thread_root, :string,
+      description: "AT URI of a thread's first post; only posts in that thread"
+    )
+
+    param(:replies, :string,
+      description: "exclude: leave replies out. only: only replies. Omit for both.",
+      schema: %{type: "string", enum: ["exclude", "only"]}
+    )
+
+    param(:following, :boolean, description: "true: only posts by accounts this account follows")
+
+    param(:all_time, :boolean,
+      description:
+        "Omitted or true: search every post the service holds, as before. false: only its recent window"
+    )
+
+    param(:query_language, :string,
+      description:
+        "The language the query is written in, when the service cannot tell: ja, zh, ko, th or ar"
+    )
 
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.search_posts(e, Map.fetch!(a, :query),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor),
-          author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
-          mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
-          sort: Map.get(a, :sort),
-          since: Map.get(a, :since),
-          until: Map.get(a, :until),
-          lang: Map.get(a, :lang)
+        AtMcp.Effects.search_posts(
+          e,
+          AtMcp.MCP.Tools.optional(Map.get(a, :query)),
+          [
+            limit: Map.get(a, :limit),
+            cursor: Map.get(a, :cursor),
+            author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
+            mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
+            exclude_authors: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_authors, [])),
+            exclude_mentions: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_mentions, []))
+          ] ++
+            Enum.map(
+              [
+                :sort,
+                :since,
+                :until,
+                :lang,
+                :exclude_langs,
+                :domains,
+                :exclude_domains,
+                :urls,
+                :exclude_urls,
+                :embeds,
+                :exclude_embeds,
+                :hashtags,
+                :exclude_hashtags,
+                :has_media,
+                :has_video,
+                :reply_to,
+                :thread_root,
+                :replies,
+                :following,
+                :all_time,
+                :query_language
+              ],
+              &{&1, Map.get(a, &1)}
+            )
         ),
         state,
         :posts
@@ -357,16 +458,37 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_suggested_follows",
-       "Accounts the service suggests as similar to a handle or DID. Suggestions come from the service, not from AtMcp." do
+       "Accounts the service suggests following. With actor, accounts like that one. Without, the suggestions one place in the app shows, named by context. Suggestions come from the service, not from AtMcp." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.profile_page())
-    param(:actor, :string, required: true, description: "Handle or DID")
+
+    param(:actor, :string,
+      description: "Handle or DID: suggest accounts like this one. Omit for context."
+    )
+
+    param(:context, :string, AtMcp.MCP.Schemas.suggestion_context())
+
+    param(:category, :string,
+      description:
+        "An interest to suggest accounts for, as the app's Explore tabs do; with context explore, see_more, onboarding or general"
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("accounts; not with actor"))
+
+    param(:cursor, :string,
+      description: "With context browse: the cursor returned by the previous page"
+    )
 
     run(fn a, state ->
-      e = state.effects
-
       AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_suggested_follows(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor))),
+        AtMcp.Effects.get_suggested_follows(
+          state.effects,
+          AtMcp.MCP.Tools.optional_actor(Map.get(a, :actor)),
+          context: Map.get(a, :context),
+          category: Map.get(a, :category),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
         state
       )
     end)
@@ -563,23 +685,142 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_suggested_feeds",
-       "List custom feeds the service currently suggests. Each item's uri is what get_feed takes." do
+       "List custom feeds the service currently suggests. Each item's uri is what get_feed, get_feed_info and like take." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.generator_page())
 
+    param(:source, :string,
+      description:
+        "default: the suggestions read in pages. unspecced: the newer suggestion service the app's feed discovery uses, one page with a smaller limit.",
+      schema: %{type: "string", enum: ["default", "unspecced"]}
+    )
+
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("results"))
 
-    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+    param(:cursor, :string,
+      description: "With source default: the cursor returned by the previous page"
+    )
 
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.get_suggested_feeds(e,
+          source: Map.get(a, :source),
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :feeds
+      )
+    end)
+  end
+
+  tool "get_feed_info",
+       AtMcp.MCP.Schemas.describe(
+         "Read what the service knows about custom feeds, by their generator AT URIs ({batch} per call): name, description, maker, likes, and whether it takes feedback. Asked about one feed, it also says whether the feed's service is online and valid."
+       ) do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.feed_info_page())
+
+    param(:uris, {:array, :string}, AtMcp.MCP.Schemas.batch("AT URIs of feed generators"))
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_feed_info(state.effects, List.wrap(Map.get(a, :uris, []))),
+        state,
+        :feeds
+      )
+    end)
+  end
+
+  tool "get_actor_feeds",
+       "List the custom feeds an account made: its profile's Feeds tab." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.generator_page())
+    param(:actor, :string, required: true, description: "Handle or DID")
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("feeds"))
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_actor_feeds(
+          state.effects,
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :feeds
+      )
+    end)
+  end
+
+  tool "search_feeds",
+       "Search custom feeds by name and description, most popular first, as the app's feed search does. Without a query, the most popular feeds." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.generator_page())
+    param(:query, :string, description: "Search query. Omit for the most popular feeds.")
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("feeds"))
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.search_feeds(state.effects, Map.get(a, :query),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :feeds
+      )
+    end)
+  end
+
+  tool "get_suggested_starter_packs",
+       "List starter packs the service suggests: named sets of accounts and feeds to follow at once. get_starter_pack reads one in full." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.starter_pack_page())
+
+    param(:context, :string,
+      description: "default, or onboarding: the packs suggested to a new account",
+      schema: %{type: "string", enum: ["default", "onboarding"]}
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.short_page_limit("starter packs"))
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_suggested_starter_packs(state.effects,
+          context: Map.get(a, :context),
+          limit: Map.get(a, :limit)
+        ),
+        state,
+        :starter_packs
+      )
+    end)
+  end
+
+  tool "get_trends",
+       "Read what is trending on the network, as the app's Explore page shows it. kind trends: each trend with when it started, how many posts it has and some of the accounts posting. kind topics: trending topics, and topics suggested beside them. Each has a link: the feed or search the app opens for it." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.trend_page())
+
+    param(:kind, :string,
+      description: "trends (the default) or topics",
+      schema: %{type: "string", enum: ["trends", "topics"]}
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.short_page_limit("trends"))
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_trends(
+          state.effects,
+          AtMcp.MCP.Tools.optional(Map.get(a, :kind)),
+          limit: Map.get(a, :limit)
+        ),
+        state,
+        :trends
       )
     end)
   end
@@ -1829,6 +2070,27 @@ defmodule AtMcp.MCP.Server do
         AtMcp.Effects.delete_draft(state.effects, Map.fetch!(a, :id)),
         state
       )
+    end)
+  end
+
+  tool "get_record",
+       "Read one record exactly as its repository holds it, by AT URI: any collection, any account. Use it for what no other read shows, such as a post's threadgate or a record of another application; the reads made for posts, profiles, lists and feeds are easier to read." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.record_view())
+    param(:uri, :string, required: true, description: "AT URI of the record")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_record(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "get_invite_codes",
+       "List this account's delve.town invitation codes, as the town's app shows them: each code, how many accounts it admits and who has used it. Like the app, it first collects any codes the account has earned since it last looked. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.invite_codes())
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_invite_codes(state.effects), state, :invite_codes)
     end)
   end
 
