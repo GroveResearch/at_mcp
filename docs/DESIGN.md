@@ -349,8 +349,9 @@ through the account's PDS to a moderation service's labeler endpoint
 network's own service unless another the account subscribes to is named, and
 only after reading that the service takes reports on this kind of subject,
 record type and reason; the result names the report's id and the service.
-A report reaches the people who run that service and cannot be withdrawn;
-delve.town names no moderation service, so there it is refused unsent.
+A report reaches the people who run that service and cannot be withdrawn.
+On delve.town the network's own service is the town's moderation service
+(moderation.delve.town), read through `town.delve.labeler.getServices`.
 Muted words, labeler subscriptions and label settings are preferences,
 changed as `@atproto/api`'s `addMutedWord`, `updateMutedWord`,
 `removeMutedWord`, `addLabeler`, `removeLabeler` and `setContentLabelPref`

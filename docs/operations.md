@@ -564,8 +564,10 @@ environment, so rolling back works as below.
   `set_label_visibility`, `mute_list` / `unmute_list`, `block_list` /
   `unblock_list`, `get_moderation_lists`, `get_labelers`; `get_preferences`
   shows muted words, labelers and label settings. Preferences change as the
-  official client does, every other preference kept. On delve.town, which runs
-  no moderation service, `report` is refused before anything is sent.
+  official client does, every other preference kept. On delve.town `report` is
+  refused before anything is sent; that was a mistake, since the town runs a
+  moderation service (moderation.delve.town), and a later release sends
+  reports to it.
 
 ### From 0.2.8 to 0.2.9
 

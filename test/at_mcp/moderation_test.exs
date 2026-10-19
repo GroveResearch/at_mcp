@@ -769,14 +769,55 @@ defmodule AtMcp.ModerationTest do
       :ok
     end
 
-    test "a report, which the town has no moderation service for, is refused before anything is sent" do
-      %{effects: effects, pds: pds} = pds()
+    test "a report goes to the town's moderation service, through the PDS's proxy, as on Bluesky" do
+      town_moderation = "did:plc:7voo3hmmzshypkn34iam3mg5"
+
+      # The view `town.delve.labeler.getServices` answered for the town's
+      # moderation service on 2026-10-19: no reason or subject types, so it
+      # takes every one.
+      view = %{
+        "uri" => "at://#{town_moderation}/town.delve.labeler.service/self",
+        "cid" => "bafytownmoderation",
+        "creator" => %{"did" => town_moderation, "handle" => "moderation.delve.town"},
+        "indexedAt" => "2026-10-16T17:38:46.294Z",
+        "policies" => %{"labelValues" => []},
+        "$type" => "town.delve.labeler.defs#labelerViewDetailed"
+      }
+
+      %{effects: effects, pds: pds} =
+        pds(
+          answers: %{
+            "town.delve.labeler.getServices" => {200, %{views: [view]}},
+            "com.atproto.moderation.createReport" => {200, %{id: 9}}
+          }
+        )
+
       result = call(effects, "report", %{"subject" => "alice.test", "reason" => "spam"})
 
-      assert %{code: "not_served", method: "com.atproto.moderation.createReport"} =
+      assert %{
+               "id" => 9,
+               "labeler" => ^town_moderation,
+               "labeler_handle" => "moderation.delve.town"
+             } =
                result.structuredContent
 
-      assert FakePDS.methods(pds) == []
+      assert [%{query: query}] = FakePDS.sent(pds, "town.delve.labeler.getServices")
+      assert inspect(query) =~ town_moderation
+
+      [%{body: body, proxy: proxy}] = FakePDS.sent(pds, "com.atproto.moderation.createReport")
+      assert proxy == town_moderation <> "#atproto_labeler"
+
+      assert body == %{
+               "reasonType" => "tools.ozone.report.defs#reasonMisleadingSpam",
+               "subject" => %{
+                 "$type" => "com.atproto.admin.defs#repoRef",
+                 "did" => "did:plc:alice"
+               }
+             }
+
+      # A reason the app sends to the network's own service alone goes there too.
+      assert {:ok, %{labeler: ^town_moderation}} =
+               AtMcp.Effects.report(effects, "alice.test", "child_safety_csam")
     end
 
     test "muted words and list blocks are the town's" do
