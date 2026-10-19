@@ -846,8 +846,27 @@ defmodule AtMcp.Effects do
     end
   end
 
+  @doc """
+  Like a post, a custom feed or a labeler: what the app shows a like count on.
+  Any other record is refused before anything is sent, since nothing would
+  count the like. A record named by a handle-form AT URI is liked by its DID
+  form, which is how the AppView counts likes.
+  """
   def like(effects, uri, cid) when is_binary(uri) and is_binary(cid) do
-    take_and_write(effects, :like, fn backend, session -> backend.like(session, uri, cid) end)
+    with {:ok, _} <-
+           record_argument(
+             uri,
+             "uri",
+             [:post, :generator, :labeler],
+             "a post, a feed generator or a labeler"
+           ) do
+      take_and_write(
+        effects,
+        :like,
+        fn backend, session -> did_uri(backend, session, uri) end,
+        fn uri -> fn backend, session -> backend.like(session, uri, cid) end end
+      )
+    end
   end
 
   def unlike(effects, like_uri) when is_binary(like_uri) do
@@ -921,11 +940,132 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  @doc """
+  Change this account's profile. `updates` holds only what changes:
+  `:display_name`, `:description`, `:avatar`, `:banner`, `:pronouns` and
+  `:website` (`""` removes either), and `:links`, the links the profile shows,
+  in order, as `%{url, title}` (`[]` removes them all). The profile record is
+  read first and every other field kept.
+  """
   def update_profile(effects, updates) when is_list(updates) do
-    take_and_write(effects, :update_profile, fn backend, session ->
-      backend.update_profile(session, updates)
-    end)
+    with :ok <- validate_profile(updates) do
+      take_and_write(effects, :update_profile, fn backend, session ->
+        backend.update_profile(session, updates)
+      end)
+    end
   end
+
+  # What `actor.profile` and `actor.link` allow, and what the AppView shows: a
+  # profile view carries a website only when it starts with https:// and a
+  # link only when it is https and not a URL shortener (`profileWebsite` in
+  # packages/bsky/src/views/index.ts, and views/profile-link-rules.ts).
+  @profile_limits %{
+    pronouns: %{graphemes: 20, bytes: 200},
+    link_title: %{graphemes: 40, bytes: 320},
+    links: 10
+  }
+
+  # `SHORTENER_DOMAINS` in the AppView's views/profile-link-rules.ts at
+  # 9f66a7e: a profile link to one of these is never shown.
+  @shortener_domains ~w(adf.ly bit.ly bitly.com bl.ink buff.ly clck.ru cutt.ly goo.gl is.gd
+    lnkd.in ow.ly rb.gy rebrand.ly s.id short.gy shorturl.at t.co t.ly tiny.cc tinyurl.com v.gd
+    x.gd)
+
+  @doc "What `update_profile` refuses beyond: pronouns, a link's title, how many links."
+  def profile_limits, do: @profile_limits
+
+  @doc false
+  def shortener_domains, do: @shortener_domains
+
+  defp validate_profile(updates) do
+    with :ok <- bounded(updates[:pronouns], "pronouns", @profile_limits.pronouns),
+         :ok <- website(updates[:website]),
+         :ok <- profile_links(Keyword.fetch(updates, :links)) do
+      :ok
+    end
+  end
+
+  defp bounded(nil, _field, _limits), do: :ok
+
+  defp bounded(text, field, %{graphemes: graphemes, bytes: bytes}) when is_binary(text) do
+    cond do
+      not String.valid?(text) -> invalid(field, "must be valid UTF-8")
+      String.length(text) > graphemes -> invalid(field, "may be at most #{graphemes} characters")
+      byte_size(text) > bytes -> invalid(field, "may be at most #{bytes} bytes")
+      true -> :ok
+    end
+  end
+
+  defp bounded(_text, field, _limits), do: invalid(field, "must be a string")
+
+  defp website(nil), do: :ok
+  defp website(""), do: :ok
+
+  defp website(url) do
+    if https?(url),
+      do: :ok,
+      else: invalid("website", "must be an https:// URL; the app shows no other")
+  end
+
+  defp https?(url) when is_binary(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: "https", host: host}} when is_binary(host) and host != "" -> true
+      _ -> false
+    end
+  end
+
+  defp https?(_url), do: false
+
+  defp profile_links(:error), do: :ok
+
+  defp profile_links({:ok, links}) when is_list(links) do
+    max = @profile_limits.links
+
+    with :ok <- served("actor.link"),
+         :ok <-
+           if(length(links) > max,
+             do:
+               invalid("links", "a profile shows at most #{max} links; this is #{length(links)}"),
+             else: :ok
+           ) do
+      links
+      |> Enum.with_index()
+      |> Enum.reduce_while({:ok, MapSet.new()}, fn {link, i}, {:ok, seen} ->
+        case profile_link(link, "links[#{i}]", seen) do
+          {:ok, seen} -> {:cont, {:ok, seen}}
+          error -> {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, _seen} -> :ok
+        error -> error
+      end
+    end
+  end
+
+  defp profile_links({:ok, _other}), do: invalid("links", "must be a list of {url, title}")
+
+  defp profile_link(%{url: url} = link, field, seen) do
+    host =
+      with {:ok, %URI{host: host}} when is_binary(host) <- URI.new(url), do: String.downcase(host)
+
+    cond do
+      not https?(url) ->
+        invalid(field, "url must be an https:// URL; the app shows no other")
+
+      Enum.any?(@shortener_domains, &(host == &1 or String.ends_with?(host, "." <> &1))) ->
+        invalid(field, "#{host} is a URL shortener, and the app does not show a link to one")
+
+      MapSet.member?(seen, url) ->
+        invalid(field, "#{url} is already in links; the app shows each once")
+
+      true ->
+        with :ok <- bounded(Map.get(link, :title), field <> ".title", @profile_limits.link_title),
+             do: {:ok, MapSet.put(seen, url)}
+    end
+  end
+
+  defp profile_link(_link, field, _seen), do: invalid(field, "must be {url, title}")
 
   @doc "Mark notifications seen."
   def update_seen(effects, seen_at \\ nil) do
@@ -948,6 +1088,212 @@ defmodule AtMcp.Effects do
       backend.update_seen(session, seen)
     end)
   end
+
+  # --- saved feeds, live status, feed feedback ---
+
+  @doc """
+  Save a custom feed or a list to this account's feeds, pinned (shown as a tab
+  on the home screen) or not. A feed already saved is pinned or unpinned as
+  asked, and one already as asked, or saved with `pinned` nil, is left alone;
+  a new one saved with `pinned` nil is not pinned. Saved feeds are a preference
+  (`savedFeedsPrefV2`); the preferences are read and written back whole, and
+  `actor.putPreferences` has no compare-and-swap, so a change another client
+  makes between the read and the write is lost.
+  """
+  def save_feed(effects, uri, pinned) when is_binary(uri),
+    do: saved_feed(effects, :save_feed, uri, pinned)
+
+  @doc "Remove a custom feed or a list from this account's saved feeds."
+  def unsave_feed(effects, uri) when is_binary(uri),
+    do: saved_feed(effects, :unsave_feed, uri, nil)
+
+  defp saved_feed(effects, verb, uri, pinned) do
+    with {:ok, _} <-
+           record_argument(uri, "uri", [:generator, :list], "a feed generator or a list"),
+         :ok <-
+           if(verb == :unsave_feed or is_nil(pinned) or is_boolean(pinned),
+             do: :ok,
+             else: invalid("pinned", "must be true or false")
+           ) do
+      take_and_write(
+        effects,
+        verb,
+        fn backend, session ->
+          with {:ok, uri} <- did_uri(backend, session, uri),
+               do: backend.prepare_saved_feed(session, {verb, uri, pinned})
+        end,
+        fn prepared -> fn backend, session -> backend.write_preferences(session, prepared) end end
+      )
+    end
+  end
+
+  # The AppView counts a live status as lasting at least 5 minutes and at
+  # most 4 hours, whatever the record says (`status` in
+  # packages/bsky/src/views/index.ts), so a duration outside that is refused
+  # rather than written as one thing and shown as another.
+  @status_minutes 5..240
+
+  @doc "How long a live status may last, in minutes, as the AppView shows one."
+  def status_minutes, do: @status_minutes
+
+  @doc """
+  Say this account is live: `kind` `"live"` with `:url` (where to watch),
+  `:duration_minutes` and optionally the link card's `:title` and
+  `:description`; or `"clear"` to end it. The status record is read first, so
+  the result names what it replaced.
+  """
+  def set_status(effects, kind, opts \\ []) do
+    with {:ok, request} <- status_request(kind, opts) do
+      take_and_write(
+        effects,
+        :set_status,
+        fn backend, session -> backend.prepare_status(session, request) end,
+        fn prepared -> fn backend, session -> backend.write_status(session, prepared) end end
+      )
+    end
+  end
+
+  defp status_request("clear", _opts), do: {:ok, :clear}
+
+  defp status_request("live", opts) do
+    minutes = opts[:duration_minutes]
+    first..last//_ = @status_minutes
+
+    cond do
+      not https_or_http?(opts[:url]) ->
+        invalid("url", "must be an http or https URL: where to watch")
+
+      not is_integer(minutes) or minutes not in @status_minutes ->
+        invalid(
+          "duration_minutes",
+          "must be #{first} to #{last}: the AppView shows a live status for no less than #{first} minutes and no more than #{last}"
+        )
+
+      true ->
+        with :ok <- optional_text(opts[:title], "title"),
+             :ok <- optional_text(opts[:description], "description") do
+          {:ok,
+           {:live,
+            %{
+              url: opts[:url],
+              minutes: minutes,
+              title: opts[:title],
+              description: opts[:description]
+            }}}
+        end
+    end
+  end
+
+  defp status_request(_kind, _opts), do: invalid("kind", "must be live or clear")
+
+  defp https_or_http?(url) when is_binary(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host}}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp https_or_http?(_url), do: false
+
+  defp optional_text(nil, _field), do: :ok
+  defp optional_text(text, _field) when is_binary(text), do: :ok
+  defp optional_text(_text, field), do: invalid(field, "must be a string")
+
+  @feedback_events %{"show_more" => :request_more, "show_less" => :request_less}
+
+  # The feeds the app always offers feedback on, whatever their generator
+  # says: Bluesky's own Discover and video feeds, in production and staging
+  # (`FEEDBACK_FEEDS` = `PROD_FEEDS` ++ `STAGING_FEEDS` in social-app's
+  # src/lib/constants.ts, read by `isDiscoverFeed` in
+  # src/state/feed-feedback.tsx at 485405a). Its rule is
+  # `isDiscover || feed.acceptsInteractions` (lines 72-76). Feeds of the
+  # trending account (`TRENDING_DID`) need `acceptsInteractions` like any
+  # other: `isTrendingFeed` only widens which events those feeds get, and
+  # show more and show less are allowed for every feed
+  # (`THIRD_PARTY_ALLOWED_INTERACTIONS`).
+  @feedback_feeds [
+    "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot",
+    "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/thevids",
+    "at://did:plc:yofh3kx63drvfljkibw5zuxo/app.bsky.feed.generator/whats-hot",
+    "at://did:plc:yofh3kx63drvfljkibw5zuxo/app.bsky.feed.generator/thevids"
+  ]
+
+  @doc "The feeds the app offers feedback on whatever their generator says."
+  def feedback_feeds, do: @feedback_feeds
+
+  @doc """
+  Whether the app offers feedback on the feed at `uri` (in DID form) whose
+  generator says `accepts_interactions`: one of `feedback_feeds/0`, or one
+  that accepts interactions.
+  """
+  def takes_feedback?(uri, accepts_interactions),
+    do: uri in @feedback_feeds or accepts_interactions == true
+
+  # `feed.defs#interaction` bounds what a feed generator gave its item.
+  @feedback_limits %{feed_context: 2000, req_id: 100}
+
+  @doc false
+  def feedback_limits, do: @feedback_limits
+
+  @doc """
+  Tell a custom feed to show more, or less, like one of its posts, as the
+  app's menu on a feed item does. The feed is read first: one whose generator
+  does not take feedback is refused before anything is sent. `:feed_context`
+  and `:req_id` are what the feed gave the item when it served it.
+  """
+  def feed_feedback(effects, feed, uri, kind, opts \\ [])
+      when is_binary(feed) and is_binary(uri) do
+    with :ok <- served("feed.sendInteractions"),
+         {:ok, _} <- record_argument(feed, "feed", [:generator], "a feed generator"),
+         {:ok, _} <- post_uri(uri, "uri"),
+         {:ok, event} <- feedback_event(kind),
+         :ok <- feedback_text(opts[:feed_context], "feed_context"),
+         :ok <- feedback_text(opts[:req_id], "req_id") do
+      take_and_write(
+        effects,
+        :feed_feedback,
+        fn backend, session ->
+          with {:ok, feed} <- did_uri(backend, session, feed),
+               {:ok, uri} <- did_uri(backend, session, uri) do
+            backend.prepare_feed_feedback(session, %{
+              feed: feed,
+              item: uri,
+              event: event,
+              kind: kind,
+              feed_context: opts[:feed_context],
+              req_id: opts[:req_id]
+            })
+          end
+        end,
+        fn prepared ->
+          fn backend, session -> backend.send_feed_feedback(session, prepared) end
+        end
+      )
+    end
+  end
+
+  defp feedback_event(kind) do
+    case Map.fetch(@feedback_events, kind) do
+      {:ok, event} -> {:ok, event}
+      :error -> invalid("kind", "must be show_more or show_less")
+    end
+  end
+
+  defp feedback_text(nil, _field), do: :ok
+
+  defp feedback_text(text, field) when is_binary(text) do
+    max = Map.fetch!(@feedback_limits, String.to_existing_atom(field))
+
+    if byte_size(text) <= max,
+      do: :ok,
+      else: invalid(field, "may be at most #{max} bytes, as the feed gave it")
+  end
+
+  defp feedback_text(_text, field), do: invalid(field, "must be a string")
 
   # --- lists and starter packs ---
 

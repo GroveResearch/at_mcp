@@ -1716,24 +1716,254 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def update_profile(session, updates) when is_list(updates) do
-    safe = Keyword.take(updates, [:display_name, :description])
+    safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
 
     with {:ok, current, swap} <- current_profile(session),
+         {:ok, plan} <- links_plan(session, current, Keyword.fetch(updates, :links)),
          {:ok, blobs} <- upload_profile_images(session, updates),
-         record = AtMcp.ATProto.profile_record(merge_profile(current, safe), blobs),
-         {:ok, result} <- put_profile(session, record, swap) do
+         {:ok, links} <- create_links(session, plan),
+         record =
+           current
+           |> merge_profile(safe)
+           |> with_links(links)
+           |> AtMcp.ATProto.profile_record(blobs),
+         {:ok, result} <- put_profile_with_links(session, record, swap, links) do
       {:ok,
        %{
          ok: true,
          action: :update_profile,
          display_name: Keyword.get(safe, :display_name),
          description: Keyword.get(safe, :description),
+         pronouns: Keyword.get(safe, :pronouns),
+         website: Keyword.get(safe, :website),
          uri: Map.get(result, :uri) || Map.get(result, "uri")
        }
-       |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
+       |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))
+       |> Map.merge(links_result(session, links))}
     else
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # The profile's links are `actor.link` records in this repository, which the
+  # profile's `links` names in order by strong reference. As the app does, a
+  # link given exactly as one the profile shows (same url and title) keeps its
+  # record; any other is a new record, written before the profile so the
+  # profile can name its CID; and the records the profile stops naming are
+  # deleted after it is written.
+  defp links_plan(_session, _current, :error), do: {:ok, nil}
+
+  defp links_plan(session, current, {:ok, wanted}) do
+    with {:ok, existing} <- current_links(session, current) do
+      # One batch of keys, distinct by construction: keys drawn one at a time
+      # in the same microsecond share their clock id one time in 1,024.
+      {plan, {unused, _keys}} =
+        Enum.map_reduce(wanted, {existing, AtMcp.ATProto.tids(length(wanted))}, fn
+          link, {available, [key | keys]} ->
+            title = blank_nil(Map.get(link, :title))
+
+            case Enum.split_with(available, &(&1.url == link.url and &1.title == title)) do
+              {[same | others], rest} ->
+                {{:keep, same}, {others ++ rest, keys}}
+
+              {[], _} ->
+                record = AtMcp.ATProto.link_record(%{url: link.url, title: title})
+                {{:create, key, record}, {available, keys}}
+            end
+        end)
+
+      {:ok,
+       %{
+         plan: plan,
+         removed: Enum.map(unused, & &1.uri),
+         previous: Enum.map(existing, &Map.take(&1, [:uri, :url, :title]))
+       }}
+    end
+  end
+
+  # The links the profile names now, each read from its record. A record the
+  # profile names that is gone, or in another repository, is not one of them.
+  defp current_links(session, current) do
+    refs = AtMcp.Response.dig(current, [:links])
+    refs = if is_list(refs), do: refs, else: []
+
+    Enum.reduce_while(refs, {:ok, []}, fn ref, {:ok, acc} ->
+      with uri when is_binary(uri) <- field(ref, :uri),
+           {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri),
+           true <- repo == session.did and AtMcp.Network.collection?(collection, :link) do
+        case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+          {:ok, response} ->
+            value = field(response, :value) || %{}
+
+            link = %{
+              uri: uri,
+              cid: field(response, :cid),
+              url: field(value, :url),
+              title: field(value, :title)
+            }
+
+            {:cont, {:ok, acc ++ [link]}}
+
+          {:error, %ProtoRune.XRPC.Error{reason: reason}}
+          when reason in [:not_found, :record_not_found] ->
+            {:cont, {:ok, acc}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      else
+        _ -> {:cont, {:ok, acc}}
+      end
+    end)
+  end
+
+  defp create_links(_session, nil), do: {:ok, nil}
+
+  defp create_links(session, %{plan: plan} = links) do
+    creates =
+      for {:create, rkey, record} <- plan,
+          do: {:create, AtMcp.Network.collection(:link), rkey, record}
+
+    created =
+      if creates == [],
+        do: {:ok, %{}},
+        else: AtMcp.ATProto.apply_writes(session, session.did, creates)
+
+    with {:ok, response} <- created do
+      results = if creates == [], do: [], else: write_results(response)
+      by_rkey = Map.new(Enum.zip(for({:create, rkey, _} <- plan, do: rkey), results))
+
+      refs =
+        for step <- plan do
+          case step do
+            {:keep, link} ->
+              link
+
+            {:create, rkey, record} ->
+              result = Map.get(by_rkey, rkey, %{})
+
+              %{
+                uri: result[:uri] || own_uri(session, :link, rkey),
+                cid: result[:cid],
+                url: record["url"],
+                title: record["title"],
+                created: true
+              }
+          end
+        end
+
+      if Enum.any?(refs, &is_nil(&1.cid)),
+        do: {:error, unreadable("the link records written", response)},
+        else: {:ok, Map.put(links, :refs, refs)}
+    end
+  end
+
+  defp with_links(record, nil), do: record
+
+  defp with_links(record, %{refs: refs}) do
+    record = Map.drop(record, ["links", :links])
+
+    case refs do
+      [] -> record
+      refs -> Map.put(record, "links", Enum.map(refs, &%{"uri" => &1.uri, "cid" => &1.cid}))
+    end
+  end
+
+  # With links, the new link records were written first. A profile write the
+  # service refused leaves them named by nothing, so they are deleted again
+  # and the refusal stays true: the account is as it was.
+  defp put_profile_with_links(session, record, swap, nil), do: put_profile(session, record, swap)
+
+  defp put_profile_with_links(session, record, swap, %{refs: refs} = links) do
+    case put_profile(session, record, swap) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} = error ->
+        created = for %{created: true} = link <- refs, do: link.uri
+        failure = failure(reason)
+
+        cond do
+          created == [] ->
+            error
+
+          # The service did not apply the profile, so the new records are
+          # named by nothing; they are deleted again and the refusal stays
+          # true. A refused credential is retried whole after the session is
+          # recovered, which writes the links again: the first set is deleted
+          # now, or, if that fails too, the error stops being a credential
+          # refusal, so no second set is written over a first left behind.
+          failure.kind in [:refused, :auth_refused] ->
+            cleanup(session, created, error)
+
+          # The profile may or may not have been written, so neither set of
+          # records can be tidied: the error names both.
+          true ->
+            {:error, %{failure | detail: {:profile_links, created, links.removed}}}
+        end
+    end
+  end
+
+  defp cleanup(session, created, error) do
+    deletes =
+      for uri <- created do
+        {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+        {:delete, collection, rkey}
+      end
+
+    case AtMcp.ATProto.apply_writes(session, session.did, deletes) do
+      {:ok, _} ->
+        error
+
+      {:error, _} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The profile was not changed: the service refused it (#{inspect_reason(error)}). " <>
+               "The link records written for it could not be deleted again; nothing shows them: " <>
+               Enum.join(created, ", "),
+           detail: {:links_left, created}
+         )}
+    end
+  end
+
+  defp inspect_reason({:error, reason}) do
+    case failure(reason) do
+      %{message: message} when is_binary(message) -> message
+      _ -> "no reason given"
+    end
+  end
+
+  # What the profile now shows, what it showed before, and the records the
+  # change removed. The removed records are deleted after the profile is
+  # written; one that could not be is named in `left_behind`. Nothing shows it.
+  defp links_result(_session, nil), do: %{}
+
+  defp links_result(session, %{refs: refs, removed: removed, previous: previous}) do
+    left_behind =
+      case removed do
+        [] ->
+          []
+
+        uris ->
+          deletes =
+            for uri <- uris do
+              {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+              {:delete, collection, rkey}
+            end
+
+          case AtMcp.ATProto.apply_writes(session, session.did, deletes) do
+            {:ok, _} -> []
+            {:error, _} -> uris
+          end
+      end
+
+    %{
+      links: Enum.map(refs, &Map.take(&1, [:uri, :url, :title])),
+      replaced_links: Enum.map(previous, &Map.take(&1, [:url, :title])),
+      removed: removed -- left_behind,
+      left_behind: left_behind
+    }
   end
 
   # The profile is written only over the record it was built from. Between the
@@ -1811,6 +2041,391 @@ defmodule AtMcp.Effects.ProtoRune do
       cid
     else
       _ -> nil
+    end
+  end
+
+  # --- saved feeds ---
+
+  @doc """
+  Read the account's preferences and build them with one feed saved,
+  re-pinned or removed, keeping every other preference as stored. This
+  follows the app's own library (`updateSavedFeedsV2Preferences` in
+  packages/api/src/agent.ts): saved feeds are `savedFeedsPrefV2`, pinned ones
+  first; an account with none yet starts from its first-version
+  `savedFeedsPref`, or from the Following timeline alone, as the app would
+  start it; and a first-version preference is kept in step by adding to it.
+  """
+  @impl true
+  def prepare_saved_feed(session, {verb, uri, pinned}) do
+    case AtMcp.ATProto.preferences_as_stored(session) do
+      {:ok, preferences} -> {:ok, saved_feeds(preferences, verb, uri, pinned)}
+      {:error, :unreadable_preferences} -> {:error, unreadable("the account's preferences", %{})}
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  @no_swap "Preferences are written whole and the service offers no compare-and-swap for them: a change another client made between this read and this write is lost."
+
+  defp saved_feeds(preferences, verb, uri, pinned) do
+    v2_type = AtMcp.Network.type(:saved_feeds_v2)
+    current = preferences |> Enum.reverse() |> Enum.find(&saved_v2?/1)
+    items = if current, do: current["items"], else: migrated(preferences)
+    matching = Enum.filter(items, &(&1["value"] == uri))
+
+    # `pinned` nil keeps a saved feed as it is, and saves a new one unpinned.
+    {items, unchanged?, now_pinned} =
+      case {verb, matching} do
+        {:save_feed, []} ->
+          item = %{
+            "id" => nil,
+            "type" => feed_type(uri),
+            "value" => uri,
+            "pinned" => pinned == true
+          }
+
+          {items ++ [item], false, pinned == true}
+
+        {:save_feed, [first | _] = found} ->
+          if is_nil(pinned) or Enum.all?(found, &(&1["pinned"] == pinned)),
+            do: {items, true, if(is_nil(pinned), do: first["pinned"] == true, else: pinned)},
+            else:
+              {Enum.map(
+                 items,
+                 &if(&1["value"] == uri, do: Map.put(&1, "pinned", pinned), else: &1)
+               ), false, pinned}
+
+        {:unsave_feed, []} ->
+          {items, true, nil}
+
+        {:unsave_feed, _found} ->
+          {Enum.reject(items, &(&1["value"] == uri)), false, nil}
+      end
+
+    result = %{
+      ok: true,
+      action: verb,
+      uri: uri,
+      pinned: now_pinned,
+      unchanged: unchanged?,
+      note: if(not unchanged?, do: @no_swap)
+    }
+
+    if unchanged? do
+      %{preferences: nil, result: result}
+    else
+      # Pinned first, each group in its order, as the app keeps them.
+      {pinned_items, saved_items} = Enum.split_with(items, &(&1["pinned"] == true))
+      items = with_ids(pinned_items ++ saved_items)
+      v2 = Map.put(current || %{"$type" => v2_type}, "items", items)
+
+      updated =
+        preferences
+        |> Enum.reject(&(is_map(&1) and &1["$type"] == v2_type))
+        |> Kernel.++([v2])
+        |> with_first_version(v2["items"])
+
+      %{preferences: updated, result: result}
+    end
+  end
+
+  # New items are built without an id and given theirs here, in one batch,
+  # which makes them distinct: ids drawn one at a time in the same
+  # microsecond share their clock id one time in 1,024.
+  defp with_ids(items) do
+    {items, []} =
+      Enum.map_reduce(items, AtMcp.ATProto.tids(Enum.count(items, &is_nil(&1["id"]))), fn
+        %{"id" => nil} = item, [id | ids] -> {Map.put(item, "id", id), ids}
+        item, ids -> {item, ids}
+      end)
+
+    items
+  end
+
+  defp saved_v2?(%{"$type" => type, "items" => items}) when is_list(items),
+    do: type == AtMcp.Network.type(:saved_feeds_v2)
+
+  defp saved_v2?(_preference), do: false
+
+  defp saved_v1?(%{"$type" => type, "saved" => saved, "pinned" => pinned})
+       when is_list(saved) and is_list(pinned),
+       do: type == AtMcp.Network.type(:saved_feeds)
+
+  defp saved_v1?(_preference), do: false
+
+  defp feed_type(uri) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+    if AtMcp.Network.collection?(collection, :list), do: "list", else: "feed"
+  end
+
+  defp known_feed?(uri) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {_repo, collection, _rkey}} ->
+        AtMcp.Network.collection?(collection, :generator) or
+          AtMcp.Network.collection?(collection, :list)
+
+      _ ->
+        false
+    end
+  end
+
+  # The saved feeds of an account that has no `savedFeedsPrefV2` yet: the
+  # Following timeline first, then its first-version pinned feeds, then the
+  # rest it saved, each once.
+  defp migrated(preferences) do
+    timeline = %{
+      "id" => nil,
+      "type" => "timeline",
+      "value" => "following",
+      "pinned" => true
+    }
+
+    case preferences |> Enum.reverse() |> Enum.find(&saved_v1?/1) do
+      nil ->
+        [timeline]
+
+      %{"saved" => saved, "pinned" => pinned} ->
+        pinned = for uri <- Enum.uniq(pinned), known_feed?(uri), do: {uri, true}
+
+        saved =
+          for uri <- Enum.uniq(saved),
+              known_feed?(uri),
+              uri not in Enum.map(pinned, &elem(&1, 0)),
+              do: {uri, false}
+
+        [timeline] ++
+          for {uri, pin} <- pinned ++ saved do
+            %{
+              "id" => nil,
+              "type" => feed_type(uri),
+              "value" => uri,
+              "pinned" => pin
+            }
+          end
+    end
+  end
+
+  # An account that still has a first-version `savedFeedsPref` gets the saved
+  # feeds added to it too, as the app's library double-writes during the
+  # transition; nothing is removed from it.
+  defp with_first_version(preferences, items) do
+    v1_type = AtMcp.Network.type(:saved_feeds)
+
+    case preferences |> Enum.reverse() |> Enum.find(&saved_v1?/1) do
+      nil ->
+        preferences
+
+      v1 ->
+        feeds = Enum.filter(items, &(&1["type"] in ["feed", "list"]))
+
+        v1 = %{
+          v1
+          | "saved" => Enum.uniq(v1["saved"] ++ Enum.map(feeds, & &1["value"])),
+            "pinned" =>
+              Enum.uniq(v1["pinned"] ++ for(%{"pinned" => true, "value" => v} <- feeds, do: v))
+        }
+
+        Enum.reject(preferences, &(is_map(&1) and &1["$type"] == v1_type)) ++ [v1]
+    end
+  end
+
+  @impl true
+  def write_preferences(_session, %{preferences: nil, result: result}), do: {:ok, result}
+
+  def write_preferences(session, %{preferences: preferences, result: result}) do
+    case AtMcp.ATProto.put_preferences_as_stored(session, preferences) do
+      {:ok, _} -> {:ok, result}
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  # --- live status ---
+
+  @doc """
+  Read the account's status record, and build what replaces it: a live
+  status, or none (`:clear`).
+  """
+  @impl true
+  def prepare_status(session, request) do
+    case AtMcp.ATProto.get_record(session, %{
+           repo: session.did,
+           collection: AtMcp.Network.collection(:status),
+           rkey: "self"
+         }) do
+      {:ok, response} ->
+        {:ok, status_plan(session, request, field(response, :value), field(response, :cid))}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found] ->
+        {:ok, status_plan(session, request, nil, nil)}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp status_plan(session, request, current, cid) do
+    previous =
+      if is_map(current) do
+        %{
+          url: AtMcp.Response.dig(current, [:embed, :external, :uri]),
+          duration_minutes: field(current, :duration_minutes),
+          created_at: field(current, :created_at)
+        }
+      end
+
+    record =
+      case request do
+        :clear -> nil
+        {:live, fields} -> AtMcp.ATProto.status_record(fields)
+      end
+
+    %{
+      uri: own_uri(session, :status, "self"),
+      record: record,
+      swap: cid,
+      previous: previous,
+      exists: not is_nil(cid) or is_map(current)
+    }
+  end
+
+  @impl true
+  def write_status(_session, %{record: nil, exists: false} = plan),
+    do: {:ok, status_result(plan, :clear, true)}
+
+  # Cleared only if it is still the status read, as a new one is written only
+  # over it: a status set meanwhile by another client is not deleted unseen.
+  def write_status(session, %{record: nil, swap: swap} = plan) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(:status),
+      rkey: "self"
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.delete_record(session, params) do
+      {:ok, _} ->
+        {:ok, status_result(plan, :clear, false)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The account's status")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  def write_status(session, %{record: record, swap: swap} = plan) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(:status),
+      rkey: "self",
+      record: record
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:ok, _} ->
+        {:ok, status_result(plan, :live, false)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The account's status")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp status_result(plan, kind, unchanged?) do
+    live =
+      case plan.record do
+        %{"durationMinutes" => minutes, "createdAt" => at} = record ->
+          {:ok, start, _} = DateTime.from_iso8601(at)
+
+          %{
+            url: get_in(record, ["embed", "external", "uri"]),
+            duration_minutes: minutes,
+            expires_at: start |> DateTime.add(minutes * 60) |> DateTime.to_iso8601()
+          }
+
+        nil ->
+          %{}
+      end
+
+    Map.merge(
+      %{
+        ok: true,
+        action: :set_status,
+        status: Atom.to_string(kind),
+        uri: plan.uri,
+        replaced: plan.previous,
+        unchanged: unchanged?
+      },
+      live
+    )
+  end
+
+  # --- feed feedback ---
+
+  @doc """
+  Read the feed a feedback is about: its generator's service, which the
+  feedback goes to, and whether it takes feedback at all. One that does not is
+  refused, naming `feed`, before anything is sent.
+  """
+  @impl true
+  def prepare_feed_feedback(session, request) do
+    case AtMcp.ATProto.get_feed_generator(session, %{feed: request.feed}) do
+      {:ok, response} ->
+        view = field(response, :view) || %{}
+        service = field(view, :did)
+
+        cond do
+          not AtMcp.Effects.takes_feedback?(request.feed, field(view, :accepts_interactions)) ->
+            {:error,
+             {:invalid_argument, "feed",
+              "this feed does not take feedback: its generator does not accept interactions and it is not one of the app's own feeds that always do, so the app offers none"}}
+
+          not is_binary(service) ->
+            {:error, unreadable("a feed generator", response)}
+
+          true ->
+            interaction =
+              %{"item" => request.item, "event" => AtMcp.Network.type(request.event)}
+              |> put_string("feedContext", request.feed_context)
+              |> put_string("reqId", request.req_id)
+
+            {:ok, Map.merge(request, %{service: service, interaction: interaction})}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp put_string(map, _key, nil), do: map
+  defp put_string(map, key, value), do: Map.put(map, key, value)
+
+  @impl true
+  def send_feed_feedback(session, prepared) do
+    case AtMcp.ATProto.send_interactions(session, prepared.service, %{
+           feed: prepared.feed,
+           interactions: [prepared.interaction]
+         }) do
+      {:ok, _} ->
+        {:ok,
+         %{
+           ok: true,
+           action: :feed_feedback,
+           uri: prepared.item,
+           subject_uri: prepared.feed,
+           kind: prepared.kind
+         }}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
     end
   end
 
@@ -2711,8 +3326,15 @@ defmodule AtMcp.Effects.ProtoRune do
   # The read came back snakelized; the write goes out camelCase. Naming the two
   # profile fields once here is what keeps `displayName` from being written as
   # `display_name` and silently becoming a field the lexicon does not define.
-  @profile_fields %{display_name: "displayName", description: "description"}
+  @profile_fields %{
+    display_name: "displayName",
+    description: "description",
+    pronouns: "pronouns",
+    website: "website"
+  }
 
+  # A field not given is kept. Pronouns and a website given empty are removed;
+  # the tool drops an empty display name or description before it gets here.
   defp merge_profile(current, updates) do
     current = Map.new(current, fn {key, value} -> {to_string(key), value} end)
 
@@ -2724,6 +3346,7 @@ defmodule AtMcp.Effects.ProtoRune do
     Enum.reduce(@profile_fields, current, fn {key, wire}, record ->
       case Keyword.get(updates, key) do
         nil -> record
+        "" -> Map.delete(record, wire)
         value -> Map.put(record, wire, value)
       end
     end)

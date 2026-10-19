@@ -53,7 +53,9 @@ defmodule AtMcp.EffectsTest do
 
     assert {:ok, _} = AtMcp.Effects.login(effects)
 
-    assert {:ok, %{action: :like}} = AtMcp.Effects.like(effects, "at://u", "cid1")
+    assert {:ok, %{action: :like}} =
+             AtMcp.Effects.like(effects, "at://did:plc:mock/app.bsky.feed.post/1", "cid1")
+
     assert {:ok, %{action: :unlike}} = AtMcp.Effects.unlike(effects, "at://like")
     assert {:ok, %{action: :repost}} = AtMcp.Effects.repost(effects, "at://u", "cid1")
     assert {:ok, %{action: :unrepost}} = AtMcp.Effects.unrepost(effects, "at://rp")

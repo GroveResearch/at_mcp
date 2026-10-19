@@ -125,7 +125,10 @@ defmodule AtMcp.DiscoveryTest do
 
       feeds = hd(call(state, "get_feed_info", %{"uris" => [@feed]}).content).text
       assert feeds =~ ~s(1 feed.)
-      assert feeds =~ ~s([1] "What's hot" · by @alice.bsky.social · 3 likes · online)
+
+      assert feeds =~
+               ~s([1] "What's hot" · by @alice.bsky.social · 3 likes · takes feedback · online)
+
       assert feeds =~ "uri: #{@feed} · cid: bafyGEN"
 
       trends = hd(call(state, "get_trends", %{"kind" => "topics"}).content).text

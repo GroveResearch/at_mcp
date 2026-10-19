@@ -20,7 +20,9 @@ defmodule AtMcp.PublishingQuotaTest do
   test "a like and a follow go out with no writes left and spend nothing" do
     effects = exhausted()
 
-    assert {:ok, %{action: :like}} = AtMcp.Effects.like(effects, "at://u", "cid")
+    assert {:ok, %{action: :like}} =
+             AtMcp.Effects.like(effects, "at://did:plc:mock/app.bsky.feed.post/1", "cid")
+
     assert {:ok, %{action: :follow}} = AtMcp.Effects.follow(effects, "alice.example")
     assert AtMcp.Effects.quota_status(effects).used == 1
   end
@@ -90,7 +92,19 @@ defmodule AtMcp.PublishingQuotaTest do
     "hide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
     "unhide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
     "detach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "reattach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"}
+    "reattach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "save_feed" => %{"uri" => "at://did:plc:x/app.bsky.feed.generator/f", "pinned" => true},
+    "unsave_feed" => %{"uri" => "at://did:plc:x/app.bsky.feed.generator/f"},
+    "set_status" => %{
+      "kind" => "live",
+      "url" => "https://twitch.tv/x",
+      "duration_minutes" => 30
+    },
+    "feed_feedback" => %{
+      "feed" => "at://did:plc:x/app.bsky.feed.generator/f",
+      "uri" => "at://did:plc:x/app.bsky.feed.post/1",
+      "kind" => "show_less"
+    }
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

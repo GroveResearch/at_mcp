@@ -267,7 +267,9 @@ defmodule AtMcp.Reading do
               named(feed["display_name"]),
               by(feed["creator"], nil),
               if(is_integer(feed["like_count"]), do: count(feed["like_count"], "like", "likes")),
-              if(feed["accepts_interactions"] == true, do: "takes feedback"),
+              if(AtMcp.Effects.takes_feedback?(feed["uri"], feed["accepts_interactions"]),
+                do: "takes feedback"
+              ),
               online(feed)
             ],
             " · "
@@ -566,7 +568,8 @@ defmodule AtMcp.Reading do
         lines(
           top ++
             body(post) ++
-            [engagement(post), labelled(post), standing(post), ids(post) | viewer(post)],
+            [engagement(post), labelled(post), standing(post), ids(post)] ++
+            viewer(post) ++ [feed_given(post)],
           "\n"
         )
 
@@ -917,6 +920,20 @@ defmodule AtMcp.Reading do
       ],
       " · "
     )
+  end
+
+  # What a custom feed gave the item, which `feed_feedback` hands back.
+  defp feed_given(post) do
+    case lines(
+           [
+             if(is_binary(post["feed_context"]), do: "feed_context: #{post["feed_context"]}"),
+             if(is_binary(post["req_id"]), do: "req_id: #{post["req_id"]}")
+           ],
+           " · "
+         ) do
+      "" -> nil
+      given -> "For feed_feedback: " <> given
+    end
   end
 
   # The viewing account's own like or repost of the post: the uri `unlike` and

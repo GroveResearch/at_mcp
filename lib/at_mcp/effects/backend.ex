@@ -133,6 +133,32 @@ defmodule AtMcp.Effects.Backend do
   @callback get_record(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_invite_codes(state()) :: {:ok, summary()} | {:error, reason()}
 
+  @doc """
+  Read the account's preferences and build them with one feed saved,
+  re-pinned or removed: `{:save_feed, uri, pinned}` or `{:unsave_feed, uri,
+  nil}`, `uri` in DID form. The result is passed to `write_preferences/2`;
+  it carries `preferences: nil` when nothing would change.
+  """
+  @callback prepare_saved_feed(state(), request :: tuple()) :: {:ok, map()} | {:error, reason()}
+  @callback write_preferences(state(), prepared :: map()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read the account's status record and build what replaces it: `{:live,
+  %{url, minutes, title, description}}` or `:clear`. `write_status/2` writes it.
+  """
+  @callback prepare_status(state(), request :: term()) :: {:ok, map()} | {:error, reason()}
+  @callback write_status(state(), prepared :: map()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read the feed a feedback is about and build the interaction:
+  `%{feed, item, event, kind, feed_context, req_id}`, the uris in DID form. A
+  feed that takes no feedback is `{:error, {:invalid_argument, "feed", why}}`.
+  `send_feed_feedback/2` sends it to the feed's own service.
+  """
+  @callback prepare_feed_feedback(state(), request :: map()) :: {:ok, map()} | {:error, reason()}
+  @callback send_feed_feedback(state(), prepared :: map()) ::
+              {:ok, summary()} | {:error, reason()}
+
   # Lists and starter packs. `opts` of a list read also carries `:purposes`,
   # the list purpose tokens to keep (`"curatelist"`, `"modlist"`), empty for all.
   @callback get_list(state(), uri :: String.t(), opts :: keyword()) ::

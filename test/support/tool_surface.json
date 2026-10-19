@@ -90,6 +90,20 @@
         "uri"
       ]
     },
+    "feed_feedback": {
+      "arguments": {
+        "feed": "string",
+        "feed_context": "string",
+        "kind": "string",
+        "req_id": "string",
+        "uri": "string"
+      },
+      "required": [
+        "feed",
+        "kind",
+        "uri"
+      ]
+    },
     "follow": {
       "arguments": {
         "actor": "string"
@@ -520,6 +534,15 @@
         "text"
       ]
     },
+    "save_feed": {
+      "arguments": {
+        "pinned": "boolean",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "search_actors": {
       "arguments": {
         "cursor": "string",
@@ -591,6 +614,18 @@
         "uri"
       ]
     },
+    "set_status": {
+      "arguments": {
+        "description": "string",
+        "duration_minutes": "integer",
+        "kind": "string",
+        "title": "string",
+        "url": "string"
+      },
+      "required": [
+        "kind"
+      ]
+    },
     "unblock": {
       "arguments": {
         "uri": "string"
@@ -659,6 +694,14 @@
         "uri"
       ]
     },
+    "unsave_feed": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "update_list": {
       "arguments": {
         "avatar": "object",
@@ -675,7 +718,10 @@
         "avatar": "object",
         "banner": "object",
         "description": "string",
-        "display_name": "string"
+        "display_name": "string",
+        "links": "array",
+        "pronouns": "string",
+        "website": "string"
       },
       "required": []
     },

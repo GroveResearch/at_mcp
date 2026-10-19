@@ -70,6 +70,49 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "The `pronouns` parameter of `update_profile`, from `AtMcp.Effects.profile_limits/0`."
+  defmacro pronouns do
+    %{graphemes: graphemes} = AtMcp.Effects.profile_limits().pronouns
+
+    Macro.escape(
+      description:
+        "Free-form pronouns the profile shows, at most #{graphemes} characters. Empty removes them."
+    )
+  end
+
+  @doc "The `links` parameter of `update_profile`, from `AtMcp.Effects.profile_limits/0`."
+  defmacro profile_links do
+    %{links: max, link_title: %{graphemes: title}} = AtMcp.Effects.profile_limits()
+
+    Macro.escape(
+      description:
+        "The links the profile shows, in order, replacing the ones it has: each an https url and an optional title (at most #{title} characters). At most #{max}; [] removes them all. A link given as the profile already shows it keeps its record. A URL shortener is refused: the app does not show one.",
+      schema: %{
+        type: "array",
+        maxItems: max,
+        items: %{
+          type: "object",
+          required: ["url"],
+          properties: %{
+            url: %{type: "string", description: "An https URL"},
+            title: %{type: "string", description: "The link's label"}
+          }
+        }
+      }
+    )
+  end
+
+  @doc "The `duration_minutes` parameter of `set_status`, from `AtMcp.Effects.status_minutes/0`."
+  defmacro status_minutes do
+    first..last//_ = AtMcp.Effects.status_minutes()
+
+    Macro.escape(
+      description:
+        "With live: how long it lasts, #{first} to #{last} minutes, the span the service shows a status for",
+      schema: %{type: "integer", minimum: first, maximum: last}
+    )
+  end
+
   @doc """
   The `text` parameter of `save_draft`, stated from the limits the account
   enforces (`AtMcp.Effects.draft_text_limits/0`).
@@ -509,8 +552,69 @@ defmodule AtMcp.MCP.Schemas do
         ),
       "unchanged" => %{
         "type" => ["boolean", "null"],
-        "description" => "True when the post already had these settings, so nothing was written"
-      }
+        "description" =>
+          "True when nothing would change, so nothing was written: the post already had these settings, the feed was already saved as asked, or there was no status to clear"
+      },
+      "pronouns" => nullable_string("update_profile: the pronouns written; empty when removed"),
+      "website" => nullable_string("update_profile: the website written; empty when removed"),
+      "links" => %{
+        "type" => ["array", "null"],
+        "description" =>
+          "update_profile with links: the links the profile now shows, in order, each with its actor.link record",
+        "items" => %{
+          "type" => "object",
+          "properties" => %{
+            "uri" => nullable_string("AT URI of the link record"),
+            "url" => nullable_string(),
+            "title" => nullable_string()
+          }
+        }
+      },
+      "replaced_links" => %{
+        "type" => ["array", "null"],
+        "description" =>
+          "update_profile with links: the links the profile showed before, which links takes to put them back",
+        "items" => %{
+          "type" => "object",
+          "properties" => %{"url" => nullable_string(), "title" => nullable_string()}
+        }
+      },
+      "removed" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "update_profile with links: link records deleted because the profile no longer shows them"
+      },
+      "left_behind" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "update_profile with links: link records the profile no longer shows that could not be deleted; nothing shows them"
+      },
+      "pinned" => %{
+        "type" => ["boolean", "null"],
+        "description" => "save_feed: whether the feed is now pinned as a home screen tab"
+      },
+      "note" =>
+        nullable_string("save_feed and unsave_feed: what the write could not guard against"),
+      "status" => nullable_string("set_status: live, or clear"),
+      "duration_minutes" => %{
+        "type" => ["integer", "null"],
+        "description" => "set_status: how long the live status lasts"
+      },
+      "url" => nullable_string("set_status: where to watch"),
+      "expires_at" => nullable_string("set_status: when the live status ends, ISO 8601"),
+      "replaced" => %{
+        "type" => ["object", "null"],
+        "description" =>
+          "set_status: the status this replaced or cleared, null when there was none: its url, duration_minutes and created_at",
+        "properties" => %{
+          "url" => nullable_string(),
+          "duration_minutes" => %{"type" => ["integer", "null"]},
+          "created_at" => nullable_string()
+        }
+      },
+      "kind" => nullable_string("feed_feedback: show_more or show_less")
     })
   end
 

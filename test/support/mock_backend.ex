@@ -530,6 +530,7 @@ defmodule AtMcp.Test.MockBackend do
           creator: "alice.bsky.social",
           creator_did: "did:plc:alice",
           like_count: 3,
+          accepts_interactions: true,
           indexed_at: "2026-09-13T12:34:56.123Z"
         }
       ],
@@ -668,9 +669,84 @@ defmodule AtMcp.Test.MockBackend do
        action: :update_profile,
        display_name: Keyword.get(updates, :display_name),
        description: Keyword.get(updates, :description),
+       pronouns: Keyword.get(updates, :pronouns),
+       website: Keyword.get(updates, :website),
        uri: "at://did:plc:test/app.bsky.actor.profile/self"
-     }}
+     }
+     |> Map.merge(
+       case Keyword.fetch(updates, :links) do
+         {:ok, links} ->
+           %{
+             links:
+               links
+               |> Enum.with_index()
+               |> Enum.map(fn {link, i} ->
+                 Map.put(link, :uri, "at://did:plc:test/app.bsky.actor.link/#{i}")
+               end),
+             replaced_links: [],
+             removed: [],
+             left_behind: []
+           }
+
+         :error ->
+           %{}
+       end
+     )}
   end
+
+  @impl true
+  def prepare_saved_feed(_state, {verb, uri, pinned}),
+    do: {:ok, %{verb: verb, uri: uri, pinned: pinned}}
+
+  @impl true
+  def write_preferences(_state, %{verb: verb, uri: uri, pinned: pinned}),
+    do: {:ok, %{ok: true, action: verb, uri: uri, pinned: pinned, unchanged: false}}
+
+  @impl true
+  def prepare_status(_state, request), do: {:ok, %{request: request}}
+
+  @impl true
+  def write_status(_state, %{request: :clear}),
+    do:
+      {:ok,
+       %{
+         ok: true,
+         action: :set_status,
+         status: "clear",
+         uri: "at://did:plc:mock/app.bsky.actor.status/self",
+         replaced: nil,
+         unchanged: true
+       }}
+
+  def write_status(_state, %{request: {:live, fields}}),
+    do:
+      {:ok,
+       %{
+         ok: true,
+         action: :set_status,
+         status: "live",
+         uri: "at://did:plc:mock/app.bsky.actor.status/self",
+         url: fields.url,
+         duration_minutes: fields.minutes,
+         expires_at: "2026-10-18T01:00:00Z",
+         replaced: nil,
+         unchanged: false
+       }}
+
+  @impl true
+  def prepare_feed_feedback(_state, request), do: {:ok, request}
+
+  @impl true
+  def send_feed_feedback(_state, request),
+    do:
+      {:ok,
+       %{
+         ok: true,
+         action: :feed_feedback,
+         uri: request.item,
+         subject_uri: request.feed,
+         kind: request.kind
+       }}
 
   @impl true
   def update_seen(_state, %DateTime{} = seen_at) do

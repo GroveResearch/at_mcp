@@ -83,6 +83,26 @@ defmodule AtMcp.MCP.Tools do
         "error: this account is not connected: it has no credentials. Configure it in at_mcp's accounts file."
       )
 
+  # A profile write with links whose outcome is unknown: the new link records
+  # were written, and the profile, which would name them and stop naming the
+  # old ones, may or may not have been.
+  def respond(
+        {:error,
+         {:write_outcome_unknown,
+          %AtMcp.Effects.Failure{detail: {:profile_links, created, removed}}}},
+        state
+      ) do
+    error(
+      state,
+      "write_outcome_unknown",
+      "error: write outcome unknown; the profile may or may not have been changed. " <>
+        "Its new link records were written: #{Enum.join(created, ", ")}. If the profile was not changed, nothing shows them. " <>
+        "The link records it would stop showing were not deleted: #{Enum.join(removed, ", ")}. " <>
+        "Read the profile record before deciding whether to retry. AtMcp did not retry this uncertain write.",
+      %{outcome: "unknown", created: created, not_removed: removed}
+    )
+  end
+
   def respond({:error, {:write_outcome_unknown, _reason}}, state) do
     error(
       state,
@@ -417,15 +437,47 @@ defmodule AtMcp.MCP.Tools do
       |> maybe_kw(:display_name, Map.get(args, :display_name) || Map.get(args, "display_name"))
       |> maybe_kw(:description, Map.get(args, :description) || Map.get(args, "description"))
 
+    # Pronouns and a website given empty are removed, so "" is kept for them.
+    updates =
+      Enum.reduce([:pronouns, :website], updates, fn key, updates ->
+        case Map.get(args, key, Map.get(args, Atom.to_string(key))) do
+          value when is_binary(value) -> Keyword.put(updates, key, String.trim(value))
+          _ -> updates
+        end
+      end)
+
+    updates =
+      case Map.get(args, :links, Map.get(args, "links")) do
+        links when is_list(links) ->
+          Keyword.put(updates, :links, Enum.map(links, &profile_link/1))
+
+        _ ->
+          updates
+      end
+
     with {:ok, updates} <- profile_image(updates, :avatar, args),
          {:ok, updates} <- profile_image(updates, :banner, args) do
       if updates == [] do
-        {:error, "provide display_name, description, avatar and/or banner"}
+        {:error,
+         "provide display_name, description, avatar, banner, pronouns, website and/or links"}
       else
         AtMcp.Effects.update_profile(effects, updates)
       end
     end
   end
+
+  # One profile link as `AtMcp.Effects.update_profile/2` takes it. Anything
+  # that is not `{url, title}` is passed on for it to refuse by name.
+  defp profile_link(%{} = link) do
+    title = field(link, "title")
+
+    %{
+      url: field(link, "url"),
+      title: if(is_binary(title) and String.trim(title) != "", do: String.trim(title))
+    }
+  end
+
+  defp profile_link(other), do: other
 
   @doc """
   The fields of a list or starter pack write, from tool arguments: the given

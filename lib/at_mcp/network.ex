@@ -93,7 +93,10 @@ defmodule AtMcp.Network do
     starter_pack: "graph.starterpack",
     list_opt_out: "graph.referencelistoptout",
     threadgate: "feed.threadgate",
-    postgate: "feed.postgate"
+    postgate: "feed.postgate",
+    labeler: "labeler.service",
+    status: "actor.status",
+    link: "actor.link"
   }
 
   # The lexicon-defined types AtMcp reads off a record it did not write.
@@ -123,7 +126,12 @@ defmodule AtMcp.Network do
     follower_rule: "feed.threadgate#followerRule",
     following_rule: "feed.threadgate#followingRule",
     list_rule: "feed.threadgate#listRule",
-    disable_rule: "feed.postgate#disableRule"
+    disable_rule: "feed.postgate#disableRule",
+    status_live: "actor.status#live",
+    saved_feeds: "actor.defs#savedFeedsPref",
+    saved_feeds_v2: "actor.defs#savedFeedsPrefV2",
+    request_more: "feed.defs#requestMore",
+    request_less: "feed.defs#requestLess"
   }
 
   # Read at compile time so a release carries no runtime dependency on priv/.
@@ -327,7 +335,10 @@ defmodule AtMcp.Network do
   reply's parent or root in a feed (`:post_view`, `:not_found_post`,
   `:blocked_post`), a list's purpose (`:curatelist`, `:modlist`,
   `:referencelist`), or a threadgate or postgate rule (`:mention_rule`,
-  `:follower_rule`, `:following_rule`, `:list_rule`, `:disable_rule`).
+  `:follower_rule`, `:following_rule`, `:list_rule`, `:disable_rule`), the live
+  status token (`:status_live`), a saved-feeds preference (`:saved_feeds`,
+  `:saved_feeds_v2`), or a feed feedback event (`:request_more`,
+  `:request_less`).
   """
   @spec type(atom()) :: String.t()
   def type(kind) when is_map_key(@types, kind), do: nsid(Map.fetch!(@types, kind))

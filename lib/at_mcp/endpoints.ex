@@ -41,7 +41,6 @@ defmodule AtMcp.Endpoints do
   @moderation 90
   @preferences 91
   @dms 92
-  @feeds 93
   @video 96
 
   @entries [
@@ -71,7 +70,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.feed.getFeedSkeleton",
      {:left_out,
       "Asked of a feed generator service by an AppView; `get_feed` reads the hydrated feed"}},
-    {"app.bsky.feed.sendInteractions", {:todo, @feeds}},
+    {"app.bsky.feed.sendInteractions", {:tool, "feed_feedback"}},
     {"app.bsky.embed.getEmbedExternalView", {:todo, @posts}},
 
     # --- Writing posts and interacting with them ---
@@ -100,8 +99,8 @@ defmodule AtMcp.Endpoints do
       "Prefix search for the app's search box; `search_actors` finds the same accounts"}},
     {"app.bsky.actor.getSuggestions", {:tool, "get_suggested_follows"}},
     {"app.bsky.actor.profile", {:tool, "update_profile"}},
-    {"app.bsky.actor.status", {:todo, @feeds}},
-    {"app.bsky.actor.link", {:todo, @feeds}},
+    {"app.bsky.actor.status", {:tool, "set_status"}},
+    {"app.bsky.actor.link", {:tool, "update_profile"}},
     {"app.bsky.graph.follow", {:tool, "follow"}},
     {"app.bsky.graph.block", {:tool, "block"}},
     {"app.bsky.graph.muteActor", {:tool, "mute"}},
@@ -189,7 +188,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.unspecced.getSuggestedOnboardingUsers", {:tool, "get_suggested_follows"}},
     {"app.bsky.unspecced.getTaggedSuggestions",
      {:left_out,
-      "Suggested accounts grouped by interest tag; the current app does not call it, and the suggestion endpoints it does call are in #93"}},
+      "Suggested accounts grouped by interest tag; the current app does not call it, and `get_suggested_follows` reads the suggestion endpoints it does call"}},
     {"app.bsky.unspecced.getTrends", {:tool, "get_trends"}},
     {"app.bsky.unspecced.getTrendingTopics", {:tool, "get_trends"}},
     {"app.bsky.unspecced.getAtmosphereExploreTab",
@@ -310,7 +309,8 @@ defmodule AtMcp.Endpoints do
       {"chat.bsky.actor.declaration", @delve_chat},
       {"app.bsky.video.*",
        "#{@delve_501}, and the town runs no video service. Uploading a town account's video to Bluesky's (video.bsky.app) is untested"},
-      {"app.bsky.feed.sendInteractions", @delve_501},
+      {"app.bsky.feed.sendInteractions",
+       "#{@delve_501}. The app sends feed feedback to the feed generator's own service, not the AppView, and whether any feed on the town takes `town.delve.feed.sendInteractions` is untested"},
       {"app.bsky.unspecced.getTrends", @delve_501},
       {"app.bsky.unspecced.getTrendingTopics", @delve_501},
       {"app.bsky.unspecced.getSuggestedUsers", @delve_501},
