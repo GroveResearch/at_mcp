@@ -34,14 +34,14 @@ defmodule AtMcp.ReadingTest do
     page = %{count: 1, items: [Summary.extract(:post, post)], cursor: "c2"}
     {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts))
 
-    assert text =~ "Example Notes · AI (@fieldnote.example.test)"
+    assert text =~ ~s|"Example Notes · AI" (@fieldnote.example.test)|
     assert text =~ post["record"]["createdAt"]
     assert text =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
     # The link the author shortened is read at its full destination.
     assert text =~ "<https://delve.town/profile/fieldnote.example.test/post/3kfixtureqo2a>"
 
     assert text =~
-             "[quoting Example Notes · AI (@fieldnote.example.test) · #{post["embed"]["record"]["indexedAt"]}, #{post["embed"]["record"]["uri"]} " <>
+             "[quoting \"Example Notes · AI\" (@fieldnote.example.test) · #{post["embed"]["record"]["indexedAt"]}, #{post["embed"]["record"]["uri"]} " <>
                "(link: https://delve.town/profile/fieldnote.example.test/post/3kfixtureqo2a):"
 
     # Beside the uri, the link a person opens and shares.
@@ -142,7 +142,7 @@ defmodule AtMcp.ReadingTest do
     assert AtMcp.Reading.posts(%{
              "items" => [post |> then(&Summary.extract(:post, &1)) |> json()]
            }) ==
-             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\nhello\n" <>
+             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\n> hello\n" <>
                "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
 
     # An empty label list is no labels, not a heading with nothing under it.
@@ -171,7 +171,7 @@ defmodule AtMcp.ReadingTest do
     end
 
     assert read.(post) ==
-             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\nhello\n" <>
+             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\n> hello\n" <>
                "They blocked you · You muted them · You cannot reply to this post · You cannot quote this post\n" <>
                "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
 
@@ -235,7 +235,7 @@ defmodule AtMcp.ReadingTest do
 
     # A notification names its author as a post does.
     assert first =~
-             "[1] reply from Example Notes · AI (@fieldnote.example.test) · #{post["indexedAt"]} · unread"
+             "[1] reply from \"Example Notes · AI\" (@fieldnote.example.test) · #{post["indexedAt"]} · unread"
 
     assert first =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
     assert first =~ "uri: #{post["uri"]} · cid: #{post["cid"]}"
@@ -259,10 +259,12 @@ defmodule AtMcp.ReadingTest do
              AtMcp.MCP.Server.handle_call_tool("get_thread_chain", %{"uri" => uri}, state)
 
     assert text =~ "A conversation of 2 posts, oldest first."
-    assert text =~ "[1] Alice (@alice.bsky.social) · 2026-09-15T00:00:00.000Z\nthe first post"
 
     assert text =~
-             "[2] Alice (@alice.bsky.social) · 2026-09-15T00:01:00.000Z · replying to at://did:plc:mock/app.bsky.feed.post/root"
+             "[1] \"Alice\" (@alice.bsky.social) · 2026-09-15T00:00:00.000Z\n> the first post"
+
+    assert text =~
+             "[2] \"Alice\" (@alice.bsky.social) · 2026-09-15T00:01:00.000Z · replying to at://did:plc:mock/app.bsky.feed.post/root"
 
     assert text =~ "uri: #{uri} · cid: bafyTHREADCID"
     refute text =~ "null"
@@ -333,7 +335,7 @@ defmodule AtMcp.ReadingTest do
     text = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, shown()))]})
 
     assert text ==
-             "1 post.\n\n[1] Ada (@a.test, verified) · 2026-10-01T00:00:00.000Z\nhello\n" <>
+             "1 post.\n\n[1] \"Ada\" (@a.test, verified) · 2026-10-01T00:00:00.000Z\n> hello\n" <>
                "Labels: graphic-media; author: bot (self)\n" <>
                "You muted them · You cannot reply to this post\n" <>
                ~s(Who can reply: people mentioned, members of "Friends" at://did:plc:a/app.bsky.graph.list/f\n) <>
@@ -362,7 +364,7 @@ defmodule AtMcp.ReadingTest do
   # shows it: a page of posts, a conversation, a notification, or a quote.
   test "a post reads the same in a feed, a chain, a notification and a quote" do
     # Muted, so no Live badge (see the Live test below).
-    name = "Ada (@a.test, verified)"
+    name = ~s|"Ada" (@a.test, verified)|
     labels = "Labels: graphic-media; author: bot (self)"
 
     feed = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, shown()))]})
@@ -412,7 +414,7 @@ defmodule AtMcp.ReadingTest do
     assert chain =~ "You muted them · You cannot reply to this post"
 
     assert quote =~
-             "[quoting #{name} · 2026-10-01T00:00:00.000Z, at://did:plc:a/app.bsky.feed.post/1: hello · #{labels} · You muted them]"
+             "[quoting #{name} · 2026-10-01T00:00:00.000Z, at://did:plc:a/app.bsky.feed.post/1: \"hello\" · #{labels} · You muted them]"
   end
 
   test "a notification names its author as a post does, and a follow says what is known of who it is from" do
@@ -433,7 +435,7 @@ defmodule AtMcp.ReadingTest do
     assert AtMcp.Reading.notifications(%{
              "items" => [json(Summary.extract(:notification, follow))]
            }) ==
-             "1 notification.\n\n[1] starterpack-joined from Ada (@a.test, verified) · " <>
+             "1 notification.\n\n[1] starterpack-joined from \"Ada\" (@a.test, verified) · " <>
                "2026-10-01T00:00:00.000Z · on at://did:plc:me/app.bsky.graph.starterpack/p · " <>
                ~s(through the starter pack "Agents" at://did:plc:me/app.bsky.graph.starterpack/p · ) <>
                "Labels: author: bot (self) · You muted them"
@@ -449,7 +451,7 @@ defmodule AtMcp.ReadingTest do
     expired = status.(live, &Map.put(&1, "expiresAt", "2020-01-01T00:00:00.000Z"))
     list = %{"uri" => "at://did:plc:me/app.bsky.graph.list/m"}
 
-    assert name.(live) =~ "[1] Ada (@a.test, verified, live) · "
+    assert name.(live) =~ ~s|[1] "Ada" (@a.test, verified, live) · |
 
     for {why, post} <- [
           {"another host", link.("https://stream.example/a")},
@@ -466,7 +468,7 @@ defmodule AtMcp.ReadingTest do
           {"a !hide on the account",
            put_in(live, ["author", "labels"], [%{"src" => "did:plc:l", "val" => "!hide"}])}
         ] do
-      assert name.(post) =~ "[1] Ada (@a.test, verified) · ", why
+      assert name.(post) =~ ~s|[1] "Ada" (@a.test, verified) · |, why
     end
 
     # A subdomain of an allowed host is that host.
@@ -535,20 +537,20 @@ defmodule AtMcp.ReadingTest do
 
     assert text ==
              """
-             Profile Ada (@a.test, verified, trusted verifier, live) · she/her · runs a labeler
+             Profile "Ada" (@a.test, verified, trusted verifier, live) · "she/her" · runs a labeler
              You follow them: at://did:plc:me/app.bsky.graph.follow/f · Follows you
-             Writes about kites.
-             And wind.
+             > Writes about kites.
+             > And wind.
              10 followers · 1 following · joined 2024-01-02T03:04:05.000Z
              Made: 2 lists · 1 starter pack
              Website: https://a.example
-             Links: Blog (https://a.example/blog)
+             Links: "Blog" (https://a.example/blog)
              Pinned post: at://did:plc:a/app.bsky.feed.post/1
-             Live: On air https://www.twitch.tv/a until 2999-01-01T00:00:00.000Z
+             Live: "On air" https://www.twitch.tv/a until 2999-01-01T00:00:00.000Z
              Avatar: https://cdn.example/a.jpg · Banner: https://cdn.example/b.jpg
              Verified by: @v.test
              Labels: bot (self)
-             Followed by Kit (@k.test) and 3 others
+             Followed by "Kit" (@k.test) and 3 others
              Joined through the starter pack "Agents" by @k.test at://did:plc:k/app.bsky.graph.starterpack/p
              did: did:plc:a
              link: https://delve.town/profile/a.test\
@@ -575,10 +577,10 @@ defmodule AtMcp.ReadingTest do
     assert text =~ "2 accounts. For the next page, pass cursor: c3"
 
     assert text =~
-             "\n[1] Ada (@a.test, verified, trusted verifier, live) · she/her · runs a labeler\n"
+             ~s|\n[1] "Ada" (@a.test, verified, trusted verifier, live) · "she/her" · runs a labeler\n|
 
     # A page's description is on one line, as the app's account lists show it.
-    assert text =~ "\nWrites about kites. And wind.\n"
+    assert text =~ ~s(\n"Writes about kites. And wind."\n)
 
     assert String.ends_with?(
              text,
@@ -713,10 +715,9 @@ defmodule AtMcp.ReadingTest do
     end
   end
 
-  # The app links a mention facet's span to the account it names, and the
-  # service notified that account; an @word without a facet is plain text
-  # (social-app at 62b95002, RichText.tsx:140-153).
-  test "a mention reads with the DID it notified, and an @word without one reads as written" do
+  # The app links a mention facet's span to the account it names; an @word
+  # without a facet is plain text (social-app at 62b95002, RichText.tsx:140-153).
+  test "a mention reads with the DID it links to, and an @word without one reads as written" do
     text = "hi @alice.test and @bob.test"
 
     post =
@@ -765,7 +766,7 @@ defmodule AtMcp.ReadingTest do
       })
 
     for {_read, text} <- Map.drop(every_read(post), [:notification, :quote]) do
-      assert text =~ "\nLiked by Fen (@f.test) and @g.test\n"
+      assert text =~ ~s|\nLiked by "Fen" (@f.test) and @g.test\n|
       assert text =~ "\nYou bookmarked this\nYou pinned this to your profile"
       refute text =~ "h.test"
     end
@@ -831,7 +832,7 @@ defmodule AtMcp.ReadingTest do
     end
 
     line =
-      ~s|[link: On kites — Why they fly (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · | <>
+      ~s|[link: "On kites" — "Why they fly" (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · | <>
         ~s|7 min read · publication "Kite Notes" (https://blog.example.test) · by @writer.test]|
 
     for {_read, text} <- Map.delete(every_read(post.(card)), :quote) do
@@ -840,7 +841,7 @@ defmodule AtMcp.ReadingTest do
 
     # Inside a quote the card leaves out its description, as a quote does.
     assert every_read(post.(card)).quote =~
-             ~s|[link: On kites (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · 7 min read · publication "Kite Notes"|
+             ~s|[link: "On kites" (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · 7 min read · publication "Kite Notes"|
 
     assert %{
              "published_at" => "2026-09-01T00:00:00.000Z",
@@ -872,7 +873,7 @@ defmodule AtMcp.ReadingTest do
     # time on it, and no author; the structured content keeps what was sent.
     plain = Map.drop(card, ["associatedRefs", "associatedProfiles", "source"])
     text = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, post.(plain)))]})
-    assert text =~ "[link: On kites — Why they fly (https://blog.example.test/post)]"
+    assert text =~ ~s|[link: "On kites" — "Why they fly" (https://blog.example.test/post)]|
 
     assert json(Summary.extract(:post, post.(plain)))["link"]["published_at"] ==
              "2026-09-01T00:00:00.000Z"
@@ -892,5 +893,29 @@ defmodule AtMcp.ReadingTest do
     assert summary["viewer"]["muted_quotes"] == false
     assert AtMcp.Reading.profile(summary) =~ "\nYou hid their reposts\n"
     refute AtMcp.Reading.profile(summary) =~ "You muted them"
+  end
+
+  # A like through this account's repost names the repost as its subject;
+  # the app shows the liked post, which the like's record names.
+  test "a like through this account's repost names the liked post and the repost" do
+    repost = "at://did:plc:me/app.bsky.feed.repost/r"
+    liked = "at://did:plc:x/app.bsky.feed.post/p"
+
+    like = %{
+      "reason" => "like-via-repost",
+      "uri" => "at://did:plc:a/app.bsky.feed.like/l",
+      "author" => %{"handle" => "a.test", "did" => "did:plc:a"},
+      "reasonSubject" => repost,
+      "record" => %{"subject" => %{"uri" => liked, "cid" => "bafyp"}, "via" => %{"uri" => repost}},
+      "isRead" => true,
+      "indexedAt" => "2026-10-01T00:00:00.000Z"
+    }
+
+    summary = json(Summary.extract(:notification, like))
+    assert summary["subject_uri"] == repost
+    assert summary["subject_post_uri"] == liked
+
+    assert AtMcp.Reading.notifications(%{"items" => [summary]}) =~
+             "on #{liked} via your repost #{repost}"
   end
 end

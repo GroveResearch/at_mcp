@@ -81,8 +81,8 @@ defmodule AtMcp.FeedContextTest do
     assert summary["author"] == item["post"]["author"]["handle"]
 
     assert text =~
-             "[1] Reposted by #{by["displayName"]} (@#{by["handle"]}) · #{item["reason"]["indexedAt"]}\n" <>
-               "#{item["post"]["author"]["displayName"]} (@#{item["post"]["author"]["handle"]}) · " <>
+             "[1] Reposted by \"#{by["displayName"]}\" (@#{by["handle"]}) · #{item["reason"]["indexedAt"]}\n" <>
+               "\"#{item["post"]["author"]["displayName"]}\" (@#{item["post"]["author"]["handle"]}) · " <>
                item["post"]["indexedAt"] <> "\n"
   end
 

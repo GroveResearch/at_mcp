@@ -261,6 +261,8 @@ defmodule AtMcp.SummaryTest do
       "record" => %{
         "text" => "hello",
         "createdAt" => "2026-09-13T12:30:00.000Z",
+        # Read from a like's or repost's record; one response carries every field.
+        "subject" => %{"uri" => "at://did:plc:me/app.bsky.feed.post/s", "cid" => "bafys"},
         "reply" => %{
           "parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"},
           "root" => %{"uri" => "at://did:plc:root/app.bsky.feed.post/r"}

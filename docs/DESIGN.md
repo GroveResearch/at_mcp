@@ -120,11 +120,16 @@ thread, a chain, a notification and a quote each say its author's badges,
 labels and any block or mute with its author in the same words, and a gated
 post says who may reply. Its time is the one the app shows, when the service
 first saw it (`indexed_at`), with the author's own `created_at` beside it as
-"archived from" when that is more than a day earlier, as the app marks a
-backdated post. A mention reads with the DID it notified, `@alice.test
-<did:plc:…>`, so it is told apart from an `@word` that notified nobody. A
-link card built from standard.site records names its publication, the author
-the app names on it, the publish date and the reading time. Most MCP clients give a model
+"archived from" when that is more than a day earlier (the app marks such a
+backdated post on a thread's main post; here every read says it). A mention
+facet reads with the DID it links to, `@alice.test <did:plc:…>`, so it is
+told apart from an `@word` with no facet. A link card built from
+standard.site records names its publication, the author the app names on it,
+the publish date and the reading time. What someone else wrote cannot read
+as AtMcp's own words: a post's text is fenced, each of its lines after `> `,
+and every other string an author or another account controls (names, quoted
+text, alt text, card and publication titles, descriptions) is one quoted
+literal on one line, `"` and backslash escaped (`AtMcp.Reading`). Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients
@@ -236,8 +241,10 @@ itself — so null means nowhere to resume, and `chain_truncated` is what says
 whether anything is missing. The caps are module attributes, not numbers in a
 tool description that go stale when they move.
 
-Post and chain summaries preserve `raw_text` exactly, expand link destinations
-in `text`, and expose normalized `facets`. `web_url` is the post's web link on
+Post and chain summaries preserve `raw_text` exactly; `text` writes each
+link's destination and each mention facet's DID after its span as `<…>`,
+with the author's own `<` and backslash escaped so that only those markers
+are unescaped; and `facets` are exposed normalized. `web_url` is the post's web link on
 the configured network; AT URIs remain the canonical tool references. Both carry
 `images` (alt text and available thumbnail/full-size URLs, a gallery's
 included), a `link` card (destination, title, description, image URL), a

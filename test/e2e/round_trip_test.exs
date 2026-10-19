@@ -1532,7 +1532,7 @@ defmodule AtMcp.E2E.RoundTripTest do
   end
 
   describe "what this account sees" do
-    test "bookmark and pin_post read back as this account's on the post; a mention reads with the DID it notified",
+    test "bookmark and pin_post read back as this account's on the post; a mention reads with the DID it links to",
          %{net: net, me: me, them: them, session: session, pds: pds} do
       follows = [
         call!(me, "follow", %{"actor" => them.handle}),
@@ -1566,7 +1566,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       refute q["viewer"]["pinned"]
       assert text =~ "You pinned this to your profile"
       assert text =~ "You bookmarked this"
-      # The mention the post tool resolved notified them, and reads so.
+      # The mention the post tool resolved links to them, and reads so.
       assert p["text"] == "kites for @#{them.handle} <#{them.did}>"
       assert p["raw_text"] == "kites for @#{them.handle}"
       assert is_binary(p["indexed_at"]) and is_binary(p["created_at"])

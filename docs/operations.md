@@ -536,6 +536,30 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.11 to the next release
+
+No stored data changes. What a client or a delivery receiver reads changes
+(#132, #133, #134, #135):
+
+- **A post's `text` marks its mentions and escapes the author's `<`**: after
+  each mention facet's span comes the DID it links to, `@alice.test
+  <did:plc:…>`, as a link's destination already did, and the author's own `<`
+  and backslash are escaped with a backslash. This is the `text` of every read
+  and of every incoming event a post makes, so the HTTP bridge's `text`
+  changes too. `raw_text` is still the text exactly as written; a receiver
+  that matched on `text` should match on `raw_text`.
+- **The text a model reads** fences a post's text, each of its lines after
+  `> `, and puts every name, quoted text, alt text and card or publication
+  title in double quotes, so nothing an author writes reads as AtMcp's own
+  line. A post's time is the one the app shows (`indexed_at`), with the
+  author's `created_at` beside it as "archived from" when more than a day
+  earlier.
+- **New fields**: `indexed_at` on posts and quotes; `viewer.bookmarked`,
+  `viewer.pinned` and `known_likers` on posts; `muted_reposts` and
+  `muted_quotes` on an account's viewer; `created_at` and `subject_post_uri`
+  on notifications; `published_at`, `reading_time`, `publication`, `author`
+  and `records` on link cards.
+
 ### From 0.2.10 to 0.2.11
 
 0.2.11 stores data in the same format as 0.2.10 and starts from the same

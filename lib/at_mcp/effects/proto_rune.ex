@@ -197,7 +197,7 @@ defmodule AtMcp.Effects.ProtoRune do
           "uri" => item["post"],
           "author" => get_in(views, [item["post"], "author", "handle"]),
           # Read as a post's text is anywhere: links at their destination,
-          # each mention with the DID it notified.
+          # each mention with the DID it links to.
           "text" => post_text(get_in(views, [item["post"], "record"])),
           "viaRepost" => item["viaRepost"],
           "parent" => item["parent"]

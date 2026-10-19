@@ -203,7 +203,7 @@ defmodule AtMcp.Summary do
      "When the quoted post's author says it was written, as an ISO 8601 timestamp"},
     {:raw_text, :string, [["raw_text"]], "Exact quoted author's text"},
     {:text, :string, [["text"]],
-     "Quoted text with full link destinations, and the DID each mention notified"},
+     "Quoted text as `text` renders a post's: full link destinations and each mention's DID marked, the author's `<` and backslash escaped"},
     {:facets, {:list, @facets}, [["facets"]], "Quoted text's normalized facets"},
     {:images, {:list, @image_view}, [["images"]], "Quoted post's image metadata, not pixels"},
     {:link, {:object, @link}, [["link"]], "Quoted post's link card"},
@@ -230,7 +230,7 @@ defmodule AtMcp.Summary do
   # Computed content is declared once for reads, chains and notifications.
   @content [
     {:text, :string, [["perception", "text"]],
-     "Post text with full link destinations, and after each mention the DID it notified, as `@handle <did>`; an @word without one notified nobody"},
+     "Post text with each link's full destination and each mention facet's DID written after its span, as `@handle <did>`; an @word without a facet links nowhere. The author's own `<` and backslash are escaped with a backslash, so an unescaped `<…>` is always such a marker; raw_text is the text exactly"},
     {:raw_text, :string, [["perception", "raw_text"]],
      "Exact author text, without appended observations"},
     {:facets, {:list, @facets}, [["perception", "facets"]],
@@ -274,7 +274,13 @@ defmodule AtMcp.Summary do
   # The likers of a post the viewing account follows (`feed.defs#knownLikers`).
   @known_likers [
     {:count, :integer, [["count"]], "How many such accounts the service counts"},
-    {:actors, {:list, @account_basic}, [["actors"]], "Some of them, as the service chose"}
+    {:actors,
+     {:list,
+      @account_basic ++
+        [
+          {:viewer, {:viewer, @actor_viewer}, [["viewer"]],
+           "The viewing account's relationship to it; the app leaves an account it blocks, is blocked by or mutes out of the line"}
+        ]}, [["actors"]], "Some of them, as the service chose"}
   ]
 
   # A list a thread's gate lets reply (`graph.defs#listViewBasic`).
@@ -411,7 +417,7 @@ defmodule AtMcp.Summary do
     {:uri, :string, [["uri"]], "AT URI of the post"},
     {:web_url, {:web, :record}, [["uri"], ["author"]], @link_doc},
     {:text, :string, [["text"]],
-     "The post's text, with full link destinations and the DID each mention notified; null when the service sent no view of it"},
+     "The post's text as `text` renders a post's: links and mentions marked, the author's `<` and backslash escaped; null when the service sent no view of it"},
     {:via_repost, :string, [["viaRepost"]],
      "AT URI of this account's repost the action came through, when it did"},
     {:parent, :string, [["parent"]], "AT URI of the post it replies to, when it is a reply"}
@@ -693,7 +699,9 @@ defmodule AtMcp.Summary do
             {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
              "When the notification's record says it was made, as an ISO 8601 timestamp; its author chooses it"},
             {:subject_uri, :string, [["reason_subject"], ["reasonSubject"]],
-             "AT URI of the record this activity addresses, when provided"},
+             "AT URI of the record this activity addresses, when provided: for a like or repost through this account's repost, that repost"},
+            {:subject_post_uri, :string, [["record", "subject", "uri"]],
+             "AT URI of the post a like or repost record names: the post the app shows, which subject_uri is not when it came through this account's repost"},
             {:reply_parent_uri, :string, [["record", "reply", "parent", "uri"]],
              "AT URI of the immediate parent of a reply"},
             {:reply_root_uri, :string, [["record", "reply", "root", "uri"]],

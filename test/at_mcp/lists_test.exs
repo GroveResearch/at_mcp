@@ -198,13 +198,13 @@ defmodule AtMcp.ListsTest do
       list = hd(call(state, "get_list", %{"uri" => @list}).content).text
       assert list =~ ~s(List "Mock list" · curate list · 1 account · by @mock.test)
       assert list =~ "uri: #{@list}"
-      assert list =~ "[1] Alice (@alice.test)"
+      assert list =~ ~s|[1] "Alice" (@alice.test)|
       assert list =~ "item: at://did:plc:mock/app.bsky.graph.listitem/i1"
 
       pack = hd(call(state, "get_starter_pack", %{"uri" => @pack}).content).text
       assert pack =~ ~s(Starter pack "Mock pack" · by @mock.test · 1 account)
       assert pack =~ ~s(Feeds: "F" · by @mock.test · at://did:plc:mock/app.bsky.feed.generator/f)
-      assert pack =~ "Some of its accounts: Alice (@alice.test)"
+      assert pack =~ ~s|Some of its accounts: "Alice" (@alice.test)|
       assert pack =~ "list: #{@list} (get_list reads every account)"
       assert pack =~ "uri: #{@pack}"
 

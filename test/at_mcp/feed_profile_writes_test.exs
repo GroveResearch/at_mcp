@@ -856,7 +856,7 @@ defmodule AtMcp.FeedProfileWritesTest do
       assert [%{feed_context: "t-kites", req_id: "r1"} = item] = page.items
 
       text = AtMcp.Reading.posts(Jason.decode!(Jason.encode!(%{items: [item]})))
-      assert text =~ "For feed_feedback: feed_context: t-kites · req_id: r1"
+      assert text =~ ~s(For feed_feedback: feed_context: "t-kites" · req_id: "r1")
     end
   end
 

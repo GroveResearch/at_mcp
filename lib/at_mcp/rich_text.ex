@@ -11,7 +11,7 @@ defmodule AtMcp.RichText do
   `render/2` is the other direction, for a post AtMcp read: a facet's
   destination lives beside the text, not in it, so an agent reading only the
   text cannot tell where a shortened link goes, or whether an `@handle` is a
-  mention that notified an account or words that notified nobody.
+  mention facet linking to an account or words that link nowhere.
   """
   alias ProtoRune.{Atproto.Identity, RichText}
 
@@ -59,9 +59,14 @@ defmodule AtMcp.RichText do
   destination is in the facet, so the destination is written into the text
   after the span it belongs to. A mention facet's DID is written after its
   span the same way, `@alice.test <did:plc:…>`: the app links the span to that
-  account and the service notified it, while an `@word` with no facet is
-  plain text that notified nobody. Tag spans already read as themselves and
-  are left alone. Every facet is also returned in the resolved list.
+  account, while an `@word` with no facet is plain text. Tag spans already
+  read as themselves and are left alone. Every facet is also returned in the
+  resolved list.
+
+  The author's own `<` and backslash are each escaped with a backslash, so an
+  unescaped `<…>` in the rendered text is always a marker added here; inside a
+  marker, whitespace, `<`, `>`, `"` and backslash are percent-encoded. The raw
+  text stays exact beside it.
 
   Offsets are UTF-8 bytes, as the lexicon defines them. A facet whose range is
   not a pair of integers inside this text, whose features are not a list, or
@@ -148,20 +153,29 @@ defmodule AtMcp.RichText do
     {rendered, offset} =
       Enum.reduce(resolved, {"", 0}, fn facet, {acc, offset} ->
         span = binary_part(text, offset, facet.byte_start - offset)
-        {acc <> span <> written(facet), facet.byte_end}
+        {acc <> escape(span) <> written(facet), facet.byte_end}
       end)
 
-    rendered <> binary_part(text, offset, byte_size(text) - offset)
+    rendered <> escape(binary_part(text, offset, byte_size(text) - offset))
   end
 
   # The text is never replaced, only added to: a reader sees what the author
-  # wrote plus where the link goes, or which account the mention notified.
+  # wrote plus where the link goes, or which account the mention links to.
   defp written(%{type: "link", uri: uri, text: shown}) when uri != shown,
-    do: shown <> " <" <> uri <> ">"
+    do: escape(shown) <> " <" <> marked(uri) <> ">"
 
-  defp written(%{type: "mention", did: did, text: shown}), do: shown <> " <" <> did <> ">"
+  defp written(%{type: "mention", did: did, text: shown}),
+    do: escape(shown) <> " <" <> marked(did) <> ">"
 
-  defp written(%{text: shown}), do: shown
+  defp written(%{text: shown}), do: escape(shown)
+
+  # The author's `<` and backslash, escaped so only a marker is an unescaped `<…>`.
+  defp escape(text), do: String.replace(text, ["\\", "<"], &("\\" <> &1))
+
+  # A marker's value as one token: what could end it or break its line is
+  # percent-encoded.
+  defp marked(value),
+    do: String.replace(value, ~r/[\s<>"\\]/u, &URI.encode(&1, fn _char -> false end))
 
   defp public(facet), do: Map.drop(facet, [:byte_start, :byte_end])
 

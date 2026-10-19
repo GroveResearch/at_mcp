@@ -24,6 +24,18 @@ defmodule AtMcp.Reading do
   reposts and follows (which no tool takes), read notifications' `is_read`, and
   the read limits of a thread.
 
+  What someone else wrote can never read as a line or a word of AtMcp's own.
+  A post's text is fenced: every line of it starts with `> `, which no line
+  AtMcp writes starts with. Every other string an author or another account
+  controls (a quoted post's text, a display name, alt text, a link card's
+  title and description, a publication's, list's, feed's or starter pack's
+  name, a description, a label's name) is one double-quoted literal on one
+  line: its whitespace runs read as one space, and `"` and a backslash inside it are
+  escaped with a backslash. In a post's `text` (`AtMcp.RichText.render/2`) the
+  author's `<` and backslash are escaped too, so an unescaped `<…>` is always a link
+  or mention marker AtMcp added. Opaque tokens a service gave (a custom feed's
+  `feed_context`) are literals too, kept exact.
+
   It only drops what is absent. A post's text is never shortened, every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
   next page is stated with the argument to pass it as. Beside the uri of each
@@ -290,13 +302,13 @@ defmodule AtMcp.Reading do
           lines(
             [
               name,
-              one_line(account["pronouns"]),
+              shown(account["pronouns"]),
               if(account["labeler"] == true, do: "runs a labeler")
             ],
             " · "
           ),
         relation(viewer),
-        if(form == :full, do: account["description"], else: one_line(account["description"])),
+        if(form == :full, do: fence(account["description"]), else: shown(account["description"])),
         lines(
           [
             counted(account["followers"], "follower", "followers"),
@@ -326,8 +338,11 @@ defmodule AtMcp.Reading do
                 url = if is_binary(link["url"]), do: escape_uri(link["url"])
 
                 case one_line(link["title"]) do
-                  title when title not in [nil, ""] -> lines([title, url && "(#{url})"], " ")
-                  _ -> url
+                  title when title not in [nil, ""] ->
+                    lines([shown(title), url && "(#{url})"], " ")
+
+                  _ ->
+                    url
                 end
               end)
         end,
@@ -404,7 +419,7 @@ defmodule AtMcp.Reading do
       lines(
         [
           "Live:",
-          one_line(status["title"]),
+          shown(status["title"]),
           if(is_binary(status["url"]), do: escape_uri(status["url"])),
           if(is_binary(status["expires_at"]), do: "until #{status["expires_at"]}")
         ],
@@ -448,14 +463,28 @@ defmodule AtMcp.Reading do
 
   # The app's "Liked by A and B" under a post: at most two of the accounts
   # this one follows that liked it (KnownLikers in social-app).
+  # The app leaves out of it an account its moderation filters from a list
+  # of accounts: one blocked either way or muted.
   defp known_likers(%{"actors" => [_ | _] = actors}) do
-    case Enum.map(Enum.take(actors, 2), &who(account(&1))) do
+    case actors
+         |> Enum.reject(&filtered?(&1["viewer"]))
+         |> Enum.take(2)
+         |> Enum.map(&who(account(&1))) do
+      [] -> nil
       [one] -> "Liked by " <> one
       [one, two] -> "Liked by #{one} and #{two}"
     end
   end
 
   defp known_likers(_known), do: nil
+
+  defp filtered?(%{} = viewer),
+    do:
+      is_binary(viewer["blocking"]) or is_binary(viewer["blocking_by_list"]) or
+        viewer["blocked_by"] == true or viewer["muted"] == true or
+        is_binary(viewer["muted_by_list"])
+
+  defp filtered?(_viewer), do: false
 
   defp joined_via(%{"uri" => uri} = pack) when is_binary(uri),
     do:
@@ -525,7 +554,7 @@ defmodule AtMcp.Reading do
             ],
             " · "
           ),
-        one_line(feed["description"]),
+        shown(feed["description"]),
         labelled(%{"labels" => feed["labels"], "author_did" => feed["creator_did"]}),
         if(is_binary(viewer["like"]), do: "You liked this: #{viewer["like"]}"),
         if(is_binary(feed["avatar"]), do: "Avatar: #{escape_uri(feed["avatar"])}"),
@@ -561,7 +590,7 @@ defmodule AtMcp.Reading do
           [
             "Suggested beside them: " <>
               Enum.map_join(topics, "; ", fn topic ->
-                lines([topic["display_name"] || topic["topic"], topic["link"]], " · ")
+                lines([shown(topic["display_name"] || topic["topic"]), topic["link"]], " · ")
               end)
           ]
 
@@ -581,7 +610,7 @@ defmodule AtMcp.Reading do
           " " <>
           lines(
             [
-              one_line(trend["display_name"] || trend["topic"]),
+              shown(trend["display_name"] || trend["topic"]),
               trend["status"],
               trend["category"],
               if(is_integer(trend["post_count"]),
@@ -591,7 +620,7 @@ defmodule AtMcp.Reading do
             ],
             " · "
           ),
-        one_line(trend["description"]),
+        shown(trend["description"]),
         case List.wrap(trend["actors"]) do
           [] -> nil
           actors -> "Posting: " <> Enum.map_join(actors, ", ", &who(account(&1)))
@@ -739,7 +768,7 @@ defmodule AtMcp.Reading do
           [
             lines(
               [
-                "#{labeler["display_name"] || labeler["handle"]} (@#{labeler["handle"]}, #{labeler["did"]})",
+                "#{shown(labeler["display_name"] || labeler["handle"])} (@#{one_line(labeler["handle"])}, #{labeler["did"]})",
                 cond do
                   labeler["built_in"] == true -> "the network's own moderation service"
                   labeler["subscribed"] == true -> "subscribed"
@@ -759,8 +788,8 @@ defmodule AtMcp.Reading do
                     "- " <>
                       lines(
                         [
-                          label["identifier"],
-                          label["name"],
+                          one_line(label["identifier"]),
+                          shown(label["name"]),
                           if(label["global"] == true,
                             do: "adult content filter, set without labeler"
                           ),
@@ -773,7 +802,7 @@ defmodule AtMcp.Reading do
                         " · "
                       ) <>
                       if(is_binary(label["description"]),
-                        do: ": #{label["description"]}",
+                        do: ": #{shown(label["description"])}",
                         else: ""
                       )
                   end)
@@ -874,7 +903,7 @@ defmodule AtMcp.Reading do
             ],
             " · "
           ),
-        one_line(list["description"]),
+        shown(list["description"]),
         labelled(%{"labels" => list["labels"], "author_did" => list["creator_did"]}),
         lines(
           [
@@ -943,7 +972,7 @@ defmodule AtMcp.Reading do
             ],
             " · "
           ),
-        one_line(pack["description"]),
+        shown(pack["description"]),
         feeds,
         sample,
         labelled(%{"labels" => pack["labels"], "author_did" => pack["creator_did"]}),
@@ -970,7 +999,7 @@ defmodule AtMcp.Reading do
             ],
             " · "
           ),
-        one_line(member["description"]),
+        shown(member["description"]),
         standing(%{"author_viewer" => member["viewer"]}),
         "item: #{member["item_uri"]}",
         web(member)
@@ -996,8 +1025,7 @@ defmodule AtMcp.Reading do
       "display_name" => account["display_name"]
     }
 
-  defp named(name) when is_binary(name), do: ~s("#{one_line(name)}")
-  defp named(_name), do: nil
+  defp named(name), do: shown(name)
 
   defp by(handle, name) when is_binary(handle),
     do: "by " <> who(%{"author" => one_line(handle), "display_name" => name})
@@ -1090,7 +1118,7 @@ defmodule AtMcp.Reading do
               [
                 post["uri"],
                 web(post),
-                if(is_binary(post["text"]), do: inspect(one_line(post["text"]))),
+                shown(post["text"]),
                 if(is_binary(post["via_repost"]), do: "via your repost #{post["via_repost"]}"),
                 if(is_binary(post["parent"]), do: "replying to #{post["parent"]}")
               ],
@@ -1136,7 +1164,7 @@ defmodule AtMcp.Reading do
       lines(
         [
           header,
-          about(item["subject_uri"]),
+          about(item),
           joined_through(item["starter_pack"]),
           labelled(item),
           standing(item)
@@ -1150,7 +1178,7 @@ defmodule AtMcp.Reading do
   # how many more it holds. A group whose kind is about several posts by one
   # account counts posts, not accounts.
   defp who_acted(actors, count, kind) do
-    names = Enum.map(actors, &(&1["handle"] || &1["did"]))
+    names = Enum.map(actors, &one_line(&1["handle"] || &1["did"]))
 
     # A group of several posts by one account counts its posts, not accounts:
     # the multiPost groups, and subscribed posts, which the service groups by
@@ -1213,13 +1241,14 @@ defmodule AtMcp.Reading do
   defp joined_through(_pack), do: nil
 
   # The time the app shows on a post: when the service first saw it, which
-  # the author cannot set. The author's own date goes beside it, as the app's
-  # "Archived from", when it is more than a day earlier
-  # (`BackdatedPostIndicator` in social-app's ThreadItemAnchor.tsx).
+  # the author cannot set. The author's own date goes beside it when it is
+  # more than a day earlier. The app says so ("Archived from") on a thread's
+  # main post only (`BackdatedPostIndicator` in social-app's
+  # ThreadItemAnchor.tsx); here a post reads the same in every read.
   defp posted(post) do
     lines(
       [
-        post["indexed_at"] || post["created_at"],
+        time(post["indexed_at"] || post["created_at"]),
         archived(post["created_at"], post["indexed_at"])
       ],
       " · "
@@ -1227,6 +1256,17 @@ defmodule AtMcp.Reading do
   end
 
   @day_ms 24 * 60 * 60 * 1000
+
+  # A timestamp as sent when it is one; anything else an author put there is
+  # a literal.
+  defp time(at) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, _at, _offset} -> at
+      _ -> shown(at)
+    end
+  end
+
+  defp time(_at), do: nil
 
   defp archived(created, indexed) when is_binary(created) and is_binary(indexed) do
     with {:ok, created_dt, _} <- DateTime.from_iso8601(created),
@@ -1240,16 +1280,26 @@ defmodule AtMcp.Reading do
 
   defp archived(_created, _indexed), do: nil
 
-  defp about(uri) when is_binary(uri), do: "on #{uri}"
-  defp about(_uri), do: nil
+  # What a like, repost or follow is about. A like or repost that came
+  # through this account's repost names that repost as its subject; the app
+  # shows the post itself, which the record names.
+  defp about(%{"subject_uri" => repost, "subject_post_uri" => post})
+       when is_binary(repost) and is_binary(post) and repost != post,
+       do: "on #{post} via your repost #{repost}"
 
+  defp about(%{"subject_uri" => uri}) when is_binary(uri), do: "on #{uri}"
+  defp about(_item), do: nil
+
+  # An account as the app names it: its display name, as a literal (see the
+  # moduledoc), then its handle and the badges beside it.
   defp who(%{"author" => handle} = post) when is_binary(handle) do
-    name = post["display_name"]
+    handle = one_line(handle)
+    name = one_line(post["display_name"])
     you = if post["is_self"] == true, do: " (you)", else: ""
     badges = badges(post)
 
-    if is_binary(name) and String.trim(name) != "" and name != handle,
-      do: "#{name} (#{Enum.join(["@" <> handle | badges], ", ")})#{you}",
+    if is_binary(name) and name != "" and name != handle,
+      do: "#{literal(name)} (#{Enum.join(["@" <> handle | badges], ", ")})#{you}",
       else: "@#{handle}#{if badges != [], do: " (#{Enum.join(badges, ", ")})"}#{you}"
   end
 
@@ -1413,7 +1463,7 @@ defmodule AtMcp.Reading do
   defp answered(_parent, uri), do: uri
 
   defp body(post) do
-    [post["text"] | attachments(post)]
+    [fence(post["text"]) | attachments(post)]
     |> Enum.filter(&(is_binary(&1) and &1 != ""))
   end
 
@@ -1446,7 +1496,7 @@ defmodule AtMcp.Reading do
   defp alt(%{"alt" => alt}) when is_binary(alt) do
     case one_line(alt) do
       "" -> "no alt text"
-      alt -> alt
+      alt -> shown(alt)
     end
   end
 
@@ -1457,7 +1507,7 @@ defmodule AtMcp.Reading do
   defp link(%{"uri" => uri} = link, form) when is_binary(uri) do
     said =
       lines(
-        [one_line(link["title"]), if(form == :card, do: capped(link["description"]))],
+        [nonempty(link["title"]), if(form == :card, do: nonempty(capped(link["description"])))],
         " — "
       )
 
@@ -1477,9 +1527,13 @@ defmodule AtMcp.Reading do
     author = if is_map(link["author"]), do: link["author"], else: %{}
 
     [
-      if(standard and is_binary(link["published_at"]), do: "published #{link["published_at"]}"),
-      if(standard and is_integer(link["reading_time"]), do: "#{link["reading_time"]} min read"),
-      if(is_binary(pub["title"]),
+      if(standard and is_binary(link["published_at"]),
+        do: "published #{time(link["published_at"])}"
+      ),
+      if(standard and is_integer(link["reading_time"]) and link["reading_time"] > 0,
+        do: "#{link["reading_time"]} min read"
+      ),
+      if(standard and is_binary(pub["title"]),
         do:
           lines(
             [
@@ -1490,7 +1544,7 @@ defmodule AtMcp.Reading do
             " "
           )
       ),
-      if(is_binary(author["handle"]), do: "by @#{author["handle"]}")
+      if(standard and is_binary(author["handle"]), do: "by @#{one_line(author["handle"])}")
     ]
   end
 
@@ -1499,6 +1553,32 @@ defmodule AtMcp.Reading do
     do: text |> String.replace(~r/\s+/u, " ") |> String.trim()
 
   defp one_line(_text), do: nil
+
+  # Someone else's words on one line, as one double-quoted literal; nil for
+  # none (see the moduledoc).
+  defp shown(text) when is_binary(text), do: literal(one_line(text))
+  defp shown(_text), do: nil
+
+  # The same, nil also for nothing but whitespace: a card's title or
+  # description the app leaves blank.
+  defp nonempty(text) do
+    case one_line(text) do
+      text when text not in [nil, ""] -> literal(text)
+      _ -> nil
+    end
+  end
+
+  # A string exactly as given, as one double-quoted literal: `\` and `"`
+  # escaped, and a line break or other control character written as its
+  # escape, so it stays on its line.
+  defp literal(text) when is_binary(text),
+    do: text |> Jason.encode!(escape: :javascript_safe) |> String.replace("\u0085", "\\u0085")
+
+  # A post's text, every line of it after `> `: no line of it stands alone.
+  defp fence(text) when is_binary(text) and text != "",
+    do: text |> String.split(~r/\R/u) |> Enum.map_join("\n", &("> " <> &1))
+
+  defp fence(_text), do: nil
 
   @description_limit 300
 
@@ -1526,11 +1606,11 @@ defmodule AtMcp.Reading do
 
   defp quoted(%{"status" => "available", "kind" => kind} = quote)
        when kind in ["feed", "list", "starter_pack", "labeler"] do
-    name = one_line(quote["name"])
-    name = if name not in [nil, ""], do: ~s( "#{name}")
+    name = nonempty(quote["name"])
+    name = if name, do: " " <> name, else: ""
     by = if is_binary(quote["creator"]), do: " by @#{one_line(quote["creator"])}"
-    about = one_line(quote["description"])
-    about = if about not in [nil, ""], do: ": #{about}"
+    about = nonempty(quote["description"])
+    about = if about, do: ": #{about}", else: ""
 
     "[quoting #{String.replace(kind, "_", " ")}#{name}#{by}, #{quote["uri"]}#{in_brackets(web(quote))}#{about}]"
   end
@@ -1570,7 +1650,7 @@ defmodule AtMcp.Reading do
 
     author = lines([author, posted(quote)], " · ")
 
-    "[quoting #{author}, #{quote["uri"]}#{in_brackets(web(quote))}: #{quote["text"]}#{pictures}#{media}#{notes}]"
+    "[quoting #{author}, #{quote["uri"]}#{in_brackets(web(quote))}: #{shown(quote["text"] || "")}#{pictures}#{media}#{notes}]"
   end
 
   defp quoted(%{"status" => status} = quote) when is_binary(status),
@@ -1719,8 +1799,10 @@ defmodule AtMcp.Reading do
   defp feed_given(post) do
     case lines(
            [
-             if(is_binary(post["feed_context"]), do: "feed_context: #{post["feed_context"]}"),
-             if(is_binary(post["req_id"]), do: "req_id: #{post["req_id"]}")
+             if(is_binary(post["feed_context"]),
+               do: "feed_context: #{literal(post["feed_context"])}"
+             ),
+             if(is_binary(post["req_id"]), do: "req_id: #{literal(post["req_id"])}")
            ],
            " · "
          ) do

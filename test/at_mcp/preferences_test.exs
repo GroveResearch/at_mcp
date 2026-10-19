@@ -765,7 +765,7 @@ defmodule AtMcp.PreferencesTest do
                "kind" => "replyNotification",
                "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
                "parent" => "at://did:plc:self/app.bsky.feed.post/p",
-               # The mention reads with the DID it notified, as in any post.
+               # The mention reads with the DID it links to, as in any post.
                "posts" => [%{"text" => "nice kite @self.test <did:plc:self>"}]
              } = reply
 
