@@ -420,7 +420,7 @@ defmodule AtMcp.Effects do
   end
 
   defp query_or_filter(nil, opts) do
-    if Enum.any?(opts, fn {key, _} -> key not in [:limit, :cursor, :sort] end),
+    if Enum.any?(opts, fn {key, _} -> key not in [:limit, :cursor, :sort, :all_time] end),
       do: :ok,
       else: invalid("query", "give a query, or at least one filter to search by")
   end
@@ -2553,11 +2553,26 @@ defmodule AtMcp.Effects do
   @doc false
   def hashtag_limits, do: @hashtag_limits
 
+  # `all_time: false` is kept: unlike the other booleans, false asks for
+  # something, the service's recent window instead of every post, which is
+  # what a call that leaves it out gets (see `AtMcp.Effects.ProtoRune`).
   defp search_post_options(opts) do
     opts =
       opts
       |> Keyword.take([:limit, :cursor | search_filters()])
       |> Enum.map(fn
+        {key, tags} when key in [:hashtags, :exclude_hashtags] and is_list(tags) ->
+          # The `#` is not part of the tag, so it is gone before the tag's
+          # length is counted.
+          {key,
+           tags
+           |> Enum.reject(&blank_search?/1)
+           |> Enum.map(fn
+             tag when is_binary(tag) -> String.replace_prefix(String.trim(tag), "#", "")
+             other -> other
+           end)
+           |> Enum.reject(&blank_search?/1)}
+
         {key, list} when key in @search_lists and is_list(list) ->
           {key, Enum.reject(list, &blank_search?/1)}
 
@@ -2565,7 +2580,8 @@ defmodule AtMcp.Effects do
           pair
       end)
       |> Enum.reject(fn {key, value} ->
-        key in search_filters() and (blank_search?(value) or value == [] or value == false)
+        key in search_filters() and
+          (blank_search?(value) or value == [] or (value == false and key != :all_time))
       end)
 
     with :ok <- validate_search_sort(Keyword.get(opts, :sort)),
@@ -2573,15 +2589,7 @@ defmodule AtMcp.Effects do
          :ok <- validate_search_lists(opts),
          :ok <- validate_search_booleans(opts),
          :ok <- validate_replies(Keyword.get(opts, :replies)) do
-      opts
-      |> Enum.map(fn
-        {key, tags} when key in [:hashtags, :exclude_hashtags] ->
-          {key, Enum.map(tags, &String.replace_prefix(String.trim(&1), "#", ""))}
-
-        pair ->
-          pair
-      end)
-      |> page_options()
+      page_options(opts)
     end
   end
 

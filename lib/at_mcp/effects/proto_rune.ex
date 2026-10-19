@@ -354,7 +354,6 @@ defmodule AtMcp.Effects.ProtoRune do
     exclude_langs: "excludeLanguages",
     since: "since",
     until: "until",
-    all_time: "allTime",
     has_media: "hasMedia",
     has_video: "hasVideo",
     reply_to: "replyParentUri",
@@ -376,12 +375,18 @@ defmodule AtMcp.Effects.ProtoRune do
         "query" => query,
         "limit" => Keyword.get(opts, :limit, 20),
         "cursor" => Keyword.get(opts, :cursor),
-        # The tool says latest, as the first version did; this version says recent.
+        # A call that says nothing gets what the first version gave it, whose
+        # lexicon defaults `sort` to latest and whose handler always searches
+        # every post (`allTime: true // match v1 behavior, v2 defaults to
+        # false`, packages/bsky/src/api/app/bsky/feed/searchPosts.ts). This
+        # version defaults to top and to its recent window. The tool says
+        # latest, as the first version did; this version says recent.
         "sort" =>
           case Keyword.get(opts, :sort) do
-            "latest" -> "recent"
-            other -> other
+            "top" -> "top"
+            _latest_or_nil -> "recent"
           end,
+        "allTime" => if(Keyword.get(opts, :all_time, true), do: true),
         "excludeReplies" => if(Keyword.get(opts, :replies) == "exclude", do: true),
         "repliesOnly" => if(Keyword.get(opts, :replies) == "only", do: true)
       })
@@ -740,13 +745,15 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp invite_codes(response) do
     with {:ok, page} <- page(response, :codes, &AtMcp.Summary.extract(:invite_code, &1)) do
-      case field(response, :collection) do
-        collection when is_binary(collection) ->
-          {:ok, page |> Map.delete(:cursor) |> Map.put(:collection, collection)}
+      # Whether the town issues earned codes. Read when it is there and never
+      # required: the method has no published lexicon to promise it.
+      collection =
+        case field(response, :collection) do
+          collection when is_binary(collection) -> collection
+          _ -> nil
+        end
 
-        _ ->
-          {:error, unreadable("invitation codes", response)}
-      end
+      {:ok, page |> Map.delete(:cursor) |> Map.put(:collection, collection)}
     end
   end
 

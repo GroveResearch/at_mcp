@@ -217,7 +217,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "search_posts",
-       "Search public posts on this network, as the app's search does. Give a query, filters, or both: author, mentions, since, until and lang narrow the search as before, and the rest include or exclude posts by who wrote them, who they mention, what they link to or quote, their hashtags, language, media, and where they sit in a thread. Filters are not a second query language." do
+       "Search public posts on this network, as the app's search does. Give a query, filters, or both. Without sort or all_time it searches every post, newest first, as before. author, mentions, since, until and lang narrow the search as before, and the rest include or exclude posts by who wrote them, who they mention, what they link to or quote, their hashtags, language, media, and where they sit in a thread. Filters are not a second query language." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.post_page())
 
@@ -234,7 +234,7 @@ defmodule AtMcp.MCP.Server do
     param(:mentions, :string, description: "Handle or DID; only posts that mention this account")
 
     param(:sort, :string,
-      description: "latest or top. Omit for the service default.",
+      description: "latest (the default: newest first) or top (the service's ranking)",
       schema: %{type: "string", enum: ["latest", "top"]}
     )
 
@@ -308,7 +308,8 @@ defmodule AtMcp.MCP.Server do
     param(:following, :boolean, description: "true: only posts by accounts this account follows")
 
     param(:all_time, :boolean,
-      description: "true: search every post the service holds, not only its recent window"
+      description:
+        "Omitted or true: search every post the service holds, as before. false: only its recent window"
     )
 
     param(:query_language, :string,
