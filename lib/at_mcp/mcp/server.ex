@@ -5,7 +5,7 @@ defmodule AtMcp.MCP.Server do
   Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
   summaries (never raw session dumps): as structured content, and as text for
   a model, which is the JSON of the summary except for reads made of posts,
-  lists, starter packs, feeds, trends and invitation codes, where it is
+  accounts, lists, starter packs, feeds, trends and invitation codes, where it is
   `AtMcp.Reading`'s text of it.
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
@@ -38,13 +38,16 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:reasons, {:array, :string}, AtMcp.MCP.Schemas.notification_reasons())
+
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.list_notifications(e,
           limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
+          cursor: Map.get(a, :cursor),
+          reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons))
         ),
         state,
         :notifications
@@ -192,7 +195,8 @@ defmodule AtMcp.MCP.Server do
 
       AtMcp.MCP.Tools.respond(
         AtMcp.MCP.Tools.get_profile(e, AtMcp.MCP.Tools.actor(Map.get(a, :actor))),
-        state
+        state,
+        :profile
       )
     end)
   end
@@ -211,7 +215,8 @@ defmodule AtMcp.MCP.Server do
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.get_profiles(e, AtMcp.MCP.Tools.actors(Map.get(a, :actors, []))),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -382,7 +387,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -407,7 +413,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -429,7 +436,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -452,7 +460,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -489,7 +498,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -507,7 +517,8 @@ defmodule AtMcp.MCP.Server do
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.get_blocks(e, limit: Map.get(a, :limit), cursor: Map.get(a, :cursor)),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -525,7 +536,8 @@ defmodule AtMcp.MCP.Server do
 
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.get_mutes(e, limit: Map.get(a, :limit), cursor: Map.get(a, :cursor)),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -581,7 +593,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end
@@ -603,7 +616,8 @@ defmodule AtMcp.MCP.Server do
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor)
         ),
-        state
+        state,
+        :profiles
       )
     end)
   end

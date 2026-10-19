@@ -16,7 +16,9 @@ defmodule AtMcp.Summary do
   A field's type is `:string`, `:integer`, `:boolean`, `{:object, fields}` or
   `{:list, fields}` — declared the same way, one level down, so a nested shape
   is not a second mechanism. `{:list, fields, :omit_null}` is a list whose
-  entries leave out the keys the response did not carry.
+  entries leave out the keys the response did not carry, `{:list, :string}` a
+  list of strings, and `{:viewer, relationships}` a nested viewer read by the
+  same rules as a shape's own `viewer` (a quoted post's author's, say).
 
   A shape's `viewer` relationships are read from the response's `viewer`, or
   from its `viewer_path` where the view nests them: a list member's are on the
@@ -65,34 +67,6 @@ defmodule AtMcp.Summary do
     {:playlist, :string, [["playlist"]], "URL of the AppView's HLS playlist for the video"}
   ]
 
-  @quote [
-    {:status, :string, [["status"]],
-     "available, not_found, blocked, detached, unhydrated or unsupported"},
-    {:kind, :string, [["kind"]],
-     "What an available quote is: post, feed, list, starter_pack or labeler"},
-    {:uri, :string, [["uri"]], "Quoted record's AT URI"},
-    {:record_type, :string, [["record_type"]], "Quoted record or unavailable view type"},
-    {:web_url, :string, [["web_url"]], "Quoted post's web permalink"},
-    {:author, :string, [["author"]], "Quoted author's handle"},
-    {:author_did, :string, [["author_did"]], "Quoted author's DID"},
-    {:display_name, :string, [["display_name"]], "Quoted author's display name"},
-    {:created_at, :string, [["created_at"]],
-     "When the quoted post was written, as an ISO 8601 timestamp"},
-    {:raw_text, :string, [["raw_text"]], "Exact quoted author's text"},
-    {:text, :string, [["text"]], "Quoted text with full link destinations"},
-    {:facets, {:list, @facets}, [["facets"]], "Quoted text's normalized facets"},
-    {:images, {:list, @image_view}, [["images"]], "Quoted post's image metadata, not pixels"},
-    {:link, {:object, @link}, [["link"]], "Quoted post's link card"},
-    {:video, {:object, @video}, [["video"]], "Quoted post's video"},
-    {:nested_uri, :string, [["nested_uri"]], "A further quote; deliberately not expanded"},
-    {:name, :string, [["name"]], "A quoted feed's, list's or starter pack's name"},
-    {:description, :string, [["description"]],
-     "A quoted feed's, list's or starter pack's description"},
-    {:creator, :string, [["creator"]],
-     "Handle of the account that made the quoted feed, list, starter pack or labeler"},
-    {:creator_did, :string, [["creator_did"]], "DID of that account"}
-  ]
-
   # A label as the AppView returns it on a post or an account: what it says and
   # who applied it. A label an account applied to itself has its own DID as src.
   # A key the service did not send is left out of the label rather than sent as
@@ -133,6 +107,80 @@ defmodule AtMcp.Summary do
     {:muted, :boolean, ["muted"], "True when the viewing account has muted them"},
     {:muted_by_list, :list, ["mutedByList", "muted_by_list"],
      "AT URI of the moderation list through which the viewing account mutes them"}
+  ]
+
+  # What the app shows beside an account's name wherever it appears: the
+  # verification check, and the Live badge (`actor.defs#verificationState`,
+  # `#statusView`). Declared once for a profile, a post's author, a quoted
+  # post's author and a notification's author.
+  @verification [
+    {:status, :string, [["verified_status"], ["verifiedStatus"]],
+     "valid, invalid or none: valid is the check the app shows beside the name"},
+    {:trusted_verifier, :string, [["trusted_verifier_status"], ["trustedVerifierStatus"]],
+     "valid, invalid or none: valid is the app's trusted-verifier badge; such an account can verify others"}
+  ]
+
+  @status [
+    {:kind, :string, [["status"]],
+     "The status's type, such as app.bsky.actor.status#live, the app's Live badge"},
+    {:active, :boolean, [["is_active"], ["isActive"]],
+     "True while the status is current, as the service judged it when it answered"},
+    {:disabled, :boolean, [["is_disabled"], ["isDisabled"]],
+     "True when the service has switched the status off for this account"},
+    {:expires_at, :string, [["expires_at"], ["expiresAt"]],
+     "When the status ends, as an ISO 8601 timestamp"},
+    {:url, :string, [["embed", "external", "uri"]], "Where the status links: the live stream"},
+    {:title, :string, [["embed", "external", "title"]], "The linked page's title"},
+    {:uri, :string, [["uri"]], "AT URI of the status record"},
+    {:labels, {:list, @label, :omit_null}, [["labels"]],
+     "Labels on the status itself; the app hides the Live badge for some"}
+  ]
+
+  # The author facts every post read carries, from the post view's `author`.
+  # A quoted post and a notification name the same facts from their own views.
+  @author_badges [
+    {:author_verification, {:object, @verification}, [["author", "verification"]],
+     "Whether the app shows the author as verified; null when the service gave no verification state"},
+    {:author_status, {:object, @status}, [["author", "status"]],
+     "The author's status, such as live; null when there is none"}
+  ]
+
+  @quote [
+    {:status, :string, [["status"]],
+     "available, not_found, blocked, detached, unhydrated or unsupported"},
+    {:kind, :string, [["kind"]],
+     "What an available quote is: post, feed, list, starter_pack or labeler"},
+    {:uri, :string, [["uri"]], "Quoted record's AT URI"},
+    {:record_type, :string, [["record_type"]], "Quoted record or unavailable view type"},
+    {:web_url, :string, [["web_url"]], "Quoted post's web permalink"},
+    {:author, :string, [["author"]], "Quoted author's handle"},
+    {:author_did, :string, [["author_did"]], "Quoted author's DID"},
+    {:display_name, :string, [["display_name"]], "Quoted author's display name"},
+    {:created_at, :string, [["created_at"]],
+     "When the quoted post was written, as an ISO 8601 timestamp"},
+    {:raw_text, :string, [["raw_text"]], "Exact quoted author's text"},
+    {:text, :string, [["text"]], "Quoted text with full link destinations"},
+    {:facets, {:list, @facets}, [["facets"]], "Quoted text's normalized facets"},
+    {:images, {:list, @image_view}, [["images"]], "Quoted post's image metadata, not pixels"},
+    {:link, {:object, @link}, [["link"]], "Quoted post's link card"},
+    {:video, {:object, @video}, [["video"]], "Quoted post's video"},
+    {:nested_uri, :string, [["nested_uri"]], "A further quote; deliberately not expanded"},
+    {:name, :string, [["name"]], "A quoted feed's, list's or starter pack's name"},
+    {:description, :string, [["description"]],
+     "A quoted feed's, list's or starter pack's description"},
+    {:creator, :string, [["creator"]],
+     "Handle of the account that made the quoted feed, list, starter pack or labeler"},
+    {:creator_did, :string, [["creator_did"]], "DID of that account"},
+    {:labels, {:list, @label, :omit_null}, [["labels"]],
+     "Labels on the quoted post, as the service returned them"},
+    {:author_labels, {:list, @label, :omit_null}, [["author_labels"]],
+     "Labels on the quoted post's author"},
+    {:author_viewer, {:viewer, @actor_viewer}, [["author_viewer"]],
+     "The viewing account's relationship to the quoted post's author, as the service reported it. Absent when the service gave none, which is not evidence of no relationship"},
+    {:author_verification, {:object, @verification}, [["author_verification"]],
+     "Whether the app shows the quoted post's author as verified"},
+    {:author_status, {:object, @status}, [["author_status"]],
+     "The quoted post's author's status, such as live"}
   ]
 
   # Computed content is declared once for reads, chains and notifications.
@@ -178,40 +226,50 @@ defmodule AtMcp.Summary do
     {:display_name, :string, [["display_name"]], "Author display name"}
   ]
 
-  @post [
-    {:uri, :string, [["uri"]], "AT URI of the post"},
-    {:cid, :string, [["cid"]], "CID of the post"},
-    {:author, :string, [["author", "handle"]], "Author handle"},
-    {:author_did, :string, [["author", "did"]], "Author DID"},
-    {:display_name, :string, [["author", "display_name"], ["author", "displayName"]],
-     "Author display name, as the account set it"},
-    {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
-     "When the author wrote it, as an ISO 8601 timestamp"},
-    {:reply_to, :string, [["record", "reply", "parent", "uri"]],
-     "AT URI of the post this one replies to; null on the root"},
-    {:reason, {:object, @reason}, [["feed_context", "reason"]],
-     "Why a feed shows this post: someone reposted it, or the author pinned it. Null when it is there as a post, and outside feeds"},
-    {:reply_parent, {:object, @reply_post}, [["feed_context", "reply_parent"]],
-     "Who the reply answers, as the feed reported it. Null on a root post and outside feeds"},
-    {:reply_root, {:object, @reply_post}, [["feed_context", "reply_root"]],
-     "The root of the reply's thread, as the feed reported it. Null on a root post and outside feeds"},
-    {:feed_context, :string, [["feed_context", "feed_context"]],
-     "What a custom feed's generator said about this item when it served it; feed_feedback takes it. Null when it said nothing, and outside feeds"},
-    {:req_id, :string, [["feed_context", "req_id"]],
-     "The custom feed's id for the request that served this item; feed_feedback takes it. Null when it gave none"},
-    {:like_count, :integer, [["like_count"], ["likeCount"]],
-     "How many likes the service counts on the post"},
-    {:repost_count, :integer, [["repost_count"], ["repostCount"]],
-     "How many reposts the service counts on the post"},
-    {:reply_count, :integer, [["reply_count"], ["replyCount"]],
-     "How many replies the service counts to the post"},
-    {:quote_count, :integer, [["quote_count"], ["quoteCount"]],
-     "How many posts the service counts quoting the post"},
-    {:labels, {:list, @label, :omit_null}, [["labels"]],
-     "Labels on the post, as the service returned them"},
-    {:author_labels, {:list, @label, :omit_null}, [["author", "labels"]],
-     "Labels on the author's account, including any it applied to itself"}
+  # A list a thread's gate lets reply (`graph.defs#listViewBasic`).
+  @gate_list [
+    {:uri, :string, [["uri"]], "AT URI of the list"},
+    {:name, :string, [["name"]], "The list's name"}
   ]
+
+  @post [
+          {:uri, :string, [["uri"]], "AT URI of the post"},
+          {:cid, :string, [["cid"]], "CID of the post"},
+          {:author, :string, [["author", "handle"]], "Author handle"},
+          {:author_did, :string, [["author", "did"]], "Author DID"},
+          {:display_name, :string, [["author", "display_name"], ["author", "displayName"]],
+           "Author display name, as the account set it"},
+          {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
+           "When the author wrote it, as an ISO 8601 timestamp"},
+          {:reply_to, :string, [["record", "reply", "parent", "uri"]],
+           "AT URI of the post this one replies to; null on the root"},
+          {:reason, {:object, @reason}, [["feed_context", "reason"]],
+           "Why a feed shows this post: someone reposted it, or the author pinned it. Null when it is there as a post, and outside feeds"},
+          {:reply_parent, {:object, @reply_post}, [["feed_context", "reply_parent"]],
+           "Who the reply answers, as the feed reported it. Null on a root post and outside feeds"},
+          {:reply_root, {:object, @reply_post}, [["feed_context", "reply_root"]],
+           "The root of the reply's thread, as the feed reported it. Null on a root post and outside feeds"},
+          {:feed_context, :string, [["feed_context", "feed_context"]],
+           "What a custom feed's generator said about this item when it served it; feed_feedback takes it. Null when it said nothing, and outside feeds"},
+          {:req_id, :string, [["feed_context", "req_id"]],
+           "The custom feed's id for the request that served this item; feed_feedback takes it. Null when it gave none"},
+          {:like_count, :integer, [["like_count"], ["likeCount"]],
+           "How many likes the service counts on the post"},
+          {:repost_count, :integer, [["repost_count"], ["repostCount"]],
+           "How many reposts the service counts on the post"},
+          {:reply_count, :integer, [["reply_count"], ["replyCount"]],
+           "How many replies the service counts to the post"},
+          {:quote_count, :integer, [["quote_count"], ["quoteCount"]],
+           "How many posts the service counts quoting the post"},
+          {:labels, {:list, @label, :omit_null}, [["labels"]],
+           "Labels on the post, as the service returned them"},
+          {:author_labels, {:list, @label, :omit_null}, [["author", "labels"]],
+           "Labels on the author's account, including any it applied to itself"},
+          {:reply_rule, {:list, :string}, [["perception", "reply_rule"]],
+           "Who may reply, from the gate the thread's author set: [\"everyone\"], or any of mentioned, following, followers and a list's AT URI; [] is nobody. Null when the post carries no gate: a reply's is on its thread's first post, and viewer.reply_disabled says whether this account may answer it"},
+          {:reply_lists, {:list, @gate_list}, [["threadgate", "lists"]],
+           "The lists reply_rule names, with their names"}
+        ] ++ @author_badges
 
   # The viewing account's relationship to a list: a mute or block of the
   # accounts on it, and its own opt-out from a starter pack's list.
@@ -255,6 +313,40 @@ defmodule AtMcp.Summary do
      "Images attached where the draft was written, by alt text; their files stay on that device"}
   ]
 
+  # A link a profile shows (`actor.defs#profileLinkView`).
+  @profile_link [
+    {:url, :string, [["url"]], "The link's destination"},
+    {:title, :string, [["title"]], "The link's title, as the account wrote it"},
+    {:uri, :string, [["uri"]], "AT URI of the actor.link record behind it"}
+  ]
+
+  # Who verified an account (`actor.defs#verificationView`).
+  @verified_by [
+    {:by,
+     {:list,
+      [
+        {:issuer, :string, [["issuer"]], "DID of the account that verified it"},
+        {:issuer_handle, :string, [["issuer_handle"], ["issuerHandle"]],
+         "Handle of that account"},
+        {:issuer_display_name, :string, [["issuer_display_name"], ["issuerDisplayName"]],
+         "Display name of that account"},
+        {:valid, :boolean, [["is_valid"], ["isValid"]], "True when the verification still holds"},
+        {:created_at, :string, [["created_at"], ["createdAt"]],
+         "When it was made, as an ISO 8601 timestamp"}
+      ]}, [["verifications"]], "Each verification of the account"}
+  ]
+
+  @joined_via [
+    {:uri, :string, [["uri"]], "AT URI of the starter pack; get_starter_pack reads it"},
+    {:name, :string, [["record", "name"]], "The starter pack's name"},
+    {:creator, :string, [["creator", "handle"]], "Handle of the account that made it"}
+  ]
+
+  @known_followers [
+    {:count, :integer, [["count"]], "How many such accounts the service counts"},
+    {:followers, {:list, @account_basic}, [["followers"]], "Some of them, as the service chose"}
+  ]
+
   @shapes %{
     membership: %{
       fields: [
@@ -275,7 +367,7 @@ defmodule AtMcp.Summary do
     # any of them needs who wrote it, when, and what it answers, as every
     # client shows on each post; the chain adds only its own flags beside these.
     post: %{fields: @content ++ @post, viewer: @post_viewer, author_viewer: @actor_viewer},
-    chain_post: %{fields: @content ++ @post, viewer: [], author_viewer: @actor_viewer},
+    chain_post: %{fields: @content ++ @post, viewer: @post_viewer, author_viewer: @actor_viewer},
     profile: %{
       fields: [
         {:did, :string, [["did"]], "Account DID"},
@@ -290,7 +382,36 @@ defmodule AtMcp.Summary do
         {:follows, :integer, [["follows_count"], ["followsCount"]], "Following count"},
         {:posts, :integer, [["posts_count"], ["postsCount"]], "Post count"},
         {:labels, {:list, @label, :omit_null}, [["labels"]],
-         "Labels on the account, including any it applied to itself"}
+         "Labels on the account, including any it applied to itself"},
+        {:pronouns, :string, [["pronouns"]], "Pronouns, as the account set them"},
+        {:website, :string, [["website"]], "The website the profile shows"},
+        {:links, {:list, @profile_link}, [["links"]],
+         "The links the profile shows, in order; update_profile sets them"},
+        {:created_at, :string, [["created_at"], ["createdAt"]],
+         "When the account was made, as an ISO 8601 timestamp"},
+        {:pinned_post, :string, [["pinned_post", "uri"], ["pinnedPost", "uri"]],
+         "AT URI of the post the account pinned to its profile; get_posts reads it"},
+        {:verification, {:object, @verification ++ @verified_by}, [["verification"]],
+         "Whether the app shows the account as verified, and by whom; null when the service gave no verification state"},
+        {:status, {:object, @status}, [["status"]],
+         "The account's status, such as live; null when there is none"},
+        {:labeler, :boolean, [["associated", "labeler"]],
+         "True when the account runs a labeler (a moderation service)"},
+        {:lists, :integer, [["associated", "lists"]], "How many lists the account made"},
+        {:feeds, :integer, [["associated", "feedgens"]],
+         "How many custom feeds the account made; get_actor_feeds reads them"},
+        {:starter_packs, :integer,
+         [["associated", "starter_packs"], ["associated", "starterPacks"]],
+         "How many starter packs the account made; get_starter_packs reads them"},
+        {:messages_from, :string,
+         [["associated", "chat", "allow_incoming"], ["associated", "chat", "allowIncoming"]],
+         "Who the account lets message it: all, following or none"},
+        {:joined_via, {:object, @joined_via},
+         [["joined_via_starter_pack"], ["joinedViaStarterPack"]],
+         "The starter pack the account joined through; null when none"},
+        {:known_followers, {:object, @known_followers},
+         [["viewer", "known_followers"], ["viewer", "knownFollowers"]],
+         "Accounts the viewing account follows that follow this one, as the app's 'Followed by' line shows them"}
       ],
       viewer: @actor_viewer
     },
@@ -301,8 +422,12 @@ defmodule AtMcp.Summary do
         {:did, :string, [["did"]], "DID of the feed generator service"},
         {:display_name, :string, [["display_name"], ["displayName"]], "Feed display name"},
         {:description, :string, [["description"]], "Feed description"},
+        {:avatar, :string, [["avatar"]],
+         "URL of the feed's avatar image the service hosts; null when none is set"},
         {:creator, :string, [["creator", "handle"]], "Creator handle"},
         {:creator_did, :string, [["creator", "did"]], "Creator DID"},
+        {:creator_display_name, :string,
+         [["creator", "display_name"], ["creator", "displayName"]], "Creator display name"},
         {:like_count, :integer, [["like_count"], ["likeCount"]],
          "How many accounts like this feed"},
         {:accepts_interactions, :boolean, [["accepts_interactions"], ["acceptsInteractions"]],
@@ -479,9 +604,18 @@ defmodule AtMcp.Summary do
              "AT URI of the root of a reply thread"},
             {:author, :string, [["author", "handle"], ["author"]], "Author handle"},
             {:author_did, :string, [["author", "did"]], "Author DID"},
-            {:is_read, :boolean, [["is_read"], ["isRead"]], "Whether the account has seen it"}
-          ],
-      viewer: []
+            {:display_name, :string, [["author", "display_name"], ["author", "displayName"]],
+             "Author display name, as the account set it"},
+            {:is_read, :boolean, [["is_read"], ["isRead"]], "Whether the account has seen it"},
+            {:labels, {:list, @label, :omit_null}, [["labels"]],
+             "Labels on the notification's record (a reply, mention or quote), as the service returned them"},
+            {:author_labels, {:list, @label, :omit_null}, [["author", "labels"]],
+             "Labels on the author's account, including any it applied to itself"},
+            {:starter_pack, {:object, @joined_via}, [["starter_pack"], ["starterPack"]],
+             "The starter pack someone joined through, on a starterpack-joined notification"}
+          ] ++ @author_badges,
+      viewer: [],
+      author_viewer: @actor_viewer
     }
   }
 
@@ -542,6 +676,7 @@ defmodule AtMcp.Summary do
 
   defp matches?(value, {:object, _fields}), do: is_map(value)
   defp matches?(value, {:list, _fields}), do: is_list(value)
+  defp matches?(value, {:viewer, _relationships}), do: is_map(value)
   defp matches?(value, {:list, _fields, :omit_null}), do: is_list(value)
   defp matches?(value, :string), do: is_binary(value)
   defp matches?(value, :integer), do: is_integer(value)
@@ -550,6 +685,11 @@ defmodule AtMcp.Summary do
   # A nested shape is read by the same rule as a top-level one. An entry that is
   # not a map has no declared fields to read and is dropped rather than
   # published as a record whose every field is null.
+  defp project(values, {:list, :string}), do: Enum.filter(values, &is_binary/1)
+
+  defp project(viewer, {:viewer, relationships}),
+    do: Enum.reduce(relationships, %{}, &relationship(&2, viewer, &1))
+
   defp project(values, {:list, fields}) do
     values
     |> Enum.filter(&is_map/1)
@@ -570,6 +710,11 @@ defmodule AtMcp.Summary do
   defp project(value, _type), do: value
 
   defp property({:list, fields, :omit_null}, doc), do: property({:list, fields}, doc)
+
+  defp property({:list, :string}, doc),
+    do: %{"type" => ["array", "null"], "description" => doc, "items" => %{"type" => "string"}}
+
+  defp property({:viewer, relationships}, doc), do: viewer_schema(doc, relationships)
 
   defp property({:list, fields}, doc) do
     %{
@@ -650,17 +795,27 @@ defmodule AtMcp.Summary do
   defp with_viewer_schema(properties, _name, _description, []), do: properties
 
   defp with_viewer_schema(properties, name, description, relationships) do
-    Map.put(properties, name, %{
-      "type" => ["object", "null"],
-      "description" =>
+    Map.put(
+      properties,
+      name,
+      viewer_schema(
         description <>
           ". Absent when the service gave none, which is not evidence of no relationship.",
+        relationships
+      )
+    )
+  end
+
+  defp viewer_schema(description, relationships) do
+    %{
+      "type" => ["object", "null"],
+      "description" => description,
       "properties" =>
         Map.new(relationships, fn {key, kind, _names, doc} ->
           type = if kind == :boolean, do: "boolean", else: "string"
           {Atom.to_string(key), %{"type" => [type, "null"], "description" => doc}}
         end)
-    })
+    }
   end
 
   defp opaque(value) when is_binary(value), do: value

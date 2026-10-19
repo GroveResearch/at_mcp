@@ -23,9 +23,34 @@ defmodule AtMcp.Post do
       link: link(embed),
       video: video(embed),
       embed_type: get(embed, [:"$type"]),
-      quote: quote_view(quoted(embed), quoted(get(record, [:embed])))
+      quote: quote_view(quoted(embed), quoted(get(record, [:embed]))),
+      reply_rule: reply_rule(get(source, [:threadgate]))
     }
   end
+
+  # Who may reply, from the gate on the post's view, in the words
+  # `set_post_interactions` takes. The AppView puts a thread's gate on its
+  # first post only; elsewhere there is none to read, which is not "everyone".
+  defp reply_rule(gate) when is_map(gate) do
+    record = get(gate, [:record]) || %{}
+
+    case get(record, [:allow]) do
+      allow when is_list(allow) ->
+        AtMcp.Interactions.reply_rule_words(%{
+          "allow" =>
+            for(
+              rule <- allow,
+              is_map(rule),
+              do: %{"$type" => get(rule, [:"$type"]), "list" => get(rule, [:list])}
+            )
+        })
+
+      _ ->
+        ["everyone"]
+    end
+  end
+
+  defp reply_rule(_none), do: nil
 
   @doc """
   What a feed says about a post beside the post itself
@@ -197,7 +222,14 @@ defmodule AtMcp.Post do
           images: Enum.find_value(embeds, &images/1) || images(raw),
           link: Enum.find_value(embeds, &link/1) || link(raw),
           video: Enum.find_value(embeds, &video/1) || video(raw),
-          nested_uri: get(nested, [:uri])
+          nested_uri: get(nested, [:uri]),
+          # What the app shows on the quote as on any post: its labels, its
+          # author's, and where the account stands with the author.
+          labels: get(view, [:labels]),
+          author_labels: get(view, [:author, :labels]),
+          author_viewer: get(view, [:author, :viewer]),
+          author_verification: get(view, [:author, :verification]),
+          author_status: get(view, [:author, :status])
         })
     end
   end

@@ -229,7 +229,10 @@ defmodule AtMcp.ReadingTest do
     {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :notifications))
     [first, second] = String.split(text, "\n\n[2] ")
 
-    assert first =~ "[1] reply from @fieldnote.example.test · #{post["indexedAt"]} · unread"
+    # A notification names its author as a post does.
+    assert first =~
+             "[1] reply from Example Notes · AI (@fieldnote.example.test) · #{post["indexedAt"]} · unread"
+
     assert first =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
     assert first =~ "uri: #{post["uri"]} · cid: #{post["cid"]}"
 
@@ -279,5 +282,334 @@ defmodule AtMcp.ReadingTest do
     assert text =~ "3 earlier posts are not shown."
     assert text =~ "call get_thread_chain again with before: at://a/p/0"
     assert text =~ "[1] The post at://a/p/1 was not read."
+  end
+
+  # One post, as the AppView sends it wherever it appears: by a verified
+  # account that is live, labelled, gated, from an author this account muted.
+  # Built when a test runs, in the types of the network it sets.
+  defp shown,
+    do: %{
+      "uri" => "at://did:plc:a/app.bsky.feed.post/1",
+      "cid" => "bafy1",
+      "author" => %{
+        "handle" => "a.test",
+        "did" => "did:plc:a",
+        "displayName" => "Ada",
+        "labels" => [%{"src" => "did:plc:a", "val" => "bot"}],
+        "viewer" => %{"muted" => true},
+        "verification" => %{"verifiedStatus" => "valid", "trustedVerifierStatus" => "none"},
+        "status" => %{
+          "uri" => "at://did:plc:a/app.bsky.actor.status/self",
+          "status" => AtMcp.Network.type(:status_live),
+          "isActive" => true,
+          "expiresAt" => "2999-01-01T00:00:00.000Z",
+          "embed" => %{"external" => %{"uri" => "https://www.twitch.tv/a", "title" => "On air"}}
+        }
+      },
+      "labels" => [%{"src" => "did:plc:labeler", "val" => "graphic-media"}],
+      "record" => %{"text" => "hello", "createdAt" => "2026-10-01T00:00:00.000Z"},
+      "viewer" => %{"replyDisabled" => true},
+      "threadgate" => %{
+        "record" => %{
+          "allow" => [
+            %{"$type" => AtMcp.Network.type(:mention_rule)},
+            %{
+              "$type" => AtMcp.Network.type(:list_rule),
+              "list" => "at://did:plc:a/app.bsky.graph.list/f"
+            }
+          ]
+        },
+        "lists" => [%{"uri" => "at://did:plc:a/app.bsky.graph.list/f", "name" => "Friends"}]
+      }
+    }
+
+  test "a post says what the app shows beside the author's name, and who may reply" do
+    # Ada is live, but this account muted her: the app filters the Live badge
+    # of an account it filters, so the name has none.
+    text = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, shown()))]})
+
+    assert text ==
+             "1 post.\n\n[1] Ada (@a.test, verified) · 2026-10-01T00:00:00.000Z\nhello\n" <>
+               "Labels: graphic-media; author: bot (self)\n" <>
+               "You muted them · You cannot reply to this post\n" <>
+               ~s(Who can reply: people mentioned, members of "Friends" at://did:plc:a/app.bsky.graph.list/f\n) <>
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
+
+    # Everyone may reply: no line, as for a post with no gate on it.
+    open = put_in(shown(), ["threadgate", "record"], %{})
+    refute AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, open))]}) =~ "Who can"
+
+    # A list rule that names no list is a rule this version cannot read, not nobody.
+    unnamed =
+      put_in(shown(), ["threadgate", "record", "allow"], [
+        %{"$type" => AtMcp.Network.type(:list_rule)}
+      ])
+
+    assert AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, unnamed))]}) =~
+             "\nWho can reply: a rule this version cannot read (#{AtMcp.Network.type(:list_rule)})\n"
+
+    nobody = put_in(shown(), ["threadgate", "record", "allow"], [])
+
+    assert AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, nobody))]}) =~
+             "\nWho can reply: nobody\n"
+  end
+
+  # The same post reads with the same facts in the same words whichever read
+  # shows it: a page of posts, a conversation, a notification, or a quote.
+  test "a post reads the same in a feed, a chain, a notification and a quote" do
+    # Muted, so no Live badge (see the Live test below).
+    name = "Ada (@a.test, verified)"
+    labels = "Labels: graphic-media; author: bot (self)"
+
+    feed = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, shown()))]})
+
+    chain =
+      AtMcp.Reading.chain(%{
+        "chain" => [json(Summary.extract(:chain_post, shown()))],
+        "replies" => []
+      })
+
+    notification =
+      AtMcp.Reading.notifications(%{
+        "items" => [
+          json(
+            Summary.extract(
+              :notification,
+              Map.merge(shown(), %{"reason" => "mention", "indexedAt" => "2026-10-01T00:00:01Z"})
+            )
+          )
+        ]
+      })
+
+    quoting =
+      %{
+        "uri" => "at://did:plc:b/app.bsky.feed.post/2",
+        "author" => %{"handle" => "b.test", "did" => "did:plc:b"},
+        "record" => %{"text" => "look", "createdAt" => "2026-10-01T00:00:02.000Z"},
+        "embed" => %{
+          "$type" => AtMcp.Network.type(:embed_record) <> "#view",
+          "record" =>
+            Map.merge(shown(), %{
+              "$type" => AtMcp.Network.type(:embed_record) <> "#viewRecord",
+              "value" => Map.put(shown()["record"], "$type", AtMcp.Network.collection(:post))
+            })
+        }
+      }
+
+    quote = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, quoting))]})
+
+    for text <- [feed, chain, notification] do
+      assert text =~ name
+      assert text =~ "\n" <> labels <> "\n"
+      assert text =~ "You muted them"
+    end
+
+    # The chain carries the post's own viewer, as get_posts does.
+    assert chain =~ "You muted them · You cannot reply to this post"
+
+    assert quote =~
+             "[quoting #{name}, at://did:plc:a/app.bsky.feed.post/1: hello · #{labels} · You muted them]"
+  end
+
+  test "a notification names its author as a post does, and a follow says what is known of who it is from" do
+    follow = %{
+      "reason" => "starterpack-joined",
+      "uri" => "at://did:plc:a/app.bsky.graph.follow/1",
+      "author" => shown()["author"],
+      "reasonSubject" => "at://did:plc:me/app.bsky.graph.starterpack/p",
+      "starterPack" => %{
+        "uri" => "at://did:plc:me/app.bsky.graph.starterpack/p",
+        "record" => %{"name" => "Agents"}
+      },
+      "record" => %{},
+      "isRead" => true,
+      "indexedAt" => "2026-10-01T00:00:00.000Z"
+    }
+
+    assert AtMcp.Reading.notifications(%{
+             "items" => [json(Summary.extract(:notification, follow))]
+           }) ==
+             "1 notification.\n\n[1] starterpack-joined from Ada (@a.test, verified) · " <>
+               "2026-10-01T00:00:00.000Z · on at://did:plc:me/app.bsky.graph.starterpack/p · " <>
+               ~s(through the starter pack "Agents" at://did:plc:me/app.bsky.graph.starterpack/p · ) <>
+               "Labels: author: bot (self) · You muted them"
+  end
+
+  # The app's rule for the Live badge (social-app `useActorStatus` and
+  # `isStatusValidForViewers`): each condition alone takes it away.
+  test "live is said only where the app shows its Live badge" do
+    live = update_in(shown(), ["author"], &Map.delete(&1, "viewer"))
+    name = fn post -> AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, post))]}) end
+    status = fn post, change -> update_in(post, ["author", "status"], change) end
+    link = fn url -> status.(live, &put_in(&1, ["embed", "external", "uri"], url)) end
+    expired = status.(live, &Map.put(&1, "expiresAt", "2020-01-01T00:00:00.000Z"))
+    list = %{"uri" => "at://did:plc:me/app.bsky.graph.list/m"}
+
+    assert name.(live) =~ "[1] Ada (@a.test, verified, live) · "
+
+    for {why, post} <- [
+          {"another host", link.("https://stream.example/a")},
+          {"a look-alike host", link.("https://nottwitch.tv/a")},
+          {"expired, though the service said active", expired},
+          {"no expiry", status.(live, &Map.delete(&1, "expiresAt"))},
+          {"disabled", status.(live, &Map.put(&1, "isDisabled", true))},
+          {"no uri", status.(live, &Map.delete(&1, "uri"))},
+          {"not a live status", status.(live, &Map.put(&1, "status", "other#status"))},
+          {"a label on the status",
+           status.(live, &Map.put(&1, "labels", [%{"src" => "did:plc:l", "val" => "spam"}]))},
+          {"a block", put_in(live, ["author", "viewer"], %{"blockedBy" => true})},
+          {"a mute through a list", put_in(live, ["author", "viewer"], %{"mutedByList" => list})},
+          {"a !hide on the account",
+           put_in(live, ["author", "labels"], [%{"src" => "did:plc:l", "val" => "!hide"}])}
+        ] do
+      assert name.(post) =~ "[1] Ada (@a.test, verified) · ", why
+    end
+
+    # A subdomain of an allowed host is that host.
+    assert name.(link.("https://m.youtube.com/live/x")) =~ "(@a.test, verified, live)"
+
+    # The structured content keeps the status as the service sent it.
+    assert %{active: true, expires_at: "2020-01-01T00:00:00.000Z"} =
+             Summary.extract(:post, expired).author_status
+  end
+
+  # Built when a test runs, in the types of the network it sets.
+  defp profile,
+    do: %{
+      "did" => "did:plc:a",
+      "handle" => "a.test",
+      "displayName" => "Ada",
+      "pronouns" => "she/her",
+      "description" => "Writes about kites.\nAnd wind.",
+      "website" => "https://a.example",
+      "links" => [%{"url" => "https://a.example/blog", "title" => "Blog"}],
+      "followersCount" => 10,
+      "followsCount" => 1,
+      "postsCount" => 0,
+      "createdAt" => "2024-01-02T03:04:05.000Z",
+      "associated" => %{"lists" => 2, "feedgens" => 0, "starterPacks" => 1, "labeler" => true},
+      "pinnedPost" => %{"uri" => "at://did:plc:a/app.bsky.feed.post/1", "cid" => "bafy1"},
+      "verification" => %{
+        "verifiedStatus" => "valid",
+        "trustedVerifierStatus" => "valid",
+        "verifications" => [
+          %{"issuer" => "did:plc:v", "issuerHandle" => "v.test", "isValid" => true}
+        ]
+      },
+      "status" => %{
+        "uri" => "at://did:plc:a/app.bsky.actor.status/self",
+        "status" => AtMcp.Network.type(:status_live),
+        "isActive" => true,
+        "expiresAt" => "2999-01-01T00:00:00.000Z",
+        "embed" => %{"external" => %{"uri" => "https://www.twitch.tv/a", "title" => "On air"}}
+      },
+      "labels" => [%{"src" => "did:plc:a", "val" => "bot"}],
+      "joinedViaStarterPack" => %{
+        "uri" => "at://did:plc:k/app.bsky.graph.starterpack/p",
+        "record" => %{"name" => "Agents"},
+        "creator" => %{"handle" => "k.test"}
+      },
+      "avatar" => "https://cdn.example/a.jpg",
+      "banner" => "https://cdn.example/b.jpg",
+      "viewer" => %{
+        "following" => "at://did:plc:me/app.bsky.graph.follow/f",
+        "followedBy" => "at://did:plc:a/app.bsky.graph.follow/1",
+        "knownFollowers" => %{
+          "count" => 4,
+          "followers" => [%{"did" => "did:plc:k", "handle" => "k.test", "displayName" => "Kit"}]
+        }
+      }
+    }
+
+  test "a profile reads as the app's profile page heads it, not as JSON" do
+    assert {:ok, %{content: [%{text: text}], structuredContent: data}, :state} =
+             AtMcp.MCP.Tools.respond(
+               {:ok, Summary.extract(:profile, profile())},
+               :state,
+               :profile
+             )
+
+    assert text ==
+             """
+             Profile Ada (@a.test, verified, trusted verifier, live) · she/her · runs a labeler
+             You follow them: at://did:plc:me/app.bsky.graph.follow/f · Follows you
+             Writes about kites.
+             And wind.
+             10 followers · 1 following · joined 2024-01-02T03:04:05.000Z
+             Made: 2 lists · 1 starter pack
+             Website: https://a.example
+             Links: Blog (https://a.example/blog)
+             Pinned post: at://did:plc:a/app.bsky.feed.post/1
+             Live: On air https://www.twitch.tv/a until 2999-01-01T00:00:00.000Z
+             Avatar: https://cdn.example/a.jpg · Banner: https://cdn.example/b.jpg
+             Verified by: @v.test
+             Labels: bot (self)
+             Followed by Kit (@k.test) and 3 others
+             Joined through the starter pack "Agents" by @k.test at://did:plc:k/app.bsky.graph.starterpack/p
+             did: did:plc:a\
+             """
+
+    assert data["pinned_post"] == "at://did:plc:a/app.bsky.feed.post/1"
+    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+    schema = Enum.find(tools, &(&1.name == "get_profile")).outputSchema
+    assert AtMcp.Test.Schema.valid?(data, schema)
+  end
+
+  test "a page of accounts reads each as one short block" do
+    page = %{
+      count: 2,
+      items: [
+        Summary.extract(:profile, Map.delete(profile(), "viewer")),
+        Summary.extract(:profile, %{"did" => "did:plc:b", "handle" => "b.test"})
+      ],
+      cursor: "c3"
+    }
+
+    {text, _data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :profiles))
+
+    assert text =~ "2 accounts. For the next page, pass cursor: c3"
+
+    assert text =~
+             "\n[1] Ada (@a.test, verified, trusted verifier, live) · she/her · runs a labeler\n"
+
+    # A page's description is on one line, as the app's account lists show it.
+    assert text =~ "\nWrites about kites. And wind.\n"
+    assert String.ends_with?(text, "\n\n[2] @b.test\ndid: did:plc:b")
+    refute text =~ "null"
+  end
+
+  # unfollow and unblock take these record URIs, and their descriptions say a
+  # profile read gives them; a block or mute through a list names the list.
+  test "an account's relationship lines carry the record and list URIs the undo tools take" do
+    read = fn viewer ->
+      AtMcp.Reading.profile(
+        json(
+          Summary.extract(:profile, %{
+            "did" => "did:plc:b",
+            "handle" => "b.test",
+            "viewer" => viewer
+          })
+        )
+      )
+    end
+
+    list = %{"uri" => "at://did:plc:me/app.bsky.graph.list/mods", "name" => "mods"}
+
+    assert read.(%{
+             "following" => "at://did:plc:me/app.bsky.graph.follow/1",
+             "blocking" => "at://did:plc:me/app.bsky.graph.block/2",
+             "muted" => true
+           }) =~
+             "\nYou follow them: at://did:plc:me/app.bsky.graph.follow/1 · " <>
+               "You blocked them: at://did:plc:me/app.bsky.graph.block/2 · You muted them\n"
+
+    # Blocked through a list, `blocking` holds the list's URI, which unblock
+    # refuses: only the list is named.
+    text = read.(%{"blocking" => list["uri"], "blockingByList" => list, "mutedByList" => list})
+
+    assert text =~
+             "\nYou blocked them via a list: #{list["uri"]} · You muted them via a list: #{list["uri"]}\n"
+
+    refute text =~ "You blocked them: "
   end
 end

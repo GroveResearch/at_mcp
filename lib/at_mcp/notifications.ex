@@ -38,6 +38,16 @@ defmodule AtMcp.Notifications do
   # account's room in the outbox.
   @accept_chunk AtMcp.Effects.page_limits().max
 
+  # Every reason `notification.listNotifications#notification` names
+  # (`knownValues` at bluesky-social/atproto 9f66a7e), which `get_notifications`
+  # takes as its `reasons` filter. A reason the lexicon adds later is refused
+  # until it is added here, rather than sent as a filter that matches nothing.
+  @lexicon_reasons ~w(like repost follow mention reply quote starterpack-joined verified
+                      unverified like-via-repost repost-via-repost subscribed-post contact-match)
+
+  @doc "The notification reasons the lexicon names, which `get_notifications` filters by."
+  def reasons, do: @lexicon_reasons
+
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end

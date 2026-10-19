@@ -296,6 +296,14 @@ trending. `get_record` reads any one record as its repository holds it.
 `feed_feedback` asks a feed to show more or less like a post, and `like`
 also likes a feed or a labeler. `update_profile` sets pronouns, a website and
 the links the profile shows; `set_status` says the account is live.
+`get_profile` reads them back, with the pinned post, the verification check,
+when the account was made and how many lists, feeds and starter packs it has
+made. Wherever a post appears (a feed, a thread, a conversation, a
+notification or a quote) it carries the same facts: its labels and its
+author's, the verification and Live badges beside the author's name, and any
+block or mute between the account and the author. A post read also says who
+may reply when its thread's author set a rule; a quote or a notification
+carries no such rule.
 
 ## What persists
 

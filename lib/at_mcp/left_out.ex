@@ -22,8 +22,6 @@ defmodule AtMcp.LeftOut do
   person sees in the app and is waiting on that GroveResearch/at_mcp issue.
   """
 
-  @profile_todo 79
-
   @entries [
     # Why a post is in a feed, and who a reply answers.
     {"feed[].reply.parent",
@@ -42,8 +40,10 @@ defmodule AtMcp.LeftOut do
      "The length of the author's self-thread (the app's 1/3); `get_thread_chain` reads it"},
 
     # Who may reply.
-    {"threadgate", {:todo, 77}},
-    {"**.post.threadgate", {:todo, 77}},
+    {"threadgate",
+     "The thread's gate beside the thread: get_thread marks the replies it hides, and `reply_rule` reads who may reply from the same gate on the first post's view; its uri, cid and time are not what the app shows"},
+    {"**.post.threadgate",
+     "The gate on a thread's first post beyond who may reply, which `reply_rule` and `reply_lists` read: get_thread marks the replies it hides, and its uri, cid and time are not what the app shows"},
 
     # What a link card, video or quoted record carries beyond what the app shows.
     {"**.external.source",
@@ -74,45 +74,36 @@ defmodule AtMcp.LeftOut do
     {"**.embed.record.record.list",
      "The list behind a quoted starter pack; the quote's uri is what the app opens"},
 
-    # A quoted post's labels.
-    {"**.record.author.labels", {:todo, 73}},
-    {"**.record.labels", {:todo, 73}},
-
-    # What the app shows about an account.
-    # The profile reads keep an account's avatar; a post's author, a creator,
-    # a reposter, a list member and a feed still drop theirs.
-    {"**.author.avatar", {:todo, @profile_todo}},
-    {"**.creator.avatar", {:todo, @profile_todo}},
-    {"feed[].reason.by.avatar", {:todo, @profile_todo}},
-    {"items[].subject.avatar", {:todo, @profile_todo}},
-    {"feeds[].avatar", {:todo, @profile_todo}},
-    {"view.avatar", {:todo, @profile_todo}},
-    {"trends[].actors[].avatar", {:todo, @profile_todo}},
-    {"pinnedPost", {:todo, @profile_todo}},
-    {"createdAt", {:todo, @profile_todo}},
-    {"**.associated", {:todo, @profile_todo}},
-    {"**.verification", {:todo, @profile_todo}},
-    {"**.status.*", {:todo, @profile_todo}},
-    {"**.author.createdAt", {:todo, @profile_todo}},
-    {"**.actor.createdAt", {:todo, @profile_todo}},
-    {"**.creator.createdAt", {:todo, @profile_todo}},
-    {"feeds[].creator.displayName", {:todo, @profile_todo}},
-    {"view.creator.displayName", {:todo, @profile_todo}},
-    {"view.creator.description", {:todo, @profile_todo}},
-    {"feeds[].creator.description", {:todo, @profile_todo}},
+    # What the app shows about an account beside its name: its avatar. A
+    # profile read gives its URL, in the structured content and the text, as
+    # it gives the banner's; beside a post, a name or a list it is a picture,
+    # which no text says.
+    {"**.author.avatar", "The author's avatar picture; get_profile reads its URL"},
+    {"**.creator.avatar", "The creator's avatar picture; get_profile reads its URL"},
+    {"feed[].reason.by.avatar", "The reposter's avatar picture; get_profile reads its URL"},
+    {"items[].subject.avatar", "A list member's avatar picture; get_profile reads its URL"},
+    {"trends[].actors[].avatar", "An avatar picture; get_profile reads its URL"},
+    {"pinnedPost.cid", "The pinned post's CID; get_posts with `pinned_post` reads it"},
+    {"**.associated",
+     "What an account has made, whether it runs a labeler, and who may message it: a profile reads these (`lists`, `feeds`, `starter_packs`, `labeler`, `messages_from`), and get_profile reads them for an account met elsewhere. Who may add it to a group chat (`chat.allowGroupInvites`) is not read: at_mcp has no direct messages (#92). Who may subscribe to its posts waits on the notification settings (#91), and a third-party messaging button is not read"},
+    {"**.verification",
+     "Whether the app shows an account as verified: a profile (`verification`, with who verified it) and a post's or quote's author (`author_verification`) read it, and get_profile reads it for an account met elsewhere"},
+    {"**.status.*",
+     "An account's status, the app's Live badge: a profile (`status`) and a post's or quote's author (`author_status`) read its kind, whether it is on, when it ends, where it links, its AT URI and its own labels (the app hides the badge when moderation filters them), and get_profile reads it for an account met elsewhere. Its record, CID and the link card's description and picture are not what the badge shows"},
+    {"**.author.createdAt", "When the author's account was made; get_profile reads it"},
+    {"**.creator.createdAt", "When the creator's account was made; get_profile reads it"},
+    {"**.creator.description", "The creator's profile description; get_profile reads it"},
 
     # The accounts posting about a trend.
-    {"trends[].actors[].createdAt", {:todo, @profile_todo}},
-    {"trends[].actors[].pronouns", {:todo, @profile_todo}},
+    {"trends[].actors[].createdAt", "When the account was made; get_profile reads it"},
+    {"trends[].actors[].pronouns", "The account's pronouns; get_profile reads them"},
     {"trends[].actors[].labels",
      "Labels on an account posting about a trend; get_profile reads them"},
 
     # Lists and starter packs.
-    {"list.creator.description", {:todo, @profile_todo}},
-    {"lists[].creator.description", {:todo, @profile_todo}},
     {"**.creator.labels",
      "Labels on the account that made a list or starter pack; get_profile reads them"},
-    {"**.subject.createdAt", {:todo, @profile_todo}},
+    {"**.subject.createdAt", "When a list member's account was made; get_profile reads it"},
     {"**.subject.indexedAt", "When the AppView indexed the account; not what the app shows"},
     {"list.indexedAt", "When the AppView indexed the list; not what the app shows"},
     {"lists[].indexedAt", "When the AppView indexed the list; not what the app shows"},
