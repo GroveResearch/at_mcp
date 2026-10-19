@@ -250,9 +250,21 @@ defmodule AtMcp.Network do
   # appview: [service: ..., url: ...]` names another. Only the end-to-end
   # suite sets it, to reach the AppView of a network running on localhost.
   defp appview(key, field) do
-    case Keyword.fetch(Application.get_env(:at_mcp, :appview, []), key) do
-      {:ok, value} when is_binary(value) -> value
-      :error -> @networks |> Map.fetch!(name()) |> Map.fetch!(field)
+    case Application.fetch_env(:at_mcp, :appview) do
+      :error ->
+        @networks |> Map.fetch!(name()) |> Map.fetch!(field)
+
+      {:ok, appview} ->
+        with true <- Keyword.keyword?(appview),
+             %{service: service, url: url} when is_binary(service) and is_binary(url) <-
+               Map.new(appview) do
+          Keyword.fetch!(appview, key)
+        else
+          _ ->
+            raise ArgumentError,
+                  "config :at_mcp, :appview must give both service and url as strings, " <>
+                    "got #{inspect(appview)}"
+        end
     end
   end
 

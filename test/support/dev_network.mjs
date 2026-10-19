@@ -36,9 +36,10 @@ const run = Array.from({ length: 8 }, () =>
   String.fromCharCode(97 + Math.floor(Math.random() * 26)),
 ).join('')
 
-// The AppView names image URLs from its public URL, which dev-env otherwise
-// sets to a host that is not this machine; give it its own address so an
-// image read stays on localhost.
+// The AppView names image URLs from its public URL, and the PDS names those it
+// writes into a view from its CDN pattern; dev-env sets both to hosts that are
+// not this machine. Point both at the AppView's own image route, so an image
+// read stays on localhost.
 const freePort = () =>
   new Promise((resolve, reject) => {
     const server = net.createServer()
@@ -53,6 +54,9 @@ const appviewPort = await freePort()
 const network = await TestNetwork.create({
   dbPostgresSchema: `atmcp_${run}`,
   bsky: { port: appviewPort, publicUrl: `http://localhost:${appviewPort}` },
+  pds: {
+    bskyAppViewCdnUrlPattern: `http://localhost:${appviewPort}/img/%s/plain/%s/%s@jpeg`,
+  },
 })
 
 const seed = network.getSeedClient()

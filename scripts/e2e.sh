@@ -53,7 +53,10 @@ if [ ! -f "$atproto/.built-$ATPROTO_COMMIT" ]; then
   git -C "$atproto" fetch -q --depth 1 https://github.com/bluesky-social/atproto.git "$ATPROTO_COMMIT"
   git -C "$atproto" checkout -q FETCH_HEAD
   # Puppeteer's browser is for atproto's own browser tests, not the network.
-  (cd "$atproto" && PUPPETEER_SKIP_DOWNLOAD=1 pnpm install --frozen-lockfile && pnpm build)
+  # pnpm's package store is kept beside the checkout, not in $HOME.
+  (cd "$atproto" &&
+    PUPPETEER_SKIP_DOWNLOAD=1 pnpm install --frozen-lockfile --store-dir "$work/pnpm-store" &&
+    pnpm build)
   touch "$atproto/.built-$ATPROTO_COMMIT"
 fi
 
@@ -81,6 +84,13 @@ free_port() {
     s.listen(0, "127.0.0.1", () => { console.log(s.address().port); s.close() })'
 }
 
+# A Postgres or Redis given must be on this machine: the suite reaches nothing
+# beyond it.
+loopback='^(postgres(ql)?://([^@/]*@)?)?(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?(/.*)?$'
+for given in "${DB_POSTGRES_URL:-}" "${REDIS_HOST:-}"; do
+  [ -z "$given" ] || [[ $given =~ $loopback ]] || { echo "e2e: $given is not on localhost" >&2; exit 1; }
+done
+
 # Everything a run writes (the network's repositories and blobs, Postgres and
 # Redis when started here) goes in one directory, removed when it ends.
 run=$(mktemp -d "$work/run.XXXXXX")
@@ -93,9 +103,10 @@ if [ -z "${DB_POSTGRES_URL:-}" ]; then
   pg_port=$(free_port)
   # Postgres on macOS refuses to start without a locale in the environment.
   LC_ALL=C initdb -D "$run/pg" -U pg --auth=trust --encoding=UTF8 --locale=C >"$run/initdb.log"
+  # Recorded first, so a start that fails part way is still stopped.
+  started+=(postgres)
   LC_ALL=C pg_ctl -D "$run/pg" -l "$run/pg.log" -w \
     -o "-p $pg_port -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" start >/dev/null
-  started+=(postgres)
   export DB_POSTGRES_URL="postgresql://pg@127.0.0.1:$pg_port/postgres"
 fi
 
@@ -103,9 +114,9 @@ if [ -z "${REDIS_HOST:-}" ]; then
   need redis-server "or set REDIS_HOST to a running Redis"
   need redis-cli "or set REDIS_HOST to a running Redis"
   redis_port=$(free_port)
+  started+=(redis)
   redis-server --port "$redis_port" --bind 127.0.0.1 --save "" --appendonly no \
     --dir "$run" --daemonize yes --pidfile "$run/redis.pid" --logfile "$run/redis.log"
-  started+=(redis)
   export REDIS_HOST="127.0.0.1:$redis_port"
 fi
 

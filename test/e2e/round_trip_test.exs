@@ -225,6 +225,11 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       sync(net)
 
+      # get_post_images fetches the fullsize URL the view names; it must be
+      # this machine's AppView.
+      assert [%{"fullsize" => fullsize}] = only_post(me, post["uri"])["images"]
+      assert URI.parse(fullsize).host == "localhost"
+
       assert %{"count" => 1, "images" => [%{"alt" => "one pixel", "status" => "attached"}]} =
                call!(me, "get_post_images", %{"uri" => post["uri"]})
 

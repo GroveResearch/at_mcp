@@ -546,6 +546,19 @@ defmodule AtMcp.FeedProfileWritesTest do
       :ok
     end
 
+    # The AppView counts a notification unread when it was indexed after the
+    # seen time, so a seen time cut to the second leaves unread whatever
+    # arrived earlier in that second (found against the reference AppView).
+    test "update_seen without a time sends now to the millisecond" do
+      %{effects: effects, pds: pds} = pds()
+      assert {:ok, %{action: :update_seen}} = AtMcp.Effects.update_seen(effects)
+
+      assert [%{body: %{"seenAt" => seen_at}}] =
+               FakePDS.sent(pds, "app.bsky.notification.updateSeen")
+
+      assert seen_at =~ ~r/\.\d{3}Z$/
+    end
+
     @profile "at://did:plc:self/app.bsky.actor.profile/self"
     @a "at://did:plc:self/app.bsky.actor.link/a"
     @b "at://did:plc:self/app.bsky.actor.link/b"
