@@ -113,7 +113,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:include_hidden, :boolean,
       description:
-        "Also read the replies under the post that this read leaves out: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. Each says which."
+        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. A reply this read already shows is marked where it stands; the others are listed after the thread. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
     )
 
     run(fn a, state ->

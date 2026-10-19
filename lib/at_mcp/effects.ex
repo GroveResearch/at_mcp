@@ -241,21 +241,90 @@ defmodule AtMcp.Effects do
   end
 
   @doc """
-  What surrounds a post. With `include_hidden: true`, the thread also carries
-  `hidden_replies`: the replies its read leaves out, which the thread's author
-  hid or the account's own settings push down.
+  What surrounds a post. With `include_hidden: true`, the replies the app
+  leaves out of the thread, which the thread's author hid or the account's own
+  settings push down, are read too. The thread read already returns most of
+  them, unmarked: each of those is marked where it stands (`left_out`, with
+  `hidden_by_threadgate` or `muted_by_viewer` when the service says which),
+  and `hidden_replies` lists only the ones the thread read did not return. A
+  failed read of them leaves the thread as read and says why in
+  `hidden_replies_unread`.
   """
   def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
     with_session(effects, fn backend, session ->
       with {:ok, thread} <- backend.get_thread(session, uri) do
-        if Keyword.get(opts, :include_hidden) == true do
-          with {:ok, hidden} <- backend.get_hidden_replies(session, uri),
-               do: {:ok, Map.put(thread, :hidden_replies, hidden)}
-        else
-          {:ok, thread}
-        end
+        if Keyword.get(opts, :include_hidden) == true,
+          do: with_hidden(thread, backend.get_hidden_replies(session, uri)),
+          else: {:ok, thread}
       end
     end)
+  end
+
+  defp with_hidden(thread, {:ok, hidden}) when is_list(hidden) do
+    by_uri = for reply <- hidden, uri = summary_uri(reply), into: %{}, do: {uri, reply}
+    {thread, shown} = mark_left_out(thread, by_uri, MapSet.new())
+
+    {:ok,
+     Map.put(
+       thread,
+       :hidden_replies,
+       Enum.reject(hidden, &MapSet.member?(shown, summary_uri(&1)))
+     )}
+  end
+
+  # A refused credential is recovered and the read made again, as for any read.
+  # Anything else keeps the thread already read, with one line saying the
+  # left-out replies could not be read and why.
+  defp with_hidden(thread, {:error, reason} = error) do
+    if AtMcp.Effects.Failure.kind(reason) == :auth_refused,
+      do: error,
+      else: {:ok, Map.put(thread, :hidden_replies_unread, hidden_unread(reason))}
+  end
+
+  defp hidden_unread(%AtMcp.Effects.Failure{status: 501}),
+    do:
+      "The replies this thread leaves out could not be read: the account's service does not serve them (it answered 501)."
+
+  defp hidden_unread(%AtMcp.Effects.Failure{status: status, message: message})
+       when is_integer(status) do
+    said = if is_binary(message) and message != "", do: ": #{message}", else: ""
+
+    "The replies this thread leaves out could not be read: the account's service answered #{status}#{said}."
+  end
+
+  defp hidden_unread(_reason),
+    do: "The replies this thread leaves out could not be read: the request did not complete."
+
+  defp summary_uri(%{uri: uri}) when is_binary(uri), do: uri
+  defp summary_uri(%{"uri" => uri}) when is_binary(uri), do: uri
+  defp summary_uri(_), do: nil
+
+  # The replies under the post read, at every depth it returned.
+  defp mark_left_out(node, by_uri, shown) when is_map(node) do
+    {replies, shown} =
+      Enum.map_reduce(Map.get(node, :replies) || [], shown, fn reply, shown ->
+        {reply, shown} =
+          case Map.fetch(by_uri, summary_uri(reply)) do
+            {:ok, hidden} -> {left_out(reply, hidden), MapSet.put(shown, summary_uri(reply))}
+            :error -> {reply, shown}
+          end
+
+        mark_left_out(reply, by_uri, shown)
+      end)
+
+    {if(Map.has_key?(node, :replies), do: Map.put(node, :replies, replies), else: node), shown}
+  end
+
+  defp mark_left_out(node, _by_uri, shown), do: {node, shown}
+
+  defp left_out(reply, hidden) do
+    Map.merge(reply, %{
+      left_out: true,
+      hidden_by_threadgate:
+        Map.get(reply, :hidden_by_threadgate) == true or
+          Map.get(hidden, :hidden_by_threadgate) == true,
+      muted_by_viewer: Map.get(hidden, :muted_by_viewer) == true
+    })
   end
 
   def get_thread_chain(effects, uri, opts \\ []) when is_binary(uri) and is_list(opts) do

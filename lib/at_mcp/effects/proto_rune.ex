@@ -1991,10 +1991,45 @@ defmodule AtMcp.Effects.ProtoRune do
 
     node
     |> thread_node(2, 2)
+    |> mark_hidden(hidden_by_threadgate(thread, node))
     |> Map.put(:context, %{depth: 2, parent_height: 2, max_replies_per_node: @thread_max_replies})
   end
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
+
+  # `feed.getPostThread` returns the replies the thread's author hid among the
+  # others, unmarked; the app leaves them out because the thread's threadgate
+  # lists them. The response carries that threadgate (beside the thread, and on
+  # the root post's view when the root is the post read), so each reply it
+  # lists is marked where it stands.
+  defp hidden_by_threadgate(thread, node) do
+    [[:threadgate, :record, :hidden_replies], [:post, :threadgate, :record, :hidden_replies]]
+    |> Enum.zip([thread, node])
+    |> Enum.flat_map(fn {path, from} ->
+      case AtMcp.Response.dig(from, path) do
+        list when is_list(list) -> Enum.filter(list, &is_binary/1)
+        _ -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp mark_hidden(node, hidden) do
+    if MapSet.size(hidden) == 0, do: node, else: mark_hidden_node(node, hidden)
+  end
+
+  defp mark_hidden_node(node, hidden) when is_map(node) do
+    node =
+      if MapSet.member?(hidden, node[:uri]),
+        do: Map.put(node, :hidden_by_threadgate, true),
+        else: node
+
+    node
+    |> Map.update(:parent, nil, &mark_hidden_node(&1, hidden))
+    |> Map.update(:replies, [], fn replies -> Enum.map(replies, &mark_hidden_node(&1, hidden)) end)
+  end
+
+  defp mark_hidden_node(other, _hidden), do: other
 
   # `shown_below` is 1 for a parent: one of its replies is the post this read
   # shows under it.

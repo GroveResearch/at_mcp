@@ -97,20 +97,51 @@ defmodule AtMcp.Reading do
 
   def thread(_other), do: nil
 
-  # Asked for with `include_hidden`: the replies the thread read left out,
-  # each saying why. Not asked for, there is no `hidden_replies` and no line.
-  defp hidden(%{"hidden_replies" => []}), do: ["No replies under this post are left out."]
+  # Asked for with `include_hidden`: the replies the app leaves out of the
+  # thread. Those the read returned are marked where they stand; the rest are
+  # listed after it, each saying why. Not asked for, there is no
+  # `hidden_replies` and no line.
+  defp hidden(%{"hidden_replies_unread" => why}) when is_binary(why), do: [why]
 
-  defp hidden(%{"hidden_replies" => [_ | _] = hidden}) do
-    [
-      "Replies under this post left out of the thread: #{length(hidden)}."
-      | hidden
-        |> Enum.with_index(1)
-        |> Enum.map(fn {reply, n} -> post(reply, "[left out #{n}]") end)
-    ]
+  defp hidden(%{"hidden_replies" => hidden} = node) when is_list(hidden) do
+    in_place = count_left_out(node)
+
+    marked =
+      if in_place > 0,
+        do: [
+          "Replies above that the app leaves out of the thread, each marked where it stands: #{in_place}."
+        ],
+        else: []
+
+    case hidden do
+      [] when in_place == 0 ->
+        ["No replies under this post are left out."]
+
+      [] ->
+        marked
+
+      hidden ->
+        marked ++
+          [
+            "Replies under this post left out of the thread: #{length(hidden)}."
+            | hidden
+              |> Enum.with_index(1)
+              |> Enum.map(fn {reply, n} -> post(reply, "[left out #{n}]") end)
+          ]
+    end
   end
 
   defp hidden(_node), do: []
+
+  defp count_left_out(node) do
+    node
+    |> Map.get("replies")
+    |> List.wrap()
+    |> Enum.map(fn reply ->
+      if(reply["left_out"] == true, do: 1, else: 0) + count_left_out(reply)
+    end)
+    |> Enum.sum()
+  end
 
   @doc """
   What `get_thread_chain` read: a conversation from its root down to one post,
@@ -480,6 +511,11 @@ defmodule AtMcp.Reading do
           true -> nil
         end,
         if(post["hidden_by_threadgate"] == true, do: "Hidden by the thread's author"),
+        if(
+          post["left_out"] == true and post["hidden_by_threadgate"] != true and
+            post["muted_by_viewer"] != true,
+          do: "Left out of the thread by this account's settings"
+        ),
         if(viewer["reply_disabled"] == true, do: "You cannot reply to this post"),
         if(viewer["embedding_disabled"] == true, do: "You cannot quote this post"),
         if(viewer["thread_muted"] == true, do: "You muted this thread")

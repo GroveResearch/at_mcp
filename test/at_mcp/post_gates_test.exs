@@ -509,72 +509,128 @@ defmodule AtMcp.PostGatesTest do
       assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
     end
 
-    @thread %{
-      thread: %{
-        "$type" => "app.bsky.feed.defs#threadViewPost",
-        post: %{
-          uri: "at://did:plc:self/app.bsky.feed.post/mine",
-          cid: "bafymine",
-          author: %{did: "did:plc:self", handle: "self.example"},
-          record: %{text: "mine", createdAt: "2026-10-01T00:00:00.000Z"}
-        },
-        replies: []
-      }
-    }
+    @rude "at://did:plc:other/app.bsky.feed.post/r"
+    @deep "at://did:plc:other/app.bsky.feed.post/deep"
 
-    test "get_thread with include_hidden reads the replies the thread leaves out" do
-      other = %{
-        thread: [
-          %{
-            uri: "at://did:plc:other/app.bsky.feed.post/r",
-            depth: 1,
-            value: %{
-              "$type" => "app.bsky.unspecced.defs#threadItemPost",
-              post: %{
-                uri: "at://did:plc:other/app.bsky.feed.post/r",
-                cid: "bafyr",
-                author: %{did: "did:plc:other", handle: "other.example"},
-                record: %{text: "rude", createdAt: "2026-10-01T00:00:00.000Z"}
-              },
-              hiddenByThreadgate: true,
-              mutedByViewer: false,
-              moreParents: false,
-              moreReplies: 0,
-              opThread: false
+    defp view(uri, text),
+      do: %{
+        uri: uri,
+        cid: "bafy" <> text,
+        author: %{did: "did:plc:other", handle: "other.example"},
+        record: %{text: text, createdAt: "2026-10-01T00:00:00.000Z"}
+      }
+
+    # As `feed.getPostThread` answers: a reply the thread's author hid is among
+    # the replies, unmarked, and the threadgate beside the thread lists it.
+    defp thread do
+      %{
+        thread: %{
+          "$type" => "app.bsky.feed.defs#threadViewPost",
+          post: %{
+            uri: "at://did:plc:self/app.bsky.feed.post/mine",
+            cid: "bafymine",
+            author: %{did: "did:plc:self", handle: "self.example"},
+            record: %{text: "mine", createdAt: "2026-10-01T00:00:00.000Z"}
+          },
+          replies: [
+            %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@rude, "rude")},
+            %{
+              "$type" => "app.bsky.feed.defs#threadViewPost",
+              post: view("at://did:plc:other/app.bsky.feed.post/kind", "kind")
             }
+          ]
+        },
+        threadgate: %{
+          uri: "at://did:plc:self/app.bsky.feed.threadgate/mine",
+          cid: "bafygate",
+          record: %{
+            "$type" => "app.bsky.feed.threadgate",
+            post: "at://did:plc:self/app.bsky.feed.post/mine",
+            createdAt: "2026-10-01T00:00:00.000Z",
+            hiddenReplies: [@rude]
           }
-        ]
+        }
+      }
+    end
+
+    defp other_item(uri, text, depth, hidden?),
+      do: %{
+        uri: uri,
+        depth: depth,
+        value: %{
+          "$type" => "app.bsky.unspecced.defs#threadItemPost",
+          post: view(uri, text),
+          hiddenByThreadgate: hidden?,
+          mutedByViewer: not hidden?,
+          moreParents: false,
+          moreReplies: 0,
+          opThread: false
+        }
       }
 
-      %{effects: effects, pds: pds} =
+    test "a reply the thread's author hid is marked where it stands, without include_hidden" do
+      %{state: state} = pds(%{}, %{"app.bsky.feed.getPostThread" => {200, thread()}})
+
+      result = call(state, "get_thread", %{"uri" => @mine})
+      [rude, kind] = result.structuredContent["replies"]
+      assert rude["hidden_by_threadgate"] == true
+      refute kind["hidden_by_threadgate"]
+      assert hd(result.content).text =~ "Hidden by the thread's author"
+    end
+
+    test "get_thread with include_hidden marks the left-out replies it read, and lists the rest once" do
+      other = %{thread: [other_item(@rude, "rude", 1, true), other_item(@deep, "deep", 3, false)]}
+
+      %{effects: effects, pds: pds, state: state} =
         pds(%{}, %{
-          "app.bsky.feed.getPostThread" => {200, @thread},
+          "app.bsky.feed.getPostThread" => {200, thread()},
           "app.bsky.unspecced.getPostThreadOtherV2" => {200, other}
         })
 
-      assert {:ok, %{hidden_replies: [hidden]}} =
+      assert {:ok, %{replies: [rude, kind], hidden_replies: [deep]}} =
                AtMcp.Effects.get_thread(effects, @mine, include_hidden: true)
 
-      assert %{text: "rude", author: "other.example", depth: 1, hidden_by_threadgate: true} =
-               hidden
+      assert %{uri: @rude, left_out: true, hidden_by_threadgate: true, muted_by_viewer: false} =
+               rude
 
-      assert hidden.muted_by_viewer == false
+      refute Map.get(kind, :left_out)
 
-      assert [%{query: %{"anchor" => @mine}}] =
+      assert %{uri: @deep, text: "deep", depth: 3, hidden_by_threadgate: false} = deep
+      assert deep.muted_by_viewer == true
+
+      assert [%{query: %{"anchor" => @mine}} | _] =
                FakePDS.sent(pds, "app.bsky.unspecced.getPostThreadOtherV2")
+
+      text =
+        hd(call(state, "get_thread", %{"uri" => @mine, "include_hidden" => true}).content).text
+
+      # Each reply appears once.
+      assert length(String.split(text, "uri: #{@rude}")) == 2
+      assert length(String.split(text, "uri: #{@deep}")) == 2
+      assert text =~ "each marked where it stands: 1."
+      assert text =~ "Replies under this post left out of the thread: 1."
     end
 
     @tag network: :delve
-    test "a service that does not serve hidden replies says so, and the gates are delve's own" do
+    test "a service that does not serve hidden replies leaves the thread and says so; the gates are delve's own" do
       %{effects: effects, pds: pds, state: state} =
         pds(%{}, %{
-          "town.delve.feed.getPostThread" => {200, @thread},
+          "town.delve.feed.getPostThread" => {200, thread()},
           "town.delve.unspecced.getPostThreadOtherV2" =>
             {501, %{error: "MethodNotImplemented", message: "Method Not Implemented"}}
         })
 
+      # The thread read is kept; only the left-out replies are missing, and
+      # the result says so in one line.
       result = call(state, "get_thread", %{"uri" => @mine, "include_hidden" => true})
-      assert result.structuredContent.code == "upstream_not_implemented"
+      refute result[:isError]
+      assert [_, _] = result.structuredContent["replies"]
+      refute Map.has_key?(result.structuredContent, "hidden_replies")
+      text = hd(result.content).text
+      assert text =~ "[this post]"
+
+      assert text =~
+               "The replies this thread leaves out could not be read: the account's service does not serve them (it answered 501)."
 
       assert {:ok, _} =
                AtMcp.Effects.post(effects, "x", reply_rule: ["mentioned"], quotes: "disabled")

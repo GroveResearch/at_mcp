@@ -268,10 +268,29 @@ defmodule AtMcp.MCP.Schemas do
           "type" => "object",
           "description" => "The depth, parent height and per-node reply cap applied"
         },
+        "hidden_by_threadgate" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "True when the thread's author hid this post; the app leaves it out of the thread. Replies repeat this flag"
+        },
+        "muted_by_viewer" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "With include_hidden: true when the app leaves this post out because this account muted its author. Replies repeat this flag"
+        },
+        "left_out" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "With include_hidden: true when the app leaves this post out of the thread; hidden_by_threadgate or muted_by_viewer says why when the service says. Replies repeat this flag"
+        },
+        "hidden_replies_unread" =>
+          nullable_string(
+            "With include_hidden: why the replies the thread leaves out could not be read. The thread is as read"
+          ),
         "hidden_replies" => %{
           "type" => ["array", "null"],
           "description" =>
-            "With include_hidden: the replies this read leaves out, which the thread's author hid or the account's own settings push down. Absent otherwise",
+            "With include_hidden: the replies the app leaves out that this read did not return (those it returned are marked left_out in place). Absent otherwise",
           "items" => %{
             "type" => "object",
             "properties" =>
