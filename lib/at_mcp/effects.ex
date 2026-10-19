@@ -2444,10 +2444,19 @@ defmodule AtMcp.Effects do
       take_and_write(
         effects,
         verb,
-        fn backend, session -> backend.resolve_post(session, uri) end,
+        fn backend, session -> thread_root(backend, session, uri) end,
         fn %{root: root} -> fn backend, session -> apply(backend, verb, [session, root]) end end
       )
     end
+  end
+
+  # The root a thread is muted by, in the DID form the service files threads
+  # under. The post names its root as its writer spelled it, and a client may
+  # have spelled it with a handle; muting that string mutes nothing.
+  defp thread_root(backend, session, uri) do
+    with {:ok, %{root: root} = post} <- backend.resolve_post(session, uri),
+         {:ok, root} <- did_uri(backend, session, root),
+         do: {:ok, %{post | root: root}}
   end
 
   @doc "Bookmark a post, privately. The post is read for its CID first."
