@@ -110,7 +110,15 @@ author's labels when the service sent them, and the uri and cid the write tools
 take, with no `null`s and none of the fields only a program uses. Lists and
 starter packs read the same way (`get_list`, `get_lists`, `get_starter_pack`,
 `get_starter_packs`): a list's name, kind, size and maker, then its accounts,
-each with the list item record that puts it there. Most MCP clients give a model
+each with the list item record that puts it there. So do accounts
+(`get_profile`, and the pages of them: followers, follows, searches,
+suggestions, blocks, mutes, likers and reposters): the name with the badges
+the app puts beside it (verified, trusted verifier, live), how the account
+relates to this one, the description, counts, links, pinned post and what the
+account has made. A post is one view whichever read shows it: a feed, a
+thread, a chain, a notification and a quote each say its author's badges,
+labels and any block or mute with its author in the same words, and a gated
+post says who may reply. Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients
@@ -317,9 +325,8 @@ its writer, and only the rest are listed after the thread. If that read fails,
 the thread is returned with a line saying why.
 
 Absent from the surface: posting video, direct messages, reporting, mute
-words and content preferences, and server-side notification filters. An agent
-therefore receives every
-notification and discards locally, and reads a video by its alt text and a
+words and content preferences. `get_notifications` takes the service's own
+filter by reason (`reasons`). An agent reads a video by its alt text and a
 link card by its text, without the video or the card's image.
 
 ## The write quota

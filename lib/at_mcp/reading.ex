@@ -1,7 +1,7 @@
 defmodule AtMcp.Reading do
   @moduledoc """
-  The text a model reads for a result made of posts, and for lists, starter
-  packs, feeds, trends and invitation codes.
+  The text a model reads for a result made of posts, and for accounts, lists,
+  starter packs, feeds, trends and invitation codes.
 
   A tool result has two halves in MCP: `content`, text and images, which most
   clients give a model, and `structuredContent`, which a client validates
@@ -232,6 +232,179 @@ defmodule AtMcp.Reading do
   def starter_packs(_other), do: nil
 
   @doc """
+  One account, from `get_profile`, as its profile page in the app heads it:
+  who it is and the badges beside its name, how it relates to this account,
+  its description, counts and links, and what it has pinned or made.
+  """
+  def profile(%{"handle" => handle} = profile) when is_binary(handle),
+    do: account_card(profile, "Profile", :full)
+
+  def profile(_other), do: nil
+
+  @doc """
+  A page of accounts: followers, follows, search results, suggestions,
+  blocks, mutes, likers and reposters, and `get_profiles`.
+  """
+  def profiles(%{"items" => items} = page) when is_list(items) do
+    header = count(length(items), "account", "accounts") <> "." <> next_page(page)
+
+    blocks =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {account, n} -> account_card(account, "[#{n}]", :brief) end)
+
+    lines([header | blocks], "\n\n")
+  end
+
+  def profiles(_other), do: nil
+
+  # An account wherever a read returns one. A page shows each with its
+  # description on one line, as the app's account lists do.
+  defp account_card(%{"handle" => handle} = account, label, form) when is_binary(handle) do
+    viewer = if is_map(account["viewer"]), do: account["viewer"], else: %{}
+
+    name =
+      who(%{
+        "author" => handle,
+        "display_name" => account["display_name"],
+        "author_verification" => account["verification"],
+        "author_status" => account["status"]
+      })
+
+    lines(
+      [
+        label <>
+          " " <>
+          lines(
+            [
+              name,
+              one_line(account["pronouns"]),
+              if(account["labeler"] == true, do: "runs a labeler")
+            ],
+            " · "
+          ),
+        lines(
+          [
+            if(is_binary(viewer["following"]), do: "You follow them"),
+            if(is_binary(viewer["followed_by"]), do: "Follows you"),
+            standing(%{"author_viewer" => viewer})
+          ],
+          " · "
+        ),
+        if(form == :full, do: account["description"], else: one_line(account["description"])),
+        lines(
+          [
+            counted(account["followers"], "follower", "followers"),
+            counted(account["follows"], "following", "following"),
+            counted(account["posts"], "post", "posts"),
+            if(is_binary(account["created_at"]), do: "joined #{account["created_at"]}")
+          ],
+          " · "
+        ),
+        lines(
+          [
+            counted(account["lists"], "list", "lists"),
+            counted(account["feeds"], "feed", "feeds"),
+            counted(account["starter_packs"], "starter pack", "starter packs")
+          ],
+          " · "
+        )
+        |> then(&if(&1 != "", do: "Made: " <> &1)),
+        if(is_binary(account["website"]), do: "Website: #{escape_uri(account["website"])}"),
+        case List.wrap(account["links"]) do
+          [] ->
+            nil
+
+          links ->
+            "Links: " <>
+              Enum.map_join(links, "; ", fn link ->
+                url = if is_binary(link["url"]), do: escape_uri(link["url"])
+
+                case one_line(link["title"]) do
+                  title when title not in [nil, ""] -> lines([title, url && "(#{url})"], " ")
+                  _ -> url
+                end
+              end)
+        end,
+        if(is_binary(account["pinned_post"]), do: "Pinned post: #{account["pinned_post"]}"),
+        live_line(account["status"]),
+        verified_by(account["verification"]),
+        labelled(%{"labels" => account["labels"], "author_did" => account["did"]}),
+        known_followers(account["known_followers"]),
+        joined_via(account["joined_via"]),
+        messages_from(account["messages_from"]),
+        if(is_binary(account["did"]), do: "did: #{account["did"]}")
+      ],
+      "\n"
+    )
+  end
+
+  defp account_card(other, label, _form), do: "#{label} #{Jason.encode!(other)}"
+
+  defp counted(n, one, many) when is_integer(n) and n > 0, do: count(n, one, many)
+  defp counted(_n, _one, _many), do: nil
+
+  defp live_line(status) do
+    if live?(status) do
+      lines(
+        [
+          "Live:",
+          one_line(status["title"]),
+          if(is_binary(status["url"]), do: escape_uri(status["url"])),
+          if(is_binary(status["expires_at"]), do: "until #{status["expires_at"]}")
+        ],
+        " "
+      )
+    end
+  end
+
+  defp verified_by(%{"status" => "valid", "by" => [_ | _] = by}) do
+    case for(%{"valid" => true} = v <- by, do: v) do
+      [] ->
+        nil
+
+      valid ->
+        "Verified by: " <>
+          Enum.map_join(valid, ", ", fn v ->
+            who(%{
+              "author" => v["issuer_handle"],
+              "author_did" => v["issuer"],
+              "display_name" => v["issuer_display_name"]
+            })
+          end)
+    end
+  end
+
+  defp verified_by(_verification), do: nil
+
+  # The app's "Followed by A, B and 3 others".
+  defp known_followers(%{"followers" => [_ | _] = shown} = known) do
+    names = Enum.map(shown, &who(account(&1)))
+    others = if is_integer(known["count"]), do: known["count"] - length(shown), else: 0
+
+    "Followed by " <>
+      case others do
+        n when n > 0 -> Enum.join(names, ", ") <> " and #{count(n, "other", "others")}"
+        _ -> Enum.join(names, ", ")
+      end
+  end
+
+  defp known_followers(_known), do: nil
+
+  defp joined_via(%{"uri" => uri} = pack) when is_binary(uri),
+    do:
+      "Joined through the starter pack " <>
+        lines([named(pack["name"]), by(pack["creator"], nil), uri], " ")
+
+  defp joined_via(_pack), do: nil
+
+  defp messages_from("all"), do: "Takes messages from everyone"
+  defp messages_from("following"), do: "Takes messages from people they follow"
+  defp messages_from("none"), do: "Takes no messages"
+  defp messages_from(other) when is_binary(other), do: "Takes messages from: #{other}"
+  defp messages_from(_none), do: nil
+
+  @doc """
   A page of custom feeds: suggested, searched, an account's, or read by uri.
   Each with its name, maker, likes and whether it takes feedback, then what it
   is for, and the uri and cid `get_feed` and `like` take.
@@ -265,7 +438,7 @@ defmodule AtMcp.Reading do
           lines(
             [
               named(feed["display_name"]),
-              by(feed["creator"], nil),
+              by(feed["creator"], feed["creator_display_name"]),
               if(is_integer(feed["like_count"]), do: count(feed["like_count"], "like", "likes")),
               if(AtMcp.Effects.takes_feedback?(feed["uri"], feed["accepts_interactions"]),
                 do: "takes feedback"
@@ -568,7 +741,7 @@ defmodule AtMcp.Reading do
         lines(
           top ++
             body(post) ++
-            [engagement(post), labelled(post), standing(post), ids(post)] ++
+            [engagement(post), labelled(post), standing(post), who_can_reply(post), ids(post)] ++
             viewer(post) ++ [feed_given(post)],
           "\n"
         )
@@ -605,14 +778,32 @@ defmodule AtMcp.Reading do
       reply_to = item["reply_parent_uri"]
       replying = if is_binary(reply_to), do: "replying to #{reply_to}"
 
-      lines([lines([header, replying], " · ") | body(item)] ++ [ids(item)], "\n")
+      lines(
+        [lines([header, replying], " · ") | body(item)] ++
+          [labelled(item), standing(item), ids(item)],
+        "\n"
+      )
     else
       # A like, repost or follow has no text to read and nothing to answer: its
       # own record is not something any tool takes, so it is one line saying
-      # what it was about.
-      lines([header, about(item["subject_uri"])], " · ")
+      # what it was about, and anything the app shows about who it is from.
+      lines(
+        [
+          header,
+          about(item["subject_uri"]),
+          joined_through(item["starter_pack"]),
+          labelled(item),
+          standing(item)
+        ],
+        " · "
+      )
     end
   end
+
+  defp joined_through(%{"uri" => uri} = pack) when is_binary(uri),
+    do: "through the starter pack " <> lines([named(pack["name"]), uri], " ")
+
+  defp joined_through(_pack), do: nil
 
   defp about(uri) when is_binary(uri), do: "on #{uri}"
   defp about(_uri), do: nil
@@ -620,14 +811,61 @@ defmodule AtMcp.Reading do
   defp who(%{"author" => handle} = post) when is_binary(handle) do
     name = post["display_name"]
     you = if post["is_self"] == true, do: " (you)", else: ""
+    badges = badges(post["author_verification"], post["author_status"])
 
     if is_binary(name) and String.trim(name) != "" and name != handle,
-      do: "#{name} (@#{handle})#{you}",
-      else: "@#{handle}#{you}"
+      do: "#{name} (#{Enum.join(["@" <> handle | badges], ", ")})#{you}",
+      else: "@#{handle}#{if badges != [], do: " (#{Enum.join(badges, ", ")})"}#{you}"
   end
 
   defp who(%{"author_did" => did}) when is_binary(did), do: did
   defp who(_post), do: "unknown author"
+
+  # What the app shows beside a name: its verification check, the
+  # trusted-verifier badge, and the Live badge.
+  defp badges(verification, status) do
+    verification = if is_map(verification), do: verification, else: %{}
+
+    Enum.reject(
+      [
+        if(verification["status"] == "valid", do: "verified"),
+        if(verification["trusted_verifier"] == "valid", do: "trusted verifier"),
+        if(live?(status), do: "live")
+      ],
+      &is_nil/1
+    )
+  end
+
+  defp live?(%{"active" => true, "kind" => kind} = status) when is_binary(kind),
+    do: status["disabled"] != true and String.ends_with?(kind, "#live")
+
+  defp live?(_status), do: false
+
+  # The line the app shows under a gated post: who may reply. Said only when
+  # it is not everyone; a post with no gate on it has no line.
+  defp who_can_reply(%{"reply_rule" => rule} = post) when is_list(rule) do
+    lists = Map.new(List.wrap(post["reply_lists"]), &{&1["uri"], &1["name"]})
+
+    case rule do
+      ["everyone"] ->
+        nil
+
+      [] ->
+        "Who can reply: nobody"
+
+      rules ->
+        "Who can reply: " <>
+          Enum.map_join(rules, ", ", fn
+            "mentioned" -> "people mentioned"
+            "following" -> "people they follow"
+            "followers" -> "their followers"
+            "at://" <> _ = uri -> lines(["members of", named(lists[uri]), uri], " ")
+            other -> other
+          end)
+    end
+  end
+
+  defp who_can_reply(_post), do: nil
 
   # The line the app puts above a post in a feed: "Reposted by" or "Pinned".
   # The repost record's uri is in the structured content.
@@ -781,10 +1019,19 @@ defmodule AtMcp.Reading do
 
     author =
       if is_binary(quote["author"]),
-        do: who(%{"author" => quote["author"], "display_name" => quote["display_name"]}),
+        do:
+          who(Map.take(quote, ["author", "display_name", "author_verification", "author_status"])),
         else: "a post"
 
-    "[quoting #{author}, #{quote["uri"]}: #{quote["text"]}#{pictures}#{media}]"
+    # The quoted post's labels and any block or mute with its author, in the
+    # words the post's own lines use.
+    notes =
+      case lines([labelled(quote), standing(%{"author_viewer" => quote["author_viewer"]})], " · ") do
+        "" -> ""
+        notes -> " · " <> notes
+      end
+
+    "[quoting #{author}, #{quote["uri"]}: #{quote["text"]}#{pictures}#{media}#{notes}]"
   end
 
   defp quoted(%{"status" => status} = quote) when is_binary(status),

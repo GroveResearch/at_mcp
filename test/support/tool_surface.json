@@ -269,7 +269,8 @@
     "get_notifications": {
       "arguments": {
         "cursor": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "reasons": "array"
       },
       "required": []
     },

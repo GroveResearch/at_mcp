@@ -306,15 +306,17 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert pinned["subject_uri"] == post["uri"]
       sync(net)
 
-      # get_profile does not carry the pinned post; the record does.
       assert %{"uri" => uri, "cid" => cid} = record(me, profile_uri(me))["pinnedPost"]
       assert uri == post["uri"]
       assert cid == post["cid"]
+      # The profile read shows it, as the app's profile page does.
+      assert call!(me, "get_profile", %{})["pinned_post"] == post["uri"]
 
       assert %{"replaced_uri" => replaced} = call!(me, "unpin_post", %{})
       assert replaced == post["uri"]
       sync(net)
       refute Map.has_key?(record(me, profile_uri(me)), "pinnedPost")
+      assert call!(me, "get_profile", %{})["pinned_post"] == nil
 
       # Nothing pinned: nothing written.
       assert %{"replaced_uri" => nil, "uri" => nil} = call!(me, "unpin_post", %{})
@@ -332,8 +334,12 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       sync(net)
 
-      assert %{"display_name" => "Round Trip", "description" => "written end to end"} =
-               call!(me, "get_profile", %{})
+      assert %{
+               "display_name" => "Round Trip",
+               "description" => "written end to end",
+               "pronouns" => "they/them",
+               "website" => "https://example.com"
+             } = call!(me, "get_profile", %{})
 
       call!(me, "update_profile", %{"display_name" => "Round Trip 2"})
       sync(net)
@@ -353,6 +359,9 @@ defmodule AtMcp.E2E.RoundTripTest do
       refute Map.has_key?(kept, "pronouns")
       refute Map.has_key?(kept, "website")
       assert kept["displayName"] == "Round Trip 2"
+
+      assert %{"pronouns" => nil, "website" => nil, "display_name" => "Round Trip 2"} =
+               call!(me, "get_profile", %{})
     end
 
     test "update_profile with an avatar and links: the AppView serves the avatar from localhost, the profile names the link records",
@@ -374,6 +383,9 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert profile["avatar"]["ref"]["$link"] == written["avatar_cid"]
       assert [%{"uri" => ^link_uri}] = profile["links"]
       assert %{"url" => "https://example.com/a", "title" => "A"} = record(me, link_uri)
+
+      assert [%{"url" => "https://example.com/a", "title" => "A", "uri" => ^link_uri}] =
+               call!(me, "get_profile", %{})["links"]
 
       removed = call!(me, "update_profile", %{"links" => []})
       assert removed["links"] == []
@@ -443,12 +455,15 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert %{"status" => "live", "replaced" => nil, "duration_minutes" => 30} = live
       sync(net)
 
-      # get_profile does not carry the status; the record does.
       assert %{
                "status" => "app.bsky.actor.status#live",
                "durationMinutes" => 30,
                "embed" => %{"external" => %{"uri" => "https://www.twitch.tv/example"}}
              } = record(me, live["uri"])
+
+      # The profile read shows the Live badge and where it links.
+      assert %{"active" => true, "url" => "https://www.twitch.tv/example"} =
+               call!(me, "get_profile", %{})["status"]
 
       cleared = call!(me, "set_status", %{"kind" => "clear"})
 
@@ -457,6 +472,7 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       sync(net)
       assert record(me, live["uri"]) == nil
+      assert call!(me, "get_profile", %{})["status"] == nil
     end
   end
 

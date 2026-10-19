@@ -5,6 +5,41 @@ defmodule AtMcp.SummaryTest do
   # inputs, not a second copy of the declaration: each assertion compares two
   # things derived from `AtMcp.Summary`, so a field can never be described
   # without being read, or read without being described.
+  # What the AppView sends beside an account's name: the verification check
+  # and a live status.
+  @verification %{"verifiedStatus" => "valid", "trustedVerifierStatus" => "none"}
+
+  @live %{
+    "uri" => "at://did:plc:author/app.bsky.actor.status/self",
+    "cid" => "bafystatus",
+    "status" => "app.bsky.actor.status#live",
+    "isActive" => true,
+    "isDisabled" => false,
+    "expiresAt" => "2026-09-13T13:00:00.000Z",
+    "embed" => %{
+      "$type" => "app.bsky.embed.external#view",
+      "external" => %{"uri" => "https://stream.example/live", "title" => "On air"}
+    }
+  }
+
+  # A gate that lets the author's followers and one list's members reply.
+  @gate %{
+    "uri" => "at://did:plc:author/app.bsky.feed.threadgate/1",
+    "record" => %{
+      "$type" => "app.bsky.feed.threadgate",
+      "allow" => [
+        %{"$type" => "app.bsky.feed.threadgate#followerRule"},
+        %{
+          "$type" => "app.bsky.feed.threadgate#listRule",
+          "list" => "at://did:plc:author/app.bsky.graph.list/friends"
+        }
+      ]
+    },
+    "lists" => [
+      %{"uri" => "at://did:plc:author/app.bsky.graph.list/friends", "name" => "Friends"}
+    ]
+  }
+
   @responses %{
     membership: %{
       "enabled" => true,
@@ -31,8 +66,11 @@ defmodule AtMcp.SummaryTest do
         "labels" => [
           %{"src" => "did:plc:author", "val" => "bot", "cts" => "2026-09-01T00:00:00Z"}
         ],
-        "viewer" => %{"muted" => false, "blockedBy" => true}
+        "viewer" => %{"muted" => false, "blockedBy" => true},
+        "verification" => @verification,
+        "status" => @live
       },
+      "threadgate" => @gate,
       "likeCount" => 12,
       "repostCount" => 3,
       "replyCount" => 5,
@@ -67,13 +105,17 @@ defmodule AtMcp.SummaryTest do
         "did" => "did:plc:author",
         "displayName" => "café 日本語 🪁",
         "labels" => [],
-        "viewer" => %{}
+        "viewer" => %{},
+        "verification" => @verification,
+        "status" => @live
       },
       "likeCount" => 0,
       "repostCount" => 0,
       "replyCount" => 0,
       "quoteCount" => 0,
-      "labels" => []
+      "labels" => [],
+      "threadgate" => @gate,
+      "viewer" => %{"replyDisabled" => true}
     },
     profile: %{
       "did" => "did:plc:author",
@@ -86,7 +128,49 @@ defmodule AtMcp.SummaryTest do
       "followsCount" => 2,
       "postsCount" => 1,
       "labels" => [%{"src" => "did:plc:author", "val" => "bot"}],
-      "viewer" => %{"following" => "at://did:plc:viewer/app.bsky.graph.follow/1"}
+      "viewer" => %{
+        "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",
+        "knownFollowers" => %{
+          "count" => 3,
+          "followers" => [%{"did" => "did:plc:k", "handle" => "k.test", "displayName" => "K"}]
+        }
+      },
+      "pronouns" => "they/them",
+      "website" => "https://author.example",
+      "links" => [
+        %{
+          "uri" => "at://did:plc:author/app.bsky.actor.link/1",
+          "cid" => "bafylink",
+          "url" => "https://author.example/blog",
+          "title" => "Blog"
+        }
+      ],
+      "createdAt" => "2024-01-02T03:04:05.000Z",
+      "pinnedPost" => %{"uri" => "at://did:plc:author/app.bsky.feed.post/1", "cid" => "bafypost"},
+      "verification" =>
+        Map.put(@verification, "verifications", [
+          %{
+            "issuer" => "did:plc:verifier",
+            "issuerHandle" => "verifier.test",
+            "issuerDisplayName" => "Verifier",
+            "uri" => "at://did:plc:verifier/app.bsky.graph.verification/1",
+            "isValid" => true,
+            "createdAt" => "2025-01-01T00:00:00.000Z"
+          }
+        ]),
+      "status" => @live,
+      "associated" => %{
+        "lists" => 2,
+        "feedgens" => 1,
+        "starterPacks" => 1,
+        "labeler" => false,
+        "chat" => %{"allowIncoming" => "following"}
+      },
+      "joinedViaStarterPack" => %{
+        "uri" => "at://did:plc:k/app.bsky.graph.starterpack/p",
+        "record" => %{"name" => "Agents"},
+        "creator" => %{"did" => "did:plc:k", "handle" => "k.test"}
+      }
     },
     generator: %{
       "uri" => "at://did:plc:author/app.bsky.feed.generator/hot",
@@ -94,7 +178,7 @@ defmodule AtMcp.SummaryTest do
       "did" => "did:web:feeds.example",
       "displayName" => "What's hot",
       "description" => "posts the service currently surfaces",
-      "creator" => %{"handle" => "author.test", "did" => "did:plc:author"},
+      "creator" => %{"handle" => "author.test", "did" => "did:plc:author", "displayName" => "A"},
       "likeCount" => 12,
       "acceptsInteractions" => true,
       "labels" => [%{"val" => "spam", "src" => "did:plc:labeler"}],
@@ -144,7 +228,21 @@ defmodule AtMcp.SummaryTest do
     notification: %{
       "reason" => "mention",
       "uri" => "at://did:plc:author/app.bsky.feed.post/1",
-      "author" => %{"handle" => "author.test", "did" => "did:plc:author"},
+      "author" => %{
+        "handle" => "author.test",
+        "did" => "did:plc:author",
+        "displayName" => "Author",
+        "labels" => [%{"src" => "did:plc:author", "val" => "bot"}],
+        "viewer" => %{"followedBy" => "at://did:plc:author/app.bsky.graph.follow/f"},
+        "verification" => @verification,
+        "status" => @live
+      },
+      "labels" => [%{"src" => "did:plc:labeler", "val" => "graphic-media"}],
+      "starterPack" => %{
+        "uri" => "at://did:plc:k/app.bsky.graph.starterpack/p",
+        "record" => %{"name" => "Agents"},
+        "creator" => %{"did" => "did:plc:k", "handle" => "k.test"}
+      },
       "record" => %{
         "text" => "hello",
         "reply" => %{
@@ -453,5 +551,122 @@ defmodule AtMcp.SummaryTest do
     assert AtMcp.Summary.extract(:profile, %{
              "viewer" => %{"blockedBy" => false, "muted" => "yes", "mutedByList" => "not a list"}
            }).viewer == %{blocked_by: false}
+  end
+
+  # A chain element is a post like any other read; the chain is where an agent
+  # decides whether to answer the last post, so it needs the post's viewer.
+  test "a chain element carries the post's viewer state, as get_posts does" do
+    post = Map.fetch!(@responses, :chain_post)
+
+    assert AtMcp.Summary.extract(:chain_post, post).viewer == %{reply_disabled: true}
+
+    assert AtMcp.Summary.properties(:chain_post)["viewer"] ==
+             AtMcp.Summary.properties(:post)["viewer"]
+  end
+
+  test "a quoted post carries its labels, its author's labels and badges, and where the account stands with its author" do
+    quoted = %{
+      "$type" => "app.bsky.embed.record#viewRecord",
+      "uri" => "at://did:plc:q/app.bsky.feed.post/q",
+      "cid" => "bafyq",
+      "author" => %{
+        "did" => "did:plc:q",
+        "handle" => "q.test",
+        "labels" => [%{"src" => "did:plc:q", "val" => "bot"}],
+        "viewer" => %{"muted" => true, "blockedBy" => false},
+        "verification" => @verification,
+        "status" => @live
+      },
+      "labels" => [%{"src" => "did:plc:labeler", "val" => "graphic-media", "cts" => "x"}],
+      "value" => %{"$type" => "app.bsky.feed.post", "text" => "quoted"}
+    }
+
+    post =
+      @responses.post
+      |> Map.put("embed", %{"$type" => "app.bsky.embed.record#view", "record" => quoted})
+
+    quote = AtMcp.Summary.extract(:post, post).quote
+
+    assert quote.labels == [%{src: "did:plc:labeler", val: "graphic-media"}]
+    assert quote.author_labels == [%{src: "did:plc:q", val: "bot"}]
+    assert quote.author_viewer == %{muted: true, blocked_by: false}
+    assert quote.author_verification == %{status: "valid", trusted_verifier: "none"}
+    assert %{kind: "app.bsky.actor.status#live", active: true} = quote.author_status
+
+    # Not told is not "no relationship": a quote without a viewer has none.
+    bare =
+      put_in(post, ["embed", "record", "author"], %{"did" => "did:plc:q", "handle" => "q.test"})
+
+    assert AtMcp.Summary.extract(:post, bare).quote.author_viewer == nil
+
+    quote_schema = AtMcp.Summary.properties(:post)["quote"]["properties"]
+
+    assert quote_schema["author_viewer"]["properties"] ==
+             AtMcp.Summary.properties(:post)["author_viewer"]["properties"]
+
+    assert quote_schema["labels"]["items"] ==
+             AtMcp.Summary.properties(:post)["labels"]["items"]
+  end
+
+  test "a notification carries its author's name, labels, badges and relationship, and the record's labels" do
+    item = AtMcp.Summary.extract(:notification, Map.fetch!(@responses, :notification))
+
+    assert item.display_name == "Author"
+    assert item.labels == [%{src: "did:plc:labeler", val: "graphic-media"}]
+    assert item.author_labels == [%{src: "did:plc:author", val: "bot"}]
+    assert item.author_viewer == %{followed_by: "at://did:plc:author/app.bsky.graph.follow/f"}
+    assert item.author_verification == %{status: "valid", trusted_verifier: "none"}
+    assert item.starter_pack.name == "Agents"
+  end
+
+  test "a profile carries what the app's profile page shows" do
+    profile = AtMcp.Summary.extract(:profile, Map.fetch!(@responses, :profile))
+
+    assert profile.pronouns == "they/them"
+    assert profile.website == "https://author.example"
+    assert [%{url: "https://author.example/blog", title: "Blog"}] = profile.links
+    assert profile.created_at == "2024-01-02T03:04:05.000Z"
+    assert profile.pinned_post == "at://did:plc:author/app.bsky.feed.post/1"
+
+    assert %{status: "valid", by: [%{issuer_handle: "verifier.test", valid: true}]} =
+             profile.verification
+
+    assert %{active: true, url: "https://stream.example/live"} = profile.status
+    assert {profile.lists, profile.feeds, profile.starter_packs} == {2, 1, 1}
+    assert profile.labeler == false
+    assert profile.messages_from == "following"
+
+    assert profile.joined_via == %{
+             uri: "at://did:plc:k/app.bsky.graph.starterpack/p",
+             name: "Agents",
+             creator: "k.test"
+           }
+
+    assert %{count: 3, followers: [%{handle: "k.test"}]} = profile.known_followers
+
+    # A follower list's basic view has none of these: each reads null.
+    basic = AtMcp.Summary.extract(:profile, %{"did" => "did:plc:b", "handle" => "b.test"})
+
+    assert Enum.all?(
+             [basic.pinned_post, basic.verification, basic.status, basic.links],
+             &is_nil/1
+           )
+  end
+
+  test "who may reply is read from the gate on the post, in the words set_post_interactions takes" do
+    rule = fn gate ->
+      AtMcp.Summary.extract(:post, Map.put(@responses.post, "threadgate", gate)).reply_rule
+    end
+
+    assert rule.(@gate) == ["followers", "at://did:plc:author/app.bsky.graph.list/friends"]
+    assert rule.(put_in(@gate, ["record", "allow"], [])) == []
+    assert rule.(update_in(@gate, ["record"], &Map.delete(&1, "allow"))) == ["everyone"]
+    # A reply carries no gate: its thread's is on the first post.
+    assert AtMcp.Summary.extract(:post, Map.delete(@responses.post, "threadgate")).reply_rule ==
+             nil
+
+    assert AtMcp.Summary.extract(:post, @responses.post).reply_lists == [
+             %{uri: "at://did:plc:author/app.bsky.graph.list/friends", name: "Friends"}
+           ]
   end
 end
