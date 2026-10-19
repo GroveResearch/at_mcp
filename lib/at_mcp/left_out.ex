@@ -86,6 +86,8 @@ defmodule AtMcp.LeftOut do
     {"feed[].reason.by.avatar", {:todo, @profile_todo}},
     {"items[].subject.avatar", {:todo, @profile_todo}},
     {"feeds[].avatar", {:todo, @profile_todo}},
+    {"view.avatar", {:todo, @profile_todo}},
+    {"trends[].actors[].avatar", {:todo, @profile_todo}},
     {"pinnedPost", {:todo, @profile_todo}},
     {"createdAt", {:todo, @profile_todo}},
     {"**.associated", {:todo, @profile_todo}},
