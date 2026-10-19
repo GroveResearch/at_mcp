@@ -536,6 +536,31 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.3 to 0.2.4
+
+0.2.4 stores data in the same format as 0.2.3 and starts from the same
+environment, so rolling back works as below. No tool or argument changed.
+Reads pass on more of what the service returns; a post without these things
+reads exactly as before, except that multi-line image alt text now reads as
+one line.
+
+- **Why a post is in a feed** (#85). A repost reads "Reposted by Name
+  (@handle) · time" above the post, and a pinned post "Pinned". A reply's
+  header names whose post it answers ("replying to @parent (at://…)"), and
+  "in a thread by @root" when the thread was started by someone else; a
+  deleted or blocked parent says so. Structured content carries `reason`,
+  `reply_parent` and `reply_root`.
+- **Embeds** (#86). Link cards read `[link: Title — description (url)]`, with
+  the description cut to 300 characters in the text; videos read `[video:
+  alt]`; gallery images read like other images; quoted feeds, lists, starter
+  packs and labelers read with their name, creator and description instead of
+  "unsupported". Names, handles and alt text are kept to one line, and
+  whitespace in a link's URL is percent-encoded, so no embed can start a line
+  of its own.
+- **Field coverage** (#84). A test now replays recorded service responses and
+  fails when a field reaches a summary unread and unlisted in
+  `AtMcp.LeftOut`, where each left-out field gives its reason.
+
 ### From 0.2.2 to 0.2.3
 
 0.2.3 stores data in the same format as 0.2.2 and starts from the same
