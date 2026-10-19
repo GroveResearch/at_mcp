@@ -536,6 +536,31 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.5 to 0.2.6
+
+0.2.6 stores data in the same format as 0.2.5 and starts from the same
+environment, so rolling back works as below. Existing calls mean what they did;
+new arguments are optional.
+
+- **Feeds and discovery** (#93, #104): `get_feed_info`, `get_actor_feeds`,
+  `search_feeds`, `get_suggested_starter_packs`, `get_trends`, `get_record`,
+  `get_invite_codes`. `get_suggested_feeds` takes `source`;
+  `get_suggested_follows` no longer needs `actor` and takes `context` and
+  `category`. On delve.town, what the town does not serve (trends, some
+  suggestion sources) is refused before anything is sent, as `not_served`.
+- **`search_posts` uses the newer search.** A call that names neither `sort`
+  nor `all_time` still searches every post, newest first, as before;
+  `all_time: false` asks for the service's recent window, and the newer
+  filters are added.
+- **Feeds, profile and status writes** (#93, #105): `save_feed` and
+  `unsave_feed` (preferences have no compare-and-swap, which the result says);
+  `like` also takes a feed generator or labeler; `update_profile` takes
+  `pronouns`, `website` and `links`; `set_status` sets or clears a live status;
+  `feed_feedback` sends show-more/show-less to feeds that take it. None count
+  against the public write quota.
+- **Profile images** (#50): `get_profile` carries the `avatar` and `banner`
+  URLs the service hosts, or null.
+
 ### From 0.2.4 to 0.2.5
 
 0.2.5 stores data in the same format as 0.2.4 and starts from the same
