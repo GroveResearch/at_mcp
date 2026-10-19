@@ -1,7 +1,7 @@
 defmodule AtMcp.EndpointCoverageTest do
   @moduledoc """
   Every client endpoint and record type in the lexicons is a tool, waiting on an
-  issue, not served here, or left out with a reason (`AtMcp.Endpoints`).
+  issue, or left out with a reason (`AtMcp.Endpoints`).
 
   `test/fixtures/lexicon_endpoints.txt` is the list, made by
   `scripts/list_lexicon_endpoints.py` from an atproto checkout. A lexicon added
@@ -60,11 +60,38 @@ defmodule AtMcp.EndpointCoverageTest do
     assert bad == [], "Entries naming no served tool, issue or reason: #{inspect(bad)}"
   end
 
+  test "what a deployment does not serve is listed, is something a person does, and says why" do
+    listed = listed()
+    outcomes = Map.new(listed, &{&1, outcome(&1)})
+
+    bad =
+      for {network, patterns} <- AtMcp.Endpoints.deployments(),
+          {pattern, evidence} <- patterns,
+          covered = Enum.filter(listed, &AtMcp.Endpoints.covers?(pattern, &1)),
+          covered == [] or not is_binary(evidence) or
+            Enum.any?(covered, &match?({:left_out, _}, outcomes[&1])),
+          do: {network, pattern}
+
+    assert network_names_known?(), "deployments/0 names a network AtMcp.Network does not know"
+
+    assert bad == [],
+           "Deployment entries that cover nothing, cover a left-out endpoint, or give no evidence: #{inspect(bad)}"
+  end
+
+  defp outcome(nsid) do
+    case Enum.find(AtMcp.Endpoints.entries(), fn {p, _} -> AtMcp.Endpoints.covers?(p, nsid) end) do
+      {_, outcome} -> outcome
+      nil -> nil
+    end
+  end
+
+  defp network_names_known?,
+    do: Enum.all?(Map.keys(AtMcp.Endpoints.deployments()), &(&1 in AtMcp.Network.names()))
+
   defp valid?({:tool, name}, served), do: MapSet.member?(served, name)
   defp valid?({:todo, issue}, _), do: is_integer(issue) and issue > 0
 
-  defp valid?({kind, reason}, _) when kind in [:left_out, :not_served],
-    do: is_binary(reason) and String.length(reason) > 10
+  defp valid?({:left_out, reason}, _), do: is_binary(reason) and String.length(reason) > 10
 
   defp valid?(_, _), do: false
 end

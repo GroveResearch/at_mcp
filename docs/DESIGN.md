@@ -225,7 +225,11 @@ An account pins one of its posts to its profile (`pin_post`, `unpin_post`),
 mutes a thread by any post in it (`mute_thread`, `unmute_thread`), and keeps
 private bookmarks (`bookmark`, `unbookmark`, `get_bookmarks`). None of these
 counts against the write quota. A pin rewrites the profile record from the one
-it reads, so every other field survives it. A tool that takes one of the
+it reads, so every other field survives it, and writes only over that record
+(`swapRecord`): a profile changed meanwhile is refused as `changed_meanwhile`,
+with nothing written. A post named by a handle-form address is pinned, muted
+and bookmarked by the DID-form address the service answers, which is the one
+the AppView matches. A tool that takes one of the
 account's own posts refuses another account's before anything is sent, naming
 the argument; a service that does not serve a method answers 501, which is
 reported as `upstream_not_implemented` and not as an unknown outcome.

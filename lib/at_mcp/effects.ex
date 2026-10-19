@@ -654,11 +654,25 @@ defmodule AtMcp.Effects do
     end
   end
 
+  @doc """
+  Remove a bookmark. The service keeps a bookmark under the DID-form address
+  of its post and deletes nothing for any other string, while answering as if
+  it had, so a handle-form address is resolved to its DID first. The post
+  itself is not read: a bookmark of a deleted post must still be removable.
+  """
   def unbookmark(effects, uri) when is_binary(uri) do
-    with {:ok, _} <- post_uri(uri, "uri") do
-      take_and_write(effects, :unbookmark, fn backend, session ->
-        backend.unbookmark(session, uri)
-      end)
+    with {:ok, {repo, rkey}} <- post_uri(uri, "uri") do
+      {:ok, {_, collection, _}} = AtMcp.ATProto.parse_uri(uri)
+
+      take_and_write(
+        effects,
+        :unbookmark,
+        fn backend, session ->
+          with {:ok, did} <- backend.resolve_actor(session, repo),
+               do: {:ok, "at://#{did}/#{collection}/#{rkey}"}
+        end,
+        fn uri -> fn backend, session -> backend.unbookmark(session, uri) end end
+      )
     end
   end
 

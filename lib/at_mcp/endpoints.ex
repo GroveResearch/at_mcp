@@ -25,31 +25,32 @@ defmodule AtMcp.Endpoints do
       `com.atproto.repo` calls that write them both name the tool.
     * `{:todo, issue}`: a person can do this in the app and at_mcp cannot yet.
       The GroveResearch/at_mcp issue names the tool that will.
-    * `{:not_served, evidence}`: the delve.town deployment does not serve it, so
-      a tool would only ever refuse there. The evidence is what the service
-      answered.
     * `{:left_out, reason}`: not something a person does through the app on
       their own account, or already done by another tool. The reason says
       which.
+
+  The outcome is the same on every network: what a person can do on Bluesky,
+  at_mcp's default network, is a tool or an issue. Some services a network
+  needs are not run by every deployment. Bluesky serves chat and video from
+  their own services (`did:web:api.bsky.chat`, `video.bsky.app`), not from the
+  AppView. `deployments/0` names what a deployment is known not to serve, with
+  the evidence, so a tool can refuse there before sending anything.
   """
 
   @posts 88
   @lists 89
   @moderation 90
   @preferences 91
+  @dms 92
   @feeds 93
-
-  # Checked 2026-10-18 by calling each method on https://api.delve.town/xrpc.
-  @delve_501 "delve.town's AppView answers 501 Method Not Implemented"
+  @video 96
 
   @entries [
     # --- Reading posts, threads and feeds ---
     {"app.bsky.feed.getTimeline", {:tool, "get_timeline"}},
     {"app.bsky.feed.getAuthorFeed", {:tool, "get_author_feed"}},
     {"app.bsky.feed.getPostThread", {:tool, "get_thread"}},
-    {"app.bsky.unspecced.getPostThreadV2",
-     {:left_out,
-      "The app's newer form of the thread `feed.getPostThread` returns; `get_thread` and `get_thread_chain` read that"}},
+    {"app.bsky.unspecced.getPostThreadV2", {:todo, @posts}},
     {"app.bsky.unspecced.getPostThreadOtherV2", {:todo, @posts}},
     {"app.bsky.feed.getPosts", {:tool, "get_posts"}},
     {"app.bsky.feed.getLikes", {:tool, "get_likes"}},
@@ -57,8 +58,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.feed.getQuotes", {:tool, "get_quotes"}},
     {"app.bsky.feed.getActorLikes", {:tool, "get_actor_likes"}},
     {"app.bsky.feed.searchPosts", {:tool, "search_posts"}},
-    {"app.bsky.feed.searchPostsV2",
-     {:left_out, "A second version of `feed.searchPosts`, which `search_posts` calls"}},
+    {"app.bsky.feed.searchPostsV2", {:todo, @feeds}},
     {"app.bsky.feed.getFeed", {:tool, "get_feed"}},
     {"app.bsky.feed.getListFeed", {:tool, "get_list_feed"}},
     {"app.bsky.feed.getSuggestedFeeds", {:tool, "get_suggested_feeds"}},
@@ -71,10 +71,8 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.feed.getFeedSkeleton",
      {:left_out,
       "Asked of a feed generator service by an AppView; `get_feed` reads the hydrated feed"}},
-    {"app.bsky.feed.sendInteractions", {:not_served, @delve_501}},
-    {"app.bsky.embed.getEmbedExternalView",
-     {:left_out,
-      "Builds a link card's view from a URL; the app does not call it, and `post`'s `link` argument (#88) takes the card from the agent"}},
+    {"app.bsky.feed.sendInteractions", {:todo, @feeds}},
+    {"app.bsky.embed.getEmbedExternalView", {:todo, @posts}},
 
     # --- Writing posts and interacting with them ---
     {"app.bsky.feed.post", {:tool, "post"}},
@@ -91,9 +89,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.draft.updateDraft", {:tool, "save_draft"}},
     {"app.bsky.draft.deleteDraft", {:tool, "delete_draft"}},
     {"app.bsky.draft.getDrafts", {:tool, "get_drafts"}},
-    {"app.bsky.video.*",
-     {:not_served,
-      "#{@delve_501}; Bluesky serves video upload from a separate service (video.bsky.app)"}},
+    {"app.bsky.video.*", {:todo, @video}},
 
     # --- Accounts and the social graph ---
     {"app.bsky.actor.getProfile", {:tool, "get_profile"}},
@@ -105,8 +101,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.actor.getSuggestions", {:todo, @feeds}},
     {"app.bsky.actor.profile", {:tool, "update_profile"}},
     {"app.bsky.actor.status", {:todo, @feeds}},
-    {"app.bsky.actor.link",
-     {:not_served, "Not in delve.town's lexicons; profile links are new in Bluesky's app"}},
+    {"app.bsky.actor.link", {:todo, @feeds}},
     {"app.bsky.graph.follow", {:tool, "follow"}},
     {"app.bsky.graph.block", {:tool, "block"}},
     {"app.bsky.graph.muteActor", {:tool, "mute"}},
@@ -141,9 +136,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.graph.searchStarterPacksV2", {:todo, @lists}},
     {"app.bsky.graph.starterpack", {:todo, @lists}},
     {"app.bsky.unspecced.getSuggestedStarterPacks", {:todo, @feeds}},
-    {"app.bsky.unspecced.getOnboardingSuggestedStarterPacks",
-     {:left_out,
-      "Starter packs for a new account's first run; `get_suggested_starter_packs` (#93) reads suggestions"}},
+    {"app.bsky.unspecced.getOnboardingSuggestedStarterPacks", {:todo, @feeds}},
 
     # --- Moderation ---
     {"com.atproto.moderation.createReport", {:todo, @moderation}},
@@ -169,9 +162,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.notification.listNotifications", {:tool, "get_notifications"}},
     {"app.bsky.notification.getUnreadCount", {:tool, "get_unread_count"}},
     {"app.bsky.notification.updateSeen", {:tool, "update_seen"}},
-    {"app.bsky.notification.getGroupedNotifications",
-     {:left_out,
-      "Groups the notifications `get_notifications` reads; delve.town does not serve it (absent from its lexicons, 501)"}},
+    {"app.bsky.notification.getGroupedNotifications", {:todo, @preferences}},
     {"app.bsky.notification.getPreferences", {:todo, @preferences}},
     {"app.bsky.notification.putPreferencesV2", {:todo, @preferences}},
     {"app.bsky.notification.putPreferences",
@@ -189,30 +180,19 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.unspecced.*Skeleton",
      {:left_out,
       "What an AppView asks its search or suggestion service; a client calls the hydrated form"}},
-    {"app.bsky.unspecced.getSuggestedFeeds",
-     {:not_served, "#{@delve_501}; `get_suggested_feeds` reads `feed.getSuggestedFeeds`"}},
-    {"app.bsky.unspecced.getSuggestedUsers", {:not_served, @delve_501}},
-    {"app.bsky.unspecced.getSuggestedUsersForDiscover",
-     {:left_out,
-      "A variant of account suggestions for one screen of the app; `get_suggested_follows` (#93) reads suggestions"}},
-    {"app.bsky.unspecced.getSuggestedUsersForExplore",
-     {:left_out,
-      "A variant of account suggestions for one screen of the app; `get_suggested_follows` (#93) reads suggestions"}},
-    {"app.bsky.unspecced.getSuggestedUsersForSeeMore",
-     {:left_out,
-      "A variant of account suggestions for one screen of the app; `get_suggested_follows` (#93) reads suggestions"}},
-    {"app.bsky.unspecced.getSuggestedOnboardingUsers",
-     {:left_out,
-      "Suggestions for a new account's first run; `get_suggested_follows` (#93) reads suggestions"}},
+    {"app.bsky.unspecced.getSuggestedFeeds", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedUsers", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedUsersForExplore", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedUsersForDiscover", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedUsersForSeeMore", {:todo, @feeds}},
+    {"app.bsky.unspecced.getSuggestedOnboardingUsers", {:todo, @feeds}},
     {"app.bsky.unspecced.getTaggedSuggestions",
      {:left_out,
-      "Suggestions grouped by the app's interest tags, an older form of the same suggestions"}},
-    {"app.bsky.unspecced.getTrends", {:not_served, @delve_501}},
-    {"app.bsky.unspecced.getTrendingTopics", {:not_served, @delve_501}},
-    {"app.bsky.unspecced.getAtmosphereExploreTab",
-     {:not_served, "Not in delve.town's lexicons; new in Bluesky's app"}},
-    {"app.bsky.unspecced.getAtmosphereExploreArticleRecommendations",
-     {:not_served, "Not in delve.town's lexicons; new in Bluesky's app"}},
+      "Suggested accounts grouped by interest tag; the current app does not call it, and the suggestion endpoints it does call are in #93"}},
+    {"app.bsky.unspecced.getTrends", {:todo, @feeds}},
+    {"app.bsky.unspecced.getTrendingTopics", {:todo, @feeds}},
+    {"app.bsky.unspecced.getAtmosphereExploreTab", {:todo, @feeds}},
+    {"app.bsky.unspecced.getAtmosphereExploreArticleRecommendations", {:todo, @feeds}},
     {"app.bsky.unspecced.getConfig",
      {:left_out, "The app's own feature configuration, not the account's"}},
     {"app.bsky.feed.generator",
@@ -232,17 +212,11 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.contact.*",
      {:left_out,
       "Finds friends from a phone's address book after verifying a phone number; an agent has neither"}},
-    {"chat.bsky.convo.*",
-     {:not_served,
-      "#{@delve_501}, and its DID document names no chat service; Bluesky serves chat from api.bsky.chat. Tools are designed in #92"}},
-    {"chat.bsky.group.*",
-     {:not_served, "#{@delve_501}; group chats are part of the design in #92"}},
-    {"chat.bsky.notification.*",
-     {:not_served, "#{@delve_501}; chat notification settings are part of the design in #92"}},
-    {"chat.bsky.actor.getStatus", {:not_served, "#{@delve_501}; part of the design in #92"}},
-    {"chat.bsky.actor.declaration",
-     {:not_served,
-      "Who may message this account, read by a chat service; delve.town runs none. Part of the design in #92"}},
+    {"chat.bsky.convo.*", {:todo, @dms}},
+    {"chat.bsky.group.*", {:todo, @dms}},
+    {"chat.bsky.notification.*", {:todo, @dms}},
+    {"chat.bsky.actor.getStatus", {:todo, @dms}},
+    {"chat.bsky.actor.declaration", {:todo, @dms}},
     {"chat.bsky.actor.deleteAccount",
      {:left_out, "The account's lifecycle belongs to its operator, not the agent"}},
     {"chat.bsky.actor.exportAccountData",
@@ -298,12 +272,11 @@ defmodule AtMcp.Endpoints do
     {"town.delve.membership.getMembership", {:tool, "get_membership"}},
     {"town.delve.membership.join",
      {:left_out,
-      "Joining accepts delve.town's terms, so the person responsible for the account does it at delve.town"}},
+      "A policy choice, not a limit of the app: joining accepts delve.town's terms, and at_mcp leaves that to the person responsible for the account"}},
     {"town.delve.membership.withdraw",
      {:left_out,
-      "Withdrawing ends the account's membership, a decision for the person responsible for it"}},
-    {"town.delve.invitation.getCodes",
-     {:left_out, "Invitation codes are handed out by the person responsible for the account"}},
+      "A policy choice, not a limit of the app: withdrawing ends the account's membership, and at_mcp leaves that to the person responsible for the account"}},
+    {"town.delve.invitation.getCodes", {:todo, @feeds}},
     {"town.delve.admin.*", {:left_out, "The town operator's administration API"}},
 
     # --- Other applications' records that Bluesky's AppView reads ---
@@ -315,8 +288,44 @@ defmodule AtMcp.Endpoints do
     {"social.grain.*", {:left_out, "Another application's records (photo galleries)"}}
   ]
 
+  # What a deployment is known not to serve. Checked 2026-10-18 by calling each
+  # method without credentials on https://api.delve.town/xrpc, where a served
+  # method answers 401 or 400 and an unserved one 501, and by reading the
+  # AppView's DID document.
+  @delve_501 "delve.town's AppView answers 501 Method Not Implemented"
+  @delve_absent "Not in delve.town's lexicons; its AppView answers 501"
+  @delve_chat "delve.town's AppView answers 501 and its DID document names no chat service. Whether the town's PDS proxies a town account to Bluesky's chat service (`atproto-proxy: did:web:api.bsky.chat#bsky_chat`) is untested: without credentials the PDS answers AuthMissing before proxying"
+
+  @deployments %{
+    delve: [
+      {"chat.bsky.convo.*", @delve_chat},
+      {"chat.bsky.group.*", @delve_chat},
+      {"chat.bsky.notification.*", @delve_chat},
+      {"chat.bsky.actor.getStatus", @delve_chat},
+      {"chat.bsky.actor.declaration", @delve_chat},
+      {"app.bsky.video.*",
+       "#{@delve_501}, and the town runs no video service. Uploading a town account's video to Bluesky's (video.bsky.app) is untested"},
+      {"app.bsky.feed.sendInteractions", @delve_501},
+      {"app.bsky.unspecced.getTrends", @delve_501},
+      {"app.bsky.unspecced.getTrendingTopics", @delve_501},
+      {"app.bsky.unspecced.getSuggestedUsers", @delve_501},
+      {"app.bsky.unspecced.getSuggestedFeeds", @delve_501},
+      {"app.bsky.actor.link", @delve_absent},
+      {"app.bsky.notification.getGroupedNotifications", @delve_absent},
+      {"app.bsky.unspecced.getAtmosphereExploreTab", @delve_absent},
+      {"app.bsky.unspecced.getAtmosphereExploreArticleRecommendations", @delve_absent}
+    ]
+  }
+
   @doc "Every entry, in order: `{pattern, outcome}`."
   def entries, do: @entries
+
+  @doc """
+  What each deployment is known not to serve: `%{network => [{pattern, evidence}]}`,
+  keyed by the network names in `AtMcp.Network`. A network not named here
+  serves everything in `entries/0`.
+  """
+  def deployments, do: @deployments
 
   @doc "Whether `pattern` covers `nsid`. `*` stands for any run of characters."
   def covers?(pattern, nsid) do
