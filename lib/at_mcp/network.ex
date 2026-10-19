@@ -88,10 +88,16 @@ defmodule AtMcp.Network do
       default_service: "https://pds.delve.town",
       lexicon_dir: "town/delve",
       label: "delve.town",
-      # The town names no moderation service: its AppView's DID document
-      # lists none, and its AppView knows no labeler by Bluesky's DID
-      # (checked 2026-10-19).
-      moderation_service: nil
+      # The town's moderation service (handle moderation.delve.town): its PLC
+      # document names an `#atproto_labeler` endpoint (https://mod.delve.town),
+      # api.delve.town answers with `atproto-content-labelers:
+      # did:plc:7voo3hmmzshypkn34iam3mg5;redact`, the town's web app sends
+      # reports to `<this did>#atproto_labeler` as "Delvetown Moderation
+      # Service", and `town.delve.labeler.getServices` returns its view, which
+      # declares no reason or subject types, so it takes every one (checked
+      # 2026-10-19). The AppView's own DID document names no labeler; that is
+      # the AppView's account, not the town's moderation account.
+      moderation_service: "did:plc:7voo3hmmzshypkn34iam3mg5"
     }
   }
 

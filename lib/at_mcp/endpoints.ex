@@ -319,8 +319,6 @@ defmodule AtMcp.Endpoints do
       {"app.bsky.unspecced.getTrendingTopics", @delve_501},
       {"app.bsky.unspecced.getSuggestedUsers", @delve_501},
       {"app.bsky.unspecced.getSuggestedFeeds", @delve_501},
-      {"com.atproto.moderation.createReport",
-       "delve.town names no moderation service: its AppView's DID document lists none and its AppView answers 501. Whether the town's PDS forwards a town account's report to another network's moderation service (`atproto-proxy: <did>#atproto_labeler`) is untested (checked 2026-10-19)"},
       {"app.bsky.actor.link", @delve_absent},
       {"app.bsky.notification.getGroupedNotifications", @delve_absent}
     ]
