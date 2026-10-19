@@ -5,11 +5,18 @@ defmodule AtMcp.Test.FakePDS do
 
   `start/1` takes the records the repository holds, as
   `%{"at://repo/collection/rkey" => value}`, and `answers`, a map from an XRPC
-  method to `{status, body}` that replaces the default answer. `getRecord`
+  method to `{status, body}` that replaces the default answer, or to a list of
+  them answered in turn, the last one repeating. `getRecord`
   answers from the records, and 400 `RecordNotFound` for one it does not hold.
+  Records are kept under DID-form addresses; `getRecord` named by a handle in
+  `handles` (`%{handle => did}`, the session's own handle included) answers
+  with the DID-form uri, as a real PDS does, and `resolveHandle` resolves them.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
   test can read back what a write left. `uploadBlob` answers a blob reference
-  for the bytes it was sent. Any other method answers `{}`.
+  for the bytes it was sent. `drafts` is the account's drafts, as
+  `getDrafts` lists them (`%{id, draft, ...}`); `createDraft`, `updateDraft` and
+  `deleteDraft` change them, and an update to an id it does not hold is ignored
+  and answered `{}`, as the lexicon says. Any other method answers `{}`.
   """
   import Plug.Conn
 
@@ -22,7 +29,10 @@ defmodule AtMcp.Test.FakePDS do
            %{
              calls: [],
              records: Keyword.get(opts, :records, %{}),
-             answers: Keyword.get(opts, :answers, %{})
+             handles:
+               Map.merge(%{"self.example" => "did:plc:self"}, Keyword.get(opts, :handles, %{})),
+             answers: Keyword.get(opts, :answers, %{}),
+             drafts: Keyword.get(opts, :drafts, [])
            }
          end},
         id: make_ref()
@@ -79,8 +89,18 @@ defmodule AtMcp.Test.FakePDS do
 
     {status, answer} =
       case Agent.get(state, &Map.fetch(&1.answers, method)) do
-        {:ok, answer} -> answer
-        :error -> Agent.get_and_update(state, &answer(method, call, &1))
+        {:ok, [answer]} ->
+          answer
+
+        {:ok, [answer | rest]} ->
+          Agent.update(state, &put_in(&1.answers[method], rest))
+          answer
+
+        {:ok, answer} ->
+          answer
+
+        :error ->
+          Agent.get_and_update(state, &answer(method, call, &1))
       end
 
     conn
@@ -89,7 +109,8 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   defp answer("com.atproto.repo.getRecord", %{query: q}, state) do
-    uri = "at://#{q["repo"]}/#{q["collection"]}/#{q["rkey"]}"
+    repo = Map.get(state.handles, q["repo"], q["repo"])
+    uri = "at://#{repo}/#{q["collection"]}/#{q["rkey"]}"
 
     case Map.fetch(state.records, uri) do
       {:ok, value} ->
@@ -144,8 +165,38 @@ defmodule AtMcp.Test.FakePDS do
     {{200, %{blob: blob}}, state}
   end
 
-  defp answer(_method, _call, state), do: {{200, %{}}, state}
+  defp answer("com.atproto.identity.resolveHandle", %{query: %{"handle" => handle}}, state) do
+    case Map.fetch(state.handles, handle) do
+      {:ok, did} -> {{200, %{did: did}}, state}
+      :error -> {{400, %{error: "InvalidRequest", message: "Unable to resolve handle"}}, state}
+    end
+  end
 
-  defp cid(source),
+  defp answer(method, call, state) do
+    case String.split(method, ".draft.") do
+      [_namespace, op] -> draft(op, call, state)
+      _ -> {{200, %{}}, state}
+    end
+  end
+
+  defp draft("getDrafts", _call, state), do: {{200, %{drafts: state.drafts}}, state}
+
+  defp draft("createDraft", %{body: b}, state) do
+    id = "3draft#{length(state.drafts) + 1}"
+    {{200, %{id: id}}, %{state | drafts: state.drafts ++ [%{id: id, draft: b["draft"]}]}}
+  end
+
+  defp draft("updateDraft", %{body: %{"draft" => %{"id" => id, "draft" => draft}}}, state) do
+    drafts = Enum.map(state.drafts, &if(&1.id == id, do: %{&1 | draft: draft}, else: &1))
+    {{200, %{}}, %{state | drafts: drafts}}
+  end
+
+  defp draft("deleteDraft", %{body: %{"id" => id}}, state),
+    do: {{200, %{}}, %{state | drafts: Enum.reject(state.drafts, &(&1.id == id))}}
+
+  defp draft(_op, _call, state), do: {{200, %{}}, state}
+
+  @doc "The CID the PDS gives the record at `uri`, or the blob of these bytes."
+  def cid(source),
     do: "bafy" <> Base.encode32(:crypto.hash(:sha256, source), case: :lower, padding: false)
 end

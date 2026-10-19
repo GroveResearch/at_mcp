@@ -361,6 +361,7 @@ defmodule AtMcp.Test.MockBackend do
 
   @impl true
   def resolve_actor(_state, "did:" <> _ = did), do: {:ok, did}
+  def resolve_actor(%{handle: handle, did: did}, handle), do: {:ok, did}
   def resolve_actor(_state, handle), do: {:ok, "did:plc:" <> handle}
 
   @impl true
@@ -418,14 +419,27 @@ defmodule AtMcp.Test.MockBackend do
   end
 
   # A post reads as its own thread root, unless the mock's state names one.
+  # Like a real service, the read answers with the DID-form address.
   @impl true
   def resolve_post(state, uri) do
+    uri = did_form(state, uri)
     {:ok, %{uri: uri, cid: "bafyPOST", root: Map.get(state, :thread_root, uri)}}
   end
 
   @impl true
   def prepare_pin(state, uri) do
-    {:ok, %{pinned: uri, previous: Map.get(state, :pinned)}}
+    {:ok, %{pinned: uri && did_form(state, uri), previous: Map.get(state, :pinned)}}
+  end
+
+  defp did_form(state, "at://" <> rest = uri) do
+    case String.split(rest, "/", parts: 2) do
+      [repo, path] ->
+        {:ok, did} = resolve_actor(state, repo)
+        "at://#{did}/#{path}"
+
+      _ ->
+        uri
+    end
   end
 
   @impl true
