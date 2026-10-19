@@ -1,0 +1,35 @@
+{
+  "did": "did:plc:fixture0001",
+  "handle": "account1.example.test",
+  "displayName": "xxxxxxx",
+  "avatar": "https://example.test/407ca117e7",
+  "associated": {
+    "lists": 18,
+    "feedgens": 7,
+    "starterPacks": 15,
+    "labeler": false,
+    "chat": {
+      "allowIncoming": "none"
+    },
+    "activitySubscription": {
+      "allowSubscriptions": "followers"
+    }
+  },
+  "labels": [],
+  "createdAt": "2023-04-12T04:53:57.057Z",
+  "verification": {
+    "verifications": [],
+    "verifiedStatus": "none",
+    "trustedVerifierStatus": "valid"
+  },
+  "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "indexedAt": "2025-10-27T21:05:26.152Z",
+  "banner": "https://example.test/59ef1eb3d2",
+  "followersCount": 35302099,
+  "followsCount": 22,
+  "postsCount": 880,
+  "pinnedPost": {
+    "cid": "bafyreicnt42y6vo6pfpvyro234ac4o6ijug6adwwrh7awflgrqlt4zibxq",
+    "uri": "at://did:plc:fixture0001/app.bsky.feed.post/3l6oveex3ii2l"
+  }
+}

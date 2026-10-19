@@ -1,0 +1,117 @@
+{
+  "feeds": [
+    {
+      "uri": "at://did:plc:fixture0090/app.bsky.feed.generator/for-you",
+      "cid": "bafyreia5l3i24epoj2fx3k3kosbevec33ieayisesgxbdarkq4l6tn6nti",
+      "did": "did:plc:fixture0091",
+      "creator": {
+        "did": "did:plc:fixture0090",
+        "handle": "account36.example.test",
+        "displayName": "xxxxxxxxxxx",
+        "avatar": "https://example.test/53a6abee92",
+        "associated": {
+          "chat": {
+            "allowIncoming": "all"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2024-02-07T01:44:20.316Z",
+        "verification": {
+          "verifications": [
+            {
+              "issuer": "did:plc:fixture0001",
+              "issuerDisplayName": "xxxxxxx",
+              "issuerHandle": "account1.example.test",
+              "uri": "at://did:plc:fixture0001/app.bsky.graph.verification/3mqqzjgi7rq2h",
+              "isValid": true,
+              "createdAt": "2026-07-16T10:26:16.600Z"
+            }
+          ],
+          "verifiedStatus": "valid",
+          "trustedVerifierStatus": "none"
+        },
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2026-05-07T00:07:16.865Z"
+      },
+      "displayName": "xxxxxxx",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "avatar": "https://example.test/130fbcc931",
+      "likeCount": 53280,
+      "acceptsInteractions": true,
+      "labels": [],
+      "indexedAt": "2026-05-06T01:45:57.363Z"
+    },
+    {
+      "uri": "at://did:plc:fixture0001/app.bsky.feed.generator/whats-hot",
+      "cid": "bafyreievgu2ty7qbiaaom5zhmkznsnajuzideek3lo7e65dwqlrvrxnmo4",
+      "did": "did:plc:fixture0092",
+      "creator": {
+        "did": "did:plc:fixture0001",
+        "handle": "account1.example.test",
+        "displayName": "xxxxxxx",
+        "avatar": "https://example.test/407ca117e7",
+        "associated": {
+          "chat": {
+            "allowIncoming": "none"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2023-04-12T04:53:57.057Z",
+        "verification": {
+          "verifications": [],
+          "verifiedStatus": "none",
+          "trustedVerifierStatus": "valid"
+        },
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2025-10-27T21:05:26.152Z"
+      },
+      "displayName": "xxxxxxxx",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "avatar": "https://example.test/17e948909c",
+      "likeCount": 39534,
+      "labels": [],
+      "indexedAt": "2023-05-19T23:19:19.592Z"
+    },
+    {
+      "uri": "at://did:plc:fixture0001/app.bsky.feed.generator/with-friends",
+      "cid": "bafyreigreonzn577vy6i4qh2so7aqfjztqrrj4jpssg2jczc27p6x4y6wi",
+      "did": "did:plc:fixture0092",
+      "creator": {
+        "did": "did:plc:fixture0001",
+        "handle": "account1.example.test",
+        "displayName": "xxxxxxx",
+        "avatar": "https://example.test/407ca117e7",
+        "associated": {
+          "chat": {
+            "allowIncoming": "none"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2023-04-12T04:53:57.057Z",
+        "verification": {
+          "verifications": [],
+          "verifiedStatus": "none",
+          "trustedVerifierStatus": "valid"
+        },
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2025-10-27T21:05:26.152Z"
+      },
+      "displayName": "xxxxxxxxxxxxxxxxxxxx",
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "avatar": "https://example.test/419e389eb5",
+      "likeCount": 41369,
+      "labels": [],
+      "indexedAt": "2023-05-19T23:19:21.076Z"
+    }
+  ],
+  "cursor": "9998"
+}

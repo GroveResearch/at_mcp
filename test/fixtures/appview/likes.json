@@ -1,0 +1,43 @@
+{
+  "likes": [
+    {
+      "actor": {
+        "did": "did:plc:fixture0088",
+        "handle": "account34.example.test",
+        "displayName": "xxxxxx",
+        "avatar": "https://example.test/3fa9500dc8",
+        "associated": {
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2026-10-18T14:42:43.463Z",
+        "indexedAt": "2026-10-18T14:54:09.862Z"
+      },
+      "createdAt": "2026-10-18T16:11:55.408Z",
+      "indexedAt": "2026-10-18T16:11:55.408Z"
+    },
+    {
+      "actor": {
+        "did": "did:plc:fixture0089",
+        "handle": "account35.example.test",
+        "displayName": "xxxxxxxxxxxxxx",
+        "avatar": "https://example.test/d65bc74076",
+        "associated": {
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2026-10-18T14:57:37.959Z",
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2026-10-18T15:10:13.256Z"
+      },
+      "createdAt": "2026-10-18T15:35:50.028Z",
+      "indexedAt": "2026-10-18T15:35:50.028Z"
+    }
+  ],
+  "cursor": "2026-10-18T15:35:50.028Z",
+  "uri": "at://did:plc:fixture0001/app.bsky.feed.post/3l6oveex3ii2l"
+}
