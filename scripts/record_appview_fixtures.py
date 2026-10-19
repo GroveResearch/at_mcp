@@ -3,6 +3,7 @@
     python3 scripts/record_appview_fixtures.py OUT_DIR ACTOR GATED_POST_URI
     python3 scripts/record_appview_fixtures.py OUT_DIR --lists QUERY
     python3 scripts/record_appview_fixtures.py OUT_DIR --discovery
+    python3 scripts/record_appview_fixtures.py OUT_DIR --scrub RAW_DIR
 
 ACTOR is a public account with reposts, a pinned post, replies and varied
 embeds in its recent posts; GATED_POST_URI is a post of it with a threadgate.
@@ -24,6 +25,11 @@ With --discovery, it records what the app's Explore page reads: one suggested
 feed as `feed.getFeedGenerator` describes it, trends, trending topics, and
 suggested starter packs.
 
+With --scrub, it records nothing: it scrubs each JSON file in RAW_DIR the
+same way and writes it to OUT_DIR under the same name. The end-to-end suite
+writes such files, authenticated reads of its local network, when
+AT_MCP_E2E_RECORD names RAW_DIR (test/fixtures/appview/README.md).
+
 Every string is replaced unless its key is in KEEP, a short list of keys whose
 values are enumerations from the lexicon rather than content. A key the
 lexicon adds later is therefore scrubbed until someone decides otherwise.
@@ -38,8 +44,11 @@ import datetime, hashlib, json, os, re, secrets, sys, urllib.parse, urllib.reque
 out = sys.argv[1]
 LISTS = sys.argv[2] == "--lists"
 DISCOVERY = sys.argv[2] == "--discovery"
+SCRUB = sys.argv[2] == "--scrub"
 if LISTS:
     QUERY = sys.argv[3]
+elif SCRUB:
+    RAW = sys.argv[3]
 elif not DISCOVERY:
     ACTOR, GATED = sys.argv[2], sys.argv[3]
 os.makedirs(out, exist_ok=True)
@@ -53,7 +62,7 @@ SHIFT = datetime.timedelta(seconds=int.from_bytes(SALT[:4], "big") % (400 * 8640
 KEEP = {
     "$type", "val", "langs", "mimeType", "purpose", "presentation", "contentMode",
     "verifiedStatus", "trustedVerifierStatus", "allowIncoming", "allowSubscriptions",
-    "allowGroupInvites", "showButtonTo", "status",
+    "allowGroupInvites", "showButtonTo", "status", "reason",
 }
 
 # Integers that must keep their value: byte offsets into a post's text.
@@ -228,7 +237,16 @@ def record_discovery():
     write("suggested_starter_packs.json", {"starterPacks": cover(packs)})
 
 
-if LISTS:
+def scrub_dir():
+    for name in sorted(os.listdir(RAW)):
+        if name.endswith(".json"):
+            with open(os.path.join(RAW, name)) as f:
+                write(name, json.load(f))
+
+
+if SCRUB:
+    scrub_dir()
+elif LISTS:
     record_lists()
 elif DISCOVERY:
     record_discovery()

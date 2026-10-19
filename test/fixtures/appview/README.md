@@ -1,6 +1,7 @@
 # Recorded AppView responses
 
-Read by `test/at_mcp/field_coverage_test.exs`. Each file is a public,
+Read by `test/at_mcp/field_coverage_test.exs`. Each file but the `viewer_`
+and notification ones (below) is a public,
 unauthenticated response from the Bluesky AppView (`public.api.bsky.app`),
 recorded by `scripts/record_appview_fixtures.py` from one public account and
 one of its posts that has a threadgate:
@@ -36,8 +37,23 @@ offsets. Keys and value types are kept. Which account and post they came from
 is deliberately not recorded.
 
 Public responses carry no `viewer` state, and notifications need an account,
-so neither is covered here yet. Re-record when the lexicon grows:
+so those are recorded from the end-to-end suite's local network instead
+(test/e2e, "bookmark and pin_post read back as this account's"): an account
+that follows and is followed by another, has pinned a post and bookmarked,
+liked and been mentioned, replied to, quoted, liked and reposted reads
+`feed.getTimeline` (`viewer_timeline.json`), `feed.getAuthorFeed` with pins
+(`viewer_author_feed.json`), `feed.getPostThread` of its post
+(`viewer_thread.json`), `notification.listNotifications`
+(`notifications.json`) and `notification.getGroupedNotifications`
+(`grouped_notifications.json`). The suite writes them raw when
+`AT_MCP_E2E_RECORD` names a directory, and `--scrub` replaces what they say
+as above. The network's feature gates are off, so no post view carries
+`viewer.knownLikers`.
+
+Re-record when the lexicon grows:
 
     python3 scripts/record_appview_fixtures.py test/fixtures/appview ACTOR GATED_POST_URI
     python3 scripts/record_appview_fixtures.py test/fixtures/appview --lists QUERY
     python3 scripts/record_appview_fixtures.py test/fixtures/appview --discovery
+    AT_MCP_E2E_RECORD=RAW_DIR scripts/e2e.sh test/e2e/round_trip_test.exs
+    python3 scripts/record_appview_fixtures.py test/fixtures/appview --scrub RAW_DIR

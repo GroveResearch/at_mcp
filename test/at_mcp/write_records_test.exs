@@ -272,7 +272,10 @@ defmodule AtMcp.WriteRecordsTest do
 
           assert message =~ "record"
           assert result.structuredContent == %{code: "wrong_record_kind"}
-          assert Enum.find(result.content, &(&1.type == "text")).text == message
+          # AtMcp's message, as one literal (`AtMcp.MCP.Tools`).
+          assert Enum.find(result.content, &(&1.type == "text")).text ==
+                   "error: " <> Jason.encode!(message)
+
           assert message =~ "nothing was sent"
           refute Enum.find(result.content, &(&1.type == "text")).text =~ "may have completed"
 

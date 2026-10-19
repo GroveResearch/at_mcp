@@ -14,6 +14,9 @@ config :at_mcp,
   # listener, so nothing binds a port an operator might be using.
   start_mcp: true,
   mcp_port: 0,
-  control_port: 0
+  control_port: 0,
+  # A raw string reaching a reading's text fails the test that reaches it
+  # (`AtMcp.Reading.Text`); elsewhere it is quoted.
+  strict_reading: true
 
 config :logger, level: :warning

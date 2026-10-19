@@ -176,7 +176,7 @@ defmodule AtMcp.ReplyReferenceTest do
            } = result.structuredContent
 
     text = Enum.find(result.content, &(&1.type == "text")).text
-    assert text =~ "InvalidRequest: Could not find repo: did:plc:nobody"
+    assert text =~ ~s(InvalidRequest: "Could not find repo: did:plc:nobody")
     refute text =~ "deleted"
     assert sent(calls, "com.atproto.repo.createRecord") == []
   end
@@ -187,9 +187,9 @@ defmodule AtMcp.ReplyReferenceTest do
     like = "at://did:plc:other/app.bsky.feed.like/k"
 
     for {tool, arguments, expected} <- [
-          {"reply", %{"uri" => list, "text" => "hello"}, "uri: must be the AT URI of a post"},
+          {"reply", %{"uri" => list, "text" => "hello"}, ~s(uri: "must be the AT URI of a post)},
           {"post", %{"text" => "hello", "quote" => like},
-           "quote: must be the AT URI of a post, a feed generator, a list"}
+           ~s(quote: "must be the AT URI of a post, a feed generator, a list)}
         ] do
       assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(tool, arguments, state)
       assert result.structuredContent.code == "invalid_arguments"
