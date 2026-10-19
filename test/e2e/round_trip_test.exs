@@ -424,6 +424,21 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert reason in [:invalid_swap, "invalid_swap"]
       assert record(me, profile_uri(me))["description"] == "second"
 
+      # A null swap, which a write sends when it read no record, is refused
+      # the same way once a record exists: a record another client created
+      # in between is not written over.
+      assert {:error, %ProtoRune.XRPC.Error{reason: reason}} =
+               AtMcp.ATProto.put_record(session, %{
+                 repo: me.did,
+                 collection: "app.bsky.actor.profile",
+                 rkey: "self",
+                 record: %{"$type" => "app.bsky.actor.profile", "description" => "stale"},
+                 swap_record: nil
+               })
+
+      assert reason in [:invalid_swap, "invalid_swap"]
+      assert record(me, profile_uri(me))["description"] == "second"
+
       {:ok, commit} = AtMcp.ATProto.get_latest_commit(session, me.did)
       old_commit = commit[:cid] || commit["cid"]
       assert is_binary(old_commit)
@@ -859,16 +874,25 @@ defmodule AtMcp.E2E.RoundTripTest do
   describe "preferences and drafts" do
     test "save_feed and unsave_feed: the saved feed is in the account's preferences, then not",
          %{me: me, feed: feed, session: session} do
-      # No read tool shows saved feeds, so the preferences are read from the
-      # PDS directly.
+      # get_preferences reads the saved feeds as the app shows them, and the
+      # PDS holds them as written.
       saved = fn ->
         {:ok, preferences} = AtMcp.ATProto.preferences_as_stored(session)
 
-        for %{"$type" => "app.bsky.actor.defs#savedFeedsPrefV2", "items" => items} <-
-              preferences,
-            item <- items,
-            item["value"] == feed,
-            do: item
+        stored =
+          for %{"$type" => "app.bsky.actor.defs#savedFeedsPrefV2", "items" => items} <-
+                preferences,
+              item <- items,
+              item["value"] == feed,
+              do: Map.take(item, ["type", "value", "pinned"])
+
+        read =
+          for item <- call!(me, "get_preferences", %{})["saved_feeds"],
+              item["value"] == feed,
+              do: item
+
+        assert read == stored
+        stored
       end
 
       assert saved.() == []
@@ -887,6 +911,245 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert %{"unchanged" => false} = call!(me, "unsave_feed", %{"uri" => feed})
       assert saved.() == []
       assert %{"unchanged" => true} = call!(me, "unsave_feed", %{"uri" => feed})
+    end
+
+    test "set_preference, each preference kind: get_preferences reads it back, the PDS keeps every other preference, and the undo puts it back",
+         %{me: me, session: session} do
+      # A preference AtMcp has no tool for, which every change must keep.
+      {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
+
+      kept = %{
+        "$type" => "app.bsky.actor.defs#hiddenPostsPref",
+        "items" => ["at://#{me.did}/app.bsky.feed.post/3kkeep"]
+      }
+
+      {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before ++ [kept])
+
+      list = call!(me, "create_list", %{"name" => "repliers", "purpose" => "curate"})["uri"]
+      by_handle = String.replace(list, me.did, me.handle)
+
+      for {kind, change, read} <- [
+            {"home_feed", %{"hide_reposts" => true, "hide_quotes" => true},
+             %{"hide_reposts" => true, "hide_quotes" => true}},
+            {"threads", %{"sort" => "newest", "tree_view" => true},
+             %{"sort" => "newest", "tree_view" => true}},
+            {"interaction_defaults",
+             %{"reply_rule" => ["mentioned", by_handle], "quotes" => "disabled"},
+             %{"reply_rule" => ["mentioned", list], "quotes" => "disabled"}},
+            {"interests", %{"tags" => ["art", "science"]}, %{"tags" => ["art", "science"]}},
+            {"verification", %{"hide_badges" => true}, %{"hide_badges" => true}}
+          ] do
+        initial = call!(me, "get_preferences", %{})[kind]
+        result = call!(me, "set_preference", Map.put(change, "kind", kind))
+        assert result["unchanged"] == false, kind
+        assert result["previous"] == initial, kind
+        assert Map.take(result["now"], Map.keys(read)) == read, kind
+        assert Map.take(call!(me, "get_preferences", %{})[kind], Map.keys(read)) == read, kind
+
+        # Asked again: already so, nothing written.
+        assert call!(me, "set_preference", Map.put(change, "kind", kind))["unchanged"], kind
+
+        # Undo with what the result named as before.
+        undo = Map.take(result["previous"], result["changed"])
+        call!(me, "set_preference", Map.put(undo, "kind", kind))
+        assert call!(me, "get_preferences", %{})[kind] == initial, kind
+
+        {:ok, stored} = AtMcp.ATProto.preferences_as_stored(session)
+        assert kept in stored, kind
+      end
+
+      # The app shows adult content only to an account whose birth date makes
+      # it 18 or over; these accounts have none.
+      assert call!(me, "get_preferences", %{})["adult_content"]["declared_over_18"] == false
+
+      assert %{code: "invalid_arguments", problems: [%{path: "enabled"}]} =
+               refused(me, "set_preference", %{"kind" => "adult_content", "enabled" => true})
+
+      call!(me, "delete_list", %{"uri" => list})
+      {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before)
+    end
+
+    test "set_preference discoverable and activity_subscriptions: the declaration records, read back by get_preferences, get_record and another account's get_profile, then undone",
+         %{net: net, me: me, them: them} do
+      assert %{"hide_from_recommendations" => false} =
+               call!(me, "get_preferences", %{})["discoverable"]
+
+      written =
+        call!(me, "set_preference", %{
+          "kind" => "discoverable",
+          "hide_from_recommendations" => true
+        })
+
+      assert written["uri"] == "at://#{me.did}/app.bsky.actor.contentVisibilityDeclaration/self"
+
+      assert %{"hideFromAlgorithmicRecommendations" => true} = record(me, written["uri"])
+
+      assert %{"hide_from_recommendations" => true} =
+               call!(me, "get_preferences", %{})["discoverable"]
+
+      call!(me, "set_preference", %{
+        "kind" => "discoverable",
+        "hide_from_recommendations" => false
+      })
+
+      assert %{"hideFromAlgorithmicRecommendations" => false} = record(me, written["uri"])
+
+      assert %{"hide_from_recommendations" => false} =
+               call!(me, "get_preferences", %{})["discoverable"]
+
+      # No declaration lets followers subscribe; asking for that writes nothing.
+      assert %{"unchanged" => true} =
+               call!(me, "set_preference", %{
+                 "kind" => "activity_subscriptions",
+                 "allow" => "followers"
+               })
+
+      written =
+        call!(me, "set_preference", %{"kind" => "activity_subscriptions", "allow" => "none"})
+
+      assert %{"allowSubscriptions" => "none"} = record(me, written["uri"])
+      sync(net)
+      assert call!(them, "get_profile", %{"actor" => me.did})["subscriptions_from"] == "none"
+
+      call!(me, "set_preference", %{"kind" => "activity_subscriptions", "allow" => "followers"})
+      sync(net)
+
+      assert call!(me, "get_preferences", %{})["activity_subscriptions"] == %{
+               "allow" => "followers"
+             }
+
+      assert call!(them, "get_profile", %{"actor" => me.did})["subscriptions_from"] == "followers"
+    end
+
+    test "set_notification_setting: get_notification_settings reads it back, then the undo",
+         %{me: me} do
+      setting = fn reason ->
+        Enum.find(
+          call!(me, "get_notification_settings", %{})["settings"],
+          &(&1["reason"] == reason)
+        )
+      end
+
+      initial = setting.("like")
+      assert %{"include" => "all", "list" => true, "push" => true} = initial
+
+      result =
+        call!(me, "set_notification_setting", %{
+          "reason" => "like",
+          "include" => "follows",
+          "push" => false
+        })
+
+      assert result["changed"] == ["include", "push"]
+      assert result["now"] == %{"include" => "follows", "list" => true, "push" => false}
+      assert setting.("like") == Map.merge(initial, %{"include" => "follows", "push" => false})
+
+      # Another reason is untouched.
+      assert setting.("reply") == %{
+               "reason" => "reply",
+               "include" => "all",
+               "list" => true,
+               "push" => true
+             }
+
+      plain =
+        call!(me, "set_notification_setting", %{"reason" => "starterpack_joined", "list" => false})
+
+      assert plain["now"] == %{"include" => nil, "list" => false, "push" => true}
+
+      call!(
+        me,
+        "set_notification_setting",
+        Map.put(Map.take(result["previous"], result["changed"]), "reason", "like")
+      )
+
+      call!(me, "set_notification_setting", %{"reason" => "starterpack_joined", "list" => true})
+      assert setting.("like") == initial
+      assert setting.("starterpack_joined")["list"] == true
+    end
+
+    test "get_notifications grouped: another account's like reads as a likeGroup naming it and the post, and is gone after the unlike",
+         %{net: net, me: me, them: them} do
+      post = post!(me, "group my likes")
+      sync(net)
+      like = call!(them, "like", %{"uri" => post["uri"], "cid" => post["cid"]})
+      sync(net)
+
+      group = fn ->
+        call!(me, "get_notifications", %{"grouped" => true})["items"]
+        |> Enum.find(
+          &(&1["kind"] == "likeGroup" and
+              Enum.any?(&1["posts"], fn p -> p["uri"] == post["uri"] end))
+        )
+      end
+
+      assert %{
+               "count" => 1,
+               "actors" => [%{"did" => did, "handle" => handle}],
+               "posts" => [%{"text" => "group my likes"}]
+             } = group.()
+
+      assert {did, handle} == {them.did, them.handle}
+
+      call!(them, "unlike", %{"uri" => like["uri"]})
+      sync(net)
+      assert group.() == nil
+
+      call!(me, "delete_post", %{"uri" => post["uri"]})
+      sync(net)
+    end
+
+    test "subscribe_to_activity by handle: refused until this account follows, then get_profile and get_activity_subscriptions read it back, then the unsubscribe",
+         %{net: net, me: me, them: them} do
+      # Followers may subscribe by default, and this account does not follow.
+      assert %{code: "invalid_arguments", problems: [%{path: "actor"}]} =
+               refused(me, "subscribe_to_activity", %{
+                 "actor" => them.handle,
+                 "posts" => true,
+                 "replies" => false
+               })
+
+      follow = call!(me, "follow", %{"actor" => them.handle})
+      sync(net)
+
+      result =
+        call!(me, "subscribe_to_activity", %{
+          "actor" => them.handle,
+          "posts" => true,
+          "replies" => true
+        })
+
+      assert result["actor"] == them.did
+      assert result["previous"] == %{"posts" => false, "replies" => false}
+      assert result["now"] == %{"posts" => true, "replies" => true}
+      sync(net)
+
+      assert call!(me, "get_profile", %{"actor" => them.did})["activity_subscription"] ==
+               %{"posts" => true, "replies" => true}
+
+      assert %{"items" => [%{"did" => did, "activity_subscription" => %{"posts" => true}}]} =
+               call!(me, "get_activity_subscriptions", %{})
+
+      assert did == them.did
+
+      assert call!(me, "subscribe_to_activity", %{
+               "actor" => them.did,
+               "posts" => true,
+               "replies" => true
+             })["unchanged"]
+
+      call!(me, "subscribe_to_activity", %{
+        "actor" => them.did,
+        "posts" => false,
+        "replies" => false
+      })
+
+      sync(net)
+      assert call!(me, "get_profile", %{"actor" => them.did})["activity_subscription"] == nil
+      assert %{"items" => []} = call!(me, "get_activity_subscriptions", %{})
+
+      call!(me, "unfollow", %{"uri" => follow["uri"]})
+      sync(net)
     end
 
     test "save_draft, update it, delete_draft: get_drafts follows each", %{me: me} do

@@ -1084,7 +1084,11 @@ has indexed everything the PDS sequenced, rather than sleeping.
 | `update_profile` (fields, avatar, links) | `get_profile`, `get_record` |
 | `create_list`, `add_to_list`, `update_list`, `remove_from_list`, `delete_list` | `get_list`, `get_lists` |
 | `create_starter_pack`, `set_list_opt_out`, `update_starter_pack`, `delete_starter_pack` | `get_starter_pack`, `get_list` |
-| `save_feed`, `unsave_feed` | the account's preferences, read from the PDS (no read tool shows them) |
+| `save_feed`, `unsave_feed` | the account's preferences, read from the PDS |
+| `set_preference` (each preference kind; `discoverable`, `activity_subscriptions`) | `get_preferences`, the preferences read from the PDS, `get_record`, another account's `get_profile` |
+| `set_notification_setting` | `get_notification_settings` |
+| `subscribe_to_activity` | `get_profile`, `get_activity_subscriptions` |
+| `like` by another account, `unlike` | `get_notifications` with `grouped` |
 | `save_draft`, `delete_draft` | `get_drafts` |
 
 What it cannot do locally:

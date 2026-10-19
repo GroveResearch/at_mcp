@@ -359,7 +359,8 @@ defmodule AtMcp.MCP.Tools do
   trends or invitation codes. The structured content is the same; the text a
   model reads is `AtMcp.Reading`'s `reading` of it (`:posts`, `:notifications`,
   `:thread`, `:chain`, `:profile`, `:profiles`, `:list`, `:lists`,
-  `:starter_pack`, `:starter_packs`, `:feeds`, `:trends` or `:invite_codes`)
+  `:starter_pack`, `:starter_packs`, `:feeds`, `:trends`, `:invite_codes`,
+  `:preferences` or `:notification_settings`)
   instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """

@@ -126,6 +126,85 @@ defmodule AtMcp.ATProto do
   end
 
   @doc """
+  The account's notification settings (`notification.getPreferences`), every
+  key as the service sent it: the reasons are camelCase keys
+  (`likeViaRepost`), which proto_rune's key renaming would not give back.
+  """
+  def notification_preferences(session) do
+    query =
+      Query.new(Network.nsid("notification.getPreferences"),
+        base_url: base_url(session),
+        response: :binary
+      )
+
+    with {:ok, %{body: body}} <- execute(session, query, "GET"),
+         do: decode_raw(body)
+  end
+
+  @doc """
+  Change the notification settings of the reasons `settings` names
+  (`notification.putPreferencesV2`); a reason not named is left as it is.
+  Sent as given, keys and all, and answered with every setting as it now is.
+  """
+  def put_notification_preferences(session, settings) when is_map(settings),
+    do: raw_procedure(session, "notification.putPreferencesV2", settings)
+
+  @doc """
+  Subscribe to, or with both `post` and `reply` false unsubscribe from, an
+  account's posts (`notification.putActivitySubscription`). `subject` is a DID.
+  """
+  def put_activity_subscription(session, subject, %{"post" => _, "reply" => _} = subscription),
+    do:
+      raw_procedure(session, "notification.putActivitySubscription", %{
+        "subject" => subject,
+        "activitySubscription" => subscription
+      })
+
+  @doc """
+  The account's notifications grouped as the app's Notifications screen
+  shows them (`notification.getGroupedNotifications`): `feed` is the screen's
+  tab. Read from the raw body: a group's kind is a union told apart by its
+  `$type`, and its related views are too.
+  """
+  def grouped_notifications(session, params) do
+    query =
+      Query.new(Network.nsid("notification.getGroupedNotifications"),
+        from: %{feed: :string, limit: :integer, cursor: :string},
+        base_url: base_url(session),
+        response: :binary
+      )
+
+    with {:ok, query} <- Query.add_params(query, params),
+         {:ok, %{body: body}} <- execute(session, query, "GET"),
+         do: decode_raw(body)
+  end
+
+  @doc "The accounts this account is subscribed to, a page at a time."
+  def list_activity_subscriptions(session, params),
+    do: read(session, "notification.listActivitySubscriptions", params, @page)
+
+  defp raw_procedure(session, suffix, body) do
+    proc =
+      Network.nsid(suffix)
+      |> Procedure.new(base_url: base_url(session), response: :binary)
+      |> Procedure.put_raw_body(Jason.encode!(body))
+      |> Procedure.put_header("content-type", "application/json")
+
+    with {:ok, %{body: answer}} <- execute(session, proc, "POST"), do: decode_raw(answer)
+  end
+
+  # A raw answer: the decoded body, or `:unreadable` when it is not a JSON
+  # object (an empty body included).
+  defp decode_raw(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{} = decoded} -> {:ok, decoded}
+      _ -> {:ok, :unreadable}
+    end
+  end
+
+  defp decode_raw(_body), do: {:ok, :unreadable}
+
+  @doc """
   Tell a feed generator how its feed's items landed (`feed.sendInteractions`).
   The interactions go to the feed generator's own service, `service_did`,
   through the account's PDS (`atproto-proxy: <did>#bsky_fg`), as the app
@@ -537,7 +616,8 @@ defmodule AtMcp.ATProto do
     record: {:required, :any}
   }
 
-  # `swapRecord` is the CID the record must still have for the write to apply.
+  # `swapRecord` is the CID the record must still have for the write to apply,
+  # or null when there must be none (`put_record/2`).
   @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swap_record, :string)
 
   # `swapRecord` is the CID the record must still have for it to be deleted.
@@ -570,7 +650,13 @@ defmodule AtMcp.ATProto do
   def create_record(session, params),
     do: procedure(session, "com.atproto.repo.createRecord", @repo_write, params)
 
-  @doc "Write a record at a known rkey, creating or replacing it."
+  @doc """
+  Write a record at a known rkey, creating or replacing it. `swap_record` is
+  the CID the record must still have; given as nil, it is sent as null, which
+  the PDS reads as "there must be no record yet" (`swapCid === null` for a
+  create in the reference PDS's actor-store/repo/transactor.ts), so a record
+  created meanwhile is not written over. Left out, nothing is checked.
+  """
   def put_record(session, params),
     do: procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
 
@@ -807,7 +893,7 @@ defmodule AtMcp.ATProto do
       gate(:threadgate, post_uri, current)
       |> set_rule("allow", allow, fn
         :everyone -> nil
-        rules -> rules && rules |> Enum.map(&reply_rule/1) |> Enum.uniq()
+        rules -> rules && reply_rules(rules)
       end)
       |> Map.delete("hiddenReplies")
       |> put_present("hiddenReplies", if(hidden != [], do: hidden))
@@ -850,6 +936,13 @@ defmodule AtMcp.ATProto do
     |> Map.put("post", post_uri)
     |> Map.put("createdAt", Map.get(current, "createdAt") || timestamp(nil))
   end
+
+  @doc """
+  What a threadgate's `allow` holds for rules `AtMcp.Interactions` reads,
+  each once and in order. The account's default reply rule
+  (`postInteractionSettingsPref.threadgateAllowRules`) holds the same.
+  """
+  def reply_rules(rules) when is_list(rules), do: rules |> Enum.map(&reply_rule/1) |> Enum.uniq()
 
   defp reply_rule(:mention), do: %{"$type" => AtMcp.Network.type(:mention_rule)}
   defp reply_rule(:followers), do: %{"$type" => AtMcp.Network.type(:follower_rule)}

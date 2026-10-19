@@ -298,7 +298,15 @@ also likes a feed or a labeler. `update_profile` sets pronouns, a website and
 the links the profile shows; `set_status` says the account is live.
 `get_profile` reads them back, with the pinned post, the verification check,
 when the account was made and how many lists, feeds and starter packs it has
-made. Wherever a post appears (a feed, a thread, a conversation, a
+made. `get_preferences` reads the account's settings as the app shows them
+and `set_preference` changes one kind of them (the Following feed, threads,
+the reply and quote rules new posts start with, adult content, interests,
+verification checks, discoverability, who may subscribe);
+`get_notification_settings` and `set_notification_setting` are the app's
+notification settings, reason by reason; `subscribe_to_activity` is the bell
+on a profile, and `get_activity_subscriptions` lists what it subscribed to.
+`get_notifications` with `grouped` reads the groups the app's Notifications
+screen shows ("alice and 5 others liked your post"). Wherever a post appears (a feed, a thread, a conversation, a
 notification or a quote) it carries the same facts: its labels and its
 author's, the verification and Live badges beside the author's name, and any
 block or mute between the account and the author. A post read also says who

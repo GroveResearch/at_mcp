@@ -703,6 +703,101 @@ defmodule AtMcp.Test.MockBackend do
     do: {:ok, %{ok: true, action: verb, uri: uri, pinned: pinned, unchanged: false}}
 
   @impl true
+  def get_grouped_notifications(_state, opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [
+         AtMcp.Summary.extract(:notification_group, %{
+           "id" => "g1",
+           "kind" => "likeGroup",
+           "count" => 3,
+           "isRead" => false,
+           "indexedAt" => "2026-10-18T00:00:00.000Z",
+           "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
+           "posts" => [%{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "text" => "hello"}]
+         })
+       ],
+       cursor: nil,
+       seen_at: nil,
+       feed: Keyword.get(opts, :feed)
+     }}
+  end
+
+  @impl true
+  def get_preferences(_state) do
+    {:ok,
+     []
+     |> AtMcp.Preferences.view()
+     |> Map.merge(%{
+       saved_feeds: [%{type: "timeline", value: "following", pinned: true}],
+       discoverable: AtMcp.Preferences.record_view("discoverable", nil),
+       activity_subscriptions: AtMcp.Preferences.record_view("activity_subscriptions", nil)
+     })}
+  end
+
+  @impl true
+  def prepare_preference(_state, {kind, changes}), do: {:ok, %{kind: kind, changes: changes}}
+
+  @impl true
+  def write_preference(_state, %{kind: kind, changes: changes}) do
+    {:ok,
+     %{
+       ok: true,
+       action: :set_preference,
+       kind: kind,
+       changed: Enum.map(Map.keys(changes), &to_string/1),
+       previous: %{},
+       now: changes,
+       unchanged: false
+     }}
+  end
+
+  @impl true
+  def get_notification_settings(_state),
+    do: {:ok, %{settings: AtMcp.Preferences.notification_view(%{})}}
+
+  @impl true
+  def prepare_notification_setting(_state, {reason, changes}),
+    do: {:ok, %{reason: reason, changes: changes}}
+
+  @impl true
+  def write_notification_setting(_state, %{reason: reason, changes: changes}) do
+    before = AtMcp.Preferences.notification_setting(%{}, reason)
+
+    {:ok,
+     %{
+       ok: true,
+       action: :set_notification_setting,
+       reason: reason,
+       changed: Enum.map(Map.keys(changes), &to_string/1),
+       previous: before,
+       now: Map.merge(before, changes),
+       unchanged: false
+     }}
+  end
+
+  @impl true
+  def prepare_activity_subscription(_state, did, asked), do: {:ok, %{did: did, asked: asked}}
+
+  @impl true
+  def put_activity_subscription(_state, %{did: did, asked: asked}) do
+    {:ok,
+     %{
+       ok: true,
+       action: :subscribe_to_activity,
+       actor: did,
+       handle: "subject.test",
+       previous: %{posts: false, replies: false},
+       now: asked,
+       unchanged: false
+     }}
+  end
+
+  @impl true
+  def get_activity_subscriptions(_state, opts), do: {:ok, actor_page("subscribed.test", opts)}
+
+  @impl true
   def prepare_status(_state, request), do: {:ok, %{request: request}}
 
   @impl true

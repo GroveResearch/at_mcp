@@ -131,6 +131,7 @@ defmodule AtMcp.SummaryTest do
       "labels" => [%{"src" => "did:plc:author", "val" => "bot"}],
       "viewer" => %{
         "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",
+        "activitySubscription" => %{"post" => true, "reply" => false},
         "knownFollowers" => %{
           "count" => 3,
           "followers" => [%{"did" => "did:plc:k", "handle" => "k.test", "displayName" => "K"}]
@@ -165,7 +166,8 @@ defmodule AtMcp.SummaryTest do
         "feedgens" => 1,
         "starterPacks" => 1,
         "labeler" => false,
-        "chat" => %{"allowIncoming" => "following"}
+        "chat" => %{"allowIncoming" => "following"},
+        "activitySubscription" => %{"allowSubscriptions" => "mutuals"}
       },
       "joinedViaStarterPack" => %{
         "uri" => "at://did:plc:k/app.bsky.graph.starterpack/p",
@@ -256,6 +258,33 @@ defmodule AtMcp.SummaryTest do
       "indexedAt" => "2026-09-13T12:34:56.123Z",
       "reasonSubject" => "at://did:plc:parent/app.bsky.feed.post/p",
       "isRead" => false
+    },
+    # As `AtMcp.Effects.ProtoRune` hydrates a group from its related views.
+    notification_group: %{
+      "id" => "g1",
+      "kind" => "replyNotification",
+      "count" => 1,
+      "isRead" => false,
+      "indexedAt" => "2026-09-13T12:34:56.123Z",
+      "actors" => [
+        %{
+          "did" => "did:plc:k",
+          "handle" => "k.test",
+          "displayName" => "K",
+          "starterPack" => "at://did:plc:k/app.bsky.graph.starterpack/p"
+        }
+      ],
+      "posts" => [
+        %{
+          "uri" => "at://did:plc:k/app.bsky.feed.post/r",
+          "text" => "hello",
+          "viaRepost" => "at://did:plc:author/app.bsky.feed.repost/1",
+          "parent" => "at://did:plc:author/app.bsky.feed.post/p"
+        }
+      ],
+      "parent" => "at://did:plc:author/app.bsky.feed.post/p",
+      "starterPack" => "at://did:plc:k/app.bsky.graph.starterpack/p",
+      "generator" => "at://did:plc:author/app.bsky.feed.generator/hot"
     },
     list: %{
       "uri" => "at://did:plc:author/app.bsky.graph.list/l",

@@ -30,15 +30,23 @@ defmodule AtMcp.MCP.Server do
     {:ok, %{effects: effects, scope: Keyword.get(args, :scope)}}
   end
 
-  tool "get_notifications", "Read recent notifications on this network for this account." do
+  tool "get_notifications",
+       "Read recent notifications on this network for this account. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, and feed picks the screen's tab." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.notification_page())
 
-    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notifications"))
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notifications, or groups"))
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
     param(:reasons, {:array, :string}, AtMcp.MCP.Schemas.notification_reasons())
+
+    param(:grouped, :boolean,
+      description:
+        "Read the groups the app's Notifications screen shows instead of one notification at a time. Not with reasons"
+    )
+
+    param(:feed, :string, AtMcp.MCP.Schemas.notification_feed())
 
     run(fn a, state ->
       e = state.effects
@@ -47,7 +55,9 @@ defmodule AtMcp.MCP.Server do
         AtMcp.Effects.list_notifications(e,
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor),
-          reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons))
+          reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
+          grouped: Map.get(a, :grouped),
+          feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
         ),
         state,
         :notifications
@@ -2043,6 +2053,193 @@ defmodule AtMcp.MCP.Server do
           req_id: AtMcp.MCP.Tools.optional(Map.get(a, :req_id))
         ),
         state
+      )
+    end)
+  end
+
+  # --- settings: preferences, notification settings, activity subscriptions ---
+
+  tool "get_preferences",
+       "Read this account's settings as the app shows them: the Following feed's (home_feed), threads', the reply and quote rules each new post starts with (interaction_defaults), adult content (with whether the account has a birth date and whether it makes the account 18 or over; the date itself is not read out), interests, verification checks, the saved feeds, whether the account asks apps to keep its posts out of recommendations (discoverable), and who may subscribe to its posts (activity_subscriptions). set_preference changes them, save_feed and unsave_feed the saved feeds." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.preferences())
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_preferences(state.effects), state, :preferences)
+    end)
+  end
+
+  tool "set_preference",
+       write_description(
+         :set_preference,
+         "Change one of this account's settings, as the app's settings screens do. kind names the setting, and only its own fields are taken; a field left out keeps its value. home_feed: the Following feed (hide_replies, hide_reposts, hide_quotes, saved_feed_samples). threads: sort and tree_view. interaction_defaults: the reply_rule and quotes the app's composer starts each new post with; post does not read them. adult_content: enabled. interests: tags. verification: hide_badges. discoverable: hide_from_recommendations. activity_subscriptions: allow. home_feed, threads, adult_content and verification change what the app shows; at_mcp's reads return what the service serves either way. The result names the fields that changed (changed), with the setting's fields before (previous) and after (now); a setting already as asked is left alone and unchanged is true. discoverable and activity_subscriptions are records of the account's, written over the version read. The rest are preferences, read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:set_preference, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:kind, :string, AtMcp.MCP.Schemas.preference_kind())
+    param(:hide_replies, :boolean, description: "home_feed: hide replies")
+    param(:hide_reposts, :boolean, description: "home_feed: hide reposts")
+    param(:hide_quotes, :boolean, description: "home_feed: hide quote posts")
+
+    param(:saved_feed_samples, :boolean,
+      description:
+        "home_feed: show samples of the saved feeds in the Following feed (an experiment in the app)"
+    )
+
+    param(:sort, :string, AtMcp.MCP.Schemas.thread_sort())
+    param(:tree_view, :boolean, description: "threads: show replies as a tree")
+
+    param(
+      :reply_rule,
+      {:array, :string},
+      AtMcp.MCP.Schemas.reply_rule("interaction_defaults: the rule each new post starts with.")
+    )
+
+    param(
+      :quotes,
+      :string,
+      AtMcp.MCP.Schemas.quotes("interaction_defaults: the rule each new post starts with.")
+    )
+
+    param(:enabled, :boolean,
+      description:
+        "adult_content: show adult content. The app shows it only to an account whose birth date makes it 18 or over, and not in regions that require an age check; true is refused for an account whose birth date does not"
+    )
+
+    param(:tags, {:array, :string}, AtMcp.MCP.Schemas.interests())
+
+    param(:hide_badges, :boolean,
+      description: "verification: hide the verification checks the app shows beside names"
+    )
+
+    param(:hide_from_recommendations, :boolean,
+      description:
+        "discoverable: ask apps to keep this account's posts out of algorithmic recommendations, such as a discover feed"
+    )
+
+    param(:allow, :string, AtMcp.MCP.Schemas.subscription_allow())
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_preference(
+          state.effects,
+          Map.fetch!(a, :kind),
+          Map.new(AtMcp.Preferences.all_fields(), &{&1, Map.get(a, &1)})
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "get_notification_settings",
+       "Read this account's notification settings: for each reason, from whom (include: all, or follows, for the reasons that have it), whether the app lists them in the account's notifications (list) and whether they are pushed to phones signed in to the account (push). set_notification_setting changes them." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.notification_settings())
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_notification_settings(state.effects),
+        state,
+        :notification_settings
+      )
+    end)
+  end
+
+  tool "set_notification_setting",
+       write_description(
+         :set_notification_setting,
+         "Change this account's notification setting for one reason, as the app's notification settings do: include (from all, or only accounts this account follows), list (the app lists them in the account's notifications) and push (they are pushed to phones signed in to the account; at_mcp delivers notifications itself, not by push). A field left out keeps its value. The result names the fields that changed, with the setting before (previous) and as the service now keeps it (now); a setting already as asked is left alone and unchanged is true. Chat notifications belong to the chat service and are not set here."
+       ) do
+    annotations(
+      write_annotations(:set_notification_setting, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:reason, :string, AtMcp.MCP.Schemas.notification_setting_reason())
+    param(:include, :string, AtMcp.MCP.Schemas.notification_include())
+    param(:list, :boolean, description: "List them in the account's notifications")
+    param(:push, :boolean, description: "Push them to phones signed in to the account")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_notification_setting(state.effects, Map.fetch!(a, :reason),
+          include: Map.get(a, :include),
+          list: Map.get(a, :list),
+          push: Map.get(a, :push)
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "subscribe_to_activity",
+       write_description(
+         :subscribe_to_activity,
+         "Subscribe to an account's activity, as the bell on its profile does in the app: posts true makes each of its new posts a notification (reason subscribed-post), and replies true its replies too, which needs posts. Both false unsubscribes, and is sent even when no subscription shows, as a block hides one. Each account says who may subscribe to it (followers, the default; mutuals; or none); a subscription it does not allow is refused before anything is sent. The result names the account and its subscription before (previous) and now; one already as asked is left alone and unchanged is true. get_profile (activity_subscription) and get_activity_subscriptions read it back."
+       ) do
+    annotations(
+      write_annotations(:subscribe_to_activity, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:actor, :string, required: true, description: "Handle or DID of the account")
+
+    param(:posts, :boolean,
+      required: true,
+      description: "Get a notification for each of its new posts"
+    )
+
+    param(:replies, :boolean,
+      required: true,
+      description: "Get one for each of its replies too; needs posts"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.subscribe_to_activity(
+          state.effects,
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+          Map.fetch!(a, :posts),
+          Map.fetch!(a, :replies)
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "get_activity_subscriptions",
+       "List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription)." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.profile_page())
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("accounts"))
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_activity_subscriptions(state.effects,
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :profiles
       )
     end)
   end

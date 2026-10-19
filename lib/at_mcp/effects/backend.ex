@@ -70,6 +70,13 @@ defmodule AtMcp.Effects.Backend do
   @callback list_notifications(state(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
   @callback get_unread_count(state()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  A page of notification groups (`notification.getGroupedNotifications`),
+  each hydrated from the response's related views. `opts` carries `:feed`.
+  """
+  @callback get_grouped_notifications(state(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
   @callback get_thread(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_thread_chain(state(), uri :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
@@ -141,6 +148,51 @@ defmodule AtMcp.Effects.Backend do
   """
   @callback prepare_saved_feed(state(), request :: tuple()) :: {:ok, map()} | {:error, reason()}
   @callback write_preferences(state(), prepared :: map()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  The account's settings as the app shows them: each preference kind of
+  `AtMcp.Preferences`, the saved feeds, and the two declaration records.
+  """
+  @callback get_preferences(state()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read what a `set_preference` request `{kind, changes}` (from
+  `AtMcp.Preferences.request/2`) changes, and build the change: `{:unchanged,
+  summary}` when the setting is already as asked, so nothing is written. A list
+  in a reply rule named by a handle is resolved here. The result is passed to
+  `write_preference/2`.
+  """
+  @callback prepare_preference(state(), request :: tuple()) ::
+              {:ok, term()} | {:error, reason()}
+  @callback write_preference(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc "The account's notification settings, one per reason."
+  @callback get_notification_settings(state()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read the notification settings and build the change of one reason's
+  (`{reason, changes}`, from `AtMcp.Preferences.notification_request/2`), or
+  `{:unchanged, summary}`. The result is passed to
+  `write_notification_setting/2`.
+  """
+  @callback prepare_notification_setting(state(), request :: tuple()) ::
+              {:ok, term()} | {:error, reason()}
+  @callback write_notification_setting(state(), prepared :: term()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read the account `did` and build the subscription `%{posts, replies}` to its
+  activity, refusing one its own setting does not allow, or `{:unchanged,
+  summary}`. The result is passed to `put_activity_subscription/2`.
+  """
+  @callback prepare_activity_subscription(state(), did :: String.t(), subscription :: map()) ::
+              {:ok, term()} | {:error, reason()}
+  @callback put_activity_subscription(state(), prepared :: term()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc "A page of the accounts this account is subscribed to."
+  @callback get_activity_subscriptions(state(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
 
   @doc """
   Read the account's status record and build what replaces it: `{:live,

@@ -1,7 +1,7 @@
 defmodule AtMcp.Reading do
   @moduledoc """
   The text a model reads for a result made of posts, and for accounts, lists,
-  starter packs, feeds, trends and invitation codes.
+  starter packs, feeds, trends, invitation codes and the account's settings.
 
   A tool result has two halves in MCP: `content`, text and images, which most
   clients give a model, and `structuredContent`, which a client validates
@@ -53,7 +53,15 @@ defmodule AtMcp.Reading do
 
   @doc "A page of notifications, newest first as the service sends them."
   def notifications(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "notification", "notifications") <> "." <> next_page(page)
+    header =
+      if Map.has_key?(page, "seen_at") do
+        count(length(items), "notification group", "notification groups") <>
+          "." <>
+          if(is_binary(page["seen_at"]), do: " Seen up to #{page["seen_at"]}.", else: "") <>
+          next_page(page)
+      else
+        count(length(items), "notification", "notifications") <> "." <> next_page(page)
+      end
 
     blocks =
       items
@@ -338,6 +346,8 @@ defmodule AtMcp.Reading do
         known_followers(account["known_followers"]),
         joined_via(account["joined_via"]),
         messages_from(account["messages_from"]),
+        subscriptions_from(account["subscriptions_from"]),
+        subscribed(account["activity_subscription"]),
         if(is_binary(account["did"]), do: "did: #{account["did"]}")
       ],
       "\n"
@@ -443,6 +453,18 @@ defmodule AtMcp.Reading do
   defp messages_from("none"), do: "Takes no messages"
   defp messages_from(other) when is_binary(other), do: "Takes messages from: #{other}"
   defp messages_from(_none), do: nil
+
+  # Who may subscribe to the account's posts; followers, which no
+  # declaration also means, goes without saying.
+  defp subscriptions_from("mutuals"), do: "Lets only mutuals subscribe to its posts"
+  defp subscriptions_from("none"), do: "Lets no one subscribe to its posts"
+  defp subscriptions_from(_followers), do: nil
+
+  defp subscribed(%{"posts" => true, "replies" => true}),
+    do: "You are subscribed to its posts and replies"
+
+  defp subscribed(%{"posts" => true}), do: "You are subscribed to its posts"
+  defp subscribed(_none), do: nil
 
   @doc """
   A page of custom feeds: suggested, searched, an account's, or read by uri.
@@ -585,6 +607,98 @@ defmodule AtMcp.Reading do
   end
 
   def invite_codes(_other), do: nil
+
+  @doc """
+  The account's settings, one line per kind, as `get_preferences` returns
+  them.
+  """
+  def preferences(%{} = p) do
+    home = p["home_feed"] || %{}
+    threads = p["threads"] || %{}
+    defaults = p["interaction_defaults"] || %{}
+    adult = p["adult_content"] || %{}
+
+    lines(
+      [
+        "Settings. set_preference changes each kind; save_feed and unsave_feed the saved feeds.",
+        "home_feed (the Following feed, as the app shows it): " <>
+          on_off([
+            {"hide_replies", home["hide_replies"]},
+            {"hide_reposts", home["hide_reposts"]},
+            {"hide_quotes", home["hide_quotes"]},
+            {"saved_feed_samples", home["saved_feed_samples"]}
+          ]),
+        "threads: sort #{threads["sort"]}, " <> on_off([{"tree_view", threads["tree_view"]}]),
+        "interaction_defaults (each new post in the app starts with): reply_rule " <>
+          Jason.encode!(defaults["reply_rule"]) <> ", quotes #{defaults["quotes"]}",
+        "adult_content: " <>
+          on_off([{"enabled", adult["enabled"]}]) <>
+          "; birth date " <>
+          cond do
+            adult["declared_over_18"] == true -> "set, 18 or over"
+            adult["birth_date_set"] == true -> "set, under 18"
+            true -> "not set"
+          end,
+        "interests: " <>
+          case List.wrap(get_in(p, ["interests", "tags"])) do
+            [] -> "none"
+            tags -> Enum.join(tags, ", ")
+          end,
+        "verification: " <> on_off([{"hide_badges", get_in(p, ["verification", "hide_badges"])}]),
+        "discoverable: " <>
+          on_off([
+            {"hide_from_recommendations",
+             get_in(p, ["discoverable", "hide_from_recommendations"])}
+          ]),
+        "activity_subscriptions: allow #{get_in(p, ["activity_subscriptions", "allow"])}",
+        case List.wrap(p["saved_feeds"]) do
+          [] ->
+            "Saved feeds: none"
+
+          feeds ->
+            "Saved feeds:\n" <>
+              Enum.map_join(feeds, "\n", fn feed ->
+                "- " <>
+                  lines(
+                    [feed["value"], feed["type"], if(feed["pinned"] == true, do: "pinned")],
+                    " · "
+                  )
+              end)
+        end
+      ],
+      "\n"
+    )
+  end
+
+  def preferences(_other), do: nil
+
+  defp on_off(settings),
+    do:
+      Enum.map_join(settings, ", ", fn {name, on} ->
+        "#{name} #{if on == true, do: "on", else: "off"}"
+      end)
+
+  @doc "The account's notification settings, one line per reason."
+  def notification_settings(%{"settings" => settings}) when is_list(settings) do
+    lines(
+      [
+        "Notification settings. set_notification_setting changes one reason's."
+        | Enum.map(settings, fn setting ->
+            "#{setting["reason"]}: " <>
+              lines(
+                [
+                  if(is_binary(setting["include"]), do: "from #{setting["include"]}"),
+                  on_off([{"list", setting["list"]}, {"push", setting["push"]}])
+                ],
+                ", "
+              )
+          end)
+      ],
+      "\n"
+    )
+  end
+
+  def notification_settings(_other), do: nil
 
   defp invite_code(%{} = code, label) do
     uses = List.wrap(code["uses"])
@@ -802,6 +916,56 @@ defmodule AtMcp.Reading do
   defp where(%{"uri" => uri}) when is_binary(uri), do: "The post #{uri}"
   defp where(_post), do: "A post"
 
+  # A group of notifications, as the app's Notifications screen shows it: who
+  # acted and what they did, then each post it is about with its uri, which
+  # the write tools take.
+  defp notification(%{"kind" => kind, "actors" => actors} = group, label)
+       when is_binary(kind) or is_list(actors) do
+    actors = List.wrap(actors)
+    posts = List.wrap(group["posts"])
+    count = group["count"]
+
+    header =
+      label <>
+        " " <>
+        lines(
+          [
+            lines(
+              [
+                who_acted(actors, count, kind),
+                group_verb(kind, if(is_integer(count), do: count, else: length(posts)))
+              ],
+              " "
+            ),
+            group["indexed_at"],
+            if(group["is_read"] == false, do: "unread")
+          ],
+          " · "
+        )
+
+    lines(
+      [header] ++
+        Enum.map(posts, fn post ->
+          "  " <>
+            lines(
+              [
+                post["uri"],
+                if(is_binary(post["text"]), do: inspect(one_line(post["text"]))),
+                if(is_binary(post["via_repost"]), do: "via your repost #{post["via_repost"]}"),
+                if(is_binary(post["parent"]), do: "replying to #{post["parent"]}")
+              ],
+              " · "
+            )
+        end) ++
+        [
+          if(is_binary(group["parent"]), do: "  replying to #{group["parent"]}"),
+          if(is_binary(group["starter_pack"]), do: "  starter pack: #{group["starter_pack"]}"),
+          if(is_binary(group["generator"]), do: "  feed: #{group["generator"]}")
+        ],
+      "\n"
+    )
+  end
+
   defp notification(%{} = item, label) do
     header =
       label <>
@@ -838,6 +1002,67 @@ defmodule AtMcp.Reading do
         ],
         " · "
       )
+    end
+  end
+
+  # "alice.test, bob.test and 3 others": the accounts the group names, and
+  # how many more it holds. A group whose kind is about several posts by one
+  # account counts posts, not accounts.
+  defp who_acted(actors, count, kind) do
+    names = Enum.map(actors, &(&1["handle"] || &1["did"]))
+
+    # A group of several posts by one account counts its posts, not accounts:
+    # the multiPost groups, and subscribed posts, which the service groups by
+    # their author (`groupingKey` in its notification grouping).
+    others =
+      if is_integer(count) and not one_actor?(kind),
+        do: count - length(names),
+        else: 0
+
+    case {names, others} do
+      {[], _} -> nil
+      {names, n} when n > 0 -> Enum.join(names, ", ") <> " and #{count(n, "other", "others")}"
+      {[one], _} -> one
+      {names, _} -> Enum.join(Enum.drop(names, -1), ", ") <> " and " <> List.last(names)
+    end
+  end
+
+  @group_verbs %{
+    "likeGroup" => "liked your post",
+    "repostGroup" => "reposted your post",
+    "likeViaRepostGroup" => "liked your repost",
+    "repostViaRepostGroup" => "reposted your repost",
+    "followGroup" => "followed you",
+    "generatorLikeGroup" => "liked your feed",
+    "replyNotification" => "replied",
+    "quoteNotification" => "quoted your post",
+    "mentionNotification" => "mentioned you",
+    "followBackNotification" => "followed you back",
+    "verifiedNotification" => "verified your account",
+    "unverifiedNotification" => "removed your account's verification",
+    "starterPackJoinedNotification" => "joined through your starter pack",
+    "contactMatchNotification" => "joined: a contact of yours"
+  }
+
+  @multi_verbs %{
+    "multiPostLikeGroup" => {"liked", "of your posts"},
+    "multiPostRepostGroup" => {"reposted", "of your posts"},
+    "multiPostLikeViaRepostGroup" => {"liked", "of your reposts"},
+    "multiPostRepostViaRepostGroup" => {"reposted", "of your reposts"}
+  }
+
+  defp one_actor?(kind),
+    do: String.starts_with?(to_string(kind), "multiPost") or kind == "subscribedPostGroup"
+
+  defp group_verb("subscribedPostGroup", 1), do: "posted (you are subscribed)"
+
+  defp group_verb("subscribedPostGroup", posts),
+    do: "posted #{posts} times (you are subscribed)"
+
+  defp group_verb(kind, posts) do
+    case Map.fetch(@multi_verbs, kind) do
+      {:ok, {verb, what}} -> "#{verb} #{posts} #{what}"
+      :error -> Map.get(@group_verbs, kind, kind)
     end
   end
 

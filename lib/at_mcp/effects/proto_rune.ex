@@ -114,6 +114,111 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  @doc """
+  A page of notification groups, each hydrated from the response's related
+  views: who acted (handle and display name from their profile views) and the
+  posts acted on (their text from their post views). The service names at
+  most the first ten of each in a group; `count` is how many it holds.
+  """
+  @impl true
+  def get_grouped_notifications(session, opts) do
+    params =
+      opts
+      |> Keyword.take([:feed, :limit, :cursor])
+      |> Map.new()
+      |> AtMcp.ATProto.params()
+
+    case AtMcp.ATProto.grouped_notifications(session, params) do
+      {:ok, %{"groups" => groups} = response} when is_list(groups) ->
+        views = related_views(response["relatedViews"])
+
+        {:ok,
+         %{
+           count: length(groups),
+           items: for(%{} = group <- groups, do: notification_group(group, views)),
+           cursor: response["cursor"],
+           seen_at: response["seenAt"]
+         }}
+
+      {:ok, other} ->
+        {:error, unreadable("grouped notifications", if(is_map(other), do: other, else: %{}))}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # The related views by what names them: a profile by DID, anything else by
+  # its uri.
+  defp related_views(views) when is_list(views) do
+    Map.new(
+      for %{} = view <- views, key = view["did"] || view["uri"], is_binary(key), do: {key, view}
+    )
+  end
+
+  defp related_views(_views), do: %{}
+
+  defp notification_group(group, views) do
+    kind = if is_map(group["kind"]), do: group["kind"], else: %{}
+    items = for %{} = item <- List.wrap(kind["items"]), do: item
+
+    actors =
+      ([%{"actor" => kind["actor"], "starterPack" => kind["starterPack"]}] ++ items)
+      |> Enum.filter(&is_binary(&1["actor"]))
+      |> Enum.uniq_by(& &1["actor"])
+      |> Enum.map(fn item ->
+        view = Map.get(views, item["actor"], %{})
+
+        %{
+          "did" => item["actor"],
+          "handle" => view["handle"],
+          "displayName" => view["displayName"],
+          "starterPack" => if(is_map_key(item, "post"), do: nil, else: item["starterPack"])
+        }
+      end)
+
+    # A reply, quote or mention names no actor: its post's author acted.
+    actors =
+      with [] <- actors,
+           %{"did" => did} = author when is_binary(did) <-
+             get_in(views, [kind["post"], "author"]) do
+        [%{"did" => did, "handle" => author["handle"], "displayName" => author["displayName"]}]
+      else
+        _ -> actors
+      end
+
+    posts =
+      ([%{"post" => kind["post"], "viaRepost" => kind["viaRepost"]}] ++ items)
+      |> Enum.filter(&is_binary(&1["post"]))
+      |> Enum.map(fn item ->
+        %{
+          "uri" => item["post"],
+          "text" => get_in(views, [item["post"], "record", "text"]),
+          "viaRepost" => item["viaRepost"],
+          "parent" => item["parent"]
+        }
+      end)
+
+    AtMcp.Summary.extract(:notification_group, %{
+      "id" => group["id"],
+      "kind" => kind_name(kind["$type"]),
+      "count" => group["count"],
+      "isRead" => group["isRead"],
+      "indexedAt" => group["indexedAt"],
+      "actors" => actors,
+      "posts" => posts,
+      "parent" => if(is_binary(kind["post"]), do: kind["parent"]),
+      "starterPack" =>
+        kind["starterPack"] ||
+          Enum.find_value(items, &if(is_binary(&1["starterPack"]), do: &1["starterPack"])),
+      "generator" => kind["generator"]
+    })
+  end
+
+  # `...notification.getGroupedNotifications#likeGroup` is `likeGroup`.
+  defp kind_name(type) when is_binary(type), do: type |> String.split("#") |> List.last()
+  defp kind_name(_type), do: nil
+
   @impl true
   def get_unread_count(session) do
     case AtMcp.ATProto.get_unread_count(session, %{}) do
@@ -2174,18 +2279,16 @@ defmodule AtMcp.Effects.ProtoRune do
   # The profile is written only over the record it was built from. Between the
   # read and this write the app, or another client, may have changed it; a
   # write over that change would undo it without anyone seeing. `swapRecord`
-  # makes the service refuse instead. With no record read, nothing is swapped:
-  # the lexicon's null swap would also refuse a profile created meanwhile, but
-  # it is "nullable and optional" and not every PDS reads it the same way.
+  # makes the service refuse instead. With no record read, the swap is null:
+  # the PDS then refuses a profile created meanwhile (`put_record/2`).
   defp put_profile(session, record, swap) do
     params = %{
       repo: session.did,
       collection: AtMcp.Network.collection(:profile),
       rkey: "self",
-      record: record
+      record: record,
+      swap_record: swap
     }
-
-    params = if swap, do: Map.put(params, :swap_record, swap), else: params
 
     case AtMcp.ATProto.put_record(session, params) do
       {:error, %ProtoRune.XRPC.Error{reason: reason}}
@@ -2262,8 +2365,13 @@ defmodule AtMcp.Effects.ProtoRune do
   """
   @impl true
   def prepare_saved_feed(session, {verb, uri, pinned}) do
+    with {:ok, preferences} <- stored_preferences(session),
+         do: {:ok, saved_feeds(preferences, verb, uri, pinned)}
+  end
+
+  defp stored_preferences(session) do
     case AtMcp.ATProto.preferences_as_stored(session) do
-      {:ok, preferences} -> {:ok, saved_feeds(preferences, verb, uri, pinned)}
+      {:ok, preferences} -> {:ok, preferences}
       {:error, :unreadable_preferences} -> {:error, unreadable("the account's preferences", %{})}
       {:error, reason} -> {:error, failure(reason)}
     end
@@ -2443,6 +2551,403 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # --- settings: preferences, declarations, notification settings ---
+
+  @impl true
+  def get_preferences(session) do
+    with {:ok, preferences} <- stored_preferences(session),
+         {:ok, discoverable, _cid} <- declaration(session, "discoverable"),
+         {:ok, subscriptions, _cid} <- declaration(session, "activity_subscriptions") do
+      {:ok,
+       preferences
+       |> AtMcp.Preferences.view()
+       |> Map.merge(%{
+         saved_feeds: saved_feed_view(preferences),
+         discoverable: AtMcp.Preferences.record_view("discoverable", discoverable),
+         activity_subscriptions:
+           AtMcp.Preferences.record_view("activity_subscriptions", subscriptions)
+       })}
+    end
+  end
+
+  # The saved feeds as the app shows them: the second version's, or, for an
+  # account that has none yet, the first version's as the app migrates them.
+  defp saved_feed_view(preferences) do
+    items =
+      case preferences |> Enum.reverse() |> Enum.find(&saved_v2?/1) do
+        nil -> migrated(preferences)
+        current -> current["items"]
+      end
+
+    for %{} = item <- items,
+        do: %{type: item["type"], value: item["value"], pinned: item["pinned"] == true}
+  end
+
+  # One of the account's declaration records, as stored, and its CID; nil and
+  # nil when the account has none.
+  defp declaration(session, kind) do
+    {collection, _field} = AtMcp.Preferences.record(kind)
+
+    case AtMcp.ATProto.get_record_as_stored(session, %{
+           repo: session.did,
+           collection: AtMcp.Network.collection(collection),
+           rkey: "self"
+         }) do
+      {:ok, %{"value" => value} = response} when is_map(value) ->
+        {:ok, value, response["cid"]}
+
+      {:ok, response} ->
+        {:error, unreadable("the account's #{collection} record", response)}
+
+      {:error, :unreadable_record} ->
+        {:error, unreadable("the account's #{collection} record", %{})}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found] ->
+        {:ok, nil, nil}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @doc """
+  Read what a `set_preference` request changes and build the change. A
+  preference kind is changed in the preferences as stored
+  (`AtMcp.Preferences.change/3`) and written back whole, which the result's
+  note says; a record kind is written over the record read, with
+  `swapRecord`. Either way the result names the fields that changed, with the
+  kind's values before and after.
+  """
+  @impl true
+  def prepare_preference(session, {kind, changes}) do
+    case AtMcp.Preferences.record(kind) do
+      nil -> prepare_preference_change(session, kind, changes)
+      {collection, _field} -> prepare_declaration(session, kind, collection, changes)
+    end
+  end
+
+  defp prepare_preference_change(session, kind, changes) do
+    with {:ok, changes} <- default_reply_lists(session, changes),
+         {:ok, preferences} <- stored_preferences(session),
+         :ok <- adult_content_shown(kind, changes, preferences),
+         :ok <- interests_offered(kind, changes, preferences) do
+      before = AtMcp.Preferences.kind_view(preferences, kind)
+      updated = AtMcp.Preferences.change(preferences, kind, changes)
+      result = setting_result(kind, before, AtMcp.Preferences.kind_view(updated, kind))
+
+      if result.unchanged,
+        do: {:ok, {:unchanged, result}},
+        else: {:ok, %{preferences: updated, result: Map.put(result, :note, @no_swap)}}
+    end
+  end
+
+  defp default_reply_lists(session, %{reply_rule: rules} = changes) when is_list(rules) do
+    with {:ok, rules} <- resolve_lists(session, rules),
+         do: {:ok, %{changes | reply_rule: rules}}
+  end
+
+  defp default_reply_lists(_session, changes), do: {:ok, changes}
+
+  # The app turns adult content on only for an account whose declared age is
+  # 18 or over (`adultContentDisabled` in social-app's src/ageAssurance/util.ts
+  # at 485405a: an account with no declared age counts as under 18), so the
+  # setting would show nowhere for any other.
+  defp adult_content_shown("adult_content", %{enabled: true}, preferences) do
+    if AtMcp.Preferences.declared_over_18(preferences),
+      do: :ok,
+      else:
+        invalid(
+          "enabled",
+          "the app shows adult content only to an account whose declared age is 18 or over, and this account declares no such age. Its birth date is set in the app's account settings; at_mcp does not set one"
+        )
+  end
+
+  defp adult_content_shown(_kind, _changes, _preferences), do: :ok
+
+  defp interests_offered("interests", %{tags: tags}, preferences),
+    do: AtMcp.Preferences.interests_offered(preferences, tags)
+
+  defp interests_offered(_kind, _changes, _preferences), do: :ok
+
+  defp prepare_declaration(session, kind, collection, changes) do
+    with {:ok, current, cid} <- declaration(session, kind) do
+      record = AtMcp.Preferences.record_value(kind, current, changes)
+
+      result =
+        setting_result(
+          kind,
+          AtMcp.Preferences.record_view(kind, current),
+          AtMcp.Preferences.record_view(kind, record)
+        )
+
+      uri = own_uri(session, collection, "self")
+
+      if result.unchanged,
+        do: {:ok, {:unchanged, Map.put(result, :uri, if(current, do: uri))}},
+        else:
+          {:ok,
+           %{
+             record: record,
+             collection: collection,
+             swap: cid,
+             result: Map.put(result, :uri, uri)
+           }}
+    end
+  end
+
+  defp setting_result(kind, before, now) do
+    %{
+      ok: true,
+      action: :set_preference,
+      kind: kind,
+      changed: Enum.map(AtMcp.Preferences.changed(kind, before, now), &to_string/1),
+      previous: before,
+      now: now,
+      unchanged: AtMcp.Preferences.changed(kind, before, now) == []
+    }
+  end
+
+  @impl true
+  def write_preference(session, %{preferences: _} = prepared),
+    do: write_preferences(session, prepared)
+
+  # Written only over the record read (`swapRecord`); when there was none,
+  # only if there still is none (a null swap).
+  def write_preference(session, %{record: record, collection: collection, swap: swap} = prepared) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(collection),
+      rkey: "self",
+      record: record,
+      swap_record: swap
+    }
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:ok, _} ->
+        {:ok, prepared.result}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error,
+         changed_meanwhile("The account's #{AtMcp.Network.collection(collection)} record")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_notification_settings(session) do
+    with {:ok, settings} <- notification_settings(session),
+         do: {:ok, %{settings: AtMcp.Preferences.notification_view(settings)}}
+  end
+
+  defp notification_settings(session) do
+    case AtMcp.ATProto.notification_preferences(session) do
+      {:ok, %{"preferences" => settings}} when is_map(settings) -> {:ok, settings}
+      {:ok, %{} = other} -> {:error, unreadable("the notification settings", other)}
+      {:ok, :unreadable} -> {:error, unreadable("the notification settings", %{})}
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def prepare_notification_setting(session, {reason, changes}) do
+    with {:ok, settings} <- notification_settings(session) do
+      before = AtMcp.Preferences.notification_setting(settings, reason)
+      now = Map.merge(before, changes)
+      result = notification_result(reason, before, now)
+
+      if result.unchanged,
+        do: {:ok, {:unchanged, result}},
+        else:
+          {:ok,
+           %{
+             input: AtMcp.Preferences.notification_input(reason, now),
+             reason: reason,
+             result: result
+           }}
+    end
+  end
+
+  # The service answers with every setting as it now is, so the result says
+  # what it keeps rather than what was asked.
+  @impl true
+  def write_notification_setting(session, %{input: input, reason: reason, result: result}) do
+    case AtMcp.ATProto.put_notification_preferences(session, input) do
+      {:ok, %{"preferences" => settings}} when is_map(settings) ->
+        {:ok,
+         notification_result(
+           reason,
+           result.previous,
+           AtMcp.Preferences.notification_setting(settings, reason)
+         )}
+
+      {:ok, _other} ->
+        {:ok,
+         Map.put(
+           result,
+           :note,
+           "The service accepted the change but its answer could not be read, so now is what was sent, not what the service says it keeps."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp notification_result(reason, before, now) do
+    %{
+      ok: true,
+      action: :set_notification_setting,
+      reason: reason,
+      changed: for(key <- [:include, :list, :push], before[key] != now[key], do: to_string(key)),
+      previous: before,
+      now: now,
+      unchanged: before == now
+    }
+  end
+
+  # --- activity subscriptions ---
+
+  @doc """
+  Read the account `did` for the subscription this account has to its
+  activity and for who it lets subscribe, and build the change. The app shows
+  the bell on a profile only when the account's `notification.declaration`
+  lets this account subscribe (`subscriptionsAllowed` in social-app's
+  src/screens/Profile/Header/ProfileHeaderStandard.tsx at 485405a): no
+  declaration or `followers` when this account follows it, `mutuals` when
+  they follow each other, `none` never. Unsubscribing is always offered.
+  """
+  @impl true
+  def prepare_activity_subscription(session, did, %{posts: posts, replies: replies} = asked) do
+    case AtMcp.ATProto.get_profile(session, %{actor: did}) do
+      {:ok, profile} ->
+        viewer = field(profile, :viewer)
+        current = activity_subscription(field(viewer || %{}, :activity_subscription))
+
+        allow =
+          AtMcp.Response.dig(profile, [:associated, :activity_subscription, :allow_subscriptions])
+
+        handle = string_value(profile, :handle)
+
+        result = %{
+          ok: true,
+          action: :subscribe_to_activity,
+          actor: did,
+          handle: handle,
+          previous: current,
+          now: asked,
+          unchanged: current == asked
+        }
+
+        unsubscribe? = not posts and not replies
+
+        cond do
+          # An unsubscribe is sent even when the profile shows none: a block
+          # hides viewer state, so a subscription may be there unseen, and the
+          # service answers an unsubscribe from nothing by doing nothing.
+          current == asked and not unsubscribe? ->
+            {:ok, {:unchanged, result}}
+
+          posts and not subscriptions_allowed?(allow, viewer) ->
+            invalid(
+              "actor",
+              "#{handle || did} lets #{allowed_who(allow)} subscribe to its posts, so the app offers this account no subscription to it" <>
+                block_note(viewer)
+            )
+
+          unsubscribe? and current == asked ->
+            {:ok,
+             %{
+               did: did,
+               subscription: %{"post" => false, "reply" => false},
+               result:
+                 Map.put(
+                   result,
+                   :note,
+                   "The profile showed no subscription; the unsubscribe was sent anyway, as a block hides one that may be there."
+                 )
+             }}
+
+          true ->
+            {:ok,
+             %{did: did, subscription: %{"post" => posts, "reply" => replies}, result: result}}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp activity_subscription(%{} = subscription),
+    do: %{
+      posts: field(subscription, :post) == true,
+      replies: field(subscription, :reply) == true
+    }
+
+  defp activity_subscription(_none), do: %{posts: false, replies: false}
+
+  # The AppView leaves follows out of the viewer state across a block, so
+  # "does not follow" may be a block's doing.
+  defp block_note(viewer) do
+    viewer = viewer || %{}
+
+    if present?(field(viewer, :blocking)) or field(viewer, :blocked_by) == true or
+         present?(field(viewer, :blocking_by_list)),
+       do:
+         ". A block between the two accounts may be why: the service does not show follows across one",
+       else: ""
+  end
+
+  defp subscriptions_allowed?(allow, viewer) when allow in [nil, "followers"],
+    do: present?(field(viewer || %{}, :following))
+
+  defp subscriptions_allowed?("mutuals", viewer),
+    do:
+      present?(field(viewer || %{}, :following)) and present?(field(viewer || %{}, :followed_by))
+
+  defp subscriptions_allowed?(_none, _viewer), do: false
+
+  defp present?(value), do: is_binary(value) and value != ""
+
+  defp allowed_who(allow) when allow in [nil, "followers"],
+    do: "only accounts that follow it, and this account does not,"
+
+  defp allowed_who("mutuals"),
+    do: "only accounts it follows back, and the two do not follow each other,"
+
+  defp allowed_who("none"), do: "no one"
+  defp allowed_who(other), do: "only #{other}"
+
+  @impl true
+  def put_activity_subscription(session, %{did: did, subscription: subscription, result: result}) do
+    case AtMcp.ATProto.put_activity_subscription(session, did, subscription) do
+      {:ok, %{"subject" => _} = answer} ->
+        {:ok,
+         %{result | now: activity_subscription(answer["activitySubscription"]), unchanged: false}}
+
+      {:ok, _other} ->
+        {:ok,
+         Map.put(
+           result,
+           :note,
+           "The service accepted the change but its answer could not be read, so now is what was sent, not what the service says it keeps."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_activity_subscriptions(session, opts) do
+    session
+    |> AtMcp.ATProto.list_activity_subscriptions(paging(opts, %{}))
+    |> read(:subscriptions, &summarize_profile/1)
+  end
+
   # --- live status ---
 
   @doc """
@@ -2499,6 +3004,8 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # Cleared only if it is still the status read, as a new one is written only
   # over it: a status set meanwhile by another client is not deleted unseen.
+  # A delete is never sent with a null swap, which the PDS always refuses
+  # (there is a record to delete); one runs only after a record was read.
   def write_status(session, %{record: nil, swap: swap} = plan) do
     params = %{
       repo: session.did,
@@ -2521,15 +3028,16 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # Written over the status read, or, when there was none, only if there
+  # still is none (a null swap).
   def write_status(session, %{record: record, swap: swap} = plan) do
     params = %{
       repo: session.did,
       collection: AtMcp.Network.collection(:status),
       rkey: "self",
-      record: record
+      record: record,
+      swap_record: swap
     }
-
-    params = if swap, do: Map.put(params, :swap_record, swap), else: params
 
     case AtMcp.ATProto.put_record(session, params) do
       {:ok, _} ->
