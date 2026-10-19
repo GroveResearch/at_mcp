@@ -3148,7 +3148,7 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def send_report(session, %{labeler: labeler, input: input, result: result}) do
     note =
-      "A report goes to the people who moderate #{result.labeler_handle || labeler}, who decide what, if anything, to do about it. It cannot be withdrawn."
+      "The moderators of #{result.labeler_handle || labeler} see this report and that this account sent it, and decide what, if anything, to do about it. at_mcp does not publish it, and it cannot be withdrawn."
 
     case AtMcp.ATProto.create_report(session, labeler, input) do
       {:ok, %{"id" => id} = answer} ->
@@ -3230,7 +3230,7 @@ defmodule AtMcp.Effects.ProtoRune do
         if(previous == [],
           do: "unmute_word with this value undoes it. ",
           else:
-            "previous holds the muted word as it was; mute_word with its settings puts them back, an expiry as a duration from now. "
+            "previous holds the muted word as it was; mute_word with its value, targets, only_non_followed and expires_at puts it back. "
         ) <> @moderation_note
       )
     end
@@ -3257,7 +3257,7 @@ defmodule AtMcp.Effects.ProtoRune do
           preference_change(
             updated,
             result,
-            "removed holds each muted word as it was; mute_word with its value, tags_only and only_non_followed mutes it again, an expiry as a duration from now."
+            "removed holds each muted word as it was; mute_word with its value, targets, only_non_followed and expires_at mutes it again exactly so, under a new id."
           )
     end
   end
@@ -3270,7 +3270,7 @@ defmodule AtMcp.Effects.ProtoRune do
          {:ok, preferences} <- stored_preferences(session),
          {:ok, view} <-
            if(subscribe?, do: labeler_view(session, did, "actor"), else: {:ok, nil}),
-         :ok <- labeler_room(preferences, did, subscribe?) do
+         :ok <- labeler_room(session, preferences, did, subscribe?) do
       updated = AtMcp.Moderation.subscribe(preferences, did, subscribe?)
       before = did in AtMcp.Moderation.subscribed(preferences)
 
@@ -3299,18 +3299,30 @@ defmodule AtMcp.Effects.ProtoRune do
   def prepare_moderation_preference(session, {:set_label_visibility, label, visibility, labeler}) do
     with {:ok, preferences} <- stored_preferences(session),
          :ok <- adult_labels_shown(preferences, label, labeler),
-         {:ok, default} <- label_default(session, preferences, label, labeler, visibility) do
+         {:ok, default, definition} <-
+           label_default(session, preferences, label, labeler, visibility) do
       updated = AtMcp.Moderation.set_label(preferences, label, labeler, visibility)
-      before = AtMcp.Moderation.label_visibility(preferences, label, labeler, default)
-      now = AtMcp.Moderation.label_visibility(updated, label, labeler, default)
+      adult? = AtMcp.Preferences.kind_view(preferences, "adult_content").enabled
+
+      shown = fn prefs ->
+        stored = AtMcp.Moderation.label_visibility(prefs, label, labeler, default)
+
+        if definition,
+          do: AtMcp.Moderation.shown_setting(stored, definition, adult?),
+          else: AtMcp.Moderation.visibility_word(stored)
+      end
+
+      # As the app shows it: a change it would show no differently is none.
+      before = shown.(preferences)
+      now = shown.(updated)
 
       result = %{
         ok: true,
         action: :set_label_visibility,
         label: label,
         labeler: labeler,
-        previous: AtMcp.Moderation.visibility_word(before),
-        now: AtMcp.Moderation.visibility_word(now),
+        previous: before,
+        now: now,
         unchanged: before == now
       }
 
@@ -3332,19 +3344,60 @@ defmodule AtMcp.Effects.ProtoRune do
       else: :ok
   end
 
-  defp labeler_room(preferences, did, true) do
+  # The app counts the labelers an account has against its limit after
+  # removing those that are gone: no profile (taken down or deactivated) or no
+  # longer a labeler (`useLabelerSubscriptionMutation` in social-app's
+  # src/state/queries/labeler.ts). at_mcp removes nothing it was not asked to,
+  # so at the limit it reads which those are and names them, for
+  # unsubscribe_labeler.
+  defp labeler_room(session, preferences, did, true) do
     labelers = AtMcp.Moderation.labelers(preferences)
     max = AtMcp.Moderation.max_labelers()
 
-    if did not in labelers and length(labelers) >= max,
-      do:
+    if did not in labelers and length(labelers) >= max do
+      with {:ok, gone} <- gone_labelers(session, AtMcp.Moderation.subscribed(preferences)) do
+        why =
+          case gone do
+            [] ->
+              "unsubscribe_labeler one first"
+
+            gone ->
+              "of these, #{Enum.join(gone, ", ")} #{if length(gone) == 1, do: "is", else: "are"} gone (taken down, deactivated or no longer a labeler); the app removes such labelers before it counts, and at_mcp does not, so unsubscribe_labeler them, or another, first"
+          end
+
         {:error,
          {:invalid_argument, "actor",
-          "this account has #{length(labelers)} labelers, #{AtMcp.Network.label()}'s own included, and the app allows #{max}; unsubscribe_labeler one first"}},
-      else: :ok
+          "this account has #{length(labelers)} labelers, #{AtMcp.Network.label()}'s own included, and the app allows #{max}; #{why}"}}
+      end
+    else
+      :ok
+    end
   end
 
-  defp labeler_room(_preferences, _did, false), do: :ok
+  defp labeler_room(_session, _preferences, _did, false), do: :ok
+
+  defp gone_labelers(session, dids) do
+    dids
+    |> Enum.uniq()
+    |> Enum.chunk_every(AtMcp.Effects.max_batch())
+    |> Enum.reduce_while({:ok, []}, fn batch, {:ok, gone} ->
+      case AtMcp.ATProto.get_profiles(session, batch) do
+        {:ok, response} ->
+          profiles = List.wrap(field(response, :profiles))
+
+          labelers =
+            for profile <- profiles,
+                not (is_map(field(profile, :associated)) and
+                       AtMcp.Response.dig(profile, [:associated, :labeler]) != true),
+                do: string_value(profile, :did)
+
+          {:cont, {:ok, gone ++ Enum.reject(batch, &(&1 in labelers))}}
+
+        {:error, reason} ->
+          {:halt, {:error, failure(reason)}}
+      end
+    end)
+  end
 
   # The four labels of the app's moderation screen show only while adult
   # content is on (social-app src/screens/Moderation/index.tsx at 485405a).
@@ -3367,12 +3420,13 @@ defmodule AtMcp.Effects.ProtoRune do
   }
 
   defp label_default(_session, _preferences, label, nil, _visibility),
-    do: {:ok, Map.fetch!(@global_defaults, label)}
+    do: {:ok, Map.fetch!(@global_defaults, label), nil}
 
   # A labeler's own label is set on its page in the app, for a labeler the
-  # account takes labels from, when the labeler defines it; `warn` only when
-  # the label blurs or warns at all, and an adult-only label only while adult
-  # content is on (`LabelerLabelPreference` in social-app's
+  # account takes labels from, when the page lists it as the labeler's own
+  # (`AtMcp.Moderation.labeler_labels/1`); `warn` only when the label blurs or
+  # warns at all, and an adult-only label only while adult content is on
+  # (`LabelerLabelPreference` in social-app's
   # src/components/moderation/LabelPreference.tsx).
   defp label_default(session, preferences, label, labeler, visibility) do
     with :ok <-
@@ -3384,33 +3438,41 @@ defmodule AtMcp.Effects.ProtoRune do
                  "this account does not subscribe to #{labeler}; the app reads label settings only for the labelers an account takes labels from"}}
            ),
          {:ok, view} <- labeler_view(session, labeler, "labeler") do
-      definitions = List.wrap(get_in(view, ["policies", "labelValueDefinitions"]))
-      definition = Enum.find(definitions, &(is_map(&1) and &1["identifier"] == label))
+      labels = AtMcp.Moderation.labeler_labels(view)
       adult? = AtMcp.Preferences.kind_view(preferences, "adult_content").enabled
 
+      own =
+        for {:custom, definition} <- labels, do: definition["identifier"]
+
+      definition =
+        Enum.find_value(labels, fn
+          {:custom, %{"identifier" => ^label} = definition} -> definition
+          _ -> nil
+        end)
+
       cond do
+        {:global, label} in labels ->
+          {:error,
+           {:invalid_argument, "label",
+            "#{label} is one of the app's adult content filters, which apply to every labeler's labels; set it without labeler"}}
+
         is_nil(definition) ->
           {:error,
            {:invalid_argument, "label",
-            "#{labeler} defines no label #{label}; it defines #{definitions |> Enum.map(& &1["identifier"]) |> Enum.join(", ") |> blank_none()}" <>
-              if(label in AtMcp.Moderation.global_labels(),
-                do: ". #{label} is set without labeler",
-                else: ""
-              )}}
+            "the app lists no label #{label} of #{labeler}'s to set; it lists #{own |> Enum.join(", ") |> blank_none()}"}}
 
         definition["adultOnly"] == true and not adult? ->
           {:error,
            {:invalid_argument, "label",
             "#{label} is adult content, and the app shows its setting only while adult content is on"}}
 
-        visibility == "warn" and definition["blurs"] == "none" and
-            definition["severity"] == "none" ->
+        visibility == "warn" and not AtMcp.Moderation.can_warn?(definition) ->
           {:error,
            {:invalid_argument, "visibility",
             "#{label} neither blurs nor warns, so the app offers show or hide for it"}}
 
         true ->
-          {:ok, definition["defaultSetting"] || "warn"}
+          {:ok, AtMcp.Moderation.default_setting(definition), definition}
       end
     end
   end
@@ -3489,21 +3551,22 @@ defmodule AtMcp.Effects.ProtoRune do
       dids = dids || AtMcp.Moderation.labelers(preferences)
 
       with {:ok, views} <- if(dids == [], do: {:ok, []}, else: labeler_views(session, dids)) do
-        {_global, by_labeler} = AtMcp.Moderation.label_settings(preferences)
+        {global, by_labeler} = AtMcp.Moderation.label_settings(preferences)
         subscribed = AtMcp.Moderation.subscribed(preferences)
+        adult? = AtMcp.Preferences.kind_view(preferences, "adult_content").enabled
         found = Enum.map(views, &get_in(&1, ["creator", "did"]))
 
         {:ok,
          %{
            count: length(views),
-           items: Enum.map(views, &labeler_summary(&1, by_labeler, subscribed)),
+           items: Enum.map(views, &labeler_summary(&1, by_labeler, subscribed, global, adult?)),
            missing: Enum.reject(dids, &(&1 in found))
          }}
       end
     end
   end
 
-  defp labeler_summary(view, by_labeler, subscribed) do
+  defp labeler_summary(view, by_labeler, subscribed, global, adult?) do
     did = get_in(view, ["creator", "did"])
     settings = Map.get(by_labeler, did)
 
@@ -3519,26 +3582,47 @@ defmodule AtMcp.Effects.ProtoRune do
       subscribed: did in subscribed,
       label_values: List.wrap(get_in(view, ["policies", "labelValues"])),
       labels:
-        for %{} = definition <- List.wrap(get_in(view, ["policies", "labelValueDefinitions"])) do
-          strings = locale_strings(definition["locales"])
-          default = definition["defaultSetting"] || "warn"
+        for label <- AtMcp.Moderation.labeler_labels(view) do
+          case label do
+            {:custom, definition} ->
+              strings = locale_strings(definition["locales"])
+              default = AtMcp.Moderation.default_setting(definition)
 
-          %{
-            identifier: definition["identifier"],
-            name: strings["name"],
-            description: strings["description"],
-            severity: definition["severity"],
-            blurs: definition["blurs"],
-            default: AtMcp.Moderation.visibility_word(default),
-            adult_only: definition["adultOnly"] == true,
-            setting:
-              if(settings,
-                do:
-                  AtMcp.Moderation.visibility_word(
-                    Map.get(settings, definition["identifier"], default)
+              %{
+                identifier: definition["identifier"],
+                name: strings["name"],
+                description: strings["description"],
+                severity: definition["severity"],
+                blurs: definition["blurs"],
+                global: false,
+                default: AtMcp.Moderation.shown_setting(default, definition, true),
+                adult_only: definition["adultOnly"] == true,
+                setting:
+                  if(settings,
+                    do:
+                      AtMcp.Moderation.shown_setting(
+                        Map.get(settings, definition["identifier"], default),
+                        definition,
+                        adult?
+                      )
                   )
-              )
-          }
+              }
+
+            {:global, value} ->
+              # One of the app's adult content filters, set for every labeler
+              # in its moderation screen; the app hides it while adult
+              # content is off.
+              %{
+                identifier: value,
+                global: true,
+                adult_only: true,
+                setting:
+                  if(adult?,
+                    do: AtMcp.Moderation.visibility_word(Map.get(global, value, "warn")),
+                    else: "hide"
+                  )
+              }
+          end
         end,
       reason_types: view["reasonTypes"],
       subject_types: view["subjectTypes"],

@@ -1230,6 +1230,22 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       assert call!(me, "get_preferences", %{})["muted_words"] == []
       assert call!(me, "unmute_word", %{"value" => "spoilers"})["unchanged"]
+
+      # A removed word comes back exactly as it was, from what unmute_word
+      # returned, and goes again.
+      call!(me, "mute_word", %{"value" => "plot", "tags_only" => true, "duration" => "24h"})
+      %{"removed" => [removed]} = call!(me, "unmute_word", %{"value" => "plot"})
+
+      call!(me, "mute_word", %{
+        "value" => removed["value"],
+        "targets" => removed["targets"],
+        "only_non_followed" => removed["only_non_followed"],
+        "expires_at" => removed["expires_at"]
+      })
+
+      assert [restored] = call!(me, "get_preferences", %{})["muted_words"]
+      assert Map.delete(restored, "id") == Map.delete(removed, "id")
+      call!(me, "unmute_word", %{"value" => "plot"})
       assert other_preferences(session, ["app.bsky.actor.defs#mutedWordsPref"]) == others
       call!(me, "set_preference", %{"kind" => "threads", "sort" => "top"})
     end

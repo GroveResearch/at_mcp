@@ -80,29 +80,71 @@ defmodule AtMcp.Moderation do
   end
 
   @doc """
-  Read a `mute_word` request: `value`, `tags_only`, `duration` and
-  `only_non_followed`, nil when not given. Answers `{:ok, word}`, the muted
-  word as the app's dialog builds it (`%{value, targets, actor_target,
-  days}`, `days` nil for ever), or the first invalid argument.
+  Read a `mute_word` request: `value`, and in `opts` `tags_only`, `targets`,
+  `duration`, `expires_at` and `only_non_followed`, nil when not given.
+  `targets` (the stored targets, any the lexicon allows) is the other way to
+  say `tags_only`, and `expires_at` (a datetime) the other way to say
+  `duration`, so a word `unmute_word` returned can be muted again exactly as
+  it was. Answers `{:ok, word}` (`%{value, targets, actor_target, days,
+  expires_at}`, `days` and `expires_at` nil for ever), or the first invalid
+  argument.
   """
   def word_request(value, opts) do
     tags_only = Keyword.get(opts, :tags_only)
+    targets = Keyword.get(opts, :targets)
     only_non_followed = Keyword.get(opts, :only_non_followed)
-    duration = Keyword.get(opts, :duration) || "forever"
+    expires_at = Keyword.get(opts, :expires_at)
+    duration = Keyword.get(opts, :duration)
 
     with {:ok, value} <- word_value(value),
          :ok <- optional_boolean(tags_only, "tags_only"),
          :ok <- optional_boolean(only_non_followed, "only_non_followed"),
-         {:ok, days} <- duration(duration) do
+         :ok <- one_of(tags_only, targets, "targets", "tags_only"),
+         :ok <- one_of(duration, expires_at, "expires_at", "duration"),
+         {:ok, targets} <- targets(targets, tags_only),
+         {:ok, days} <- duration(duration || "forever"),
+         {:ok, expires_at} <- expires_at(expires_at) do
       {:ok,
        %{
          value: value,
-         targets: if(tags_only == true, do: ["tag"], else: ["tag", "content"]),
+         targets: targets,
          actor_target: if(only_non_followed == true, do: "exclude-following", else: "all"),
-         days: days
+         days: days,
+         expires_at: expires_at
        }}
     end
   end
+
+  defp one_of(nil, _other, _field, _first), do: :ok
+  defp one_of(_given, nil, _field, _first), do: :ok
+
+  defp one_of(_given, _other, field, first),
+    do: invalid(field, "give #{field} or #{first}, not both")
+
+  # As the app's dialog writes them, or as given: `mutedWordTarget`s, each at
+  # most 640 bytes and 64 graphemes, at least one, as the dialog requires.
+  defp targets(nil, true), do: {:ok, ["tag"]}
+  defp targets(nil, _tags_only), do: {:ok, ["tag", "content"]}
+
+  defp targets(targets, _tags_only) when is_list(targets) and targets != [] do
+    if Enum.all?(targets, &(is_binary(&1) and byte_size(&1) <= 640 and String.length(&1) <= 64)),
+      do: {:ok, Enum.uniq(targets)},
+      else: invalid("targets", "must be targets such as content and tag")
+  end
+
+  defp targets(_targets, _tags_only),
+    do: invalid("targets", "must be a non-empty list, such as [\"tag\", \"content\"]")
+
+  defp expires_at(nil), do: {:ok, nil}
+
+  defp expires_at(at) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, _datetime, _offset} -> {:ok, at}
+      _ -> invalid("expires_at", "must be an ISO 8601 datetime, such as 2026-10-20T12:00:00.000Z")
+    end
+  end
+
+  defp expires_at(_at), do: invalid("expires_at", "must be an ISO 8601 datetime")
 
   @doc "Read an `unmute_word` request: the word's value, sanitized."
   def unmute_request(value), do: word_value(value)
@@ -185,7 +227,7 @@ defmodule AtMcp.Moderation do
   def mute_word(preferences, word, now \\ DateTime.utc_now()) do
     pref = last_valid(preferences, :muted_words_pref)
     items = if pref, do: pref["items"], else: []
-    expires = expires_at(word.days, now)
+    expires = Map.get(word, :expires_at) || expires_at(word.days, now)
     {matching, _rest} = Enum.split_with(items, &same_word?(&1, word.value))
 
     {items, changed} =
@@ -232,16 +274,16 @@ defmodule AtMcp.Moderation do
     end
   end
 
-  # A word already muted as asked: the same targets, the same accounts and no
-  # expiry, with an id. A muted word with an expiry is renewed, as the app
-  # renews one.
+  # A word already muted as asked: the same targets, the same accounts and the
+  # same expiry, with an id. A duration counts from now, so a word muted for
+  # one is renewed, as the app renews one.
   defp same_words?(before, now) do
     length(before) == length(now) and
       Enum.zip(before, now)
       |> Enum.all?(fn {old, new} ->
         is_binary(old["id"]) and old["targets"] == new["targets"] and
           Map.get(old, "actorTarget", "all") == new["actorTarget"] and
-          is_nil(old["expiresAt"]) and is_nil(new["expiresAt"])
+          old["expiresAt"] == new["expiresAt"]
       end)
   end
 
@@ -472,6 +514,91 @@ defmodule AtMcp.Moderation do
     do:
       of_type?(pref, :content_label_pref) and pref["label"] == label and
         pref["labelerDid"] == labeler
+
+  # --- a labeler's labels, as its page in the app lists them ---
+
+  # The global labels the app lets an account configure (`configurable` in
+  # @atproto/api's moderation/const/labels.ts); `!hide`, `!warn` and
+  # `!no-unauthenticated` are not.
+  @configurable_global ~w(porn sexual nudity graphic-media gore)
+
+  @doc """
+  The labels a labeler's page in the app lists, in order (social-app
+  src/screens/Profile/Sections/Labels.tsx at 485405a): each of its
+  `labelValues` once, looked up as `lookupLabelValueDefinition` looks it up
+  (src/lib/moderation.ts) among its own definitions that pass the lexicon's
+  `validateLabelValueDefinition` (`interpretLabelValueDefinitions` in
+  @atproto/api's moderation/util.ts), unless it starts with `!`, and
+  otherwise among the global labels, keeping those the app lets an account
+  configure. Each is `{:custom, definition}`, set for that labeler, or
+  `{:global, label}`, which the app sets in its moderation screen instead.
+  """
+  def labeler_labels(view) when is_map(view) do
+    policies = if is_map(view["policies"]), do: view["policies"], else: %{}
+    definitions = Enum.filter(List.wrap(policies["labelValueDefinitions"]), &valid_definition?/1)
+
+    policies["labelValues"]
+    |> List.wrap()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+    |> Enum.flat_map(fn value ->
+      custom =
+        if String.starts_with?(value, "!"),
+          do: nil,
+          else: Enum.find(definitions, &(&1["identifier"] == value))
+
+      cond do
+        custom -> [{:custom, custom}]
+        value in @configurable_global -> [{:global, value}]
+        true -> []
+      end
+    end)
+  end
+
+  # `com.atproto.label.defs#labelValueDefinition`, as the lexicon validates it.
+  defp valid_definition?(%{} = d) do
+    string?(d["identifier"], 100, 100) and is_binary(d["severity"]) and is_binary(d["blurs"]) and
+      (is_nil(d["defaultSetting"]) or is_binary(d["defaultSetting"])) and
+      (is_nil(d["adultOnly"]) or is_boolean(d["adultOnly"])) and is_list(d["locales"]) and
+      Enum.all?(d["locales"], fn locale ->
+        is_map(locale) and is_binary(locale["lang"]) and string?(locale["name"], 640, 64) and
+          string?(locale["description"], 100_000, 10_000)
+      end)
+  end
+
+  defp valid_definition?(_definition), do: false
+
+  defp string?(value, bytes, graphemes),
+    do: is_binary(value) and byte_size(value) <= bytes and String.length(value) <= graphemes
+
+  @doc """
+  What a labeler's label is set to unless the account sets it: its
+  `defaultSetting` when that is `hide` or `ignore`, otherwise `warn`
+  (`interpretLabelValueDefinition`).
+  """
+  def default_setting(%{"defaultSetting" => setting}) when setting in ["hide", "ignore"],
+    do: setting
+
+  def default_setting(_definition), do: "warn"
+
+  @doc "Whether the app offers `warn` for a label: one that blurs or warns at all."
+  def can_warn?(definition),
+    do: not (definition["blurs"] == "none" and definition["severity"] == "none")
+
+  @doc """
+  A labeler's label setting as its page in the app shows it
+  (`LabelerLabelPreference` in social-app's LabelPreference.tsx): `hide` for
+  an adult-only label while adult content is off, `show` for `warn` on a
+  label that neither blurs nor warns, otherwise the setting, in the tools'
+  words.
+  """
+  def shown_setting(stored, definition, adult?) do
+    cond do
+      definition["adultOnly"] == true and not adult? -> "hide"
+      stored == "warn" and not can_warn?(definition) -> "show"
+      true -> visibility_word(stored)
+    end
+  end
 
   # --- reports ---
 

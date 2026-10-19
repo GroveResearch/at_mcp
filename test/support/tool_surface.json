@@ -511,8 +511,10 @@
     "mute_word": {
       "arguments": {
         "duration": "string",
+        "expires_at": "string",
         "only_non_followed": "boolean",
         "tags_only": "boolean",
+        "targets": "array",
         "value": "string"
       },
       "required": [

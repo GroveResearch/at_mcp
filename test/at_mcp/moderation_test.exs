@@ -66,7 +66,11 @@ defmodule AtMcp.ModerationTest do
         "creator" => %{"did" => did, "handle" => "labeler.test"},
         "indexedAt" => "2026-10-19T00:00:00.000Z",
         "policies" => %{
-          "labelValues" => ["spoiler", "quiet", "porn"],
+          # As the app's labeler page reads them: each value once, `!`-prefixed
+          # ones and those with no valid definition left out, `porn` a global
+          # filter, `odd` dropped for its invalid definition, `inform` set to
+          # warn by default.
+          "labelValues" => ["spoiler", "quiet", "porn", "lewd", "!hide", "odd", "spoiler", "loud"],
           "labelValueDefinitions" => [
             %{
               "identifier" => "spoiler",
@@ -86,6 +90,15 @@ defmodule AtMcp.ModerationTest do
               "severity" => "none",
               "blurs" => "media",
               "adultOnly" => true,
+              "locales" => []
+            },
+            %{"identifier" => "odd", "severity" => "alert", "blurs" => "content"},
+            %{"identifier" => "!hide", "severity" => "none", "blurs" => "none", "locales" => []},
+            %{
+              "identifier" => "loud",
+              "severity" => "alert",
+              "blurs" => "content",
+              "defaultSetting" => "inform",
               "locales" => []
             }
           ]
@@ -206,6 +219,53 @@ defmodule AtMcp.ModerationTest do
       assert length(FakePDS.sent(pds, "app.bsky.actor.putPreferences")) == 1
     end
 
+    test "a word unmute_word returned is muted again exactly as it was, by targets and expires_at" do
+      word = %{
+        "id" => "1",
+        "value" => "plot",
+        "targets" => ["content"],
+        "actorTarget" => "exclude-following",
+        "expiresAt" => "2031-01-02T03:04:05.000Z"
+      }
+
+      %{effects: effects, pds: pds} =
+        pds(preferences: [%{"$type" => "app.bsky.actor.defs#mutedWordsPref", "items" => [word]}])
+
+      assert {:ok, %{removed: [removed]}} = AtMcp.Effects.unmute_word(effects, "plot")
+
+      assert {:ok, %{previous: [], now: [now]}} =
+               AtMcp.Effects.mute_word(effects, removed.value,
+                 targets: removed.targets,
+                 only_non_followed: removed.only_non_followed,
+                 expires_at: removed.expires_at
+               )
+
+      assert Map.drop(now, [:id]) == Map.drop(removed, [:id])
+
+      %{body: %{"preferences" => [%{"items" => [item]}]}} =
+        List.last(FakePDS.sent(pds, "app.bsky.actor.putPreferences"))
+
+      assert Map.delete(item, "id") == Map.delete(word, "id")
+
+      # The same again is already so.
+      assert {:ok, %{unchanged: true}} =
+               AtMcp.Effects.mute_word(effects, "plot",
+                 targets: ["content"],
+                 only_non_followed: true,
+                 expires_at: "2031-01-02T03:04:05.000Z"
+               )
+
+      for {opts, field} <- [
+            {[targets: ["tag"], tags_only: true], "targets"},
+            {[expires_at: "x", duration: "7d"], "expires_at"},
+            {[expires_at: "tomorrow"], "expires_at"},
+            {[targets: []], "targets"}
+          ] do
+        assert {:error, {:invalid_argument, ^field, _}} =
+                 AtMcp.Effects.mute_word(effects, "plot", opts)
+      end
+    end
+
     test "an empty word is refused before anything is sent" do
       %{effects: effects, pds: pds} = pds()
       result = call(effects, "mute_word", %{"value" => " # "})
@@ -283,13 +343,51 @@ defmodule AtMcp.ModerationTest do
       %{effects: effects, pds: pds} =
         pds(
           preferences: [%{"$type" => "app.bsky.actor.defs#labelersPref", "labelers" => many}],
-          answers: services([labeler_view(@labeler)])
+          answers:
+            Map.put(
+              services([labeler_view(@labeler)]),
+              "app.bsky.actor.getProfiles",
+              {200,
+               %{
+                 profiles:
+                   for(%{"did" => did} <- many, do: %{did: did, associated: %{labeler: true}})
+               }}
+            )
         )
 
       assert {:error, {:invalid_argument, "actor", message}} =
                AtMcp.Effects.subscribe_labeler(effects, @labeler, true)
 
       assert message =~ "allows 20"
+      assert message =~ "unsubscribe_labeler one first"
+
+      # Labelers that are gone count, as stored; they are named so they can go.
+      gone_profiles = %{
+        "app.bsky.actor.getProfiles" =>
+          {200,
+           %{
+             profiles:
+               for n <- 1..19, n not in [3, 4] do
+                 %{
+                   did: "did:plc:l#{n}",
+                   handle: "l#{n}.test",
+                   associated: %{labeler: n != 5}
+                 }
+               end
+           }}
+      }
+
+      %{effects: effects, pds: pds3} =
+        pds(
+          preferences: [%{"$type" => "app.bsky.actor.defs#labelersPref", "labelers" => many}],
+          answers: Map.merge(services([labeler_view(@labeler)]), gone_profiles)
+        )
+
+      assert {:error, {:invalid_argument, "actor", message}} =
+               AtMcp.Effects.subscribe_labeler(effects, @labeler, true)
+
+      assert message =~ "did:plc:l3, did:plc:l4, did:plc:l5 are gone"
+      assert FakePDS.sent(pds3, "app.bsky.actor.putPreferences") == []
 
       %{effects: effects, pds: pds2} = pds(answers: services([]))
 
@@ -365,12 +463,19 @@ defmodule AtMcp.ModerationTest do
                AtMcp.Effects.set_label_visibility(effects, "spoiler", "warn", "labeler.test")
 
       assert message =~ "does not subscribe"
+      assert FakePDS.sent(pds, "app.bsky.actor.putPreferences") == []
 
       %{effects: effects, pds: pds} =
         pds(preferences: [subscribed], answers: services([labeler_view(@labeler)]))
 
+      # Not listed, a global filter, a definition the lexicon refuses, a
+      # `!` value, warn for a label that neither blurs nor warns, and an
+      # adult-only label while adult content is off.
       for {label, visibility, field} <- [
             {"nope", "hide", "label"},
+            {"porn", "hide", "label"},
+            {"odd", "hide", "label"},
+            {"!hide", "hide", "label"},
             {"quiet", "warn", "visibility"},
             {"lewd", "show", "label"}
           ] do
@@ -385,6 +490,14 @@ defmodule AtMcp.ModerationTest do
 
       assert [^subscribed, set] = put_body(pds)
       assert %{"label" => "spoiler", "labelerDid" => @labeler, "visibility" => "warn"} = set
+
+      # A label that neither blurs nor warns shows its default warn as show.
+      assert {:ok, %{previous: "show", now: "hide"}} =
+               AtMcp.Effects.set_label_visibility(effects, "quiet", "hide", "labeler.test")
+
+      # A defaultSetting other than hide or ignore is warn.
+      assert {:ok, %{previous: "warn", now: "show"}} =
+               AtMcp.Effects.set_label_visibility(effects, "loud", "show", "labeler.test")
     end
 
     test "get_labelers reads each labeler with this account's settings for its labels" do
@@ -415,8 +528,10 @@ defmodule AtMcp.ModerationTest do
 
       assert [
                %{identifier: "spoiler", name: "Spoiler", setting: "show", default: "hide"},
-               %{identifier: "quiet", setting: "warn"},
-               %{identifier: "lewd", adult_only: true}
+               %{identifier: "quiet", setting: "show", default: "show"},
+               %{identifier: "porn", global: true, setting: "hide"},
+               %{identifier: "lewd", adult_only: true, setting: "hide"},
+               %{identifier: "loud", setting: "warn", default: "warn"}
              ] = labeler.labels
     end
   end

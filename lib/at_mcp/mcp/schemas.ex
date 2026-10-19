@@ -986,10 +986,14 @@ defmodule AtMcp.MCP.Schemas do
         "severity" => nullable_string("inform, alert or none"),
         "blurs" => nullable_string("content, media or none"),
         "default" => nullable_string("What the app does with it unless set: show, warn or hide"),
+        "global" =>
+          boolean(
+            "One of the app's adult content filters, set for every labeler at once: set_label_visibility without labeler"
+          ),
         "adult_only" => boolean("Its setting shows only while adult content is on"),
         "setting" =>
           nullable_string(
-            "What the app does with it for this account: show, warn or hide; null when the account does not take this labeler's labels"
+            "What the app shows it set to for this account: show, warn or hide; null when the account does not take this labeler's labels"
           )
       }
     }
@@ -1014,7 +1018,8 @@ defmodule AtMcp.MCP.Schemas do
         "labels" => %{
           "type" => ["array", "null"],
           "items" => label,
-          "description" => "The labels it defines; set_label_visibility sets them"
+          "description" =>
+            "The labels its page in the app lists: its own, which set_label_visibility sets with labeler, and the adult content filters it applies (global)"
         },
         "reason_types" => %{
           "type" => ["array", "null"],

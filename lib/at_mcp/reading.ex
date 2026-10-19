@@ -743,6 +743,9 @@ defmodule AtMcp.Reading do
                         [
                           label["identifier"],
                           label["name"],
+                          if(label["global"] == true,
+                            do: "adult content filter, set without labeler"
+                          ),
                           if(label["setting"],
                             do: "set to #{label["setting"]}",
                             else: "default #{label["default"]}"

@@ -2249,7 +2249,7 @@ defmodule AtMcp.MCP.Server do
   tool "report",
        write_description(
          :report,
-         "Report a post, list, feed, starter pack or account to a moderation service, as the app's Report menu does. A report is sent to the people who run that service, who decide what, if anything, to do about it; it is not public, and it cannot be withdrawn. labeler names the service: the network's own moderation service when omitted, or a labeler this account subscribes to that takes reports on this kind of subject and for this reason (get_labelers says which). The result names the report's id at that service (id) and the service it went to (labeler, labeler_handle). The account's own posts and the account itself cannot be reported."
+         "Report a post, list, feed, starter pack or account to a moderation service, as the app's Report menu does. The service's moderators see the report and which account sent it, and decide what, if anything, to do about it; at_mcp does not publish it, and it cannot be withdrawn. labeler names the service: the network's own moderation service when omitted, or a labeler this account subscribes to that takes reports on this kind of subject and for this reason (get_labelers says which). The result names the report's id at that service (id) and the service it went to (labeler, labeler_handle). The account's own posts and the account itself cannot be reported."
        ) do
     annotations(
       write_annotations(:report, %{
@@ -2296,7 +2296,7 @@ defmodule AtMcp.MCP.Server do
   tool "mute_word",
        write_description(
          :mute_word,
-         "Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. tags_only mutes it only as a hashtag; only_non_followed mutes it only in posts by accounts this account does not follow; duration is 24h, 7d, 30d or forever (the default). A word muted already, ignoring case, is changed to this rather than muted twice; one muted exactly so is left alone and unchanged is true. The app applies muted words on the device: at_mcp's reads return the posts as the service serves them. The result gives the muted word before (previous, empty when it was not muted) and after (now). Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+         "Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. tags_only mutes it only as a hashtag; only_non_followed mutes it only in posts by accounts this account does not follow; duration is 24h, 7d, 30d or forever (the default). targets and expires_at say the same as tags_only and duration in the stored form, so a word unmute_word removed can be muted again exactly as it was (with a new id). A word muted already, ignoring case, is changed to this rather than muted twice; one muted exactly so is left alone and unchanged is true. The app applies muted words on the device: at_mcp's reads return the posts as the service serves them. The result gives the muted word before (previous, empty when it was not muted) and after (now). Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
        ) do
     annotations(
       write_annotations(:mute_word, %{
@@ -2318,7 +2318,17 @@ defmodule AtMcp.MCP.Server do
       description: "Mute it only as a hashtag, not in post text (default false)"
     )
 
+    param(:targets, {:array, :string},
+      description:
+        "Instead of tags_only, the targets as stored, such as a muted word unmute_word returned holds: tag, content, or both"
+    )
+
     param(:duration, :string, AtMcp.MCP.Schemas.mute_duration())
+
+    param(:expires_at, :string,
+      description:
+        "Instead of duration, when the mute ends, as an ISO 8601 datetime, such as a muted word unmute_word returned holds"
+    )
 
     param(:only_non_followed, :boolean,
       description:
@@ -2329,7 +2339,9 @@ defmodule AtMcp.MCP.Server do
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.mute_word(state.effects, Map.fetch!(a, :value),
           tags_only: Map.get(a, :tags_only),
+          targets: AtMcp.MCP.Tools.optional(Map.get(a, :targets)),
           duration: AtMcp.MCP.Tools.optional(Map.get(a, :duration)),
+          expires_at: AtMcp.MCP.Tools.optional(Map.get(a, :expires_at)),
           only_non_followed: Map.get(a, :only_non_followed)
         ),
         state
@@ -2340,7 +2352,7 @@ defmodule AtMcp.MCP.Server do
   tool "unmute_word",
        write_description(
          :unmute_word,
-         "Unmute a muted word, tag or phrase: every muted word with this value, ignoring case, is removed. The result lists each one removed as it was (removed), so mute_word can mute it again; a value that is not muted is left alone and unchanged is true. Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+         "Unmute a muted word, tag or phrase: every muted word with this value, ignoring case, is removed. The result lists each one removed as it was (removed); mute_word with its value, targets, only_non_followed and expires_at mutes it again exactly so; a value that is not muted is left alone and unchanged is true. Preferences are read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
        ) do
     annotations(
       write_annotations(:unmute_word, %{
