@@ -73,6 +73,37 @@ defmodule AtMcp.Summary do
     {:exp, :string, [["exp"]], "When the label expires, as an ISO 8601 timestamp"}
   ]
 
+  # The viewing account's relationship, read from a response's `viewer`. Each
+  # entry names the key an agent receives, what kind of value it is, the keys
+  # the service may send it under, and what it means. A `:record` is the AT URI
+  # of the account's own record (the uri an undo tool takes), a `:list` is the
+  # AT URI of the list a relationship comes through, and a `:boolean` is a state
+  # the service reports that has no record of this account's behind it.
+  @post_viewer [
+    {:like, :record, ["like"], "The viewing account's like record AT URI"},
+    {:repost, :record, ["repost"], "The viewing account's repost record AT URI"},
+    {:reply_disabled, :boolean, ["replyDisabled", "reply_disabled"],
+     "True when the service says the viewing account cannot reply to this post"},
+    {:embedding_disabled, :boolean, ["embeddingDisabled", "embedding_disabled"],
+     "True when the service says the viewing account cannot quote this post"},
+    {:thread_muted, :boolean, ["threadMuted", "thread_muted"],
+     "True when the viewing account has muted this post's thread"}
+  ]
+
+  @actor_viewer [
+    {:following, :record, ["following"], "The viewing account's follow record AT URI"},
+    {:followed_by, :record, ["followedBy", "followed_by"],
+     "AT URI of their follow record for the viewing account"},
+    {:blocking, :record, ["blocking"], "The viewing account's block record AT URI"},
+    {:blocking_by_list, :list, ["blockingByList", "blocking_by_list"],
+     "AT URI of the moderation list through which the viewing account blocks them"},
+    {:blocked_by, :boolean, ["blockedBy", "blocked_by"],
+     "True when they block the viewing account"},
+    {:muted, :boolean, ["muted"], "True when the viewing account has muted them"},
+    {:muted_by_list, :list, ["mutedByList", "muted_by_list"],
+     "AT URI of the moderation list through which the viewing account mutes them"}
+  ]
+
   # Computed content is declared once for reads, chains and notifications.
   @content [
     {:text, :string, [["perception", "text"]], "Post text with full link destinations"},
@@ -134,8 +165,8 @@ defmodule AtMcp.Summary do
     # A post wherever it is read: in a feed, a thread or a chain. A reader of
     # any of them needs who wrote it, when, and what it answers, as every
     # client shows on each post; the chain adds only its own flags beside these.
-    post: %{fields: @content ++ @post, viewer: [:like, :repost]},
-    chain_post: %{fields: @content ++ @post, viewer: []},
+    post: %{fields: @content ++ @post, viewer: @post_viewer, author_viewer: @actor_viewer},
+    chain_post: %{fields: @content ++ @post, viewer: [], author_viewer: @actor_viewer},
     profile: %{
       fields: [
         {:did, :string, [["did"]], "Account DID"},
@@ -148,7 +179,7 @@ defmodule AtMcp.Summary do
         {:labels, {:list, @label, :omit_null}, [["labels"]],
          "Labels on the account, including any it applied to itself"}
       ],
-      viewer: [:following, :blocking]
+      viewer: @actor_viewer
     },
     generator: %{
       fields: [
@@ -164,7 +195,7 @@ defmodule AtMcp.Summary do
         {:indexed_at, :string, [["indexed_at"], ["indexedAt"]],
          "When the service indexed this generator, as an ISO 8601 timestamp"}
       ],
-      viewer: [:like]
+      viewer: [{:like, :record, ["like"], "The viewing account's like record AT URI"}]
     },
     relationship: %{
       fields: [
@@ -211,7 +242,7 @@ defmodule AtMcp.Summary do
   as an opaque value rather than reported as an empty record.
   """
   def extract(shape, source) when is_map(source) do
-    %{fields: fields, viewer: relationships} = Map.fetch!(@shapes, shape)
+    %{fields: fields, viewer: relationships} = declared = Map.fetch!(@shapes, shape)
 
     source =
       if shape in [:post, :chain_post, :notification],
@@ -220,24 +251,31 @@ defmodule AtMcp.Summary do
 
     fields
     |> Map.new(fn {key, type, paths, _doc} -> {key, read(source, paths, type)} end)
-    |> with_viewer(source, relationships)
+    |> with_viewer(:viewer, source, ["viewer"], relationships)
+    |> with_viewer(:author_viewer, source, ["author", "viewer"], author_viewer(declared))
   end
 
   def extract(_shape, other), do: %{value: opaque(other)}
 
-  @doc "JSON Schema properties for one shape, including its viewer references."
+  @doc "JSON Schema properties for one shape, including its viewer relationships."
   def properties(shape) do
-    %{fields: fields, viewer: relationships} = Map.fetch!(@shapes, shape)
+    %{fields: fields, viewer: relationships} = declared = Map.fetch!(@shapes, shape)
 
-    properties =
-      Map.new(fields, fn {key, type, _paths, doc} ->
-        {Atom.to_string(key), property(type, doc)}
-      end)
-
-    if relationships == [],
-      do: properties,
-      else: Map.put(properties, "viewer", viewer_schema(relationships))
+    fields
+    |> Map.new(fn {key, type, _paths, doc} -> {Atom.to_string(key), property(type, doc)} end)
+    |> with_viewer_schema(
+      "viewer",
+      "The viewing account's relationship to this, as the service reported it",
+      relationships
+    )
+    |> with_viewer_schema(
+      "author_viewer",
+      "The viewing account's relationship to the author, as the service reported it",
+      author_viewer(declared)
+    )
   end
+
+  defp author_viewer(declared), do: Map.get(declared, :author_viewer, [])
 
   # The first path holding a value of the declared type wins. `false` is such a
   # value: `is_read: false` means unread, and reading it through `||` fallbacks
@@ -313,12 +351,12 @@ defmodule AtMcp.Summary do
 
   # An omitted viewer stays omitted: a public response is not evidence that the
   # authenticated account has no relationship with this record.
-  defp with_viewer(summary, _source, []), do: summary
+  defp with_viewer(summary, _key, _source, _path, []), do: summary
 
-  defp with_viewer(summary, source, relationships) do
-    case AtMcp.Response.dig(source, ["viewer"]) do
+  defp with_viewer(summary, key, source, path, relationships) do
+    case AtMcp.Response.dig(source, path) do
       viewer when is_map(viewer) ->
-        Map.put(summary, :viewer, Enum.reduce(relationships, %{}, &relationship(&2, viewer, &1)))
+        Map.put(summary, key, Enum.reduce(relationships, %{}, &relationship(&2, viewer, &1)))
 
       _ ->
         summary
@@ -328,28 +366,48 @@ defmodule AtMcp.Summary do
   # A relationship the response did not mention is omitted, and an unexpected
   # value is dropped rather than published. An explicit null is retained: the
   # account has no such record, which is different from not being told.
-  defp relationship(refs, viewer, key) do
-    case AtMcp.Response.fetch(viewer, Atom.to_string(key)) do
-      {:ok, "at://" <> _ = uri} -> Map.put(refs, key, uri)
-      {:ok, nil} -> Map.put(refs, key, nil)
+  defp relationship(refs, viewer, {key, kind, names, _doc}) do
+    sent =
+      Enum.find_value(names, fn name ->
+        case AtMcp.Response.fetch(viewer, name) do
+          {:ok, value} -> {value}
+          :error -> nil
+        end
+      end)
+
+    case sent do
+      {nil} -> Map.put(refs, key, nil)
+      {value} -> keep(refs, key, kind, value)
+      nil -> refs
+    end
+  end
+
+  defp keep(refs, key, :record, "at://" <> _ = uri), do: Map.put(refs, key, uri)
+  defp keep(refs, key, :boolean, value) when is_boolean(value), do: Map.put(refs, key, value)
+
+  defp keep(refs, key, :list, list) when is_map(list) do
+    case AtMcp.Response.dig(list, ["uri"]) do
+      "at://" <> _ = uri -> Map.put(refs, key, uri)
       _ -> refs
     end
   end
 
-  defp viewer_schema(relationships) do
-    %{
+  defp keep(refs, _key, _kind, _value), do: refs
+
+  defp with_viewer_schema(properties, _name, _description, []), do: properties
+
+  defp with_viewer_schema(properties, name, description, relationships) do
+    Map.put(properties, name, %{
       "type" => ["object", "null"],
       "description" =>
-        "The viewing account's own relationship records. An absent viewer is not evidence of no relationship.",
+        description <>
+          ". Absent when the service gave none, which is not evidence of no relationship.",
       "properties" =>
-        Map.new(relationships, fn key ->
-          {Atom.to_string(key),
-           %{
-             "type" => ["string", "null"],
-             "description" => "The viewing account's #{key} record AT URI"
-           }}
+        Map.new(relationships, fn {key, kind, _names, doc} ->
+          type = if kind == :boolean, do: "boolean", else: "string"
+          {Atom.to_string(key), %{"type" => [type, "null"], "description" => doc}}
         end)
-    }
+    })
   end
 
   defp opaque(value) when is_binary(value), do: value

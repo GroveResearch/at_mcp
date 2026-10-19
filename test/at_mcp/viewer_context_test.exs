@@ -92,6 +92,14 @@ defmodule AtMcp.ViewerContextTest do
 
       assert post.author_did == "did:plc:author"
 
+      # The author's viewer state rides on every post: a reader of a post can
+      # see a block or mute without a second read of the author.
+      assert post.author_viewer == %{
+               following: HTTP.relation(owner, "follow"),
+               blocking: HTTP.relation(owner, "block"),
+               muted: true
+             }
+
       assert post.viewer == %{
                like: HTTP.relation(owner, "like"),
                repost: HTTP.relation(owner, "repost")
@@ -125,17 +133,19 @@ defmodule AtMcp.ViewerContextTest do
     assert thread.parent.author_did == "did:plc:author"
   end
 
-  test "profile read supplies safe following and blocking refs for the authenticated viewer" do
+  test "profile read supplies the authenticated viewer's follow, block and mute state" do
     for owner <- ["alice", "bob"] do
       {:ok, profile} = Backend.get_profile(session(owner), "author.test")
       assert profile.did == "did:plc:author"
 
+      # What the service did not mention (followedBy, blockedBy, the lists) is
+      # left out, not reported as false.
       assert profile.viewer == %{
                following: HTTP.relation(owner, "follow"),
-               blocking: HTTP.relation(owner, "block")
+               blocking: HTTP.relation(owner, "block"),
+               muted: true
              }
 
-      refute Map.has_key?(profile.viewer, :muted)
       refute Jason.encode!(profile) =~ "not part of the contract"
     end
   end

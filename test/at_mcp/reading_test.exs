@@ -146,6 +146,57 @@ defmodule AtMcp.ReadingTest do
            }) =~ "labels"
   end
 
+  test "a block or mute with the author is said in words; following is not" do
+    post = %{
+      "uri" => "at://did:plc:a/app.bsky.feed.post/1",
+      "cid" => "bafy1",
+      "author" => %{
+        "handle" => "a.test",
+        "did" => "did:plc:a",
+        "viewer" => %{"blockedBy" => true, "muted" => true, "following" => nil}
+      },
+      "record" => %{"text" => "hello", "createdAt" => "2026-10-01T00:00:00.000Z"},
+      "viewer" => %{"replyDisabled" => true, "embeddingDisabled" => true}
+    }
+
+    read = fn post ->
+      AtMcp.Reading.posts(%{"items" => [post |> then(&Summary.extract(:post, &1)) |> json()]})
+    end
+
+    assert read.(post) ==
+             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\nhello\n" <>
+               "They blocked you · You muted them · You cannot reply to this post · You cannot quote this post\n" <>
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
+
+    blocking =
+      put_in(post, ["author", "viewer"], %{"blocking" => "at://did:plc:me/app.bsky.graph.block/1"})
+
+    assert read.(blocking) =~
+             "\nYou blocked them · You cannot reply to this post · You cannot quote this post\n"
+
+    # The ordinary case reads exactly as a post with no viewer state at all.
+    ordinary =
+      post
+      |> put_in(["author", "viewer"], %{
+        "following" => "at://did:plc:me/app.bsky.graph.follow/1",
+        "followedBy" => "at://did:plc:a/app.bsky.graph.follow/2",
+        "blockedBy" => false,
+        "muted" => false
+      })
+      |> Map.put("viewer", %{
+        "replyDisabled" => false,
+        "embeddingDisabled" => false,
+        "threadMuted" => false
+      })
+
+    assert read.(ordinary) ==
+             read.(
+               post
+               |> Map.delete("viewer")
+               |> Map.update!("author", &Map.delete(&1, "viewer"))
+             )
+  end
+
   defp json(summary), do: summary |> Jason.encode!() |> Jason.decode!()
 
   test "a reply notification reads as the reply; a like is one line naming the post it is about",
