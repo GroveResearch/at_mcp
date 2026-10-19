@@ -921,6 +921,134 @@ defmodule AtMcp.Effects.ProtoRune do
     |> read(:bookmarks, &bookmark_item/1)
   end
 
+  # --- drafts ---
+
+  @impl true
+  def get_drafts(session, opts) do
+    session
+    |> AtMcp.ATProto.get_drafts(paging(opts, %{}))
+    |> read(:drafts, &AtMcp.Summary.extract(:draft, &1))
+  end
+
+  # The service has no read of one draft, so finding one is reading pages of
+  # them. Drafts are few — the service may cap how many an account keeps — and
+  # this many pages of the largest page the lexicon allows is far past any
+  # cap seen; a draft beyond them is reported as not found.
+  @draft_page 100
+  @draft_pages 10
+
+  @doc """
+  The draft with this id, as the service holds it, in the keys it is written
+  with. A draft this account does not have is refused, naming `id`: the
+  service would ignore an update to it without saying so.
+  """
+  @impl true
+  def find_draft(session, id) when is_binary(id), do: find_draft(session, id, nil, @draft_pages)
+
+  defp find_draft(_session, id, _cursor, 0), do: no_draft(id)
+
+  defp find_draft(session, id, cursor, pages) do
+    case AtMcp.ATProto.get_drafts(
+           session,
+           AtMcp.ATProto.params(%{limit: @draft_page, cursor: cursor})
+         ) do
+      {:ok, response} ->
+        drafts = field(response, :drafts)
+
+        found =
+          is_list(drafts) &&
+            Enum.find(drafts, &(is_map(&1) and field(&1, :id) == id))
+
+        cond do
+          not is_list(drafts) ->
+            {:error, unreadable("a page of drafts", response)}
+
+          found ->
+            {:ok, AtMcp.ATProto.wire_record(field(found, :draft) || %{})}
+
+          is_binary(cursor_of(response)) ->
+            find_draft(session, id, cursor_of(response), pages - 1)
+
+          true ->
+            no_draft(id)
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp no_draft(id),
+    do: {:error, {:invalid_argument, "id", "this account has no draft with id #{id}"}}
+
+  @impl true
+  def save_draft(session, nil, draft) do
+    case AtMcp.ATProto.create_draft(session, %{draft: draft}) do
+      {:ok, response} when is_map(response) ->
+        case field(response, :id) do
+          id when is_binary(id) -> {:ok, draft_result(:save_draft, id, draft)}
+          _ -> {:error, unreadable("a created draft", response)}
+        end
+
+      {:ok, other} ->
+        {:error, unreadable("a created draft", other)}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  def save_draft(session, id, draft) when is_binary(id) do
+    case AtMcp.ATProto.update_draft(session, %{draft: %{"id" => id, "draft" => draft}}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> saved_draft(session, id, draft)
+    end
+  end
+
+  # `updateDraft` answers success for an id it does not hold and ignores the
+  # update (its lexicon says so), so a draft deleted between the read that
+  # found it and the update would be reported saved when nothing was. The
+  # draft is read again, for whether it still exists only: the service queues
+  # an update and applies it later, so `getDrafts` can still show the text from
+  # before, and the result carries the draft as sent. A draft gone by then is a
+  # refusal; a read that fails says nothing either way, so the update's outcome
+  # is unknown. A deletion still queued is not seen by this check.
+  defp saved_draft(session, id, draft) do
+    case find_draft(session, id) do
+      {:ok, _still_there} ->
+        {:ok, draft_result(:save_draft, id, draft)}
+
+      {:error, {:invalid_argument, "id", _}} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved. " <>
+               "Call save_draft without an id to keep the text as a new draft.",
+           detail: {:draft_gone, id}
+         )}
+
+      {:error, reason} ->
+        {:error, AtMcp.Effects.Failure.new(:indeterminate, detail: {:draft_unconfirmed, reason})}
+    end
+  end
+
+  @impl true
+  def delete_draft(session, id, draft) when is_binary(id) do
+    case AtMcp.ATProto.delete_draft(session, %{id: id}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, draft_result(:delete_draft, id, draft)}
+    end
+  end
+
+  defp draft_result(action, id, draft) do
+    %{
+      ok: true,
+      action: action,
+      id: id,
+      draft: AtMcp.Summary.extract(:draft, %{"id" => id, "draft" => draft})
+    }
+  end
+
   # --- the write half ---
 
   # Every record AtMcp creates goes through here, so the collection and the

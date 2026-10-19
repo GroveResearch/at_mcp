@@ -30,6 +30,12 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "changed_meanwhile", "error: " <> failure.message)
 
+  def respond(
+        {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:draft_gone, id}} = failure},
+        state
+      ),
+      do: error(state, "draft_not_found", "error: " <> failure.message, %{id: id})
+
   def respond({:error, :not_connected}, state),
     do:
       error(
@@ -317,6 +323,9 @@ defmodule AtMcp.MCP.Tools do
   end
 
   def optional_actor(_), do: nil
+
+  @doc "An optional argument: omitted, empty and whitespace-only are all absent (nil)."
+  def optional(value), do: if(absent?(value), do: nil, else: value)
 
   @doc "Several handles or DIDs, each read as `actor/1` reads one."
   def actors(actors), do: actors |> List.wrap() |> Enum.map(&actor/1)

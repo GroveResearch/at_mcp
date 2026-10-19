@@ -85,10 +85,10 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.bookmark.createBookmark", {:tool, "bookmark"}},
     {"app.bsky.bookmark.deleteBookmark", {:tool, "unbookmark"}},
     {"app.bsky.bookmark.getBookmarks", {:tool, "get_bookmarks"}},
-    {"app.bsky.draft.createDraft", {:todo, @posts}},
-    {"app.bsky.draft.updateDraft", {:todo, @posts}},
-    {"app.bsky.draft.deleteDraft", {:todo, @posts}},
-    {"app.bsky.draft.getDrafts", {:todo, @posts}},
+    {"app.bsky.draft.createDraft", {:tool, "save_draft"}},
+    {"app.bsky.draft.updateDraft", {:tool, "save_draft"}},
+    {"app.bsky.draft.deleteDraft", {:tool, "delete_draft"}},
+    {"app.bsky.draft.getDrafts", {:tool, "get_drafts"}},
     {"app.bsky.video.*", {:todo, @video}},
 
     # --- Accounts and the social graph ---

@@ -1157,6 +1157,86 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  # --- drafts ---
+
+  tool "get_drafts",
+       "List this account's drafts: posts written and not yet published. Drafts are private. Each item's id is what save_draft and delete_draft take." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.draft_page())
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("drafts"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_drafts(state.effects,
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "save_draft",
+       write_description(
+         :save_draft,
+         "Save text as a draft to publish later; nothing is published. Without id, creates a new draft and returns its id. With the id of one of this account's drafts, replaces the text of its first post and keeps the rest of the draft; an id this account does not have is refused. After an update the draft is checked to still exist; the result is the draft as sent, and the change may take a moment to show in get_drafts."
+       ) do
+    annotations(
+      write_annotations(:save_draft, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.draft_result())
+
+    param(:text, :string, AtMcp.MCP.Schemas.draft_text())
+
+    param(:id, :string,
+      description: "Id of a draft to replace, from get_drafts or an earlier save_draft"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.save_draft(
+          state.effects,
+          Map.fetch!(a, :text),
+          AtMcp.MCP.Tools.optional(Map.get(a, :id))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "delete_draft",
+       write_description(
+         :delete_draft,
+         "Delete one of this account's drafts. The result carries the draft as it was, so save_draft can recreate it."
+       ) do
+    annotations(
+      write_annotations(:delete_draft, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.draft_result())
+    param(:id, :string, required: true, description: "The draft's id, from get_drafts")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_draft(state.effects, Map.fetch!(a, :id)),
+        state
+      )
+    end)
+  end
+
   tool "get_membership",
        "Read your Delvetown membership. enabled says whether the service uses membership; null membership means no membership record. Otherwise inspect joined, status and suspended together. A service error does not mean you have not joined. Admission currently happens through delve.town; this tool does not join." do
     annotations(%{readOnlyHint: true, openWorldHint: true})

@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 50 tools: 49 network verbs, plus
+`AtMcp.MCP.Server` declares 53 tools: 52 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -233,6 +233,13 @@ the AppView matches. A tool that takes one of the
 account's own posts refuses another account's before anything is sent, naming
 the argument; a service that does not serve a method answers 501, which is
 reported as `upstream_not_implemented` and not as an unknown outcome.
+
+Drafts (`get_drafts`, `save_draft`, `delete_draft`) are private and publish
+nothing, so they do not count either. A draft's text may be longer than a
+post's (`app.bsky.draft.defs#draftPost`). Saving to an existing draft reads it
+first and replaces only its first post's text, keeping the rest; an id the
+account does not have is refused, because the service would ignore the update
+without saying so. `delete_draft` returns the draft it deleted.
 
 Absent from the surface: lists, starter packs, saved and pinned feeds,
 thread gates and reply controls, self-labels,

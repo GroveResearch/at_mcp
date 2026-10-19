@@ -197,6 +197,21 @@ defmodule AtMcp.ATProto do
   def get_bookmarks(session, params),
     do: read(session, "bookmark.getBookmarks", params, @page)
 
+  # --- drafts ---
+
+  # Drafts are private, kept by the AppView like bookmarks, not records in the
+  # repository.
+  def get_drafts(session, params), do: read(session, "draft.getDrafts", params, @page)
+
+  def create_draft(session, params),
+    do: write(session, "draft.createDraft", params, draft: {:required, :any})
+
+  def update_draft(session, params),
+    do: write(session, "draft.updateDraft", params, draft: {:required, :any})
+
+  def delete_draft(session, params),
+    do: write(session, "draft.deleteDraft", params, id: {:required, :string})
+
   # --- graph reads ---
 
   def get_followers(session, params),
@@ -518,6 +533,25 @@ defmodule AtMcp.ATProto do
     |> Map.delete("pinnedPost")
     |> put_present("pinnedPost", pinned && strong_ref(pinned))
     |> profile_record()
+  end
+
+  @doc """
+  A `draft.defs#draft` whose first post's text is `text`.
+
+  `current` is the draft as the service holds it, or nil for a new one. Every
+  other part of it is kept: later posts in a thread draft, the first post's
+  attachments and labels, its languages and its reply and quote settings.
+  """
+  def draft(text, current \\ nil) when is_binary(text) do
+    current = wire_record(current || %{})
+
+    posts =
+      case Map.get(current, "posts") do
+        [first | rest] when is_map(first) -> [Map.put(first, "text", text) | rest]
+        _ -> [%{"text" => text}]
+      end
+
+    Map.put(current, "posts", posts)
   end
 
   @doc """

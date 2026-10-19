@@ -471,4 +471,58 @@ defmodule AtMcp.Test.MockBackend do
          count: 2
      }}
   end
+
+  @impl true
+  def get_drafts(_state, opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [
+         %{
+           id: "3mockdraft",
+           created_at: "2026-10-18T00:00:00.000Z",
+           updated_at: "2026-10-18T00:00:00.000Z",
+           posts: [%{text: "not yet", images: []}],
+           device_name: nil
+         }
+       ],
+       cursor: nil,
+       limit: Keyword.get(opts, :limit, 20)
+     }}
+  end
+
+  # The mock has the one draft get_drafts lists, unless its state names others.
+  @impl true
+  def find_draft(state, id) do
+    drafts = Map.get(state, :drafts, %{"3mockdraft" => %{"posts" => [%{"text" => "not yet"}]}})
+
+    case Map.fetch(drafts, id) do
+      {:ok, draft} -> {:ok, draft}
+      :error -> {:error, {:invalid_argument, "id", "this account has no draft with id #{id}"}}
+    end
+  end
+
+  @impl true
+  def save_draft(_state, id, draft) do
+    id = id || "3newdraft"
+
+    {:ok,
+     %{
+       ok: true,
+       action: :save_draft,
+       id: id,
+       draft: AtMcp.Summary.extract(:draft, %{"id" => id, "draft" => draft})
+     }}
+  end
+
+  @impl true
+  def delete_draft(_state, id, draft) do
+    {:ok,
+     %{
+       ok: true,
+       action: :delete_draft,
+       id: id,
+       draft: AtMcp.Summary.extract(:draft, %{"id" => id, "draft" => draft})
+     }}
+  end
 end

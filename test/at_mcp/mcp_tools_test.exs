@@ -188,6 +188,9 @@ defmodule AtMcp.MCP.ToolsTest do
     {"bookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"unbookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"get_bookmarks", %{}},
+    {"get_drafts", %{}},
+    {"save_draft", %{"text" => "later"}},
+    {"delete_draft", %{"id" => "3mockdraft"}},
     {"get_membership", %{}},
     {"identity_status", %{}}
   ]
