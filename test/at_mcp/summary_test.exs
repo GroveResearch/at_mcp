@@ -30,7 +30,8 @@ defmodule AtMcp.SummaryTest do
         "displayName" => "café 日本語 🪁",
         "labels" => [
           %{"src" => "did:plc:author", "val" => "bot", "cts" => "2026-09-01T00:00:00Z"}
-        ]
+        ],
+        "viewer" => %{"muted" => false, "blockedBy" => true}
       },
       "likeCount" => 12,
       "repostCount" => 3,
@@ -65,7 +66,8 @@ defmodule AtMcp.SummaryTest do
         "handle" => "author.test",
         "did" => "did:plc:author",
         "displayName" => "café 日本語 🪁",
-        "labels" => []
+        "labels" => [],
+        "viewer" => %{}
       },
       "likeCount" => 0,
       "repostCount" => 0,
@@ -264,5 +266,63 @@ defmodule AtMcp.SummaryTest do
 
     assert AtMcp.Summary.extract(:post, %{"viewer" => %{"like" => nil, "repost" => "bad"}}).viewer ==
              %{like: nil}
+
+    refute Map.has_key?(
+             AtMcp.Summary.extract(:post, %{"author" => %{"did" => "d"}}),
+             :author_viewer
+           )
+  end
+
+  # An agent asked whether a block stops it replying found no block flag in its
+  # reads, though the AppView sends one on every profile and post author.
+  test "block and mute state is kept as the service sent it, for a profile and a post's author" do
+    list = %{"uri" => "at://did:plc:viewer/app.bsky.graph.list/mods", "name" => "mods"}
+
+    full = %{
+      "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",
+      "followedBy" => "at://did:plc:other/app.bsky.graph.follow/2",
+      "blocking" => "at://did:plc:viewer/app.bsky.graph.listblock/3",
+      "blockingByList" => list,
+      "blockedBy" => true,
+      "muted" => true,
+      "mutedByList" => list
+    }
+
+    expected = %{
+      following: "at://did:plc:viewer/app.bsky.graph.follow/1",
+      followed_by: "at://did:plc:other/app.bsky.graph.follow/2",
+      blocking: "at://did:plc:viewer/app.bsky.graph.listblock/3",
+      blocking_by_list: list["uri"],
+      blocked_by: true,
+      muted: true,
+      muted_by_list: list["uri"]
+    }
+
+    assert AtMcp.Summary.extract(:profile, %{"viewer" => full}).viewer == expected
+
+    post = %{
+      "author" => %{"did" => "did:plc:other", "viewer" => full},
+      "viewer" => %{"replyDisabled" => true}
+    }
+
+    assert AtMcp.Summary.extract(:post, post).author_viewer == expected
+    assert AtMcp.Summary.extract(:chain_post, post).author_viewer == expected
+    assert AtMcp.Summary.extract(:post, post).viewer == %{reply_disabled: true}
+
+    # Every key read is a key the output schema declares, with the type it has.
+    for {shape, key} <- [profile: "viewer", post: "author_viewer", chain_post: "author_viewer"] do
+      declared = AtMcp.Summary.properties(shape)[key]["properties"]
+
+      assert Map.keys(declared) |> Enum.sort() ==
+               expected |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+
+      assert declared["blocked_by"]["type"] == ["boolean", "null"]
+      assert declared["muted_by_list"]["type"] == ["string", "null"]
+    end
+
+    # false is an answer, not an absence; a wrong-typed value is dropped.
+    assert AtMcp.Summary.extract(:profile, %{
+             "viewer" => %{"blockedBy" => false, "muted" => "yes", "mutedByList" => "not a list"}
+           }).viewer == %{blocked_by: false}
   end
 end

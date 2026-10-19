@@ -190,7 +190,13 @@ facet URLs and references; when they lack hydrated content they say so.
 
 Summaries also keep the viewer's like, repost, follow and block record URIs so
 an agent can undo without the original receipt; a missing viewer object is
-distinct from an empty one.
+distinct from an empty one. Beside those records they keep the states the
+service reports with no record of the account's behind them: whether the other
+account blocks this one (`blocked_by`), whether this one has muted it
+(`muted`), the list a block or mute comes through, and whether the service lets
+the account reply to a post (`reply_disabled`). A post carries its author's as
+`author_viewer`, so a reader of a post sees a block without a second read. A
+state the service did not mention is left out, never reported as `false`.
 
 `identity_status` corresponds to nothing a person does: a person has no write
 quota to read. It exists because an agent acts faster than a person while the
