@@ -129,7 +129,11 @@ the publish date and the reading time. What someone else wrote cannot read
 as AtMcp's own words: a post's text is fenced, each of its lines after `> `,
 and every other string an author or another account controls (names, quoted
 text, alt text, card and publication titles, descriptions) is one quoted
-literal on one line, `"` and backslash escaped (`AtMcp.Reading`). Most MCP clients give a model
+literal on one line, `"` and backslash escaped; an identifier is bare only
+when it is nothing but an identifier's characters, and a web address is
+percent-encoded so it cannot close a bracket. `AtMcp.Reading` builds its text
+only from `AtMcp.Reading.Text` pieces, which only those renderers make; a raw
+string given to its joiners fails under test and is quoted elsewhere. Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients

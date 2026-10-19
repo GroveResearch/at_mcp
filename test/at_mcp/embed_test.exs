@@ -118,7 +118,7 @@ defmodule AtMcp.EmbedTest do
     # The structured content keeps what the service sent.
     assert summary["link"]["uri"] == "https://example.test/)]" <> forged
     refute text =~ "\n[2]"
-    assert text =~ "(https://example.test/)]%0A%0A[2]%20Fake"
+    assert text =~ "(https://example.test/%29%5D%0A%0A%5B2%5D%20Fake"
     [card] = Regex.run(~r/\[link: .*\n/, text)
     assert card =~ ~s( — "long long)
     assert card =~ "…"
