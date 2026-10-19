@@ -17,6 +17,14 @@
         "uri"
       ]
     },
+    "delete_draft": {
+      "arguments": {
+        "id": "string"
+      },
+      "required": [
+        "id"
+      ]
+    },
     "delete_post": {
       "arguments": {
         "uri": "string"
@@ -61,6 +69,13 @@
       "required": []
     },
     "get_bookmarks": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_drafts": {
       "arguments": {
         "cursor": "string",
         "limit": "integer"
@@ -318,6 +333,15 @@
       "required": [
         "cid",
         "uri"
+      ]
+    },
+    "save_draft": {
+      "arguments": {
+        "id": "string",
+        "text": "string"
+      },
+      "required": [
+        "text"
       ]
     },
     "search_actors": {

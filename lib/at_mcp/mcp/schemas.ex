@@ -43,6 +43,20 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `text` parameter of `save_draft`, stated from the limits the account
+  enforces (`AtMcp.Effects.draft_text_limits/0`).
+  """
+  defmacro draft_text do
+    %{graphemes: graphemes, bytes: bytes} = AtMcp.Effects.draft_text_limits()
+
+    Macro.escape(
+      required: true,
+      description:
+        "The draft's text: at most #{graphemes} graphemes and #{bytes} UTF-8 bytes, more than a post holds, so it can be split into posts later. Longer is refused before anything is sent."
+    )
+  end
+
+  @doc """
   The required list parameter of a batch read, stated from the batch limit
   the account enforces (`AtMcp.Effects.max_batch/0`).
   """
@@ -86,6 +100,10 @@ defmodule AtMcp.MCP.Schemas do
   defmacro profile_page, do: Macro.escape(page(profile_view_schema()))
 
   defmacro bookmark_page, do: Macro.escape(page(bookmark_schema()))
+
+  defmacro draft_page, do: Macro.escape(page(record(:draft)))
+
+  defmacro draft_result, do: Macro.escape(draft_result_schema())
 
   defmacro generator_page, do: Macro.escape(page(record(:generator)))
 
@@ -309,6 +327,23 @@ defmodule AtMcp.MCP.Schemas do
       "replaced_uri" =>
         nullable_string(
           "AT URI of the post that was pinned before this action, if any; pin_post takes it to put it back"
+        )
+    })
+  end
+
+  # A saved or deleted draft: its id, and the draft as it was saved or as it
+  # was before it was deleted, so a deletion can be undone by saving it again.
+  defp draft_result_schema do
+    object(%{
+      "ok" => %{"type" => ["boolean", "null"]},
+      "action" => nullable_string(),
+      "id" => nullable_string("The draft's id"),
+      "draft" =>
+        record(:draft)
+        |> Map.put("type", ["object", "null"])
+        |> Map.put(
+          "description",
+          "The draft as saved; for delete_draft, as it was before it was deleted"
         )
     })
   end

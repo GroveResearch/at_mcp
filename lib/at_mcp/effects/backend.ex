@@ -179,4 +179,21 @@ defmodule AtMcp.Effects.Backend do
   @callback bookmark(state(), ref :: map()) :: {:ok, summary()} | {:error, reason()}
   @callback unbookmark(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_bookmarks(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
+
+  @callback get_drafts(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  The draft with this id as the service holds it, in the keys it is written
+  with, so a save can keep what it does not change. A draft the account does
+  not have is `{:error, {:invalid_argument, "id", message}}`.
+  """
+  @callback find_draft(state(), id :: String.t()) :: {:ok, map()} | {:error, reason()}
+
+  @doc "Create a draft (`id` nil) or replace the one with this id. `draft` is `AtMcp.ATProto.draft/2`'s."
+  @callback save_draft(state(), id :: String.t() | nil, draft :: map()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc "Delete a draft. `draft` is the one `find_draft/2` read, for the result to carry."
+  @callback delete_draft(state(), id :: String.t(), draft :: map()) ::
+              {:ok, summary()} | {:error, reason()}
 end

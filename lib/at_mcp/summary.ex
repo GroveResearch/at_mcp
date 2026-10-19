@@ -205,6 +205,15 @@ defmodule AtMcp.Summary do
      "Labels on the author's account, including any it applied to itself"}
   ]
 
+  # One post of a draft. Images a draft holds are files on the device that
+  # wrote it, so only their alt text is anything an agent can read.
+  @draft_post [
+    {:text, :string, [["text"]], "The post's text"},
+    {:images, {:list, [{:alt, :string, [["alt"]], "The image's alt text"}]},
+     [["embed_images"], ["embedImages"]],
+     "Images attached where the draft was written, by alt text; their files stay on that device"}
+  ]
+
   @shapes %{
     membership: %{
       fields: [
@@ -255,6 +264,20 @@ defmodule AtMcp.Summary do
          "When the service indexed this generator, as an ISO 8601 timestamp"}
       ],
       viewer: [{:like, :record, ["like"], "The viewing account's like record AT URI"}]
+    },
+    draft: %{
+      fields: [
+        {:id, :string, [["id"]], "The draft's id; save_draft and delete_draft take it"},
+        {:created_at, :string, [["created_at"], ["createdAt"]],
+         "When the draft was created, as an ISO 8601 timestamp"},
+        {:updated_at, :string, [["updated_at"], ["updatedAt"]],
+         "When the draft was last saved, as an ISO 8601 timestamp"},
+        {:posts, {:list, @draft_post}, [["draft", "posts"]],
+         "The draft's posts, in order; a thread draft has more than one"},
+        {:device_name, :string, [["draft", "device_name"], ["draft", "deviceName"]],
+         "The device or app the draft was written on, as it named itself"}
+      ],
+      viewer: []
     },
     relationship: %{
       fields: [

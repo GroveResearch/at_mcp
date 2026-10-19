@@ -666,6 +666,72 @@ defmodule AtMcp.Effects do
     paged(effects, opts, fn backend, session, opts -> backend.get_bookmarks(session, opts) end)
   end
 
+  # --- drafts ---
+
+  # `app.bsky.draft.defs#draftPost` allows a draft's text more room than a
+  # post's, so a long text can be drafted and later split into posts.
+  @draft_text %{graphemes: 1_000, bytes: 10_000}
+
+  @doc "What a draft's text may be: `app.bsky.draft.defs#draftPost`."
+  def draft_text_limits, do: @draft_text
+
+  def get_drafts(effects, opts \\ []) do
+    paged(effects, opts, fn backend, session, opts -> backend.get_drafts(session, opts) end)
+  end
+
+  @doc """
+  Save `text` as a new draft, or, given the id of one this account has, as the
+  text of its first post, keeping the rest of it. The draft is read first, so
+  an id the account does not have is refused rather than silently ignored.
+  """
+  def save_draft(effects, text, id \\ nil) when is_binary(text) do
+    with :ok <- validate_draft_text(text) do
+      case id do
+        nil ->
+          take_and_write(effects, :save_draft, fn backend, session ->
+            backend.save_draft(session, nil, AtMcp.ATProto.draft(text))
+          end)
+
+        id ->
+          take_and_write(
+            effects,
+            :save_draft,
+            fn backend, session -> backend.find_draft(session, id) end,
+            fn current ->
+              fn backend, session ->
+                backend.save_draft(session, id, AtMcp.ATProto.draft(text, current))
+              end
+            end
+          )
+      end
+    end
+  end
+
+  @doc "Delete a draft. It is read first, so the result carries what was deleted."
+  def delete_draft(effects, id) when is_binary(id) do
+    take_and_write(
+      effects,
+      :delete_draft,
+      fn backend, session -> backend.find_draft(session, id) end,
+      fn current -> fn backend, session -> backend.delete_draft(session, id, current) end end
+    )
+  end
+
+  defp validate_draft_text(text) do
+    %{graphemes: graphemes, bytes: bytes} = @draft_text
+
+    cond do
+      not String.valid?(text) ->
+        invalid("text", "must be valid UTF-8")
+
+      byte_size(text) > bytes or String.length(text) > graphemes ->
+        invalid("text", "a draft holds at most #{graphemes} graphemes and #{bytes} UTF-8 bytes")
+
+      true ->
+        :ok
+    end
+  end
+
   # A tool argument that names a post, checked before a session is taken: an
   # AT URI whose collection is a post on either network. What is wrong is said
   # about the argument by name, so a caller can fix the call.

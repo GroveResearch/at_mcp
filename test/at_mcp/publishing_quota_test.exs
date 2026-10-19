@@ -65,7 +65,9 @@ defmodule AtMcp.PublishingQuotaTest do
     "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
     "unmute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
     "bookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"}
+    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "save_draft" => %{"text" => "later"},
+    "delete_draft" => %{"id" => "3mockdraft"}
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

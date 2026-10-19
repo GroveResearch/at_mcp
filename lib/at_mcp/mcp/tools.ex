@@ -309,6 +309,9 @@ defmodule AtMcp.MCP.Tools do
 
   def optional_actor(_), do: nil
 
+  @doc "An optional argument: omitted, empty and whitespace-only are all absent (nil)."
+  def optional(value), do: if(absent?(value), do: nil, else: value)
+
   @doc "Several handles or DIDs, each read as `actor/1` reads one."
   def actors(actors), do: actors |> List.wrap() |> Enum.map(&actor/1)
 

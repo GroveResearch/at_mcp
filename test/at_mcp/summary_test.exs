@@ -97,6 +97,20 @@ defmodule AtMcp.SummaryTest do
       "indexedAt" => "2026-09-13T12:34:56.123Z",
       "viewer" => %{"like" => "at://did:plc:viewer/app.bsky.feed.like/1"}
     },
+    draft: %{
+      "id" => "3draft",
+      "createdAt" => "2026-10-01T00:00:00.000Z",
+      "updatedAt" => "2026-10-02T00:00:00.000Z",
+      "draft" => %{
+        "deviceName" => "phone",
+        "posts" => [
+          %{
+            "text" => "café 日本語 🪁",
+            "embedImages" => [%{"localRef" => %{"path" => "/1.jpg"}, "alt" => "a kite"}]
+          }
+        ]
+      }
+    },
     relationship: %{
       "did" => "did:plc:other",
       "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",
