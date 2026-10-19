@@ -33,6 +33,9 @@ defmodule AtMcp.E2E.RoundTripTest do
 
     for {key, value} <- [
           network: :bluesky,
+          # The network's moderation service is ozone's, as the PDS and the
+          # AppView are configured with it.
+          moderation_service: info["moderation"],
           appview: [
             service: info["appview_did"] <> "#bsky_appview",
             url: info["appview"] <> "/xrpc"
@@ -80,6 +83,7 @@ defmodule AtMcp.E2E.RoundTripTest do
 
     %{
       net: net,
+      moderation: info["moderation"],
       feed: info["feed"],
       me: account.(info["accounts"]["self"]),
       them: account.(info["accounts"]["other"]),
@@ -1174,4 +1178,296 @@ defmodule AtMcp.E2E.RoundTripTest do
                refused(me, "save_draft", %{"id" => id, "text" => "gone"})
     end
   end
+
+  describe "moderation" do
+    # The preferences as the PDS holds them, every type but the ones `keep`
+    # names: what a moderation write must leave as it was.
+    defp other_preferences(session, types) do
+      {:ok, preferences} = AtMcp.ATProto.preferences_as_stored(session)
+      Enum.reject(preferences, &(&1["$type"] in types))
+    end
+
+    test "mute_word, mute it again, unmute_word: get_preferences follows each, and every other preference is kept",
+         %{me: me, session: session} do
+      call!(me, "set_preference", %{"kind" => "threads", "sort" => "newest"})
+      others = other_preferences(session, ["app.bsky.actor.defs#mutedWordsPref"])
+
+      muted =
+        call!(me, "mute_word", %{
+          "value" => "#Spoilers",
+          "tags_only" => true,
+          "duration" => "7d",
+          "only_non_followed" => true
+        })
+
+      assert %{"previous" => [], "now" => [%{"value" => "Spoilers", "id" => id}]} = muted
+
+      assert [
+               %{
+                 "value" => "Spoilers",
+                 "id" => ^id,
+                 "tags_only" => true,
+                 "only_non_followed" => true,
+                 "expired" => false,
+                 "expires_at" => expires
+               }
+             ] = call!(me, "get_preferences", %{})["muted_words"]
+
+      assert is_binary(expires)
+      assert other_preferences(session, ["app.bsky.actor.defs#mutedWordsPref"]) == others
+
+      # The same word again, for ever and everywhere: changed in place.
+      assert %{"now" => [%{"id" => ^id, "expires_at" => nil, "tags_only" => false}]} =
+               call!(me, "mute_word", %{"value" => "spoilers"})
+
+      assert [%{"id" => ^id, "expires_at" => nil}] =
+               call!(me, "get_preferences", %{})["muted_words"]
+
+      assert call!(me, "mute_word", %{"value" => "SPOILERS"})["unchanged"]
+
+      assert %{"removed" => [%{"id" => ^id, "value" => "Spoilers"}]} =
+               call!(me, "unmute_word", %{"value" => "spoilers"})
+
+      assert call!(me, "get_preferences", %{})["muted_words"] == []
+      assert call!(me, "unmute_word", %{"value" => "spoilers"})["unchanged"]
+
+      # A removed word comes back exactly as it was, from what unmute_word
+      # returned, and goes again.
+      call!(me, "mute_word", %{"value" => "plot", "tags_only" => true, "duration" => "24h"})
+      %{"removed" => [removed]} = call!(me, "unmute_word", %{"value" => "plot"})
+
+      call!(me, "mute_word", %{
+        "value" => removed["value"],
+        "targets" => removed["targets"],
+        "only_non_followed" => removed["only_non_followed"],
+        "expires_at" => removed["expires_at"]
+      })
+
+      assert [restored] = call!(me, "get_preferences", %{})["muted_words"]
+      assert Map.delete(restored, "id") == Map.delete(removed, "id")
+      call!(me, "unmute_word", %{"value" => "plot"})
+      assert other_preferences(session, ["app.bsky.actor.defs#mutedWordsPref"]) == others
+      call!(me, "set_preference", %{"kind" => "threads", "sort" => "top"})
+    end
+
+    test "subscribe_labeler, set_label_visibility for its label, unsubscribe_labeler: get_labelers and get_preferences follow each",
+         %{me: me, them: them, moderation: moderation, session: session} do
+      assert [^moderation] = call!(me, "get_preferences", %{})["labelers"]
+
+      assert %{"items" => [%{"did" => ^moderation, "built_in" => true}], "missing" => []} =
+               call!(me, "get_labelers", %{})
+
+      # The network's own is always on; an account with no labeler is none.
+      refused(me, "subscribe_labeler", %{"actor" => moderation})
+
+      assert %{"problems" => [%{"path" => "actor"}]} =
+               refused(them, "subscribe_labeler", %{"actor" => me.handle}) |> stringify()
+
+      assert %{"previous" => false, "now" => true, "actor" => did} =
+               call!(me, "subscribe_labeler", %{"actor" => them.handle})
+
+      assert did == them.did
+      assert call!(me, "subscribe_labeler", %{"actor" => them.did})["unchanged"]
+      assert [^moderation, ^did] = call!(me, "get_preferences", %{})["labelers"]
+
+      assert %{"items" => [%{"subscribed" => true, "labels" => [spoiler]}]} =
+               call!(me, "get_labelers", %{"actors" => [them.handle]})
+
+      assert %{"identifier" => "spoiler", "default" => "warn", "setting" => "warn"} = spoiler
+
+      assert %{"previous" => "warn", "now" => "hide"} =
+               call!(me, "set_label_visibility", %{
+                 "label" => "spoiler",
+                 "visibility" => "hide",
+                 "labeler" => them.handle
+               })
+
+      assert %{"items" => [%{"labels" => [%{"setting" => "hide"}]}]} =
+               call!(me, "get_labelers", %{"actors" => [them.did]})
+
+      assert {:ok, stored} = AtMcp.ATProto.preferences_as_stored(session)
+
+      assert %{"labelerDid" => ^did, "visibility" => "hide"} =
+               Enum.find(stored, &(&1["label"] == "spoiler"))
+
+      # Undone: set back to what it was.
+      call!(me, "set_label_visibility", %{
+        "label" => "spoiler",
+        "visibility" => "warn",
+        "labeler" => them.did
+      })
+
+      assert %{"items" => [%{"labels" => [%{"setting" => "warn"}]}]} =
+               call!(me, "get_labelers", %{"actors" => [them.did]})
+
+      assert %{"previous" => true, "now" => false} =
+               call!(me, "unsubscribe_labeler", %{"actor" => them.handle})
+
+      assert [^moderation] = call!(me, "get_preferences", %{})["labelers"]
+
+      assert %{"items" => [%{"subscribed" => false, "labels" => [%{"setting" => nil}]}]} =
+               call!(me, "get_labelers", %{"actors" => [them.did]})
+
+      # A label setting for a labeler the account does not take labels from
+      # would show nowhere.
+      refused(me, "set_label_visibility", %{
+        "label" => "spoiler",
+        "visibility" => "hide",
+        "labeler" => them.did
+      })
+    end
+
+    test "set_label_visibility for an adult content filter: refused while adult content is off, then set, its old name too, and set back",
+         %{me: me, session: session} do
+      assert %{"problems" => [%{"path" => "label"}]} =
+               refused(me, "set_label_visibility", %{"label" => "porn", "visibility" => "warn"})
+               |> stringify()
+
+      # No tool turns adult content on for an account with no birth date (the
+      # app would not show it), so it is written here, outside the tools.
+      {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
+      adult = %{"$type" => "app.bsky.actor.defs#adultContentPref", "enabled" => true}
+      {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before ++ [adult])
+
+      assert %{"previous" => "hide", "now" => "warn"} =
+               call!(me, "set_label_visibility", %{"label" => "porn", "visibility" => "warn"})
+
+      assert call!(me, "get_preferences", %{})["content_labels"]["porn"] == "warn"
+      {:ok, stored} = AtMcp.ATProto.preferences_as_stored(session)
+
+      assert [
+               %{"label" => "porn", "visibility" => "warn"},
+               %{"label" => "nsfw", "visibility" => "warn"}
+             ] =
+               Enum.filter(stored, &(&1["label"] in ["porn", "nsfw"]))
+
+      assert %{"previous" => "warn", "now" => "hide"} =
+               call!(me, "set_label_visibility", %{"label" => "porn", "visibility" => "hide"})
+
+      assert call!(me, "get_preferences", %{})["content_labels"]["porn"] == "hide"
+      {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before)
+    end
+
+    test "mute_list and block_list of a moderation list: the list, get_moderation_lists and the profile say via a list; undone, they say nothing",
+         %{net: net, me: me, them: them} do
+      list = call!(me, "create_list", %{"name" => "mod", "purpose" => "moderation"})
+      call!(me, "add_to_list", %{"list" => list["uri"], "actor" => them.handle})
+      curate = call!(me, "create_list", %{"name" => "curated", "purpose" => "curate"})
+      sync(net)
+
+      # A list named by its handle form is muted by its DID form.
+      handle_form = String.replace(list["uri"], me.did, me.handle)
+
+      assert %{"list" => uri, "muted" => true, "previous" => false} =
+               call!(me, "mute_list", %{"uri" => handle_form})
+
+      assert uri == list["uri"]
+      sync(net)
+
+      assert %{"viewer" => %{"muted" => true}} = call!(me, "get_list", %{"uri" => uri})["list"]
+
+      assert %{"items" => [%{"uri" => ^uri}]} =
+               call!(me, "get_moderation_lists", %{"kind" => "muted"})
+
+      assert get_in(call!(me, "get_profile", %{"actor" => them.did}), ["viewer", "muted_by_list"]) ==
+               uri
+
+      call!(me, "unmute_list", %{"uri" => uri})
+      sync(net)
+
+      assert get_in(call!(me, "get_list", %{"uri" => uri}), ["list", "viewer", "muted"]) in [
+               false,
+               nil
+             ]
+
+      assert %{"items" => []} = call!(me, "get_moderation_lists", %{"kind" => "muted"})
+
+      assert get_in(call!(me, "get_profile", %{"actor" => them.did}), ["viewer", "muted_by_list"]) ==
+               nil
+
+      block = call!(me, "block_list", %{"uri" => handle_form})
+      assert %{"list" => ^uri, "uri" => block_uri, "name" => "mod"} = block
+      sync(net)
+
+      assert call!(me, "get_list", %{"uri" => uri})["list"]["viewer"]["blocked"] == block_uri
+
+      assert %{"items" => [%{"uri" => ^uri}]} =
+               call!(me, "get_moderation_lists", %{"kind" => "blocked"})
+
+      assert get_in(call!(me, "get_profile", %{"actor" => them.did}), [
+               "viewer",
+               "blocking_by_list"
+             ]) == uri
+
+      assert call!(me, "block_list", %{"uri" => uri})["unchanged"]
+
+      assert %{"deleted" => [^block_uri]} = call!(me, "unblock_list", %{"uri" => block_uri})
+      sync(net)
+      assert get_in(call!(me, "get_list", %{"uri" => uri}), ["list", "viewer", "blocked"]) == nil
+      assert %{"items" => []} = call!(me, "get_moderation_lists", %{"kind" => "blocked"})
+
+      assert get_in(call!(me, "get_profile", %{"actor" => them.did}), [
+               "viewer",
+               "blocking_by_list"
+             ]) == nil
+
+      assert call!(me, "unblock_list", %{"uri" => uri})["unchanged"]
+
+      # The app offers neither for a curation list.
+      refused(me, "mute_list", %{"uri" => curate["uri"]})
+      refused(me, "block_list", %{"uri" => curate["uri"]})
+
+      call!(me, "delete_list", %{"uri" => list["uri"]})
+      call!(me, "delete_list", %{"uri" => curate["uri"]})
+      sync(net)
+    end
+
+    test "report an account and a post: the moderation service records each as sent; the account's own are refused",
+         %{net: net, me: me, them: them, moderation: moderation} do
+      post = post!(them, "report me")
+      sync(net)
+
+      report =
+        call!(me, "report", %{
+          "subject" => them.handle,
+          "reason" => "spam",
+          "details" => "round trip"
+        })
+
+      assert %{"labeler" => ^moderation, "reason" => "misleading_spam", "id" => id} = report
+      assert report["note"] =~ "cannot be withdrawn"
+
+      assert %{
+               "subjectDid" => subject,
+               "subjectUri" => nil,
+               "comment" => "round trip",
+               "createdBy" => by
+             } =
+               DevNetwork.report(net, id)
+
+      assert subject == them.did and by == me.did
+
+      handle_form = String.replace(post["uri"], them.did, them.handle)
+
+      assert %{"id" => id, "subject" => uri} =
+               call!(me, "report", %{"subject" => handle_form, "reason" => "harassment_troll"})
+
+      assert uri == post["uri"]
+
+      assert %{"subjectUri" => ^uri, "subjectCid" => cid, "meta" => meta} =
+               DevNetwork.report(net, id)
+
+      assert cid == post["cid"]
+      assert meta["reportType"] == "tools.ozone.report.defs#reasonHarassmentTroll"
+
+      for subject <- [me.handle, me.did, String.replace(post["uri"], them.did, me.did)] do
+        refused(me, "report", %{"subject" => subject, "reason" => "spam"})
+      end
+
+      call!(them, "delete_post", %{"uri" => post["uri"]})
+      sync(net)
+    end
+  end
+
+  defp stringify(result), do: Jason.decode!(Jason.encode!(result))
 end

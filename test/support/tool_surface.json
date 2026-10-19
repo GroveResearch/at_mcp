@@ -19,6 +19,14 @@
         "actor"
       ]
     },
+    "block_list": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "bookmark": {
       "arguments": {
         "uri": "string"
@@ -222,6 +230,12 @@
         "actor"
       ]
     },
+    "get_labelers": {
+      "arguments": {
+        "actors": "array"
+      },
+      "required": []
+    },
     "get_likes": {
       "arguments": {
         "cursor": "string",
@@ -265,6 +279,16 @@
     "get_membership": {
       "arguments": {},
       "required": []
+    },
+    "get_moderation_lists": {
+      "arguments": {
+        "cursor": "string",
+        "kind": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "kind"
+      ]
     },
     "get_mutes": {
       "arguments": {
@@ -468,12 +492,33 @@
         "actor"
       ]
     },
+    "mute_list": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "mute_thread": {
       "arguments": {
         "uri": "string"
       },
       "required": [
         "uri"
+      ]
+    },
+    "mute_word": {
+      "arguments": {
+        "duration": "string",
+        "expires_at": "string",
+        "only_non_followed": "boolean",
+        "tags_only": "boolean",
+        "targets": "array",
+        "value": "string"
+      },
+      "required": [
+        "value"
       ]
     },
     "pin_post": {
@@ -531,6 +576,18 @@
       "required": [
         "text",
         "uri"
+      ]
+    },
+    "report": {
+      "arguments": {
+        "details": "string",
+        "labeler": "string",
+        "reason": "string",
+        "subject": "string"
+      },
+      "required": [
+        "reason",
+        "subject"
       ]
     },
     "repost": {
@@ -612,6 +669,17 @@
       },
       "required": []
     },
+    "set_label_visibility": {
+      "arguments": {
+        "label": "string",
+        "labeler": "string",
+        "visibility": "string"
+      },
+      "required": [
+        "label",
+        "visibility"
+      ]
+    },
     "set_list_opt_out": {
       "arguments": {
         "list": "string",
@@ -676,6 +744,14 @@
         "kind"
       ]
     },
+    "subscribe_labeler": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
+      ]
+    },
     "subscribe_to_activity": {
       "arguments": {
         "actor": "string",
@@ -689,6 +765,14 @@
       ]
     },
     "unblock": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unblock_list": {
       "arguments": {
         "uri": "string"
       },
@@ -736,12 +820,28 @@
         "actor"
       ]
     },
+    "unmute_list": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "unmute_thread": {
       "arguments": {
         "uri": "string"
       },
       "required": [
         "uri"
+      ]
+    },
+    "unmute_word": {
+      "arguments": {
+        "value": "string"
+      },
+      "required": [
+        "value"
       ]
     },
     "unpin_post": {
@@ -762,6 +862,14 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "unsubscribe_labeler": {
+      "arguments": {
+        "actor": "string"
+      },
+      "required": [
+        "actor"
       ]
     },
     "update_list": {

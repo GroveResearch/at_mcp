@@ -213,6 +213,42 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`report`'s `reason`, from `AtMcp.Moderation.reasons/0`."
+  defmacro report_reason do
+    Macro.escape(
+      required: true,
+      description:
+        "Why: one of the reasons the app's report dialog offers (" <>
+          Enum.join(
+            Enum.reject(
+              AtMcp.Moderation.reasons(),
+              &(&1 in ~w(spam violation misleading sexual rude))
+            ),
+            ", "
+          ) <>
+          "), or one of the lexicon's first reasons, spam, violation, misleading, sexual or rude, each sent as the app sends it (misleading_spam, rule_other, misleading_other, sexual_unlabeled, harassment_other)",
+      schema: %{type: "string", enum: AtMcp.Moderation.reasons()}
+    )
+  end
+
+  @doc "`mute_word`'s `duration`."
+  defmacro mute_duration do
+    Macro.escape(
+      description: "How long: 24h, 7d, 30d or forever (the default)",
+      schema: %{type: "string", enum: AtMcp.Moderation.durations()}
+    )
+  end
+
+  @doc "`set_label_visibility`'s `visibility`."
+  defmacro label_visibility do
+    Macro.escape(
+      required: true,
+      description:
+        "show (the app shows it as it is), warn (the app covers it with a warning to click through) or hide (the app hides it)",
+      schema: %{type: "string", enum: AtMcp.Moderation.visibilities()}
+    )
+  end
+
   @doc "`set_notification_setting`'s `reason`, from `AtMcp.Preferences.notification_reasons/0`."
   defmacro notification_setting_reason do
     Macro.escape(
@@ -276,6 +312,17 @@ defmodule AtMcp.MCP.Schemas do
       required: true,
       description: "#{description}; at most #{max}",
       schema: %{type: "array", minItems: 1, maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc "`get_labelers`' `actors`: optional, at most a batch."
+  defmacro labeler_actors do
+    max = AtMcp.Effects.max_batch()
+
+    Macro.escape(
+      description:
+        "Handles or DIDs of labelers, at most #{max}; omit for the labelers the app takes labels from for this account",
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
     )
   end
 
@@ -366,6 +413,10 @@ defmodule AtMcp.MCP.Schemas do
   defmacro preferences, do: Macro.escape(preferences_schema())
 
   defmacro notification_settings, do: Macro.escape(notification_settings_schema())
+
+  defmacro moderation_result, do: Macro.escape(moderation_result_schema())
+
+  defmacro labelers, do: Macro.escape(labelers_schema())
 
   @doc """
   One image a tool uploads: base64 `data` or a file `path`, and its MIME type
@@ -813,6 +864,28 @@ defmodule AtMcp.MCP.Schemas do
               "Who may subscribe to this account's posts: followers, mutuals or none"
             )
         }),
+      "muted_words" => %{
+        "type" => ["array", "null"],
+        "description" =>
+          "The muted words and tags, as the app reads them; mute_word and unmute_word change them",
+        "items" => muted_word_schema()
+      },
+      "labelers" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "DIDs of the labelers the app takes labels from: the network's own moderation service, then those the account subscribes to; get_labelers reads them in detail"
+      },
+      "content_labels" =>
+        settings(
+          "What the app does with posts and accounts carrying each of the labels of its moderation screen, whichever labeler applied them: show, warn or hide. set_label_visibility changes them",
+          %{
+            "porn" => nullable_string(),
+            "sexual" => nullable_string(),
+            "graphic-media" => nullable_string(),
+            "nudity" => nullable_string()
+          }
+        ),
       "saved_feeds" => %{
         "type" => ["array", "null"],
         "description" =>
@@ -827,6 +900,150 @@ defmodule AtMcp.MCP.Schemas do
           }
         }
       }
+    })
+  end
+
+  # A muted word as `get_preferences` and the muted word tools report it.
+  defp muted_word_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "id" => nullable_string("The muted word's id"),
+        "value" => nullable_string("The word, tag or phrase"),
+        "targets" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "Where it is muted, as stored: tag and content"
+        },
+        "tags_only" => boolean("Muted only as a hashtag, not in post text"),
+        "only_non_followed" =>
+          boolean("Muted only in posts by accounts this account does not follow"),
+        "expires_at" =>
+          nullable_string("When the mute ends, as an ISO 8601 timestamp; null for ever"),
+        "expired" => boolean("The mute has ended; the app no longer applies it")
+      }
+    }
+  end
+
+  # What a moderation write did: a report, a muted word, a list mute or
+  # block, a labeler subscription or a label setting.
+  defp moderation_result_schema do
+    object(%{
+      "ok" => %{"type" => ["boolean", "null"]},
+      "action" => nullable_string(),
+      "id" => %{
+        "type" => ["integer", "null"],
+        "description" => "report: the report's id at the moderation service"
+      },
+      "labeler" =>
+        nullable_string(
+          "report: DID of the moderation service the report went to; set_label_visibility: the labeler whose label this sets, null for every labeler's"
+        ),
+      "labeler_handle" => nullable_string("report: handle of that moderation service"),
+      "subject" => nullable_string("report: the AT URI or DID reported"),
+      "reason" => nullable_string("report: the reason, in report's words"),
+      "reason_type" => nullable_string("report: the reason type sent"),
+      "created_at" => nullable_string("report: when the service recorded it"),
+      "value" => nullable_string("mute_word, unmute_word: the word, as stored"),
+      "removed" => %{
+        "type" => ["array", "null"],
+        "items" => muted_word_schema(),
+        "description" => "unmute_word: each muted word removed, as it was"
+      },
+      "list" => nullable_string("The list, in DID form"),
+      "name" => nullable_string("The list's name"),
+      "muted" => boolean("mute_list, unmute_list: whether the list is now muted"),
+      "uri" =>
+        nullable_string(
+          "block_list, unblock_list: the list block record written, kept or deleted"
+        ),
+      "deleted" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" => "unblock_list: AT URIs of the list blocks deleted"
+      },
+      "actor" => nullable_string("subscribe_labeler, unsubscribe_labeler: the labeler's DID"),
+      "handle" => nullable_string("The labeler's handle"),
+      "label" => nullable_string("set_label_visibility: the label"),
+      "previous" => %{
+        "description" =>
+          "What it was before: the muted words of this value, whether the list was muted, whether the labeler was subscribed to, or the label's setting"
+      },
+      "now" => %{"description" => "What it is now, in the same terms as previous"},
+      "unchanged" => boolean("Already as asked, so nothing was written or sent"),
+      "note" => nullable_string("What else to know about this result")
+    })
+  end
+
+  # Labelers in detail, with this account's settings for each.
+  defp labelers_schema do
+    label = %{
+      "type" => "object",
+      "properties" => %{
+        "identifier" => nullable_string("The label's value, as it appears in labels"),
+        "name" => nullable_string("Its name, in English where the labeler gives one"),
+        "description" => nullable_string("What it means"),
+        "severity" => nullable_string("inform, alert or none"),
+        "blurs" => nullable_string("content, media or none"),
+        "default" => nullable_string("What the app does with it unless set: show, warn or hide"),
+        "global" =>
+          boolean(
+            "One of the app's adult content filters, set for every labeler at once: set_label_visibility without labeler"
+          ),
+        "adult_only" => boolean("Its setting shows only while adult content is on"),
+        "setting" =>
+          nullable_string(
+            "What the app shows it set to for this account: show, warn or hide; null when the account does not take this labeler's labels"
+          )
+      }
+    }
+
+    item = %{
+      "type" => "object",
+      "properties" => %{
+        "did" => nullable_string("The labeler's DID"),
+        "handle" => nullable_string(),
+        "display_name" => nullable_string(),
+        "uri" => nullable_string("AT URI of its labeler record; like takes it"),
+        "cid" => nullable_string(),
+        "like_count" => %{"type" => ["integer", "null"]},
+        "like" => nullable_string("This account's like of it, if any"),
+        "built_in" => boolean("The network's own moderation service, which every account has"),
+        "subscribed" => boolean("This account subscribes to it"),
+        "label_values" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "Every label it applies, its own and global ones"
+        },
+        "labels" => %{
+          "type" => ["array", "null"],
+          "items" => label,
+          "description" =>
+            "The labels its page in the app lists: its own, which set_label_visibility sets with labeler, and the adult content filters it applies (global)"
+        },
+        "reason_types" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "The report reasons it takes; null for any"
+        },
+        "subject_types" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "What it takes reports on (account, record); null for any"
+        },
+        "subject_collections" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "The record types it takes reports on; null for any"
+        }
+      }
+    }
+
+    page(item)
+    |> put_in(["properties", "missing"], %{
+      "type" => ["array", "null"],
+      "items" => %{"type" => "string"},
+      "description" => "DIDs asked for that run no labeler the AppView knows of"
     })
   end
 

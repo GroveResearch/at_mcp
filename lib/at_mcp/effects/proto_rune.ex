@@ -1234,6 +1234,90 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # A list block is a record in this account's repository naming the list in
+  # DID form, which is what the AppView matches (`agent.blockModList`). The
+  # list is read first: the app offers a block for a moderation list alone.
+  # The blocks this account has are read from its PDS, so one the AppView has
+  # not indexed yet is found too, and a second is not written beside it.
+  def prepare_list_write(session, {:block_list, uri}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, list} <- viewed_list(session, uri, "uri"),
+         :ok <- moderation_list(list, "block"),
+         {:ok, existing} <-
+           own_records(session, :list_block, &(string_value(&1, :subject) == uri)) do
+      result = %{action: :block_list, list: uri, name: string_value(list, :name)}
+
+      case existing do
+        [first | _] ->
+          prepared([], Map.merge(result, %{uri: first, unchanged: true}))
+
+        [] ->
+          [rkey] = AtMcp.ATProto.tids(1)
+
+          prepared(
+            [new_record(:list_block, rkey, AtMcp.ATProto.list_block_record(subject: uri))],
+            Map.put(result, :uri, own_uri(session, :list_block, rkey)),
+            swap_commit: commit
+          )
+      end
+    end
+  end
+
+  # Every list block of this account's that names the list goes, in one
+  # commit over the one the reads began at, so a list stays blocked by none.
+  # A list block named by its own URI is read for the list it names.
+  def prepare_list_write(session, {:unblock_list, uri}) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, list} <-
+           (if AtMcp.Network.collection?(collection, :list_block) do
+              with {:ok, block} <- own_value(session, uri, "uri", "list block") do
+                case string_value(block, :subject) do
+                  list when is_binary(list) -> {:ok, list}
+                  _ -> {:error, unreadable("a list block record", block)}
+                end
+              end
+            else
+              {:ok, uri}
+            end),
+         {:ok, existing} <-
+           own_records(session, :list_block, &(string_value(&1, :subject) == list)) do
+      case existing do
+        [] ->
+          prepared([], %{
+            action: :unblock_list,
+            list: list,
+            uri: nil,
+            deleted: [],
+            unchanged: true,
+            note: "This account has no list block naming #{list}, so nothing was deleted."
+          })
+
+        [first | _] ->
+          prepared(
+            Enum.map(existing, &removal/1),
+            %{action: :unblock_list, list: list, uri: first, deleted: existing},
+            swap_commit: commit
+          )
+      end
+    end
+  end
+
+  # The app offers muting and blocking for moderation lists alone (its list
+  # screen shows them only when `purpose` is `modlist`).
+  defp moderation_list(list, verb) do
+    case purpose_name(string_value(list, :purpose)) do
+      "moderation" ->
+        :ok
+
+      purpose ->
+        {:error,
+         {:invalid_argument, "uri",
+          "#{string_value(list, :uri)} is a #{purpose} list; the app offers #{verb} only for a moderation list"}}
+    end
+  end
+
   # As many whole graphemes of `text` as fit in `bytes`, or, when not even the
   # first grapheme fits (a letter under dozens of combining marks), as many
   # whole codepoints: a name is never cut to nothing, nor inside a character.
@@ -1540,7 +1624,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # The view of a list or of a starter pack's list, which says its purpose and
   # its URI in DID form.
-  defp viewed_list(session, uri) do
+  defp viewed_list(session, uri, field \\ "list") do
     {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
 
     {response, key} =
@@ -1560,7 +1644,8 @@ defmodule AtMcp.Effects.ProtoRune do
         case failure(reason) do
           %AtMcp.Effects.Failure{kind: :refused} ->
             {:error,
-             {:invalid_argument, "list", "no starter pack or list at #{uri} could be read"}}
+             {:invalid_argument, field,
+              "no starter pack or list at #{uri} could be read; it may be deleted"}}
 
           other ->
             {:error, other}
@@ -2947,6 +3032,611 @@ defmodule AtMcp.Effects.ProtoRune do
     |> AtMcp.ATProto.list_activity_subscriptions(paging(opts, %{}))
     |> read(:subscriptions, &summarize_profile/1)
   end
+
+  # --- moderation: reports, muted words, moderation lists, labelers ---
+
+  @doc """
+  Read what a report names and build it as the app's report dialog builds it
+  (`useSubmitReportMutation` in social-app's ReportDialog/action.ts at
+  485405a): the service must be one this account takes labels from (the
+  dialog lists those alone), must take reports on this kind of subject, this
+  record type and this reason (`subjectTypes`, `subjectCollections`,
+  `reasonTypes` on its labeler view, each unlimited when absent), and gets the
+  first-version reason when it declares that and not the finer one. A record
+  is read for its CID. Nothing is sent here.
+  """
+  @impl true
+  def prepare_report(session, %{subject: subject, reason: reason, labeler: labeler} = request) do
+    with {:ok, preferences} <- stored_preferences(session),
+         :ok <- report_service_offered(labeler, preferences),
+         {:ok, view} <- labeler_view(session, labeler, "labeler"),
+         :ok <- own_service_reason(reason, labeler),
+         {:ok, ref, kind, collection} <- report_subject_ref(session, subject),
+         {:ok, reason_type} <- report_accepted(view, kind, collection, reason) do
+      input =
+        %{"reasonType" => reason_type, "subject" => ref}
+        |> then(&if(request.details, do: Map.put(&1, "reason", request.details), else: &1))
+
+      {:ok,
+       %{
+         labeler: labeler,
+         input: input,
+         result: %{
+           ok: true,
+           action: :report,
+           labeler: labeler,
+           labeler_handle: get_in(view, ["creator", "handle"]),
+           subject: report_subject_name(subject),
+           reason: reason,
+           reason_type: reason_type
+         }
+       }}
+    end
+  end
+
+  defp report_service_offered(labeler, preferences) do
+    if labeler in AtMcp.Moderation.labelers(preferences),
+      do: :ok,
+      else:
+        {:error,
+         {:invalid_argument, "labeler",
+          "this account does not subscribe to #{labeler}; the app's report dialog offers the moderation services an account subscribes to and #{AtMcp.Network.label()}'s own"}}
+  end
+
+  defp own_service_reason(reason, labeler) do
+    if AtMcp.Moderation.own_service_only?(reason) and
+         labeler != AtMcp.Network.moderation_service(),
+       do:
+         {:error,
+          {:invalid_argument, "labeler",
+           "the app sends #{reason} reports to #{AtMcp.Network.label()}'s own moderation service alone; leave labeler out"}},
+       else: :ok
+  end
+
+  defp report_subject_ref(_session, {:account, did}),
+    do:
+      {:ok, %{"$type" => "com.atproto.admin.defs#repoRef", "did" => did}, "account",
+       AtMcp.Network.collection(:profile)}
+
+  defp report_subject_ref(session, {:record, uri, collection}) do
+    with {:ok, _value, cid} <- own_record(session, uri, "subject", "record") do
+      if is_binary(cid),
+        do:
+          {:ok, %{"$type" => "com.atproto.repo.strongRef", "uri" => uri, "cid" => cid}, "record",
+           collection},
+        else: {:error, unreadable("a record's CID", %{uri: uri})}
+    end
+  end
+
+  defp report_subject_name({:account, did}), do: did
+  defp report_subject_name({:record, uri, _collection}), do: uri
+
+  # The dialog's filters on the services it lists (`supportedLabelers` in
+  # ReportDialog/index.tsx). An account's collection is `actor.profile`, as
+  # the dialog names it.
+  defp report_accepted(view, kind, collection, reason) do
+    who = get_in(view, ["creator", "handle"]) || get_in(view, ["creator", "did"])
+    types = view["subjectTypes"]
+    collections = view["subjectCollections"]
+
+    cond do
+      is_list(types) and kind not in types ->
+        {:error,
+         {:invalid_argument, "labeler",
+          "#{who} takes reports on #{Enum.join(types, ", ")}, not on #{if kind == "account", do: "an account", else: "a record"}"}}
+
+      is_list(collections) and collection not in collections ->
+        {:error,
+         {:invalid_argument, "labeler",
+          "#{who} takes reports on #{Enum.join(collections, ", ")} records, not #{collection}"}}
+
+      true ->
+        case AtMcp.Moderation.reason_type_for(reason, view["reasonTypes"]) do
+          nil ->
+            {:error,
+             {:invalid_argument, "reason",
+              "#{who} does not take #{reason} reports; it takes #{Enum.join(view["reasonTypes"], ", ")}"}}
+
+          type ->
+            {:ok, type}
+        end
+    end
+  end
+
+  # The service's answer names the report; it is the moderation service's
+  # record of it, so the result says what it says.
+  @impl true
+  def send_report(session, %{labeler: labeler, input: input, result: result}) do
+    note =
+      "The moderators of #{result.labeler_handle || labeler} see this report and that this account sent it, and decide what, if anything, to do about it. at_mcp does not publish it, and it cannot be withdrawn."
+
+    case AtMcp.ATProto.create_report(session, labeler, input) do
+      {:ok, %{"id" => id} = answer} ->
+        {:ok,
+         Map.merge(result, %{
+           id: id,
+           created_at: answer["createdAt"],
+           reason_type: answer["reasonType"] || result.reason_type,
+           note: note
+         })}
+
+      {:ok, _other} ->
+        {:ok,
+         Map.put(
+           result,
+           :note,
+           note <>
+             " The service accepted the report, but its answer could not be read, so it has no id here."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # A labeler's detailed view, as the service sent it, or the argument named
+  # as one that runs no labeler.
+  defp labeler_view(session, did, argument) do
+    case labeler_views(session, [did]) do
+      {:ok, views} ->
+        case Enum.find(views, &(get_in(&1, ["creator", "did"]) == did)) do
+          nil ->
+            {:error,
+             {:invalid_argument, argument,
+              "#{did} runs no labeler #{AtMcp.Network.label()}'s AppView knows of"}}
+
+          view ->
+            {:ok, view}
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp labeler_views(session, dids) do
+    case AtMcp.ATProto.labeler_services(session, dids) do
+      {:ok, %{"views" => views}} when is_list(views) -> {:ok, Enum.filter(views, &is_map/1)}
+      {:ok, %{} = other} -> {:error, unreadable("labelers", other)}
+      {:ok, _} -> {:error, unreadable("labelers", %{})}
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  @moderation_note "The app applies this on the device; the service does not, so at_mcp's reads return what it serves either way."
+
+  @doc """
+  Read the preferences and build a moderation change of them
+  (`AtMcp.Moderation`). Each result names what changed, with what it was and
+  what it now is.
+  """
+  @impl true
+  def prepare_moderation_preference(session, {:mute_word, word}) do
+    with {:ok, preferences} <- stored_preferences(session) do
+      {updated, previous, now} = AtMcp.Moderation.mute_word(preferences, word)
+
+      result = %{
+        ok: true,
+        action: :mute_word,
+        value: word.value,
+        previous: Enum.map(previous, &AtMcp.Moderation.word_view/1),
+        now: Enum.map(now, &AtMcp.Moderation.word_view/1),
+        unchanged: is_nil(updated)
+      }
+
+      preference_change(
+        updated,
+        result,
+        if(previous == [],
+          do: "unmute_word with this value undoes it. ",
+          else:
+            "previous holds the muted word as it was; mute_word with its value, targets, only_non_followed and expires_at puts it back. "
+        ) <> @moderation_note
+      )
+    end
+  end
+
+  def prepare_moderation_preference(session, {:unmute_word, value}) do
+    with {:ok, preferences} <- stored_preferences(session) do
+      {updated, removed} = AtMcp.Moderation.unmute_word(preferences, value)
+
+      result = %{
+        ok: true,
+        action: :unmute_word,
+        value: value,
+        removed: Enum.map(removed, &AtMcp.Moderation.word_view/1),
+        unchanged: is_nil(updated)
+      }
+
+      if is_nil(updated),
+        do:
+          {:ok,
+           {:unchanged,
+            Map.put(result, :note, "No muted word has this value; nothing was written.")}},
+        else:
+          preference_change(
+            updated,
+            result,
+            "removed holds each muted word as it was; mute_word with its value, targets, only_non_followed and expires_at mutes it again exactly so, under a new id."
+          )
+    end
+  end
+
+  def prepare_moderation_preference(session, {verb, did})
+      when verb in [:subscribe_labeler, :unsubscribe_labeler] do
+    subscribe? = verb == :subscribe_labeler
+
+    with :ok <- not_app_labeler(did),
+         {:ok, preferences} <- stored_preferences(session),
+         {:ok, view} <-
+           if(subscribe?, do: labeler_view(session, did, "actor"), else: {:ok, nil}),
+         :ok <- labeler_room(session, preferences, did, subscribe?) do
+      updated = AtMcp.Moderation.subscribe(preferences, did, subscribe?)
+      before = did in AtMcp.Moderation.subscribed(preferences)
+
+      result = %{
+        ok: true,
+        action: verb,
+        actor: did,
+        handle: view && get_in(view, ["creator", "handle"]),
+        previous: before,
+        now: subscribe?,
+        unchanged: is_nil(updated)
+      }
+
+      preference_change(
+        updated,
+        result,
+        if(subscribe?,
+          do:
+            "The app takes this labeler's labels from now and shows its label settings; set_label_visibility changes them. at_mcp's reads do not yet ask the AppView for the labelers this account subscribes to, so they may not carry this one's labels.",
+          else: "The app no longer takes this labeler's labels."
+        )
+      )
+    end
+  end
+
+  def prepare_moderation_preference(session, {:set_label_visibility, label, visibility, labeler}) do
+    with {:ok, preferences} <- stored_preferences(session),
+         :ok <- adult_labels_shown(preferences, label, labeler),
+         {:ok, default, definition} <-
+           label_default(session, preferences, label, labeler, visibility) do
+      updated = AtMcp.Moderation.set_label(preferences, label, labeler, visibility)
+      adult? = AtMcp.Preferences.kind_view(preferences, "adult_content").enabled
+
+      shown = fn prefs ->
+        stored = AtMcp.Moderation.label_visibility(prefs, label, labeler, default)
+
+        if definition,
+          do: AtMcp.Moderation.shown_setting(stored, definition, adult?),
+          else: AtMcp.Moderation.visibility_word(stored)
+      end
+
+      # As the app shows it: a change it would show no differently is none.
+      before = shown.(preferences)
+      now = shown.(updated)
+
+      result = %{
+        ok: true,
+        action: :set_label_visibility,
+        label: label,
+        labeler: labeler,
+        previous: before,
+        now: now,
+        unchanged: before == now
+      }
+
+      preference_change(if(before == now, do: nil, else: updated), result, @moderation_note)
+    end
+  end
+
+  defp preference_change(nil, result, _note), do: {:ok, {:unchanged, result}}
+
+  defp preference_change(updated, result, note),
+    do: {:ok, %{preferences: updated, result: Map.put(result, :note, note <> " " <> @no_swap)}}
+
+  defp not_app_labeler(did) do
+    if did in AtMcp.Moderation.app_labelers(),
+      do:
+        {:error,
+         {:invalid_argument, "actor",
+          "#{did} is #{AtMcp.Network.label()}'s own moderation service, which every account has; the app offers no subscription to it"}},
+      else: :ok
+  end
+
+  # The app counts the labelers an account has against its limit after
+  # removing those that are gone: no profile (taken down or deactivated) or no
+  # longer a labeler (`useLabelerSubscriptionMutation` in social-app's
+  # src/state/queries/labeler.ts). at_mcp removes nothing it was not asked to,
+  # so at the limit it reads which those are and names them, for
+  # unsubscribe_labeler.
+  defp labeler_room(session, preferences, did, true) do
+    labelers = AtMcp.Moderation.labelers(preferences)
+    max = AtMcp.Moderation.max_labelers()
+
+    if did not in labelers and length(labelers) >= max do
+      with {:ok, gone} <- gone_labelers(session, AtMcp.Moderation.subscribed(preferences)) do
+        why =
+          case gone do
+            [] ->
+              "unsubscribe_labeler one first"
+
+            gone ->
+              "of these, #{Enum.join(gone, ", ")} #{if length(gone) == 1, do: "is", else: "are"} gone (taken down, deactivated or no longer a labeler); the app removes such labelers before it counts, and at_mcp does not, so unsubscribe_labeler them, or another, first"
+          end
+
+        {:error,
+         {:invalid_argument, "actor",
+          "this account has #{length(labelers)} labelers, #{AtMcp.Network.label()}'s own included, and the app allows #{max}; #{why}"}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp labeler_room(_session, _preferences, _did, false), do: :ok
+
+  defp gone_labelers(session, dids) do
+    dids
+    |> Enum.uniq()
+    |> Enum.chunk_every(AtMcp.Effects.max_batch())
+    |> Enum.reduce_while({:ok, []}, fn batch, {:ok, gone} ->
+      case AtMcp.ATProto.get_profiles(session, batch) do
+        {:ok, response} ->
+          profiles = List.wrap(field(response, :profiles))
+
+          labelers =
+            for profile <- profiles,
+                not (is_map(field(profile, :associated)) and
+                       AtMcp.Response.dig(profile, [:associated, :labeler]) != true),
+                do: string_value(profile, :did)
+
+          {:cont, {:ok, gone ++ Enum.reject(batch, &(&1 in labelers))}}
+
+        {:error, reason} ->
+          {:halt, {:error, failure(reason)}}
+      end
+    end)
+  end
+
+  # The four labels of the app's moderation screen show only while adult
+  # content is on (social-app src/screens/Moderation/index.tsx at 485405a).
+  defp adult_labels_shown(preferences, _label, nil) do
+    if AtMcp.Preferences.kind_view(preferences, "adult_content").enabled,
+      do: :ok,
+      else:
+        {:error,
+         {:invalid_argument, "label",
+          "the app shows these settings only while adult content is on, and it is off for this account (set_preference kind adult_content)"}}
+  end
+
+  defp adult_labels_shown(_preferences, _label, _labeler), do: :ok
+
+  @global_defaults %{
+    "porn" => "hide",
+    "sexual" => "warn",
+    "graphic-media" => "warn",
+    "nudity" => "ignore"
+  }
+
+  defp label_default(_session, _preferences, label, nil, _visibility),
+    do: {:ok, Map.fetch!(@global_defaults, label), nil}
+
+  # A labeler's own label is set on its page in the app, for a labeler the
+  # account takes labels from, when the page lists it as the labeler's own
+  # (`AtMcp.Moderation.labeler_labels/1`); `warn` only when the label blurs or
+  # warns at all, and an adult-only label only while adult content is on
+  # (`LabelerLabelPreference` in social-app's
+  # src/components/moderation/LabelPreference.tsx).
+  defp label_default(session, preferences, label, labeler, visibility) do
+    with :ok <-
+           if(labeler in AtMcp.Moderation.labelers(preferences),
+             do: :ok,
+             else:
+               {:error,
+                {:invalid_argument, "labeler",
+                 "this account does not subscribe to #{labeler}; the app reads label settings only for the labelers an account takes labels from"}}
+           ),
+         {:ok, view} <- labeler_view(session, labeler, "labeler") do
+      labels = AtMcp.Moderation.labeler_labels(view)
+      adult? = AtMcp.Preferences.kind_view(preferences, "adult_content").enabled
+
+      own =
+        for {:custom, definition} <- labels, do: definition["identifier"]
+
+      definition =
+        Enum.find_value(labels, fn
+          {:custom, %{"identifier" => ^label} = definition} -> definition
+          _ -> nil
+        end)
+
+      cond do
+        {:global, label} in labels ->
+          {:error,
+           {:invalid_argument, "label",
+            "#{label} is one of the app's adult content filters, which apply to every labeler's labels; set it without labeler"}}
+
+        is_nil(definition) ->
+          {:error,
+           {:invalid_argument, "label",
+            "the app lists no label #{label} of #{labeler}'s to set; it lists #{own |> Enum.join(", ") |> blank_none()}"}}
+
+        definition["adultOnly"] == true and not adult? ->
+          {:error,
+           {:invalid_argument, "label",
+            "#{label} is adult content, and the app shows its setting only while adult content is on"}}
+
+        visibility == "warn" and not AtMcp.Moderation.can_warn?(definition) ->
+          {:error,
+           {:invalid_argument, "visibility",
+            "#{label} neither blurs nor warns, so the app offers show or hide for it"}}
+
+        true ->
+          {:ok, AtMcp.Moderation.default_setting(definition), definition}
+      end
+    end
+  end
+
+  defp blank_none(""), do: "none"
+  defp blank_none(text), do: text
+
+  @doc """
+  Read a moderation list mute: the list (in DID form) for its purpose and
+  whether this account mutes it now. A mute of a list that is not a
+  moderation list is refused, as the app offers none.
+  """
+  @impl true
+  def prepare_list_mute(session, {verb, uri}) do
+    with {:ok, list} <- viewed_list(session, uri, "uri"),
+         :ok <- if(verb == :mute_list, do: moderation_list(list, "mute"), else: :ok) do
+      {:ok,
+       %{
+         verb: verb,
+         list: string_value(list, :uri) || uri,
+         result: %{
+           ok: true,
+           action: verb,
+           list: string_value(list, :uri) || uri,
+           name: string_value(list, :name),
+           previous: AtMcp.Response.dig(list, [:viewer, :muted]) == true
+         }
+       }}
+    end
+  end
+
+  # Sent whatever the list's view said: the AppView keeps a list mute by its
+  # URI and applies a repeated mute or unmute as nothing, and its view can lag
+  # one just made.
+  @impl true
+  def mute_list(session, %{verb: verb, list: list, result: result}) do
+    call =
+      if verb == :mute_list,
+        do: &AtMcp.ATProto.mute_actor_list/2,
+        else: &AtMcp.ATProto.unmute_actor_list/2
+
+    case call.(session, %{list: list}) do
+      {:ok, _} ->
+        {:ok,
+         Map.merge(result, %{
+           muted: verb == :mute_list,
+           note:
+             "Mutes are private to the account. #{if verb == :mute_list, do: "unmute_list", else: "mute_list"} with this list undoes it."
+         })}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_moderation_lists(session, kind, opts) do
+    read =
+      if kind == "muted",
+        do: &AtMcp.ATProto.get_list_mutes/2,
+        else: &AtMcp.ATProto.get_list_blocks/2
+
+    session
+    |> read.(paging(opts, %{}))
+    |> read(:lists, &list_view/1)
+  end
+
+  @doc """
+  Labelers in detail, with this account's settings for each: whether it
+  subscribes, and for each label the labeler defines, what the app does with
+  it. Nil reads the labelers this account takes labels from.
+  """
+  @impl true
+  def get_labelers(session, dids) do
+    with {:ok, preferences} <- stored_preferences(session) do
+      dids = dids || AtMcp.Moderation.labelers(preferences)
+
+      with {:ok, views} <- if(dids == [], do: {:ok, []}, else: labeler_views(session, dids)) do
+        {global, by_labeler} = AtMcp.Moderation.label_settings(preferences)
+        subscribed = AtMcp.Moderation.subscribed(preferences)
+        adult? = AtMcp.Preferences.kind_view(preferences, "adult_content").enabled
+        found = Enum.map(views, &get_in(&1, ["creator", "did"]))
+
+        {:ok,
+         %{
+           count: length(views),
+           items: Enum.map(views, &labeler_summary(&1, by_labeler, subscribed, global, adult?)),
+           missing: Enum.reject(dids, &(&1 in found))
+         }}
+      end
+    end
+  end
+
+  defp labeler_summary(view, by_labeler, subscribed, global, adult?) do
+    did = get_in(view, ["creator", "did"])
+    settings = Map.get(by_labeler, did)
+
+    %{
+      did: did,
+      handle: get_in(view, ["creator", "handle"]),
+      display_name: get_in(view, ["creator", "displayName"]),
+      uri: view["uri"],
+      cid: view["cid"],
+      like_count: view["likeCount"],
+      like: get_in(view, ["viewer", "like"]),
+      built_in: did in AtMcp.Moderation.app_labelers(),
+      subscribed: did in subscribed,
+      label_values: List.wrap(get_in(view, ["policies", "labelValues"])),
+      labels:
+        for label <- AtMcp.Moderation.labeler_labels(view) do
+          case label do
+            {:custom, definition} ->
+              strings = locale_strings(definition["locales"])
+              default = AtMcp.Moderation.default_setting(definition)
+
+              %{
+                identifier: definition["identifier"],
+                name: strings["name"],
+                description: strings["description"],
+                severity: definition["severity"],
+                blurs: definition["blurs"],
+                global: false,
+                default: AtMcp.Moderation.shown_setting(default, definition, true),
+                adult_only: definition["adultOnly"] == true,
+                setting:
+                  if(settings,
+                    do:
+                      AtMcp.Moderation.shown_setting(
+                        Map.get(settings, definition["identifier"], default),
+                        definition,
+                        adult?
+                      )
+                  )
+              }
+
+            {:global, value} ->
+              # One of the app's adult content filters, set for every labeler
+              # in its moderation screen; the app hides it while adult
+              # content is off.
+              %{
+                identifier: value,
+                global: true,
+                adult_only: true,
+                setting:
+                  if(adult?,
+                    do: AtMcp.Moderation.visibility_word(Map.get(global, value, "warn")),
+                    else: "hide"
+                  )
+              }
+          end
+        end,
+      reason_types: view["reasonTypes"],
+      subject_types: view["subjectTypes"],
+      subject_collections: view["subjectCollections"]
+    }
+  end
+
+  # A label's name and description in English, or the first language given.
+  defp locale_strings(locales) when is_list(locales) do
+    locales = Enum.filter(locales, &is_map/1)
+    Enum.find(locales, &(&1["lang"] == "en")) || List.first(locales) || %{}
+  end
+
+  defp locale_strings(_locales), do: %{}
 
   # --- live status ---
 

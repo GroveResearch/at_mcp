@@ -360,7 +360,7 @@ defmodule AtMcp.MCP.Tools do
   model reads is `AtMcp.Reading`'s `reading` of it (`:posts`, `:notifications`,
   `:thread`, `:chain`, `:profile`, `:profiles`, `:list`, `:lists`,
   `:starter_pack`, `:starter_packs`, `:feeds`, `:trends`, `:invite_codes`,
-  `:preferences` or `:notification_settings`)
+  `:preferences`, `:notification_settings` or `:labelers`)
   instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """
