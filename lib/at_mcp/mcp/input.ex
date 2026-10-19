@@ -29,6 +29,25 @@ defmodule AtMcp.MCP.Input do
     end
   end
 
+  @doc """
+  Load the JSON Schema validator's modules now, before any deadline counts.
+
+  `SchemaPolicy.validate/3` runs each check under a wall-clock deadline
+  (100 ms by default). The check itself takes microseconds, but the validator
+  loads one module per schema keyword the first time that keyword is checked.
+  In interactive code loading (`mix run`, `mix test`) that load happens inside
+  the deadline, and on a loaded machine it can miss it: a correct call is then
+  refused as `input_validation_unavailable`, or a correct result logged as
+  unvalidated. A release boots in embedded mode, which loads every module at
+  start, so it never paid this. Loading them at application start makes every
+  mode behave like a release. Retires when ExMCP's deadline no longer counts
+  code loading.
+  """
+  def load_validator do
+    {:ok, modules} = :application.get_key(:ex_json_schema, :modules)
+    Code.ensure_all_loaded!(modules)
+  end
+
   # Direct Elixir callers may use atom keys, but values must retain their
   # types: accepting an atom as a string here would pass an unchecked value
   # to the handler, which receives the original arguments.
