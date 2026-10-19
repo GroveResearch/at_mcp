@@ -899,8 +899,12 @@ defmodule AtMcp.MCP.Server do
     param(:name, :string, required: true, description: "The pack's name, up to 50 characters")
     param(:description, :string, description: "What the pack is for, up to 300 characters")
 
-    param(:actors, {:array, :string},
-      description: "Handles or DIDs of the accounts in it. add_to_list adds more later."
+    param(
+      :actors,
+      {:array, :string},
+      AtMcp.MCP.Schemas.pack_actors(
+        "Handles or DIDs of the accounts in it. add_to_list adds more later"
+      )
     )
 
     param(:feeds, {:array, :string},

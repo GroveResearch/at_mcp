@@ -57,6 +57,19 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `actors` parameter of `create_starter_pack`, stating how many accounts
+  one commit makes a pack with (`AtMcp.Effects.max_pack_actors/0`).
+  """
+  defmacro pack_actors(description) do
+    max = AtMcp.Effects.max_pack_actors()
+
+    Macro.escape(
+      description: "#{description}; at most #{max}",
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc """
   A tool description with the limits it names filled in from their
   declarations: `{batch}` is the batch range, `{thread}` the shape
   `get_thread` reads.

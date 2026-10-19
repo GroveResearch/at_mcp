@@ -863,10 +863,12 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  # A starter pack, its list and the list's items are made in one
-  # `applyWrites`, so the accounts it can hold at once are that commit's writes
-  # less the two records that are not items.
-  defp max_pack_actors, do: AtMcp.ATProto.max_writes() - 2
+  @doc """
+  The most accounts `create_starter_pack` takes. A starter pack, its list and
+  the list's items are made in one `applyWrites`, so this is that commit's
+  writes less the two records that are not items.
+  """
+  def max_pack_actors, do: AtMcp.ATProto.max_writes() - 2
 
   defp list_purpose(purpose) do
     case Map.fetch(@list_purposes, purpose) do
