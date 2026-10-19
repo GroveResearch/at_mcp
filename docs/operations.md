@@ -1221,9 +1221,20 @@ requires both exact-version tarballs and their checksum files; a partial
 platform build does not create or replace a release. Once the GitHub release
 is published, CI writes the version into the package's `VERSION` file and
 publishes the package and its docs to Hex with `mix hex.publish`, using the
-`HEX_API_KEY` secret in the repository's `hex` environment. A tag that was
-refused, or whose run failed, publishes nothing; delete it
-(`git push origin :refs/tags/v0.3.0`) and tag again.
+`HEX_API_KEY` secret in the repository's `hex` environment.
+
+When a tag's run does not finish:
+
+- Refused, or failed before `publish`: nothing was published. Delete the tag
+  (`git push origin :refs/tags/v0.3.0`) and tag again.
+- `publish` succeeded and `hex` failed: re-run the failed `hex` job
+  (`gh run rerun RUN --failed`); the GitHub release stands.
+- Never reuse a version that reached the GitHub release or Hex: a server may
+  have fetched it, and Hex keeps it. Fix on main and tag the next patch.
+
+The tag check also refuses a version that is not the next patch, minor or
+major after the newest release tag (after v0.2.11: v0.2.12, v0.3.0 or
+v1.0.0), so a typo cannot publish.
 
 Upgrade notes are not a release step. A pull request that changes what an
 upgrade needs, or what an operator sees, adds its note under

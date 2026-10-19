@@ -11,9 +11,12 @@
 #
 # With --from-green-main, a tag is refused unless its commit (GITHUB_SHA) is
 # on main and a run of the `check` workflow passed for it in the merge queue
-# or on main, so only a commit that passed everything is released. That asks
-# GitHub (gh, with GH_TOKEN and GITHUB_REPOSITORY; the token needs
-# `actions: read`).
+# or on main, so only a commit that passed everything is released, and unless
+# its version is the next patch, minor or major after the newest other
+# `vX.Y.Z` tag (after v0.2.11: v0.2.12, v0.3.0 or v1.0.0). A published version
+# cannot really be taken back (Hex keeps it, a server may have fetched it), so
+# a typo such as v0.2.21 or v0.21.0 stops here. That asks GitHub (gh, with
+# GH_TOKEN and GITHUB_REPOSITORY; the token needs `actions: read`).
 set -euo pipefail
 
 if [ "${GITHUB_REF_TYPE:-}" != tag ]; then
@@ -30,6 +33,24 @@ version=${tag#v}
 if [ "${1:-}" = --from-green-main ]; then
   sha=${GITHUB_SHA:?GITHUB_SHA is not set}
   repo=${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is not set}
+
+  # The newest release tag other than this one; none before the first.
+  newest=$(gh api "repos/$repo/tags" --paginate --jq '.[].name' |
+    grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | grep -v -x -F "$tag" |
+    sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 || true)
+  if [ -n "$newest" ]; then
+    IFS=. read -r major minor patch <<<"$newest"
+    next_patch="$major.$minor.$((patch + 1))"
+    next_minor="$major.$((minor + 1)).0"
+    next_major="$((major + 1)).0.0"
+    case "$version" in
+      "$next_patch" | "$next_minor" | "$next_major") ;;
+      *)
+        echo "$tag does not follow v$newest, the newest release tag: the next is v$next_patch, v$next_minor or v$next_major" >&2
+        exit 1
+        ;;
+    esac
+  fi
 
   # `behind` or `identical`: the commit is main or an ancestor of it.
   status=$(gh api "repos/$repo/compare/main...$sha" --jq .status)
