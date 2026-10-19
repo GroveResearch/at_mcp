@@ -2,6 +2,7 @@
 
     python3 scripts/record_appview_fixtures.py OUT_DIR ACTOR GATED_POST_URI
     python3 scripts/record_appview_fixtures.py OUT_DIR --lists QUERY
+    python3 scripts/record_appview_fixtures.py OUT_DIR --discovery
 
 ACTOR is a public account with reposts, a pinned post, replies and varied
 embeds in its recent posts; GATED_POST_URI is a post of it with a threadgate.
@@ -19,6 +20,10 @@ QUERY's starter packs, the pack among them recommending the most feeds, its
 creator's packs and its list, and the curation lists of the first creator in
 the results who has any.
 
+With --discovery, it records what the app's Explore page reads: one suggested
+feed as `feed.getFeedGenerator` describes it, trends, trending topics, and
+suggested starter packs.
+
 Every string is replaced unless its key is in KEEP, a short list of keys whose
 values are enumerations from the lexicon rather than content. A key the
 lexicon adds later is therefore scrubbed until someone decides otherwise.
@@ -32,9 +37,10 @@ import datetime, hashlib, json, os, re, secrets, sys, urllib.parse, urllib.reque
 
 out = sys.argv[1]
 LISTS = sys.argv[2] == "--lists"
+DISCOVERY = sys.argv[2] == "--discovery"
 if LISTS:
     QUERY = sys.argv[3]
-else:
+elif not DISCOVERY:
     ACTOR, GATED = sys.argv[2], sys.argv[3]
 os.makedirs(out, exist_ok=True)
 APPVIEW = "https://public.api.bsky.app/xrpc/"
@@ -208,4 +214,23 @@ def record_posts():
     write("feeds.json", fetch("app.bsky.feed.getSuggestedFeeds", limit=3))
 
 
-record_lists() if LISTS else record_posts()
+def record_discovery():
+    feeds = fetch("app.bsky.unspecced.getSuggestedFeeds", limit=25)["feeds"]
+    # The feed whose view carries the most fields, so the fewest are missing.
+    feed = max(feeds, key=lambda f: len(leaves(f)))
+    write("feed_generator.json", fetch("app.bsky.feed.getFeedGenerator", feed=feed["uri"]))
+    trends = fetch("app.bsky.unspecced.getTrends", limit=25)
+    write("trends.json", {"trends": cover(trends["trends"])})
+    topics = fetch("app.bsky.unspecced.getTrendingTopics", limit=25)
+    write("trending_topics.json",
+          {"topics": cover(topics["topics"]), "suggested": cover(topics["suggested"])})
+    packs = fetch("app.bsky.unspecced.getSuggestedStarterPacks", limit=25)["starterPacks"]
+    write("suggested_starter_packs.json", {"starterPacks": cover(packs)})
+
+
+if LISTS:
+    record_lists()
+elif DISCOVERY:
+    record_discovery()
+else:
+    record_posts()

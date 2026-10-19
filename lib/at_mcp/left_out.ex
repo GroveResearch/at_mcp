@@ -85,13 +85,20 @@ defmodule AtMcp.LeftOut do
     {"createdAt", {:todo, @profile_todo}},
     {"**.associated", {:todo, @profile_todo}},
     {"**.verification", {:todo, @profile_todo}},
-    {"**.status", {:todo, @profile_todo}},
+    {"**.status.*", {:todo, @profile_todo}},
     {"**.author.createdAt", {:todo, @profile_todo}},
     {"**.actor.createdAt", {:todo, @profile_todo}},
     {"**.creator.createdAt", {:todo, @profile_todo}},
     {"feeds[].creator.displayName", {:todo, @profile_todo}},
+    {"view.creator.displayName", {:todo, @profile_todo}},
+    {"view.creator.description", {:todo, @profile_todo}},
     {"feeds[].creator.description", {:todo, @profile_todo}},
-    {"feeds[].acceptsInteractions", {:todo, @profile_todo}},
+
+    # The accounts posting about a trend.
+    {"trends[].actors[].createdAt", {:todo, @profile_todo}},
+    {"trends[].actors[].pronouns", {:todo, @profile_todo}},
+    {"trends[].actors[].labels",
+     "Labels on an account posting about a trend; get_profile reads them"},
 
     # Lists and starter packs.
     {"list.creator.description", {:todo, @profile_todo}},

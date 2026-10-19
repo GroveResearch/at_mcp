@@ -400,12 +400,50 @@ defmodule AtMcp.Effects do
     end
   end
 
-  def search_posts(effects, query, opts \\ []) when is_binary(query) do
-    with {:ok, opts} <- search_post_options(opts) do
+  @doc """
+  Search posts (`feed.searchPostsV2`). `query` may be nil when a filter
+  narrows the search instead; `search_filters/0` names the filters. A post
+  named by a handle-form AT URI in `:reply_to`, `:thread_root`, `:embeds` or
+  `:exclude_embeds` is searched for by its DID form, which is how the service
+  indexes it.
+  """
+  def search_posts(effects, query, opts \\ []) when is_binary(query) or is_nil(query) do
+    query = present(query)
+
+    with {:ok, opts} <- search_post_options(opts),
+         :ok <- query_or_filter(query, opts) do
       with_session(effects, fn backend, session ->
-        backend.search_posts(session, query, opts)
+        with {:ok, opts} <- search_uris(backend, session, opts),
+             do: backend.search_posts(session, query, opts)
       end)
     end
+  end
+
+  defp query_or_filter(nil, opts) do
+    if Enum.any?(opts, fn {key, _} -> key not in [:limit, :cursor, :sort] end),
+      do: :ok,
+      else: invalid("query", "give a query, or at least one filter to search by")
+  end
+
+  defp query_or_filter(_query, _opts), do: :ok
+
+  defp search_uris(backend, session, opts) do
+    Enum.reduce_while(opts, {:ok, []}, fn
+      {key, uri}, {:ok, acc} when key in [:reply_to, :thread_root] ->
+        case did_uri(backend, session, uri) do
+          {:ok, uri} -> {:cont, {:ok, acc ++ [{key, uri}]}}
+          error -> {:halt, error}
+        end
+
+      {key, uris}, {:ok, acc} when key in [:embeds, :exclude_embeds] ->
+        case did_uris(backend, session, uris) do
+          {:ok, uris} -> {:cont, {:ok, acc ++ [{key, uris}]}}
+          error -> {:halt, error}
+        end
+
+      pair, {:ok, acc} ->
+        {:cont, {:ok, acc ++ [pair]}}
+    end)
   end
 
   def search_actors(effects, query, opts \\ []) when is_binary(query) do
@@ -436,10 +474,87 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  def get_suggested_follows(effects, actor) when is_binary(actor) do
-    with_session(effects, fn backend, session ->
-      backend.get_suggested_follows(session, actor)
-    end)
+  # Where the app suggests accounts without a subject, and the method each
+  # place calls: `{suffix, what else it takes}`. The app's Explore page is the
+  # default. `browse` is `actor.getSuggestions`, the one that pages.
+  @suggestion_contexts %{
+    "explore" => {"unspecced.getSuggestedUsersForExplore", :category},
+    "discover" => {"unspecced.getSuggestedUsersForDiscover", nil},
+    "see_more" => {"unspecced.getSuggestedUsersForSeeMore", :category},
+    "onboarding" => {"unspecced.getSuggestedOnboardingUsers", :category},
+    "general" => {"unspecced.getSuggestedUsers", :category},
+    "browse" => {"actor.getSuggestions", :cursor}
+  }
+
+  @doc "The contexts `get_suggested_follows/3` takes without an actor."
+  def suggestion_contexts, do: @suggestion_contexts |> Map.keys() |> Enum.sort()
+
+  @doc """
+  Accounts the service suggests. With `actor`, accounts like that one
+  (`graph.getSuggestedFollowsByActor`). Without, the suggestions of one place
+  in the app, `:context` (`suggestion_contexts/0`, `explore` when absent),
+  with `:category` where that place takes one and `:limit`; `browse` pages
+  with `:cursor`.
+  """
+  def get_suggested_follows(effects, actor, opts \\ [])
+
+  def get_suggested_follows(effects, actor, opts) when is_binary(actor) do
+    # `limit` is not among them: the tool fills in its default, and the
+    # service decides how many accounts like this one it returns.
+    case for(key <- [:context, :category, :cursor], present?(opts[key]), do: key) do
+      [] ->
+        with_session(effects, fn backend, session ->
+          backend.get_suggested_follows(session, actor)
+        end)
+
+      [key | _] ->
+        invalid(
+          Atom.to_string(key),
+          "with actor, the suggestions are the service's accounts like that one, and it takes no #{key}; leave it out, or leave actor out"
+        )
+    end
+  end
+
+  def get_suggested_follows(effects, nil, opts) do
+    context = present(opts[:context]) || "explore"
+    category = present(opts[:category])
+
+    with {:ok, {suffix, takes}} <- suggestion_context(context),
+         :ok <- served(suffix),
+         :ok <-
+           only_with(category, takes == :category, "category", "#{context} takes no category"),
+         :ok <-
+           only_with(opts[:cursor], takes == :cursor, "cursor", "only browse is read in pages") do
+      paged(effects, Keyword.take(opts, [:limit, :cursor]), fn backend, session, page ->
+        backend.get_suggested_accounts(session, suffix, Keyword.put(page, :category, category))
+      end)
+    end
+  end
+
+  defp suggestion_context(context) do
+    case Map.fetch(@suggestion_contexts, context) do
+      {:ok, found} -> {:ok, found}
+      :error -> invalid("context", "must be one of #{Enum.join(suggestion_contexts(), ", ")}")
+    end
+  end
+
+  defp only_with(value, allowed?, field, why) do
+    if present?(value) and not allowed?, do: invalid(field, why), else: :ok
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
+
+  @doc """
+  Whether this network's deployment serves the method `suffix` names, before
+  anything is sent: `:ok`, or `{:error, {:not_served, nsid, evidence}}` with
+  `AtMcp.Endpoints.deployments/0`'s evidence.
+  """
+  def served(suffix) do
+    case AtMcp.Endpoints.not_served(AtMcp.Network.name(), "app.bsky." <> suffix) do
+      nil -> :ok
+      evidence -> {:error, {:not_served, AtMcp.Network.nsid(suffix), evidence}}
+    end
   end
 
   def get_blocks(effects, opts \\ []) do
@@ -485,12 +600,172 @@ defmodule AtMcp.Effects do
   # --- feeds other than the home timeline ---
 
   def get_feed(effects, feed, opts \\ []) when is_binary(feed) do
-    paged(effects, opts, fn backend, session, opts -> backend.get_feed(session, feed, opts) end)
+    paged(effects, opts, fn backend, session, opts ->
+      with {:ok, feed} <- did_uri(backend, session, feed),
+           do: backend.get_feed(session, feed, opts)
+    end)
   end
 
+  @doc """
+  Feeds the service suggests. `:source` `"default"` (or absent) reads
+  `feed.getSuggestedFeeds`, which pages; `"unspecced"` reads the newer
+  suggestion service, `unspecced.getSuggestedFeeds`, which takes at most 25
+  and no cursor.
+  """
   def get_suggested_feeds(effects, opts \\ []) do
-    paged(effects, opts, fn backend, session, opts ->
-      backend.get_suggested_feeds(session, opts)
+    case present(opts[:source]) || "default" do
+      "default" ->
+        paged(effects, Keyword.take(opts, [:limit, :cursor]), fn backend, session, page ->
+          backend.get_suggested_feeds(session, page)
+        end)
+
+      "unspecced" ->
+        with :ok <- served("unspecced.getSuggestedFeeds"),
+             :ok <- only_with(opts[:cursor], false, "cursor", "the unspecced source is one page"),
+             :ok <- at_most(opts[:limit]) do
+          paged(effects, Keyword.take(opts, [:limit]), fn backend, session, page ->
+            backend.get_suggested_feeds(session, Keyword.put(page, :source, :unspecced))
+          end)
+        end
+
+      _other ->
+        invalid("source", "must be default or unspecced")
+    end
+  end
+
+  # The unspecced suggestion and trend methods take at most 25 (their
+  # lexicons' `maximum`), fewer than AtMcp's own page limit.
+  @short_page_max 25
+
+  @doc "The most one page of the unspecced suggestion and trend reads holds."
+  def short_page_max, do: @short_page_max
+
+  defp at_most(limit), do: at_most(limit, @short_page_max)
+
+  defp at_most(nil, _max), do: :ok
+  defp at_most(limit, max) when is_integer(limit) and limit <= max, do: :ok
+
+  defp at_most(limit, max) when is_integer(limit),
+    do: invalid("limit", "this read takes at most #{max}; this is #{limit}")
+
+  defp at_most(_limit, _max), do: :ok
+
+  @doc """
+  What the service knows about one or more feeds, by AT URI. One feed is read
+  with `feed.getFeedGenerator`, which also says whether its service is online
+  and valid; several are read together with `feed.getFeedGenerators`, which
+  does not say. A feed named with a handle is asked for in its DID form.
+  """
+  def get_feed_info(effects, uris) when is_list(uris) do
+    with :ok <- validate_batch(uris),
+         :ok <- each_record(uris, "uris", [:generator], "a feed generator") do
+      with_session(effects, fn backend, session ->
+        with {:ok, uris} <- did_uris(backend, session, uris),
+             do: backend.get_feed_info(session, Enum.uniq(uris))
+      end)
+    end
+  end
+
+  @doc "The feeds an account made."
+  def get_actor_feeds(effects, actor, opts \\ []) when is_binary(actor) do
+    paged(effects, opts, fn backend, session, page ->
+      backend.get_actor_feeds(session, actor, page)
+    end)
+  end
+
+  @doc """
+  Feeds whose name or description matches `query`, most popular first, or the
+  most popular feeds when `query` is nil, as the app's feed search shows them.
+  """
+  def search_feeds(effects, query, opts \\ []) do
+    paged(effects, opts, fn backend, session, page ->
+      backend.search_feeds(session, present(query), page)
+    end)
+  end
+
+  @starter_pack_contexts %{
+    "default" => "unspecced.getSuggestedStarterPacks",
+    "onboarding" => "unspecced.getOnboardingSuggestedStarterPacks"
+  }
+
+  @doc """
+  Starter packs the service suggests: `:context` `"default"` (or absent), or
+  `"onboarding"`, those it suggests to a new account. At most 25.
+  """
+  def get_suggested_starter_packs(effects, opts \\ []) do
+    case Map.fetch(@starter_pack_contexts, present(opts[:context]) || "default") do
+      {:ok, suffix} ->
+        with :ok <- served(suffix), :ok <- at_most(opts[:limit]) do
+          paged(effects, Keyword.take(opts, [:limit]), fn backend, session, page ->
+            backend.get_suggested_starter_packs(session, suffix, page)
+          end)
+        end
+
+      :error ->
+        invalid("context", "must be default or onboarding")
+    end
+  end
+
+  @trend_kinds %{"trends" => "unspecced.getTrends", "topics" => "unspecced.getTrendingTopics"}
+
+  @doc """
+  What is trending: `kind` `"trends"` (`unspecced.getTrends`: each trend with
+  when it started, how many posts and some of the accounts posting), or
+  `"topics"` (`unspecced.getTrendingTopics`: topics, and topics suggested
+  beside them). At most 25.
+  """
+  def get_trends(effects, kind, opts \\ []) do
+    case Map.fetch(@trend_kinds, kind || "trends") do
+      {:ok, suffix} ->
+        with :ok <- served(suffix), :ok <- at_most(opts[:limit]) do
+          paged(effects, Keyword.take(opts, [:limit]), fn backend, session, page ->
+            backend.get_trends(session, suffix, page)
+          end)
+        end
+
+      :error ->
+        invalid("kind", "must be trends or topics")
+    end
+  end
+
+  @doc """
+  One record, exactly as its repository holds it: `%{uri, cid, value}`. Any
+  collection, any account.
+  """
+  def get_record(effects, uri) when is_binary(uri) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {_repo, _collection, rkey}} when rkey not in [nil, ""] ->
+        with_session(effects, fn backend, session -> backend.get_record(session, uri) end)
+
+      _ ->
+        invalid("uri", "must be an AT URI of the form at://<handle or DID>/<collection>/<rkey>")
+    end
+  end
+
+  @doc """
+  This account's invitation codes on delve.town, as the town's app lists them:
+  used ones too, and, as the app does when it opens the list, any codes the
+  account has earned since are issued first.
+  """
+  def get_invite_codes(effects) do
+    with_session(effects, fn backend, session -> backend.get_invite_codes(session) end)
+  end
+
+  defp each_record(uris, field, kinds, what) do
+    Enum.reduce_while(uris, :ok, fn uri, :ok ->
+      case record_argument(uri, field, kinds, what) do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp did_uris(backend, session, uris) do
+    Enum.reduce_while(uris, {:ok, []}, fn uri, {:ok, acc} ->
+      case did_uri(backend, session, uri) do
+        {:ok, uri} -> {:cont, {:ok, acc ++ [uri]}}
+        error -> {:halt, error}
+      end
     end)
   end
 
@@ -2245,22 +2520,68 @@ defmodule AtMcp.Effects do
     end
   end
 
-  # Optional search_posts filters. `sort` is latest or top; the rest are
-  # strings the service already accepts. Empty strings are treated as omitted
-  # so a model that sends `author: ""` does not send `author=` on the wire.
-  # Checked here so a bad sort or a non-string filter costs no session.
+  # Optional search_posts filters. `sort` is latest or top, and the other
+  # strings are what the service takes. Empty strings and lists are treated as
+  # omitted, so a model that sends `author: ""` does not send `authors=` on
+  # the wire, and a boolean filter that is false is one not asked for. Checked
+  # here, so a bad filter costs no session.
   @search_sorts ["latest", "top"]
   @search_filters [:author, :mentions, :sort, :since, :until, :lang]
+  @search_strings [:reply_to, :thread_root, :query_language]
+  @search_lists [
+    :exclude_authors,
+    :exclude_mentions,
+    :domains,
+    :exclude_domains,
+    :urls,
+    :exclude_urls,
+    :embeds,
+    :exclude_embeds,
+    :hashtags,
+    :exclude_hashtags,
+    :exclude_langs
+  ]
+  @search_booleans [:all_time, :has_media, :has_video, :following]
+
+  # A hashtag filter entry, as `feed.searchPostsV2` bounds it.
+  @hashtag_limits %{graphemes: 64, bytes: 640}
+
+  @doc "Every search_posts filter `search_posts/3` takes, beside `query`, `limit` and `cursor`."
+  def search_filters,
+    do: @search_filters ++ @search_strings ++ @search_lists ++ @search_booleans ++ [:replies]
+
+  @doc false
+  def hashtag_limits, do: @hashtag_limits
 
   defp search_post_options(opts) do
     opts =
       opts
-      |> Keyword.take([:limit, :cursor | @search_filters])
-      |> Enum.reject(fn {key, value} -> key in @search_filters and blank_search?(value) end)
+      |> Keyword.take([:limit, :cursor | search_filters()])
+      |> Enum.map(fn
+        {key, list} when key in @search_lists and is_list(list) ->
+          {key, Enum.reject(list, &blank_search?/1)}
+
+        pair ->
+          pair
+      end)
+      |> Enum.reject(fn {key, value} ->
+        key in search_filters() and (blank_search?(value) or value == [] or value == false)
+      end)
 
     with :ok <- validate_search_sort(Keyword.get(opts, :sort)),
-         :ok <- validate_search_strings(opts) do
-      page_options(opts)
+         :ok <- validate_search_strings(opts),
+         :ok <- validate_search_lists(opts),
+         :ok <- validate_search_booleans(opts),
+         :ok <- validate_replies(Keyword.get(opts, :replies)) do
+      opts
+      |> Enum.map(fn
+        {key, tags} when key in [:hashtags, :exclude_hashtags] ->
+          {key, Enum.map(tags, &String.replace_prefix(String.trim(&1), "#", ""))}
+
+        pair ->
+          pair
+      end)
+      |> page_options()
     end
   end
 
@@ -2274,14 +2595,69 @@ defmodule AtMcp.Effects do
   defp validate_search_sort(_), do: {:error, :invalid_search_sort}
 
   defp validate_search_strings(opts) do
-    Enum.reduce_while(@search_filters -- [:sort], :ok, fn key, :ok ->
+    with :ok <- strings(opts, @search_filters -- [:sort], {:error, :invalid_search_filter}) do
+      Enum.reduce_while(@search_strings, :ok, fn key, :ok ->
+        case Keyword.get(opts, key) do
+          nil -> {:cont, :ok}
+          value when is_binary(value) -> {:cont, :ok}
+          _ -> {:halt, invalid(Atom.to_string(key), "must be a string")}
+        end
+      end)
+    end
+  end
+
+  defp strings(opts, keys, error) do
+    if Enum.all?(keys, &(is_nil(Keyword.get(opts, &1)) or is_binary(Keyword.get(opts, &1)))),
+      do: :ok,
+      else: error
+  end
+
+  defp validate_search_lists(opts) do
+    Enum.reduce_while(@search_lists, :ok, fn key, :ok ->
       case Keyword.get(opts, key) do
-        nil -> {:cont, :ok}
-        value when is_binary(value) -> {:cont, :ok}
-        _ -> {:halt, {:error, :invalid_search_filter}}
+        nil ->
+          {:cont, :ok}
+
+        list when is_list(list) ->
+          cond do
+            not Enum.all?(list, &is_binary/1) ->
+              {:halt, invalid(Atom.to_string(key), "must be a list of strings")}
+
+            key in [:hashtags, :exclude_hashtags] ->
+              case validate_hashtags(Atom.to_string(key), list) do
+                :ok -> {:cont, :ok}
+                error -> {:halt, error}
+              end
+
+            true ->
+              {:cont, :ok}
+          end
+
+        _ ->
+          {:halt, invalid(Atom.to_string(key), "must be a list of strings")}
       end
     end)
   end
+
+  defp validate_hashtags(field, tags) do
+    %{graphemes: graphemes, bytes: bytes} = @hashtag_limits
+
+    case Enum.find(tags, &(String.length(&1) > graphemes or byte_size(&1) > bytes)) do
+      nil -> :ok
+      tag -> invalid(field, "a hashtag may be at most #{graphemes} characters; #{tag} is longer")
+    end
+  end
+
+  defp validate_search_booleans(opts) do
+    case Enum.find(@search_booleans, &(Keyword.get(opts, &1) not in [nil, true, false])) do
+      nil -> :ok
+      key -> invalid(Atom.to_string(key), "must be true or false")
+    end
+  end
+
+  defp validate_replies(nil), do: :ok
+  defp validate_replies(replies) when replies in ["exclude", "only"], do: :ok
+  defp validate_replies(_), do: invalid("replies", "must be exclude or only")
 
   defp identity_matches?(%{expected_did: nil}, _session), do: true
 

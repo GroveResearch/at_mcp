@@ -22,6 +22,13 @@ curation lists (`lists.json`, `graph.getLists`). The query is not recorded.
 The reads that need an account (`getListsWithMembership`,
 `getStarterPacksWithMembership`) return the same views and are not recorded.
 
+What the app's Explore page reads is recorded with `--discovery`: one feed the
+newer suggestion service suggests, as `feed.getFeedGenerator` describes it
+(`feed_generator.json`), `unspecced.getTrends` (`trends.json`),
+`unspecced.getTrendingTopics` (`trending_topics.json`) and
+`unspecced.getSuggestedStarterPacks` (`suggested_starter_packs.json`), each
+cut to the fewest items that carry every field path.
+
 Every string is replaced except lexicon enumerations and type names: DIDs,
 record keys, CIDs, handles, URLs and text by salted same-shape stand-ins, and
 timestamps by one random shift. Integers are replaced too, except facet byte
@@ -33,3 +40,4 @@ so neither is covered here yet. Re-record when the lexicon grows:
 
     python3 scripts/record_appview_fixtures.py test/fixtures/appview ACTOR GATED_POST_URI
     python3 scripts/record_appview_fixtures.py test/fixtures/appview --lists QUERY
+    python3 scripts/record_appview_fixtures.py test/fixtures/appview --discovery

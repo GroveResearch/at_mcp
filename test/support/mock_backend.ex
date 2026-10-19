@@ -164,7 +164,8 @@ defmodule AtMcp.Test.MockBackend do
        since: Keyword.get(opts, :since),
        until: Keyword.get(opts, :until),
        lang: Keyword.get(opts, :lang),
-       limit: Keyword.get(opts, :limit, 20)
+       limit: Keyword.get(opts, :limit, 20),
+       filters: Map.new(Keyword.drop(opts, [:limit, :cursor]))
      }}
   end
 
@@ -233,6 +234,112 @@ defmodule AtMcp.Test.MockBackend do
   @impl true
   def get_list_feed(_state, list, opts), do: {:ok, post_page(list, opts)}
 
+  @impl true
+  def get_feed_info(_state, uris) do
+    items =
+      for uri <- uris do
+        "at://did:plc:mock/app.bsky.feed.generator/whats-hot"
+        |> generator_page([])
+        |> Map.fetch!(:items)
+        |> hd()
+        |> Map.merge(%{uri: uri, is_online: length(uris) == 1 || nil, is_valid: nil})
+      end
+
+    {:ok, %{count: length(items), items: items, cursor: nil, not_found: []}}
+  end
+
+  @impl true
+  def get_actor_feeds(_state, actor, opts),
+    do:
+      {:ok,
+       Map.put(generator_page("at://#{actor}/app.bsky.feed.generator/f", opts), :actor, actor)}
+
+  @impl true
+  def search_feeds(_state, query, opts),
+    do:
+      {:ok,
+       Map.put(
+         generator_page("at://did:plc:mock/app.bsky.feed.generator/cats", opts),
+         :query,
+         query
+       )}
+
+  @impl true
+  def get_suggested_accounts(_state, suffix, opts),
+    do:
+      {:ok,
+       "suggested.test"
+       |> actor_page(opts)
+       |> Map.merge(%{method: suffix, category: Keyword.get(opts, :category)})}
+
+  @impl true
+  def get_suggested_starter_packs(_state, suffix, _opts),
+    do:
+      {:ok,
+       %{
+         count: 1,
+         items: [mock_pack("at://did:plc:mock/app.bsky.graph.starterpack/p1")],
+         cursor: nil,
+         method: suffix
+       }}
+
+  @impl true
+  def get_trends(_state, suffix, _opts) do
+    trend = %{
+      topic: "kites",
+      display_name: "Kites",
+      description: "Kite season",
+      link: "/search?q=kites",
+      started_at: "2026-10-18T00:00:00Z",
+      post_count: 12,
+      status: "hot",
+      category: "sports",
+      actors: [%{did: "did:plc:alice", handle: "alice.test", display_name: "Alice"}]
+    }
+
+    page = %{count: 1, items: [trend], cursor: nil, method: suffix}
+
+    {:ok,
+     if(suffix == "unspecced.getTrendingTopics",
+       do: Map.put(page, :suggested, [trend]),
+       else: page
+     )}
+  end
+
+  @impl true
+  def get_record(_state, uri),
+    do:
+      {:ok,
+       %{
+         uri: uri,
+         cid: "bafyrecord",
+         value: %{
+           "$type" => "app.bsky.feed.post",
+           "text" => "hi",
+           "createdAt" => "2026-10-18T00:00:00Z"
+         }
+       }}
+
+  @impl true
+  def get_invite_codes(_state),
+    do:
+      {:ok,
+       %{
+         count: 1,
+         collection: "enabled",
+         items: [
+           %{
+             code: "town-abcde",
+             available: 1,
+             disabled: false,
+             for_account: "did:plc:mock",
+             created_by: "admin",
+             created_at: "2026-10-18T00:00:00Z",
+             uses: []
+           }
+         ]
+       }}
+
   @mock_list "at://did:plc:mock/app.bsky.graph.list/l1"
   @mock_pack "at://did:plc:mock/app.bsky.graph.starterpack/p1"
 
@@ -285,11 +392,25 @@ defmodule AtMcp.Test.MockBackend do
 
   @impl true
   def get_actor_starter_packs(_state, actor, _opts),
-    do: {:ok, %{count: 1, items: [mock_pack(@mock_pack)], cursor: nil, actor: actor}}
+    do:
+      {:ok,
+       %{
+         count: 1,
+         items: [mock_pack("at://did:plc:mock/app.bsky.graph.starterpack/p1")],
+         cursor: nil,
+         actor: actor
+       }}
 
   @impl true
   def search_starter_packs(_state, query, _opts),
-    do: {:ok, %{count: 1, items: [mock_pack(@mock_pack)], cursor: nil, query: query}}
+    do:
+      {:ok,
+       %{
+         count: 1,
+         items: [mock_pack("at://did:plc:mock/app.bsky.graph.starterpack/p1")],
+         cursor: nil,
+         query: query
+       }}
 
   @impl true
   def get_starter_packs_with_membership(_state, actor, _opts) do

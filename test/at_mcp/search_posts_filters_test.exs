@@ -86,16 +86,23 @@ defmodule AtMcp.SearchPostsFiltersTest do
     assert result.structuredContent["sort"] == "top"
   end
 
-  test "search_posts still requires only query" do
+  test "search_posts requires nothing: a query, a filter, or both" do
     {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
     tool = Enum.find(tools, &(&1.name == "search_posts"))
-    required = Enum.map(tool.inputSchema[:required] || [], &to_string/1)
-    assert required == ["query"]
+    assert (tool.inputSchema[:required] || []) == []
 
     for arg <- ["author", "mentions", "sort", "since", "until", "lang"] do
       assert Map.has_key?(tool.inputSchema[:properties], String.to_atom(arg)) or
                Map.has_key?(tool.inputSchema[:properties], arg),
              "#{arg} is not declared"
     end
+
+    {:ok, effects} = AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend)
+    assert {:ok, _} = AtMcp.Effects.login(effects)
+
+    assert {:error, {:invalid_argument, "query", _}} =
+             AtMcp.Effects.search_posts(effects, nil, sort: "top")
+
+    assert {:ok, %{query: nil}} = AtMcp.Effects.search_posts(effects, " ", hashtags: ["kites"])
   end
 end

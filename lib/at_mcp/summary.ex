@@ -235,6 +235,13 @@ defmodule AtMcp.Summary do
      "Display name"}
   ]
 
+  # An account as `actor.defs#profileViewBasic` names it.
+  @account_basic [
+    {:did, :string, [["did"]], "Account DID"},
+    {:handle, :string, [["handle"]], "Account handle"},
+    {:display_name, :string, [["display_name"], ["displayName"]], "Display name"}
+  ]
+
   # One post of a draft. Images a draft holds are files on the device that
   # wrote it, so only their alt text is anything an agent can read.
   @draft_post [
@@ -290,10 +297,56 @@ defmodule AtMcp.Summary do
         {:creator_did, :string, [["creator", "did"]], "Creator DID"},
         {:like_count, :integer, [["like_count"], ["likeCount"]],
          "How many accounts like this feed"},
+        {:accepts_interactions, :boolean, [["accepts_interactions"], ["acceptsInteractions"]],
+         "True when the feed takes feedback on what it shows (show more or less like a post)"},
+        {:labels, {:list, @label, :omit_null}, [["labels"]],
+         "Labels on the feed, as the service returned them"},
         {:indexed_at, :string, [["indexed_at"], ["indexedAt"]],
          "When the service indexed this generator, as an ISO 8601 timestamp"}
       ],
       viewer: [{:like, :record, ["like"], "The viewing account's like record AT URI"}]
+    },
+    # A trend (`unspecced.defs#trendView`) or a trending topic
+    # (`#trendingTopic`), which carries only the first four fields.
+    trend: %{
+      fields: [
+        {:topic, :string, [["topic"]], "The trend's topic"},
+        {:display_name, :string, [["display_name"], ["displayName"]],
+         "What the app calls the trend"},
+        {:description, :string, [["description"]], "What the trend is about"},
+        {:link, :string, [["link"]],
+         "Where the app opens it: a path on the app, such as a feed or a search"},
+        {:started_at, :string, [["started_at"], ["startedAt"]],
+         "When it started trending, as an ISO 8601 timestamp"},
+        {:post_count, :integer, [["post_count"], ["postCount"]],
+         "How many posts the service counts in it"},
+        {:status, :string, [["status"]],
+         "How the trend is moving, in the service's word: hot, cooling, or null"},
+        {:category, :string, [["category"]], "The service's category for it"},
+        {:actors, {:list, @account_basic}, [["actors"]],
+         "Some accounts posting about it, as the service chose them"}
+      ],
+      viewer: []
+    },
+    # A town invitation code (`com.atproto.server.defs#inviteCode`).
+    invite_code: %{
+      fields: [
+        {:code, :string, [["code"]], "The code a new account signs up with"},
+        {:available, :integer, [["available"]], "How many accounts it admits in all"},
+        {:disabled, :boolean, [["disabled"]], "True when it can no longer be used"},
+        {:for_account, :string, [["for_account"], ["forAccount"]],
+         "DID of the account it was issued to"},
+        {:created_by, :string, [["created_by"], ["createdBy"]], "Who issued it"},
+        {:created_at, :string, [["created_at"], ["createdAt"]],
+         "When it was issued, as an ISO 8601 timestamp"},
+        {:uses,
+         {:list,
+          [
+            {:used_by, :string, [["used_by"], ["usedBy"]], "DID of the account that used it"},
+            {:used_at, :string, [["used_at"], ["usedAt"]], "When, as an ISO 8601 timestamp"}
+          ]}, [["uses"]], "Each sign-up that used it"}
+      ],
+      viewer: []
     },
     # A list as the service shows it: `graph.defs#listView`, and the basic
     # view a starter pack carries. `purpose` is read as the token's name;

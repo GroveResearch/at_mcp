@@ -43,6 +43,34 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `limit` parameter of a read whose method takes fewer than AtMcp's page
+  limit: the unspecced suggestion and trend methods
+  (`AtMcp.Effects.short_page_max/0`).
+  """
+  defmacro short_page_limit(noun) do
+    %{min: min, default: default} = AtMcp.Effects.page_limits()
+    max = AtMcp.Effects.short_page_max()
+
+    Macro.escape(
+      description: "Max #{noun} (#{min}-#{max})",
+      default: min(default, max),
+      schema: %{type: "integer", minimum: min, maximum: max}
+    )
+  end
+
+  @doc """
+  The `context` parameter of `get_suggested_follows`: the places in the app
+  that suggest accounts, from `AtMcp.Effects.suggestion_contexts/0`.
+  """
+  defmacro suggestion_context do
+    Macro.escape(
+      description:
+        "Without actor, where the app shows the suggestions: explore (the Explore page, the default), discover, see_more, onboarding (for a new account), general, or browse (a longer list read in pages with cursor).",
+      schema: %{type: "string", enum: AtMcp.Effects.suggestion_contexts()}
+    )
+  end
+
+  @doc """
   The `text` parameter of `save_draft`, stated from the limits the account
   enforces (`AtMcp.Effects.draft_text_limits/0`).
   """
@@ -175,6 +203,14 @@ defmodule AtMcp.MCP.Schemas do
   defmacro draft_result, do: Macro.escape(draft_result_schema())
 
   defmacro generator_page, do: Macro.escape(page(record(:generator)))
+
+  defmacro feed_info_page, do: Macro.escape(feed_info_page_schema())
+
+  defmacro trend_page, do: Macro.escape(trend_page_schema())
+
+  defmacro record_view, do: Macro.escape(record_view_schema())
+
+  defmacro invite_codes, do: Macro.escape(invite_codes_schema())
 
   defmacro list_page, do: Macro.escape(list_page_schema())
 
@@ -551,6 +587,71 @@ defmodule AtMcp.MCP.Schemas do
         "description" => "True when the account already stood as asked, so nothing was written"
       }
     })
+  end
+
+  # Feeds read by AT URI: each as a page of feeds shows it, with whether its
+  # service is online, and the uris the service did not know.
+  defp feed_info_page_schema do
+    item = record(:generator)
+
+    item =
+      Map.update!(item, "properties", fn props ->
+        Map.merge(props, %{
+          "is_online" => %{
+            "type" => ["boolean", "null"],
+            "description" =>
+              "Whether the feed's service has been online recently. Read only when one feed is asked for; null otherwise"
+          },
+          "is_valid" => %{
+            "type" => ["boolean", "null"],
+            "description" =>
+              "Whether the feed's service matches what its record declares. Read only when one feed is asked for; null otherwise"
+          }
+        })
+      end)
+
+    put_in(page(item), ["properties", "not_found"], %{
+      "type" => ["array", "null"],
+      "items" => %{"type" => "string"},
+      "description" => "AT URIs asked for that the service does not know"
+    })
+  end
+
+  # Trends, or trending topics with the topics suggested beside them.
+  defp trend_page_schema do
+    put_in(page(record(:trend)), ["properties", "suggested"], %{
+      "type" => ["array", "null"],
+      "items" => record(:trend),
+      "description" => "With kind topics: topics the service suggests beside the trending ones"
+    })
+  end
+
+  # One record as its repository holds it.
+  defp record_view_schema do
+    %{
+      "uri" => nullable_string("AT URI of the record, in DID form"),
+      "cid" => nullable_string("CID of the record"),
+      "value" => %{
+        "type" => ["object", "null"],
+        "description" => "The record exactly as its repository holds it, keys as written"
+      }
+    }
+    |> object()
+    |> promising(["uri", "value"])
+  end
+
+  # This account's town invitation codes.
+  defp invite_codes_schema do
+    %{
+      "count" => %{"type" => "integer", "description" => "Codes listed"},
+      "items" => %{"type" => "array", "items" => record(:invite_code)},
+      "collection" =>
+        nullable_string(
+          "Whether the town issues this account earned codes: enabled, disabled, unconfigured, or external (an account hosted elsewhere gets only codes assigned to it)"
+        )
+    }
+    |> object()
+    |> promising(["count", "items"])
   end
 
   # A bookmarked post, or the placeholder the service sends for one that is

@@ -4,7 +4,7 @@ An agent's own AT Protocol account, through MCP.
 
 at_mcp lets a locally run agent read its timeline, publish posts, reply and
 keep a persistent identity across runs. It owns the account's credentials,
-session and write quota; the agent owns what to do. Its 71 tools work with
+session and write quota; the agent owns what to do. Its 78 tools work with
 Bluesky and Delvetown.
 
 For one agent, its MCP client starts `at_mcp-stdio` and stops it when the
@@ -226,7 +226,7 @@ approvals enabled. It starts AtMcp itself; there is no service to start first.
 A terminal running `at_mcp-stdio` directly waits for MCP on stdin/stdout;
 diagnostics go to stderr.
 
-Direct stdio gives this client all 70 account tools, including publishing,
+Direct stdio gives this client all 77 account tools, including publishing,
 profile changes and deletion. It has no read-only grant. To restrict an account
 connection, use a [shared-service grant](docs/operations.md#issue-a-connection).
 Host approval controls are separate from AtMcp’s write quota.
@@ -262,9 +262,11 @@ Then try:
 > Read your timeline with get_timeline. Pick one post worth reading and use
 > get_thread to read its context. Summarize it without posting.
 
-`search_posts` searches public posts by query string. Optional `author`,
-`mentions`, `sort` (`latest` or `top`), `since`, `until` and `lang` narrow
-that same search.
+`search_posts` searches public posts by query string, filters, or both, as
+the app's search does (`feed.searchPostsV2`). `author`, `mentions`, `sort`
+(`latest` or `top`), `since`, `until` and `lang` narrow it; the other filters
+include or exclude posts by author, mention, domain, URL, quoted record,
+hashtag, language, media and place in a thread.
 
 When the agent has something to say, ask it to publish the text you intend:
 
@@ -284,8 +286,12 @@ images. It fetches only the full-size URLs the AppView returned for that post,
 sends no account credential with them, follows no redirect, accepts only
 `image/*` answers, and names by index, with the reason, any image it could not
 fetch. A quoted post's pictures need a call with the quoted post's URI.
-`get_suggested_feeds` lists custom feeds the service currently suggests; each
-item's `uri` is what `get_feed` takes.
+`get_suggested_feeds` lists custom feeds the service currently suggests,
+`search_feeds` finds them by name and `get_actor_feeds` lists one account's;
+each item's `uri` is what `get_feed` takes, and `get_feed_info` says whether a
+feed's service is online. `get_suggested_follows`, `get_suggested_starter_packs`
+and `get_trends` read what the app's Explore page suggests and what is
+trending. `get_record` reads any one record as its repository holds it.
 
 ## What persists
 

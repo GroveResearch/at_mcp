@@ -98,6 +98,16 @@
         "actor"
       ]
     },
+    "get_actor_feeds": {
+      "arguments": {
+        "actor": "string",
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": [
+        "actor"
+      ]
+    },
     "get_actor_likes": {
       "arguments": {
         "actor": "string",
@@ -149,6 +159,14 @@
         "feed"
       ]
     },
+    "get_feed_info": {
+      "arguments": {
+        "uris": "array"
+      },
+      "required": [
+        "uris"
+      ]
+    },
     "get_followers": {
       "arguments": {
         "actor": "string",
@@ -168,6 +186,10 @@
       "required": [
         "actor"
       ]
+    },
+    "get_invite_codes": {
+      "arguments": {},
+      "required": []
     },
     "get_known_followers": {
       "arguments": {
@@ -277,6 +299,14 @@
         "uri"
       ]
     },
+    "get_record": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "get_relationships": {
       "arguments": {
         "actor": "string",
@@ -318,17 +348,27 @@
     "get_suggested_feeds": {
       "arguments": {
         "cursor": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "source": "string"
       },
       "required": []
     },
     "get_suggested_follows": {
       "arguments": {
-        "actor": "string"
+        "actor": "string",
+        "category": "string",
+        "context": "string",
+        "cursor": "string",
+        "limit": "integer"
       },
-      "required": [
-        "actor"
-      ]
+      "required": []
+    },
+    "get_suggested_starter_packs": {
+      "arguments": {
+        "context": "string",
+        "limit": "integer"
+      },
+      "required": []
     },
     "get_thread": {
       "arguments": {
@@ -351,6 +391,13 @@
     "get_timeline": {
       "arguments": {
         "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_trends": {
+      "arguments": {
+        "kind": "string",
         "limit": "integer"
       },
       "required": []
@@ -483,21 +530,46 @@
         "query"
       ]
     },
+    "search_feeds": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "query": "string"
+      },
+      "required": []
+    },
     "search_posts": {
       "arguments": {
+        "all_time": "boolean",
         "author": "string",
         "cursor": "string",
+        "domains": "array",
+        "embeds": "array",
+        "exclude_authors": "array",
+        "exclude_domains": "array",
+        "exclude_embeds": "array",
+        "exclude_hashtags": "array",
+        "exclude_langs": "array",
+        "exclude_mentions": "array",
+        "exclude_urls": "array",
+        "following": "boolean",
+        "has_media": "boolean",
+        "has_video": "boolean",
+        "hashtags": "array",
         "lang": "string",
         "limit": "integer",
         "mentions": "string",
         "query": "string",
+        "query_language": "string",
+        "replies": "string",
+        "reply_to": "string",
         "since": "string",
         "sort": "string",
-        "until": "string"
+        "thread_root": "string",
+        "until": "string",
+        "urls": "array"
       },
-      "required": [
-        "query"
-      ]
+      "required": []
     },
     "set_list_opt_out": {
       "arguments": {

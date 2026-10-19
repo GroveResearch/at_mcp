@@ -67,7 +67,10 @@ defmodule AtMcp.Test.FakePDS do
     {session, state}
   end
 
-  @doc "Every request with this method, oldest first: `%{method, query, body}`."
+  @doc """
+  Every request with this method, oldest first: `%{method, query, raw, body}`.
+  `query` keeps one value of a repeated key; `raw` is the query string as sent.
+  """
   def sent(state, method),
     do: state |> Agent.get(& &1.calls) |> Enum.filter(&(&1.method == method))
 
@@ -91,7 +94,7 @@ defmodule AtMcp.Test.FakePDS do
       end
 
     "/xrpc/" <> method = conn.request_path
-    call = %{method: method, query: conn.query_params, body: body}
+    call = %{method: method, query: conn.query_params, raw: conn.query_string, body: body}
     Agent.update(state, &%{&1 | calls: &1.calls ++ [call]})
 
     {status, answer} =

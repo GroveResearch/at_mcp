@@ -165,6 +165,13 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_actor_likes", %{"actor" => "alice.test"}},
     {"get_feed", %{"feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
     {"get_suggested_feeds", %{}},
+    {"get_feed_info", %{"uris" => ["at://did:plc:mock/app.bsky.feed.generator/whats-hot"]}},
+    {"get_actor_feeds", %{"actor" => "alice.test"}},
+    {"search_feeds", %{"query" => "cats"}},
+    {"get_suggested_starter_packs", %{"context" => "onboarding"}},
+    {"get_trends", %{"kind" => "topics"}},
+    {"get_record", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"get_invite_codes", %{}},
     {"get_list_feed", %{"list" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
     {"get_list", %{"uri" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
     {"get_lists", %{"actor" => "alice.test", "purpose" => "curate"}},
@@ -234,7 +241,14 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_lists" => :lists,
     "get_starter_pack" => :starter_pack,
     "get_starter_packs" => :starter_packs,
-    "get_bookmarks" => :bookmarks
+    "get_bookmarks" => :bookmarks,
+    "get_suggested_feeds" => :feeds,
+    "get_feed_info" => :feeds,
+    "get_actor_feeds" => :feeds,
+    "search_feeds" => :feeds,
+    "get_suggested_starter_packs" => :starter_packs,
+    "get_trends" => :trends,
+    "get_invite_codes" => :invite_codes
   }
 
   test "every tool returns structured content its declared schema accepts" do

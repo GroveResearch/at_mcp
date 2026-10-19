@@ -20,11 +20,34 @@ defmodule AtMcp.LimitsTest do
 
     assert length(paged) >= 16
 
+    # The unspecced suggestion and trend reads take fewer, as their lexicons
+    # say (`AtMcp.Effects.short_page_max/0`).
+    short = AtMcp.Effects.short_page_max()
+
     for {name, limit} <- paged do
+      max = if name in ["get_suggested_starter_packs", "get_trends"], do: short, else: max
       assert limit.minimum == min, name
       assert limit.maximum == max, name
-      assert limit.default == default, name
+      assert limit.default == min(default, max), name
       assert limit.description =~ "(#{min}-#{max})", name
+    end
+  end
+
+  test "the unspecced suggestion and trend reads take what their lexicons allow" do
+    for nsid <- [
+          "app.bsky.unspecced.getSuggestedStarterPacks",
+          "app.bsky.unspecced.getOnboardingSuggestedStarterPacks",
+          "app.bsky.unspecced.getSuggestedFeeds",
+          "app.bsky.unspecced.getTrends",
+          "app.bsky.unspecced.getTrendingTopics"
+        ] do
+      limit =
+        (Path.join(["test/fixtures/lexicons" | String.split(nsid, ".")]) <> ".json")
+        |> File.read!()
+        |> Jason.decode!()
+        |> get_in(["defs", "main", "parameters", "properties", "limit"])
+
+      assert limit["maximum"] == AtMcp.Effects.short_page_max(), nsid
     end
   end
 
@@ -41,7 +64,7 @@ defmodule AtMcp.LimitsTest do
           do: {name, tool, schema}
 
     assert Enum.map(batches, &elem(&1, 0)) |> Enum.sort() ==
-             ["get_posts", "get_profiles", "get_relationships"]
+             ["get_feed_info", "get_posts", "get_profiles", "get_relationships"]
 
     for {name, tool, schema} <- batches do
       assert schema.maxItems == max, name

@@ -1,7 +1,7 @@
 defmodule AtMcp.Reading do
   @moduledoc """
-  The text a model reads for a result made of posts, and for lists and
-  starter packs.
+  The text a model reads for a result made of posts, and for lists, starter
+  packs, feeds, trends and invitation codes.
 
   A tool result has two halves in MCP: `content`, text and images, which most
   clients give a model, and `structuredContent`, which a client validates
@@ -230,6 +230,171 @@ defmodule AtMcp.Reading do
   end
 
   def starter_packs(_other), do: nil
+
+  @doc """
+  A page of custom feeds: suggested, searched, an account's, or read by uri.
+  Each with its name, maker, likes and whether it takes feedback, then what it
+  is for, and the uri and cid `get_feed` and `like` take.
+  """
+  def feeds(%{"items" => items} = page) when is_list(items) do
+    header = count(length(items), "feed", "feeds") <> "." <> next_page(page)
+
+    blocks =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {feed, n} -> feed(feed, "[#{n}]") end)
+
+    missing =
+      case page["not_found"] do
+        [_ | _] = uris -> ["The service does not know: " <> Enum.join(uris, ", ")]
+        _ -> []
+      end
+
+    lines([header | blocks] ++ missing, "\n\n")
+  end
+
+  def feeds(_other), do: nil
+
+  defp feed(%{} = feed, label) do
+    viewer = if is_map(feed["viewer"]), do: feed["viewer"], else: %{}
+
+    lines(
+      [
+        label <>
+          " " <>
+          lines(
+            [
+              named(feed["display_name"]),
+              by(feed["creator"], nil),
+              if(is_integer(feed["like_count"]), do: count(feed["like_count"], "like", "likes")),
+              if(feed["accepts_interactions"] == true, do: "takes feedback"),
+              online(feed)
+            ],
+            " · "
+          ),
+        one_line(feed["description"]),
+        labelled(%{"labels" => feed["labels"], "author_did" => feed["creator_did"]}),
+        if(is_binary(viewer["like"]), do: "You liked this: #{viewer["like"]}"),
+        ids(feed)
+      ],
+      "\n"
+    )
+  end
+
+  defp feed(other, label), do: "#{label} #{Jason.encode!(other)}"
+
+  defp online(%{"is_online" => false}), do: "its service is offline"
+  defp online(%{"is_valid" => false}), do: "its service does not match its record"
+  defp online(%{"is_online" => true}), do: "online"
+  defp online(_feed), do: nil
+
+  @doc """
+  Trends or trending topics: what each is called, how hot and how big, what it
+  is about, some of the accounts posting, and the link the app opens for it.
+  """
+  def trends(%{"items" => items} = page) when is_list(items) do
+    header = count(length(items), "trend", "trends") <> "."
+
+    blocks =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {trend, n} -> trend(trend, "[#{n}]") end)
+
+    suggested =
+      case page["suggested"] do
+        [_ | _] = topics ->
+          [
+            "Suggested beside them: " <>
+              Enum.map_join(topics, "; ", fn topic ->
+                lines([topic["display_name"] || topic["topic"], topic["link"]], " · ")
+              end)
+          ]
+
+        _ ->
+          []
+      end
+
+    lines([header | blocks] ++ suggested, "\n\n")
+  end
+
+  def trends(_other), do: nil
+
+  defp trend(%{} = trend, label) do
+    lines(
+      [
+        label <>
+          " " <>
+          lines(
+            [
+              one_line(trend["display_name"] || trend["topic"]),
+              trend["status"],
+              trend["category"],
+              if(is_integer(trend["post_count"]),
+                do: count(trend["post_count"], "post", "posts")
+              ),
+              if(is_binary(trend["started_at"]), do: "since #{trend["started_at"]}")
+            ],
+            " · "
+          ),
+        one_line(trend["description"]),
+        case List.wrap(trend["actors"]) do
+          [] -> nil
+          actors -> "Posting: " <> Enum.map_join(actors, ", ", &who(account(&1)))
+        end,
+        if(is_binary(trend["link"]), do: "link: #{trend["link"]}")
+      ],
+      "\n"
+    )
+  end
+
+  defp trend(other, label), do: "#{label} #{Jason.encode!(other)}"
+
+  @doc "This account's invitation codes: each, how many uses it has left, and who used it."
+  def invite_codes(%{"items" => items} = result) when is_list(items) do
+    header =
+      lines(
+        [
+          count(length(items), "invitation code", "invitation codes") <> ".",
+          if(is_binary(result["collection"]), do: "Earned codes: #{result["collection"]}.")
+        ],
+        " "
+      )
+
+    blocks =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {code, n} -> invite_code(code, "[#{n}]") end)
+
+    lines([header | blocks], "\n\n")
+  end
+
+  def invite_codes(_other), do: nil
+
+  defp invite_code(%{} = code, label) do
+    uses = List.wrap(code["uses"])
+
+    left =
+      if is_integer(code["available"]),
+        do: "#{max(code["available"] - length(uses), 0)} of #{code["available"]} uses left"
+
+    lines(
+      [
+        label <>
+          " " <>
+          lines([code["code"], left, if(code["disabled"] == true, do: "disabled")], " · "),
+        case uses do
+          [] ->
+            nil
+
+          uses ->
+            "Used by: " <> Enum.map_join(uses, ", ", &"#{&1["used_by"]} at #{&1["used_at"]}")
+        end
+      ],
+      "\n"
+    )
+  end
+
+  defp invite_code(other, label), do: "#{label} #{Jason.encode!(other)}"
 
   # A list's name, kind, size and maker on one line, then what it is for, then
   # its uri and where this account stands with it.
