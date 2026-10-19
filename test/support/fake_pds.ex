@@ -6,7 +6,9 @@ defmodule AtMcp.Test.FakePDS do
   `start/1` takes the records the repository holds, as
   `%{"at://repo/collection/rkey" => value}`, and `answers`, a map from an XRPC
   method to `{status, body}` that replaces the default answer. `getRecord`
-  answers from the records, and 400 `RecordNotFound` for one it does not hold.
+  answers from the records, and 400 `RecordNotFound` for one it does not hold;
+  `listRecords` answers one page of a collection's. Both name a record by its
+  DID-form URI, as a real PDS does.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
   test can read back what a write left. Any other method answers `{}`.
   """
@@ -88,7 +90,7 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   defp answer("com.atproto.repo.getRecord", %{query: q}, state) do
-    uri = "at://#{q["repo"]}/#{q["collection"]}/#{q["rkey"]}"
+    uri = "at://#{did(q["repo"])}/#{q["collection"]}/#{q["rkey"]}"
 
     case Map.fetch(state.records, uri) do
       {:ok, value} ->
@@ -132,7 +134,23 @@ defmodule AtMcp.Test.FakePDS do
     {{200, %{results: results}}, %{state | records: records}}
   end
 
+  defp answer("com.atproto.repo.listRecords", %{query: q}, state) do
+    prefix = "at://#{did(q["repo"])}/#{q["collection"]}/"
+
+    records =
+      for {uri, value} <- Enum.sort(state.records),
+          String.starts_with?(uri, prefix),
+          do: %{uri: uri, cid: cid(uri), value: value}
+
+    {{200, %{records: records}}, state}
+  end
+
   defp answer(_method, _call, state), do: {{200, %{}}, state}
+
+  # A real PDS answers with a record's URI in DID form, whichever form the
+  # repository was named in.
+  defp did("self.example"), do: "did:plc:self"
+  defp did(repo), do: repo
 
   defp cid(uri),
     do: "bafy" <> Base.encode32(:crypto.hash(:sha256, uri), case: :lower, padding: false)
