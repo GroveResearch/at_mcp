@@ -192,6 +192,14 @@ defmodule AtMcp.MCP.ToolsTest do
     {"bookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"unbookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"get_bookmarks", %{}},
+    {"get_drafts", %{}},
+    {"set_post_interactions", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"hide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/reply"}},
+    {"unhide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/reply"}},
+    {"detach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/quote"}},
+    {"reattach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/quote"}},
+    {"save_draft", %{"text" => "later"}},
+    {"delete_draft", %{"id" => "3mockdraft"}},
     {"get_membership", %{}},
     {"identity_status", %{}}
   ]

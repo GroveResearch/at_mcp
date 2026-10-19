@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 54 tools: 53 network verbs, plus
+`AtMcp.MCP.Server` declares 62 tools: 61 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -238,10 +238,42 @@ account's own posts refuses another account's before anything is sent, naming
 the argument; a service that does not serve a method answers 501, which is
 reported as `upstream_not_implemented` and not as an unknown outcome.
 
+Drafts (`get_drafts`, `save_draft`, `delete_draft`) are private and publish
+nothing, so they do not count either. A draft's text may be longer than a
+post's (`app.bsky.draft.defs#draftPost`). Saving to an existing draft reads it
+first and replaces only its first post's text, keeping the rest; an id the
+account does not have is refused, because the service would ignore the update
+without saying so. `delete_draft` returns the draft it deleted.
+
+A post can say who may reply to it (`reply_rule`: everyone, nobody, people
+it mentions, people the account follows, its followers, or a list's members)
+and whether it may be quoted (`quotes`). Those are a `feed.threadgate` and a
+`feed.postgate` under the post's record key, and `post` writes them with the
+post in one `applyWrites` commit, so the post never exists without them; it
+counts once. `set_post_interactions` changes them later, as the app's dialog
+does, starting from the current settings: a rule not given is kept, and the
+result states both rules now in force. Who may reply belongs to a thread's
+first post, so `reply` does not take `reply_rule`. A list rule is written with
+the list's DID-form address, which is what the AppView matches; a handle-form
+address is resolved first. `hide_reply` and `detach_quote` are separate tools
+because each is a choice about someone else's post. Each edit reads the
+repository's latest commit, then the gate it changes, keeps the rest, and
+writes over that commit only (`swapCommit`): a repository changed meanwhile is
+refused as `changed_meanwhile` with nothing written. An edit that changes
+nothing writes nothing and says `unchanged`; a gate left saying nothing is
+deleted. A post can carry self-labels (`labels`) and a link card (`link`)
+whose title and description the agent gives: at_mcp does not fetch the page.
+`feed.getPostThread` returns replies the thread's author hid among the others;
+`get_thread` marks those the response's threadgate lists. With
+`include_hidden` it also reads the replies the app leaves out
+(`unspecced.getPostThreadOtherV2`): one the thread read already returned is
+marked where it stands, saying whether its author hid it or the account muted
+its writer, and only the rest are listed after the thread. If that read fails,
+the thread is returned with a line saying why.
+
 Absent from the surface: making and editing lists and starter packs, saved and
 pinned feeds,
-thread gates and reply controls, self-labels,
-posting video or link cards, direct messages, reporting, mute words and
+posting video, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from
 `get_suggested_feeds`, receives every

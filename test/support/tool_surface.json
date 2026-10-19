@@ -17,7 +17,23 @@
         "uri"
       ]
     },
+    "delete_draft": {
+      "arguments": {
+        "id": "string"
+      },
+      "required": [
+        "id"
+      ]
+    },
     "delete_post": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "detach_quote": {
       "arguments": {
         "uri": "string"
       },
@@ -61,6 +77,13 @@
       "required": []
     },
     "get_bookmarks": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_drafts": {
       "arguments": {
         "cursor": "string",
         "limit": "integer"
@@ -260,6 +283,7 @@
     },
     "get_thread": {
       "arguments": {
+        "include_hidden": "boolean",
         "uri": "string"
       },
       "required": [
@@ -285,6 +309,14 @@
     "get_unread_count": {
       "arguments": {},
       "required": []
+    },
+    "hide_reply": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
     },
     "identity_status": {
       "arguments": {},
@@ -327,19 +359,34 @@
     "post": {
       "arguments": {
         "images": "array",
+        "labels": "array",
         "langs": "array",
+        "link": "object",
         "quote": "string",
+        "quotes": "string",
+        "reply_rule": "array",
         "text": "string"
       },
       "required": [
         "text"
       ]
     },
+    "reattach_quote": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "reply": {
       "arguments": {
         "images": "array",
+        "labels": "array",
         "langs": "array",
+        "link": "object",
         "quote": "string",
+        "quotes": "string",
         "text": "string",
         "uri": "string"
       },
@@ -356,6 +403,15 @@
       "required": [
         "cid",
         "uri"
+      ]
+    },
+    "save_draft": {
+      "arguments": {
+        "id": "string",
+        "text": "string"
+      },
+      "required": [
+        "text"
       ]
     },
     "search_actors": {
@@ -384,6 +440,16 @@
         "query"
       ]
     },
+    "set_post_interactions": {
+      "arguments": {
+        "quotes": "string",
+        "reply_rule": "array",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "unblock": {
       "arguments": {
         "uri": "string"
@@ -401,6 +467,14 @@
       ]
     },
     "unfollow": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unhide_reply": {
       "arguments": {
         "uri": "string"
       },

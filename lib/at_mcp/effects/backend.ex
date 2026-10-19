@@ -195,4 +195,35 @@ defmodule AtMcp.Effects.Backend do
   @callback bookmark(state(), ref :: map()) :: {:ok, summary()} | {:error, reason()}
   @callback unbookmark(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_bookmarks(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
+
+  @callback get_drafts(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  The draft with this id as the service holds it, in the keys it is written
+  with, so a save can keep what it does not change. A draft the account does
+  not have is `{:error, {:invalid_argument, "id", message}}`.
+  """
+  @callback find_draft(state(), id :: String.t()) :: {:ok, map()} | {:error, reason()}
+
+  @doc "Create a draft (`id` nil) or replace the one with this id. `draft` is `AtMcp.ATProto.draft/2`'s."
+  @callback save_draft(state(), id :: String.t() | nil, draft :: map()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc "Delete a draft. `draft` is the one `find_draft/2` read, for the result to carry."
+  @callback delete_draft(state(), id :: String.t(), draft :: map()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Build an edit to a post's gates, reading the records it changes so it keeps
+  what it does not change: `{:interactions, uri, allow, quotes}`,
+  `{:hide_reply, uri, hide?}` or `{:detach_quote, uri, detach?}`. Nothing is
+  sent; an edit that cannot succeed (a post of another account's, a reply that
+  is not one) is `{:error, {:invalid_argument, path, message}}`. The result is
+  passed to `write_gates/2` unchanged.
+  """
+  @callback prepare_gates(state(), edit :: tuple()) :: {:ok, term()} | {:error, reason()}
+  @callback write_gates(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc "The replies a thread read leaves out under `uri`, each saying why."
+  @callback get_hidden_replies(state(), uri :: String.t()) :: {:ok, [map()]} | {:error, reason()}
 end
