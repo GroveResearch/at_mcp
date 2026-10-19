@@ -336,6 +336,15 @@ defmodule AtMcp.Effects.Backend do
               {:ok, String.t() | nil} | {:error, reason()}
 
   @doc """
+  The one read before a `:like` or `:repost` of `subject` (an AT URI): `record`,
+  this account's record of it as `viewer_record/3` names it, and `cid`, the
+  subject's current CID as the AppView has it. Either is nil when the AppView
+  has no view of the subject. No quota slot is taken.
+  """
+  @callback subject_view(state(), action :: :like | :repost, subject :: String.t()) ::
+              {:ok, %{record: String.t() | nil, cid: String.t() | nil}} | {:error, reason()}
+
+  @doc """
   Read what `:unlike`, `:unrepost`, `:unfollow` or `:unblock` of the record at
   `uri` deletes: that record, and the one `viewer_record/3` names for the same
   subject when it is another. Nothing is sent. `{:ok, {:unchanged, summary}}` when there is

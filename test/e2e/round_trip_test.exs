@@ -534,6 +534,36 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert view["like_count"] == 0 and view["repost_count"] == 0
     end
 
+    test "like and repost without a cid take the post's own; a cid that is not its own is refused, naming it",
+         %{net: net, me: me, them: them} do
+      post = post!(them, "like me by uri alone")
+      sync(net)
+
+      wrong = String.replace(post["cid"], ~r/.$/, fn c -> if c == "a", do: "b", else: "a" end)
+
+      assert %{"code" => "subject_cid_mismatch", "current_cid" => current} =
+               refused(me, "repost", %{"uri" => post["uri"], "cid" => wrong})
+               |> Jason.encode!()
+               |> Jason.decode!()
+
+      assert current == post["cid"]
+
+      like = call!(me, "like", %{"uri" => post["uri"]})
+      repost = call!(me, "repost", %{"uri" => post["uri"]})
+      assert like["subject_cid"] == post["cid"]
+      assert repost["subject_cid"] == post["cid"]
+      assert record(me, like["uri"])["subject"] == %{"uri" => post["uri"], "cid" => post["cid"]}
+      sync(net)
+
+      view = only_post(me, post["uri"])
+      assert view["viewer"]["like"] == like["uri"]
+      assert view["viewer"]["repost"] == repost["uri"]
+      assert view["like_count"] == 1 and view["repost_count"] == 1
+
+      call!(me, "unlike", %{"uri" => like["uri"]})
+      call!(me, "unrepost", %{"uri" => repost["uri"]})
+    end
+
     test "like, repost, follow and block twice: the second answers the first, unchanged; an undo deletes every record of its kind for the subject",
          %{net: net, me: me, them: them, session: session} do
       post = post!(them, "like me twice")

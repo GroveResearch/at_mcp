@@ -1900,6 +1900,22 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def viewer_record(session, action, subject) when action in [:like, :repost] do
+    with {:ok, %{record: record}} <- subject_view(session, action, subject), do: {:ok, record}
+  end
+
+  def viewer_record(session, action, did) when action in [:follow, :block] do
+    read = AtMcp.ATProto.get_profile(session, %{actor: did})
+
+    with {:ok, uri} <-
+           viewer_field(read, nil, if(action == :follow, do: :following, else: :blocking)),
+         do: confirmed(session, uri, did)
+  end
+
+  # The one read before a like or repost: the subject's view, which names this
+  # account's record of it (`viewer.like`, `viewer.repost`) and carries the
+  # subject's current CID. A subject the AppView has no view of has neither.
+  @impl true
+  def subject_view(session, action, subject) when action in [:like, :repost] do
     {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(subject)
 
     {read, key} =
@@ -1916,15 +1932,16 @@ defmodule AtMcp.Effects.ProtoRune do
       end
 
     with {:ok, uri} <- viewer_field(read, key, action),
-         do: confirmed(session, uri, subject)
+         {:ok, record} <- confirmed(session, uri, subject) do
+      {:ok, %{record: record, cid: view_cid(read, key)}}
+    end
   end
 
-  def viewer_record(session, action, did) when action in [:follow, :block] do
-    read = AtMcp.ATProto.get_profile(session, %{actor: did})
-
-    with {:ok, uri} <-
-           viewer_field(read, nil, if(action == :follow, do: :following, else: :blocking)),
-         do: confirmed(session, uri, did)
+  defp view_cid({:ok, response}, key) do
+    with [view | _] <- field(response, key),
+         cid when is_binary(cid) <- field(view, :cid),
+         do: cid,
+         else: (_ -> nil)
   end
 
   # The viewer's record in the view a read returned: the response itself, or

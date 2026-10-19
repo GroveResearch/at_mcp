@@ -921,8 +921,11 @@ defmodule AtMcp.Effects do
   count the like. A record named by a handle-form AT URI is liked by its DID
   form, which is how the AppView counts likes. One this account has liked
   already is not liked again: the like it has comes back, `unchanged: true`.
+
+  `cid` may be nil: the subject's current CID is then taken from the same
+  AppView read that finds an existing like. See `subject_cid/3`.
   """
-  def like(effects, uri, cid) when is_binary(uri) and is_binary(cid) do
+  def like(effects, uri, cid \\ nil) when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
     with {:ok, _} <-
            record_argument(
              uri,
@@ -933,11 +936,8 @@ defmodule AtMcp.Effects do
       take_and_write(
         effects,
         :like,
-        fn backend, session ->
-          with {:ok, uri} <- did_uri(backend, session, uri),
-               do: once(backend, session, :like, uri, %{subject_uri: uri, subject_cid: cid})
-        end,
-        fn uri -> fn backend, session -> backend.like(session, uri, cid) end end
+        fn backend, session -> once_with_cid(backend, session, :like, uri, cid) end,
+        fn {uri, cid} -> fn backend, session -> backend.like(session, uri, cid) end end
       )
     end
   end
@@ -946,16 +946,81 @@ defmodule AtMcp.Effects do
 
   # A repost, like a like, names its subject by DID: the AppView counts a
   # repost whose subject is a handle-form AT URI nowhere.
-  def repost(effects, uri, cid) when is_binary(uri) and is_binary(cid) do
+  def repost(effects, uri, cid \\ nil)
+      when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
     take_and_write(
       effects,
       :repost,
-      fn backend, session ->
-        with {:ok, uri} <- did_uri(backend, session, uri),
-             do: once(backend, session, :repost, uri, %{subject_uri: uri, subject_cid: cid})
-      end,
-      fn uri -> fn backend, session -> backend.repost(session, uri, cid) end end
+      fn backend, session -> once_with_cid(backend, session, :repost, uri, cid) end,
+      fn {uri, cid} -> fn backend, session -> backend.repost(session, uri, cid) end end
     )
+  end
+
+  # A like or repost reads the subject's view once, before anything is sent:
+  # it names a record this account already has (see `once/5`) and carries the
+  # subject's current CID.
+  defp once_with_cid(backend, session, action, uri, cid) do
+    cid = present(cid)
+
+    with {:ok, uri} <- did_uri(backend, session, uri),
+         {:ok, view} <- backend.subject_view(session, action, uri) do
+      case view do
+        %{record: existing} when is_binary(existing) ->
+          {:ok,
+           {:unchanged,
+            %{
+              subject_uri: uri,
+              subject_cid: cid || view.cid,
+              uri: existing,
+              action: action,
+              unchanged: true
+            }}}
+
+        _ ->
+          with {:ok, cid} <- subject_cid(backend, session, uri, cid, view.cid),
+               do: {:ok, {uri, cid}}
+      end
+    end
+  end
+
+  # The CID a like or repost records. A caller that leaves it out gets the
+  # AppView's CID for the subject: a CID is a 59-character string that models
+  # copy wrongly, and the URI already says which record is meant. One given is
+  # checked against the AppView's, and when they differ, against the record
+  # itself (`getRecord`), since the AppView can lag an update of a feed
+  # generator or a labeler. A given CID the record still has is used; one it
+  # does not have is refused, naming the record's. It is not replaced: a given
+  # CID says which version the caller read, and AtMcp cannot tell a miscopy
+  # from a record changed since it was read, so attaching the like to another
+  # version without being asked would be a surprise. A subject the AppView has
+  # no view of cannot be checked: a given CID is used as given, and an omitted
+  # one cannot be filled in.
+  defp subject_cid(_backend, _session, _uri, cid, cid) when is_binary(cid), do: {:ok, cid}
+
+  defp subject_cid(_backend, _session, _uri, nil, current) when is_binary(current),
+    do: {:ok, current}
+
+  defp subject_cid(_backend, _session, _uri, cid, nil) when is_binary(cid), do: {:ok, cid}
+  defp subject_cid(_backend, _session, uri, nil, nil), do: {:error, {:subject_cid_unknown, uri}}
+
+  defp subject_cid(backend, session, uri, cid, _appview) do
+    case backend.get_record(session, uri) do
+      {:ok, %{cid: ^cid}} ->
+        {:ok, cid}
+
+      {:ok, %{cid: record}} when is_binary(record) ->
+        {:error, {:subject_cid_mismatch, uri, cid, record}}
+
+      {:ok, _no_cid} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "#{cid} is not the AppView's CID for #{uri}, and the record read back carried no CID to check it against. Nothing was sent."
+         )}
+
+      error ->
+        error
+    end
   end
 
   def unrepost(effects, repost_uri) when is_binary(repost_uri),

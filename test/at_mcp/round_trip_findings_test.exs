@@ -95,6 +95,80 @@ defmodule AtMcp.RoundTripFindingsTest do
       assert writes(pds) == ["com.atproto.repo.createRecord"]
     end
 
+    test "a like or repost without a cid records the subject's current one from the same read" do
+      %{pds: pds, state: state} =
+        pds(%{}, %{
+          "app.bsky.feed.getPosts" =>
+            {200, %{posts: [%{uri: @post, cid: "bafycurrent", viewer: %{}}]}}
+        })
+
+      for tool <- ["like", "repost"] do
+        result = call(state, tool, %{"uri" => @post})
+        refute result[:isError]
+        assert result.structuredContent["subject_cid"] == "bafycurrent"
+      end
+
+      assert [like, repost] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+      assert like.body["record"]["subject"] == %{"uri" => @post, "cid" => "bafycurrent"}
+      assert repost.body["record"]["subject"] == %{"uri" => @post, "cid" => "bafycurrent"}
+      assert length(FakePDS.sent(pds, "app.bsky.feed.getPosts")) == 2
+    end
+
+    test "a cid that differs from the AppView's is checked against the record: refused naming the record's, or used when the record has it" do
+      %{effects: effects, pds: pds, state: state} =
+        pds(%{@post => %{"text" => "edited"}}, %{
+          "app.bsky.feed.getPosts" =>
+            {200, %{posts: [%{uri: @post, cid: "bafyappview", viewer: %{}}]}}
+        })
+
+      {:ok, %{cid: record_cid}} = AtMcp.Effects.get_record(effects, @post)
+      refute record_cid == "bafyappview"
+
+      result = call(state, "like", %{"uri" => @post, "cid" => "bafymiscopied"})
+      assert result.isError
+
+      assert %{code: "subject_cid_mismatch", cid: "bafymiscopied", current_cid: ^record_cid} =
+               result.structuredContent
+
+      assert hd(result.content).text =~ "the record's CID is #{record_cid}"
+      assert writes(pds) == []
+
+      # The AppView lags the record: the record's own CID is used as given.
+      refute call(state, "like", %{"uri" => @post, "cid" => record_cid})[:isError]
+
+      assert [%{body: %{"record" => %{"subject" => %{"cid" => ^record_cid}}}}] =
+               FakePDS.sent(pds, "com.atproto.repo.createRecord")
+
+      assert AtMcp.Effects.quota_status(effects).used == 0
+    end
+
+    test "a cid the AppView has is used without reading the record" do
+      %{pds: pds, state: state} =
+        pds(%{}, %{
+          "app.bsky.feed.getPosts" =>
+            {200, %{posts: [%{uri: @post, cid: "bafycurrent", viewer: %{}}]}}
+        })
+
+      refute call(state, "like", %{"uri" => @post, "cid" => "bafycurrent"})[:isError]
+      assert writes(pds) == ["com.atproto.repo.createRecord"]
+      assert FakePDS.sent(pds, "com.atproto.repo.getRecord") == []
+    end
+
+    test "without a cid, a subject the AppView has no view of is refused and nothing is sent" do
+      %{pds: pds, state: state} = pds(%{}, %{"app.bsky.feed.getPosts" => {200, %{posts: []}}})
+
+      result = call(state, "repost", %{"uri" => @post})
+      assert result.isError
+      assert %{code: "subject_cid_unknown", uri: @post} = result.structuredContent
+      assert writes(pds) == []
+
+      # A given cid cannot be checked there, and is used as given, as before.
+      refute call(state, "repost", %{"uri" => @post, "cid" => "bafygiven"})[:isError]
+
+      assert [%{body: %{"record" => %{"subject" => %{"cid" => "bafygiven"}}}}] =
+               FakePDS.sent(pds, "com.atproto.repo.createRecord")
+    end
+
     test "an account already followed or blocked answers the record it has, and nothing is sent" do
       follow = "at://#{@me}/app.bsky.graph.follow/f1"
       block = "at://#{@me}/app.bsky.graph.block/b1"
