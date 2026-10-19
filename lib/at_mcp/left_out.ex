@@ -8,13 +8,15 @@ defmodule AtMcp.LeftOut do
   `test/at_mcp/field_coverage_test.exs` changes each field of the recorded
   responses in `test/fixtures/appview` one at a time. A field whose change does
   not change the summary has been dropped, and the test fails unless an entry
-  here names it. An entry whose fields are all read after all fails too, so the
-  list cannot go stale in either direction.
+  here names it. It also fails on a `{:todo, issue}` entry that covers any field
+  that is read (the fix landed, so the entry narrows), on a reason entry all of
+  whose fields are read, and on a field two entries cover.
 
   A pattern is a field path as the lexicon spells it, with `[]` for a list
   element. `*` stands for one segment, and a leading `**.` stands for any
-  prefix, including none. A pattern names a subtree: everything under it is
-  covered, and anything under it that a summary does read is still read.
+  prefix, including none. A pattern names a subtree. A reason entry may cover
+  a subtree some of whose fields are read, and its reason says which; a TODO
+  entry covers only fields that are dropped.
 
   A reason is a sentence, or `{:todo, issue}` for a drop that hides something a
   person sees in the app and is waiting on that GroveResearch/at_mcp issue.
@@ -67,7 +69,6 @@ defmodule AtMcp.LeftOut do
     {"**.record.labels", {:todo, 73}},
 
     # What the app shows about an account.
-    {"avatar", {:todo, 49}},
     {"banner", {:todo, 49}},
     {"**.avatar", {:todo, 49}},
     {"pinnedPost", {:todo, @profile_todo}},
@@ -106,7 +107,7 @@ defmodule AtMcp.LeftOut do
     {"**.post.record.embed",
      "The embed as the author wrote it; the AppView's hydrated view under `post.embed` is read instead"},
     {"**.value.embed",
-     "A quoted post's embed as written; its hydrated view under `embeds` is read instead, and a further quote stays `nested_uri`"},
+     "A quoted post's embed as written: its hydrated view under `embeds` is read instead, except `value.embed.record.uri`, which is read as `nested_uri`"},
     {"**.embeds[].record",
      "A quote inside a quoted post stays a `nested_uri` rather than expanding (docs/DESIGN.md)"},
     {"**.record.reply.parent.cid",
@@ -142,11 +143,32 @@ defmodule AtMcp.LeftOut do
               {pattern, "^" <> body <> "(?:$|[.\\[])"}
             end)
 
-  @doc "The entry whose pattern covers a field path, or nil."
-  def entry(path) do
-    Enum.find_value(@compiled, fn {pattern, regex} ->
-      if Regex.match?(Regex.compile!(regex), path), do: pattern
+  @doc """
+  Every entry pattern that covers a field path, outermost first: the entry
+  naming the largest subtree that holds the field comes first.
+  """
+  def entries_for(path) do
+    @compiled
+    |> Enum.flat_map(fn {pattern, regex} ->
+      case Regex.run(Regex.compile!(regex), path) do
+        [match] -> [{pattern, String.length(match)}]
+        nil -> []
+      end
     end)
+    |> Enum.sort_by(&elem(&1, 1))
+  end
+
+  @doc """
+  The entry pattern that covers a field path, or nil. Where entries nest, the
+  outer one decides: a nested quote's author is left out because the nested
+  quote is, not for the reasons an author's fields are. A test refuses two
+  entries that cover the same field at the same depth.
+  """
+  def entry(path) do
+    case entries_for(path) do
+      [{pattern, _depth} | _] -> pattern
+      [] -> nil
+    end
   end
 
   @doc "Whether an entry covers a field path."

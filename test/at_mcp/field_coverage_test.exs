@@ -15,14 +15,24 @@ defmodule AtMcp.FieldCoverageTest do
 
   @dir Path.expand("../fixtures/appview", __DIR__)
 
-  # A field reaches the summary when changing its value changes the summary.
-  # Every field of every recorded response either does, or is listed in
-  # `AtMcp.LeftOut` with the reason it is not passed on.
-  test "every field the AppView returns reaches the summary or is listed as left out" do
-    unlisted =
+  # Each field path of each recording, and whether a summary reads it, worked
+  # out once: a field reaches the summary when changing its value changes the
+  # summary.
+  setup_all do
+    fields =
       for {kind, file} <- @fixtures,
           response = read(file),
-          path <- dropped(kind, response),
+          dropped = MapSet.new(dropped(kind, response)),
+          path <- paths(response),
+          do: %{kind: kind, path: path, read: path not in dropped}
+
+    %{fields: fields}
+  end
+
+  test "every field the AppView returns reaches the summary or is listed as left out",
+       %{fields: fields} do
+    unlisted =
+      for %{read: false, path: path, kind: kind} <- fields,
           not AtMcp.LeftOut.listed?(path),
           do: "#{kind}: #{path}"
 
@@ -34,33 +44,76 @@ defmodule AtMcp.FieldCoverageTest do
     """
   end
 
-  # An entry is stale when every field it covers in the recorded responses is
-  # read after all. An entry that covers nothing recorded still documents a
-  # field the lexicon defines and these responses happen not to carry.
-  test "no entry in AtMcp.LeftOut covers only fields a summary reads" do
+  # A TODO entry promises its whole subtree is waiting on an issue, so a field
+  # under it that is read means the fix landed, or landed in part, and the
+  # entry has to narrow. A reason entry may cover a subtree some of whose
+  # fields are read (a raw record's embed, say, of which one uri is read); it
+  # is stale only when everything it covers is read. An entry that covers
+  # nothing recorded still documents a field these responses do not carry.
+  test "no entry in AtMcp.LeftOut covers a field a summary reads, beyond what its kind allows",
+       %{fields: fields} do
     covered =
-      for {kind, file} <- @fixtures,
-          response = read(file),
-          dropped = MapSet.new(dropped(kind, response)),
-          path <- paths(response),
-          pattern = AtMcp.LeftOut.entry(path),
-          reduce: %{} do
-        acc -> Map.update(acc, pattern, [path in dropped], &[path in dropped | &1])
-      end
+      Enum.group_by(
+        for(field <- fields, pattern = AtMcp.LeftOut.entry(field.path), do: {pattern, field}),
+        &elem(&1, 0),
+        &elem(&1, 1)
+      )
 
-    stale = for {pattern, flags} <- covered, not Enum.any?(flags), do: pattern
+    reasons = Map.new(AtMcp.LeftOut.entries())
 
-    assert stale == [], """
-    Every field these AtMcp.LeftOut entries cover is read by a summary. Remove them:
+    wrong =
+      for {pattern, fields} <- covered,
+          message = misfit(pattern, reasons[pattern], fields),
+          do: message
 
-      #{Enum.join(stale, "\n  ")}
+    assert wrong == [], """
+    Narrow or remove these AtMcp.LeftOut entries:
+
+      #{Enum.join(wrong, "\n  ")}
     """
+  end
+
+  # Entries may nest, and the outer one decides (`AtMcp.LeftOut.entry/1`). Two
+  # entries at the same depth would leave which reason applies to list order,
+  # and an entry that every recorded field it covers takes from an outer one
+  # says nothing.
+  test "each recorded field has one deciding entry, and no entry is wholly shadowed",
+       %{fields: fields} do
+    matches = for %{path: path} <- fields, uniq: true, do: AtMcp.LeftOut.entries_for(path)
+
+    ties =
+      for [{a, depth}, {b, depth} | _] <- matches, uniq: true, do: "#{a} and #{b}"
+
+    deciding = for [{pattern, _} | _] <- matches, into: MapSet.new(), do: pattern
+    covering = for match <- matches, {pattern, _} <- match, into: MapSet.new(), do: pattern
+    shadowed = MapSet.difference(covering, deciding) |> Enum.sort()
+
+    assert ties == [], "These entries cover the same fields at the same depth: #{inspect(ties)}"
+
+    assert shadowed == [],
+           "These entries decide no recorded field; an outer entry always does: #{inspect(shadowed)}"
   end
 
   test "every entry in AtMcp.LeftOut gives a reason or the issue that will pass it on" do
     for {pattern, reason} <- AtMcp.LeftOut.entries() do
       assert (is_binary(reason) and reason != "") or match?({:todo, n} when is_integer(n), reason),
              "#{pattern} has no reason"
+    end
+  end
+
+  # What is wrong with an entry, given the recorded fields it covers, or nil.
+  defp misfit(pattern, reason, fields) do
+    read = for %{read: true} = field <- fields, uniq: true, do: "#{field.kind}: #{field.path}"
+
+    case {reason, read} do
+      {_reason, []} ->
+        nil
+
+      {{:todo, issue}, read} ->
+        "#{pattern} ({:todo, #{issue}}) covers fields that are read: #{Enum.join(read, ", ")}"
+
+      {_reason, _read} ->
+        if Enum.all?(fields, & &1.read), do: "#{pattern} covers only fields that are read"
     end
   end
 

@@ -1,47 +1,100 @@
 """Record the AppView responses test/at_mcp/field_coverage_test.exs reads.
 
-    python3 scripts/record_appview_fixtures.py test/fixtures/appview
+    python3 scripts/record_appview_fixtures.py OUT_DIR ACTOR GATED_POST_URI
 
-Reads public, unauthenticated responses from the Bluesky AppView about the
-official @bsky.app account and one of its threadgated posts, keeps the fewest
+ACTOR is a public account with reposts, a pinned post, replies and varied
+embeds in its recent posts; GATED_POST_URI is a post of it with a threadgate.
+Neither is written down here: the fixtures should not lead back to who they
+were recorded from.
+
+The script reads public, unauthenticated AppView responses, keeps the fewest
 feed items and replies that together carry every field path, and replaces
-identities, text and URLs. Keys and value types are kept exactly, and text keeps
-its byte length so facet ranges still fall inside it: the fixtures carry the
-AppView's shape and none of its people. Re-record when the lexicon grows.
-"""
-import json, os, re, sys, hashlib, urllib.request, urllib.parse
+every value that could identify a record or a person. Keys, value types and
+the shape of each string (an AT URI stays an AT URI with a TID record key, a
+CID stays a CID of the same length, a timestamp stays a timestamp) are kept.
 
-out = sys.argv[1]
+Every string is replaced unless its key is in KEEP, a short list of keys whose
+values are enumerations from the lexicon rather than content. A key the
+lexicon adds later is therefore scrubbed until someone decides otherwise.
+Integers are replaced too, except facet byte offsets, which must still index
+the (replaced) text. Replacements are deterministic within one run (the same
+DID maps to the same fake DID everywhere, so references still line up) and
+salted with a random value that is not saved, so they cannot be reversed by
+hashing candidates.
+"""
+import datetime, hashlib, json, os, re, secrets, sys, urllib.parse, urllib.request
+
+out, ACTOR, GATED = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(out, exist_ok=True)
 APPVIEW = "https://public.api.bsky.app/xrpc/"
-ACTOR = "bsky.app"
-# A post of that account with a threadgate (it hides one reply).
-GATED = "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.post/3l6oveex3ii2l"
+SALT = secrets.token_bytes(32)
+
+# Every timestamp moves by the same random offset, so order and spacing hold.
+SHIFT = datetime.timedelta(seconds=int.from_bytes(SALT[:4], "big") % (400 * 86400) + 86400)
+
+# Keys whose string values are lexicon enumerations or type names, not content.
+KEEP = {
+    "$type", "val", "langs", "mimeType", "purpose", "presentation", "contentMode",
+    "verifiedStatus", "trustedVerifierStatus", "allowIncoming", "allowSubscriptions",
+    "allowGroupInvites", "showButtonTo", "status",
+}
+
+# Integers that must keep their value: byte offsets into a post's text.
+KEEP_INT = {"byteStart", "byteEnd"}
+
+B32 = "abcdefghijklmnopqrstuvwxyz234567"
+TID = "234567abcdefghijklmnopqrstuvwxyz"
+DID_RE = re.compile(r"did:(?:plc|web):[A-Za-z0-9._%:-]+")
+TIME_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$")
+AT_RE = re.compile(r"^at://([^/]+)(?:/([^/]+)(?:/([^/]+))?)?$")
 
 
-def fetch(method, **params):
-    url = APPVIEW + method + "?" + urllib.parse.urlencode(params)
-    with urllib.request.urlopen(url, timeout=30) as response:
-        return json.load(response)
+def digest(kind, value):
+    return hashlib.sha256(SALT + kind.encode() + b"\0" + value.encode()).digest()
 
 
-dids, handles = {}, {}
-DID_RE = re.compile(r"did:(?:plc|web):[a-zA-Z0-9._%-]+")
+def letters(kind, value, alphabet, n):
+    d = digest(kind, value)
+    while len(d) < n:
+        d += hashlib.sha256(d).digest()
+    return "".join(alphabet[b % len(alphabet)] for b in d[:n])
 
 
-def did(d):
-    if d not in dids:
-        dids[d] = f"did:plc:fixture{len(dids) + 1:04d}"
-    return dids[d]
+def did(value):
+    return "did:plc:" + letters("did", value, B32, 24)
 
 
-def handle(h):
-    if h not in handles:
-        handles[h] = f"account{len(handles) + 1}.example.test"
-    return handles[h]
+def tid(value):
+    return letters("tid", value, TID, 13)
 
 
-TEXT_KEYS = {"text", "description", "alt", "title", "name", "displayName", "tag"}
+def cid(value):
+    # Same multibase prefix and length, so it reads as the same kind of CID.
+    return value[:4] + letters("cid", value, B32, len(value) - 4)
+
+
+def at_uri(value):
+    m = AT_RE.match(value)
+    if not m:
+        return "at://" + did(value)
+    repo, collection, rkey = m.groups()
+    parts = [did(repo) if repo.startswith("did:") else handle(repo)]
+    if collection:
+        parts.append(collection)
+    if rkey:
+        parts.append("self" if rkey == "self" else tid(rkey))
+    return "at://" + "/".join(parts)
+
+
+def handle(value):
+    return letters("handle", value, B32, 10) + ".example.test"
+
+
+def timestamp(value):
+    when = datetime.datetime.fromisoformat(value.replace("Z", "+00:00")) + SHIFT
+    text = when.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    fraction = re.search(r"\.\d+", value)
+    return text + (fraction.group(0) if fraction else "") + "Z"
 
 
 def scrub(v, key=None):
@@ -49,28 +102,30 @@ def scrub(v, key=None):
         return {k: scrub(x, k) for k, x in v.items()}
     if isinstance(v, list):
         return [scrub(x, key) for x in v]
-    if not isinstance(v, str):
+    if isinstance(v, bool) or v is None or isinstance(v, float):
         return v
-    if key == "$type" or key in {"cid", "createdAt", "indexedAt", "updatedAt", "cts", "exp",
-                                 "val", "verifiedStatus", "trustedVerifierStatus",
-                                 "allowIncoming", "allowSubscriptions", "purpose",
-                                 "presentation", "contentMode", "reason", "mimeType", "$link"}:
+    if isinstance(v, int):
+        # Counts and sizes can single an account out; keep the type, and zero.
+        if key in KEEP_INT or v == 0:
+            return v
+        return int.from_bytes(digest("int", f"{key}:{v}")[:2], "big") % 997 + 1
+    if key in KEEP:
         return v
+    if v.startswith("at://"):
+        return at_uri(v)
+    if v.startswith("did:"):
+        return DID_RE.sub(lambda m: did(m.group(0)), v)
+    if key in ("cid", "$link") or re.fullmatch(r"baf[a-z2-7]{20,}", v):
+        return cid(v)
+    if TIME_RE.match(v):
+        return timestamp(v)
+    if v.startswith("http"):
+        return "https://example.test/" + letters("url", v, B32, 12)
     if key == "handle" or (key or "").endswith("Handle"):
         return handle(v)
-    if key in ("did", "src", "issuer", "subject") and v.startswith("did:"):
-        return did(v)
-    if key in TEXT_KEYS or (key or "").endswith("DisplayName"):
-        # Same byte length, ASCII, so facet byte ranges still fall inside the text.
-        return re.sub(r"[^\n]", "x", "x" * len(v.encode()))[: len(v.encode())]
-    if v.startswith("at://"):
-        return DID_RE.sub(lambda m: did(m.group(0)), v)
-    if v.startswith("http"):
-        h = hashlib.sha1(v.encode()).hexdigest()[:10]
-        return f"https://example.test/{h}"
-    if v.startswith("did:"):
-        return did(v)
-    return v
+    # Anything else is content: x repeated to the same byte length, so a
+    # facet's byte range still falls inside the text it indexes.
+    return "x" * len(v.encode())
 
 
 def leaves(v, path=""):
@@ -87,7 +142,7 @@ def leaves(v, path=""):
     return {path}
 
 
-def cover(items, limit=None):
+def cover(items):
     """Greedy: the fewest items whose leaf paths cover every path in items."""
     want = set().union(*(leaves(i) for i in items))
     chosen, have = [], set()
@@ -98,6 +153,12 @@ def cover(items, limit=None):
         chosen.append(best)
         have |= leaves(best)
     return chosen
+
+
+def fetch(method, **params):
+    url = APPVIEW + method + "?" + urllib.parse.urlencode(params)
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return json.load(response)
 
 
 def write(name, value):

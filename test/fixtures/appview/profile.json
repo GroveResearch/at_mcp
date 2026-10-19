@@ -1,12 +1,12 @@
 {
-  "did": "did:plc:fixture0001",
-  "handle": "account1.example.test",
+  "did": "did:plc:cq4wcrv73vv6bkcgwjpyvpk3",
+  "handle": "nfi7p5s7bm.example.test",
   "displayName": "xxxxxxx",
-  "avatar": "https://example.test/407ca117e7",
+  "avatar": "https://example.test/2wck7disknu4",
   "associated": {
-    "lists": 18,
-    "feedgens": 7,
-    "starterPacks": 15,
+    "lists": 827,
+    "feedgens": 969,
+    "starterPacks": 523,
     "labeler": false,
     "chat": {
       "allowIncoming": "none"
@@ -16,20 +16,20 @@
     }
   },
   "labels": [],
-  "createdAt": "2023-04-12T04:53:57.057Z",
+  "createdAt": "2023-12-14T20:27:21.057Z",
   "verification": {
     "verifications": [],
     "verifiedStatus": "none",
     "trustedVerifierStatus": "valid"
   },
   "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "indexedAt": "2025-10-27T21:05:26.152Z",
-  "banner": "https://example.test/59ef1eb3d2",
-  "followersCount": 35302099,
-  "followsCount": 22,
-  "postsCount": 880,
+  "indexedAt": "2026-07-01T12:38:50.152Z",
+  "banner": "https://example.test/k627mki56gkw",
+  "followersCount": 624,
+  "followsCount": 297,
+  "postsCount": 165,
   "pinnedPost": {
-    "cid": "bafyreicnt42y6vo6pfpvyro234ac4o6ijug6adwwrh7awflgrqlt4zibxq",
-    "uri": "at://did:plc:fixture0001/app.bsky.feed.post/3l6oveex3ii2l"
+    "cid": "bafy5mlmf7vw7qeeaicmlstpp6qywj3y3suh7aoile75anxgmpxa5fcxx3l",
+    "uri": "at://did:plc:cq4wcrv73vv6bkcgwjpyvpk3/app.bsky.feed.post/s2l6wfwbk7ms4"
   }
 }
