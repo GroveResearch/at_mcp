@@ -175,7 +175,7 @@ the app's own library does, keeping every other preference byte for byte (the
 preferences are read and written as raw JSON, not through the XRPC client's
 key renaming). `actor.putPreferences` has no compare-and-swap, so a change
 another client makes between the read and the write is lost; the description
-and the result say so. `set_status` writes the `actor.status` record over the
+and the result say so. `set_status` writes or deletes the `actor.status` record over the
 one read and refuses a duration outside the 5 to 240 minutes the AppView
 shows. `feed_feedback` reads the feed first and sends `feed.sendInteractions`
 to the feed generator's own service (`atproto-proxy: <did>#bsky_fg`), as the

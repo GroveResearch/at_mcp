@@ -83,6 +83,26 @@ defmodule AtMcp.MCP.Tools do
         "error: this account is not connected: it has no credentials. Configure it in at_mcp's accounts file."
       )
 
+  # A profile write with links whose outcome is unknown: the new link records
+  # were written, and the profile, which would name them and stop naming the
+  # old ones, may or may not have been.
+  def respond(
+        {:error,
+         {:write_outcome_unknown,
+          %AtMcp.Effects.Failure{detail: {:profile_links, created, removed}}}},
+        state
+      ) do
+    error(
+      state,
+      "write_outcome_unknown",
+      "error: write outcome unknown; the profile may or may not have been changed. " <>
+        "Its new link records were written: #{Enum.join(created, ", ")}. If the profile was not changed, nothing shows them. " <>
+        "The link records it would stop showing were not deleted: #{Enum.join(removed, ", ")}. " <>
+        "Read the profile record before deciding whether to retry. AtMcp did not retry this uncertain write.",
+      %{outcome: "unknown", created: created, not_removed: removed}
+    )
+  end
+
   def respond({:error, {:write_outcome_unknown, _reason}}, state) do
     error(
       state,

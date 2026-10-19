@@ -1649,7 +1649,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_profile",
        write_description(
          :update_profile,
-         "Update display name, description, avatar, banner, pronouns, website and/or the links the profile shows. Fields not given are kept; an empty pronouns or website removes it. The profile record is read first and written only over that version. get_record with at://<this account>/app.bsky.actor.profile/self reads it back."
+         "Update display name, description, avatar, banner, pronouns, website and/or the links the profile shows. Fields not given are kept; an empty pronouns or website removes it. The profile record is read first and written only over that version. get_record on this account's profile record (rkey self) reads it back."
        ) do
     annotations(
       write_annotations(:update_profile, %{
@@ -1858,7 +1858,7 @@ defmodule AtMcp.MCP.Server do
   tool "save_feed",
        write_description(
          :save_feed,
-         "Save a custom feed or a list to this account's feeds, pinned (a tab on its home screen) or not. A feed already saved is pinned or unpinned as asked; one already as asked is left alone and unchanged is true. Saved feeds are a preference: the preferences are read and written back whole, every other one kept, and the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+         "Save a custom feed or a list to this account's feeds, pinned (a tab on its home screen) or not. A feed already saved is pinned or unpinned as pinned says, and left as it is when pinned is left out; one already as asked is left alone and unchanged is true. Saved feeds are a preference: the preferences are read and written back whole, every other one kept, and the service offers no compare-and-swap for them, so a change another client makes in between is lost."
        ) do
     annotations(
       write_annotations(:save_feed, %{
@@ -1873,12 +1873,13 @@ defmodule AtMcp.MCP.Server do
     param(:uri, :string, required: true, description: "AT URI of the feed generator or list")
 
     param(:pinned, :boolean,
-      description: "true to pin it as a home screen tab. Defaults to false."
+      description:
+        "true to pin it as a home screen tab, false to unpin it. Left out: a saved feed keeps its pin, and a new one is not pinned."
     )
 
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.save_feed(state.effects, Map.fetch!(a, :uri), Map.get(a, :pinned) == true),
+        AtMcp.Effects.save_feed(state.effects, Map.fetch!(a, :uri), Map.get(a, :pinned)),
         state
       )
     end)
@@ -1912,7 +1913,7 @@ defmodule AtMcp.MCP.Server do
   tool "set_status",
        write_description(
          :set_status,
-         "Say this account is live, streaming at a URL, for a while (kind live), or end it (kind clear). Others see a Live badge on its avatar until it expires. The app shows the badge only for links to streaming sites it recognizes, such as twitch.tv, youtube.com and stream.place; another link is written and shown nowhere as live. The result's replaced is the status it replaced, which set_status takes to put it back."
+         "Say this account is live, streaming at a URL, for a while (kind live), or end it (kind clear). Others see a Live badge on its avatar until it expires. The app shows the badge only for links to streaming sites it recognizes, such as twitch.tv, youtube.com and stream.place; another link is written and shown nowhere as live. The result's replaced is the status it replaced or cleared: its url, duration_minutes and created_at. Setting that url and duration again starts a new status from now, without the old card's title and description."
        ) do
     annotations(
       write_annotations(:set_status, %{
@@ -1952,7 +1953,7 @@ defmodule AtMcp.MCP.Server do
   tool "feed_feedback",
        write_description(
          :feed_feedback,
-         "Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. It goes to the feed's own service, not to the account's followers. Only a feed that takes feedback (get_feed_info: takes feedback) accepts it; another is refused before anything is sent."
+         "Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. It goes to the feed's own service, not to the account's followers. Only a feed that takes feedback accepts it: one whose generator accepts interactions (get_feed_info says takes feedback), or the app's own Discover and video feeds, which always do. Another is refused before anything is sent."
        ) do
     annotations(
       write_annotations(:feed_feedback, %{

@@ -267,7 +267,9 @@ defmodule AtMcp.Reading do
               named(feed["display_name"]),
               by(feed["creator"], nil),
               if(is_integer(feed["like_count"]), do: count(feed["like_count"], "like", "likes")),
-              if(feed["accepts_interactions"] == true, do: "takes feedback"),
+              if(AtMcp.Effects.takes_feedback?(feed["uri"], feed["accepts_interactions"]),
+                do: "takes feedback"
+              ),
               online(feed)
             ],
             " · "

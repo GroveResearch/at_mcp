@@ -384,6 +384,11 @@ defmodule AtMcp.FeedProfileWritesTest do
                AtMcp.Effects.set_status(effects, "clear")
 
       assert FakePDS.record(pds, status) == nil
+      # Cleared only if it is still the status read.
+      assert [%{body: %{"swapRecord" => swap}}] =
+               FakePDS.sent(pds, "com.atproto.repo.deleteRecord")
+
+      assert swap == FakePDS.cid(status)
 
       assert {:ok, %{unchanged: true, replaced: nil}} = AtMcp.Effects.set_status(effects, "clear")
       assert [_] = FakePDS.sent(pds, "com.atproto.repo.deleteRecord")
@@ -412,6 +417,78 @@ defmodule AtMcp.FeedProfileWritesTest do
         })
 
       assert %{code: "changed_meanwhile"} = result.structuredContent
+    end
+
+    test "a status changed before it is cleared is refused as changed_meanwhile" do
+      %{effects: effects} =
+        pds(
+          answers: %{
+            "com.atproto.repo.deleteRecord" => {400, %{error: "InvalidSwap", message: "moved"}}
+          },
+          records: %{
+            "at://did:plc:self/town.delve.actor.status/self" => %{
+              "$type" => "town.delve.actor.status",
+              "status" => "town.delve.actor.status#live",
+              "createdAt" => "2026-10-18T00:00:00.000Z"
+            }
+          }
+        )
+
+      result = call(%{effects: effects}, "set_status", %{"kind" => "clear"})
+      assert %{code: "changed_meanwhile"} = result.structuredContent
+    end
+
+    test "save_feed without pinned keeps a saved feed's pin, and saves a new one unpinned" do
+      pinned = "at://did:plc:f/town.delve.feed.generator/pinned"
+
+      v2 = %{
+        "$type" => "town.delve.actor.defs#savedFeedsPrefV2",
+        "items" => [%{"id" => "a", "type" => "feed", "value" => pinned, "pinned" => true}]
+      }
+
+      %{effects: effects, pds: pds} = pds(preferences: [v2])
+
+      assert {:ok, %{unchanged: true, pinned: true}} =
+               AtMcp.Effects.save_feed(effects, pinned, nil)
+
+      assert FakePDS.sent(pds, "town.delve.actor.putPreferences") == []
+
+      fresh = "at://did:plc:f/town.delve.feed.generator/fresh"
+
+      assert {:ok, %{unchanged: false, pinned: false}} =
+               AtMcp.Effects.save_feed(effects, fresh, nil)
+
+      [v2] = FakePDS.preferences(pds)
+
+      assert Enum.map(v2["items"], &{&1["value"], &1["pinned"]}) == [
+               {pinned, true},
+               {fresh, false}
+             ]
+    end
+
+    test "the ids a migration gives saved feeds are distinct" do
+      feeds = for n <- 1..40, do: "at://did:plc:f/town.delve.feed.generator/f#{n}"
+
+      v1 = %{
+        "$type" => "town.delve.actor.defs#savedFeedsPref",
+        "saved" => feeds,
+        "pinned" => Enum.take(feeds, 20)
+      }
+
+      %{effects: effects, pds: pds} = pds(preferences: [v1])
+
+      assert {:ok, _} =
+               AtMcp.Effects.save_feed(
+                 effects,
+                 "at://did:plc:f/town.delve.feed.generator/new",
+                 true
+               )
+
+      v2 = Enum.find(FakePDS.preferences(pds), &(&1["$type"] =~ "PrefV2"))
+      ids = Enum.map(v2["items"], & &1["id"])
+      assert length(ids) == 42
+      assert length(Enum.uniq(ids)) == 42
+      assert Enum.all?(ids, &is_binary/1)
     end
 
     test "update_profile sets and removes pronouns and a website, keeping every other field" do
@@ -537,6 +614,104 @@ defmodule AtMcp.FeedProfileWritesTest do
       assert FakePDS.record(pds, new)["url"] == "https://c.example"
     end
 
+    test "new link records written in one call have distinct keys" do
+      %{effects: effects, pds: pds} = linked()
+      links = for n <- 1..10, do: %{url: "https://l#{n}.example", title: nil}
+      assert {:ok, %{links: written}} = AtMcp.Effects.update_profile(effects, links: links)
+      assert length(Enum.uniq(Enum.map(written, & &1.uri))) == 10
+      [%{body: created} | _] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      assert length(Enum.uniq(Enum.map(created["writes"], & &1["rkey"]))) == 10
+    end
+
+    test "a refused credential deletes the link records written, so the retry writes one set" do
+      {session, pds} =
+        linked_session(%{
+          "com.atproto.repo.putRecord" => {400, %{error: "ExpiredToken", message: "expired"}}
+        })
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :auth_refused}} =
+               AtMcp.Effects.ProtoRune.update_profile(session,
+                 links: [%{url: "https://c.example", title: nil}]
+               )
+
+      [%{body: created}, %{body: deleted}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      [%{"rkey" => rkey}] = created["writes"]
+      assert [%{"rkey" => ^rkey}] = deleted["writes"]
+    end
+
+    test "a refused credential whose cleanup fails too is no longer retried, and names what is left" do
+      {session, pds} =
+        linked_session(%{
+          "com.atproto.repo.putRecord" => {400, %{error: "ExpiredToken", message: "expired"}},
+          "com.atproto.repo.applyWrites" => [
+            :default,
+            {400, %{error: "ExpiredToken", message: "expired"}}
+          ]
+        })
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:links_left, [left]}}} =
+               AtMcp.Effects.ProtoRune.update_profile(session,
+                 links: [%{url: "https://c.example", title: nil}]
+               )
+
+      assert FakePDS.record(pds, left)["url"] == "https://c.example"
+    end
+
+    test "a profile write of unknown outcome names the link records written and those not removed" do
+      {session, pds} =
+        linked_session(%{"com.atproto.repo.putRecord" => {502, %{error: "BadGateway"}}})
+
+      assert {:error, %AtMcp.Effects.Failure{detail: {:profile_links, [created], [@a]}} = failure} =
+               AtMcp.Effects.ProtoRune.update_profile(session,
+                 links: [
+                   %{url: "https://b.example", title: "B"},
+                   %{url: "https://c.example", title: nil}
+                 ]
+               )
+
+      assert FakePDS.record(pds, created) != nil
+      assert FakePDS.record(pds, @a) != nil
+
+      {:ok, result, :state} =
+        AtMcp.MCP.Tools.respond({:error, {:write_outcome_unknown, failure}}, :state)
+
+      assert %{outcome: "unknown", created: [^created], not_removed: [@a]} =
+               result.structuredContent
+
+      assert hd(result.content).text =~ created
+    end
+
+    test "the app's Discover feed takes feedback though its generator does not say so" do
+      discover = hd(AtMcp.Effects.feedback_feeds())
+
+      %{effects: effects, pds: pds} =
+        pds(
+          answers: %{
+            "app.bsky.feed.getFeedGenerator" =>
+              {200,
+               %{
+                 view: %{uri: discover, did: "did:web:discover.example"},
+                 isOnline: true,
+                 isValid: true
+               }}
+          }
+        )
+
+      assert {:ok, %{kind: "show_more"}} =
+               AtMcp.Effects.feed_feedback(
+                 effects,
+                 discover,
+                 "at://did:plc:a/app.bsky.feed.post/p",
+                 "show_more"
+               )
+
+      assert [%{proxy: "did:web:discover.example#bsky_fg"}] =
+               FakePDS.sent(pds, "app.bsky.feed.sendInteractions")
+
+      assert AtMcp.Reading.feeds(%{"items" => [%{"uri" => discover, "display_name" => "D"}]}) =~
+               "takes feedback"
+    end
+
     test "empty links remove them all, and the records with them" do
       %{effects: effects, pds: pds} = linked()
 
@@ -656,6 +831,25 @@ defmodule AtMcp.FeedProfileWritesTest do
       text = AtMcp.Reading.posts(Jason.decode!(Jason.encode!(%{items: [item]})))
       assert text =~ "For feed_feedback: feed_context: t-kites · req_id: r1"
     end
+  end
+
+  # The fake PDS and a session on it, for calling the backend directly, where
+  # a refused credential is not recovered and retried as `AtMcp.Effects` does.
+  defp linked_session(answers) do
+    FakePDS.start(
+      records: %{
+        @profile => %{
+          "$type" => "app.bsky.actor.profile",
+          "links" => [
+            %{"uri" => @a, "cid" => FakePDS.cid(@a)},
+            %{"uri" => @b, "cid" => FakePDS.cid(@b)}
+          ]
+        },
+        @a => %{"$type" => "app.bsky.actor.link", "url" => "https://a.example"},
+        @b => %{"$type" => "app.bsky.actor.link", "url" => "https://b.example", "title" => "B"}
+      },
+      answers: answers
+    )
   end
 
   defp pds(opts \\ []) do

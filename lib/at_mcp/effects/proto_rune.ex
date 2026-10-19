@@ -1755,18 +1755,21 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp links_plan(session, current, {:ok, wanted}) do
     with {:ok, existing} <- current_links(session, current) do
-      {plan, unused} =
-        Enum.map_reduce(wanted, existing, fn link, available ->
-          title = blank_nil(Map.get(link, :title))
+      # One batch of keys, distinct by construction: keys drawn one at a time
+      # in the same microsecond share their clock id one time in 1,024.
+      {plan, {unused, _keys}} =
+        Enum.map_reduce(wanted, {existing, AtMcp.ATProto.tids(length(wanted))}, fn
+          link, {available, [key | keys]} ->
+            title = blank_nil(Map.get(link, :title))
 
-          case Enum.split_with(available, &(&1.url == link.url and &1.title == title)) do
-            {[same | others], rest} ->
-              {{:keep, same}, others ++ rest}
+            case Enum.split_with(available, &(&1.url == link.url and &1.title == title)) do
+              {[same | others], rest} ->
+                {{:keep, same}, {others ++ rest, keys}}
 
-            {[], _} ->
-              record = AtMcp.ATProto.link_record(%{url: link.url, title: title})
-              {{:create, AtMcp.ATProto.tid(), record}, available}
-          end
+              {[], _} ->
+                record = AtMcp.ATProto.link_record(%{url: link.url, title: title})
+                {{:create, key, record}, {available, keys}}
+            end
         end)
 
       {:ok,
@@ -1878,16 +1881,30 @@ defmodule AtMcp.Effects.ProtoRune do
 
       {:error, reason} = error ->
         created = for %{created: true} = link <- refs, do: link.uri
+        failure = failure(reason)
 
-        if created != [] and AtMcp.Effects.Failure.kind(failure(reason)) == :refused do
-          cleanup(session, created, error, links)
-        else
-          error
+        cond do
+          created == [] ->
+            error
+
+          # The service did not apply the profile, so the new records are
+          # named by nothing; they are deleted again and the refusal stays
+          # true. A refused credential is retried whole after the session is
+          # recovered, which writes the links again: the first set is deleted
+          # now, or, if that fails too, the error stops being a credential
+          # refusal, so no second set is written over a first left behind.
+          failure.kind in [:refused, :auth_refused] ->
+            cleanup(session, created, error)
+
+          # The profile may or may not have been written, so neither set of
+          # records can be tidied: the error names both.
+          true ->
+            {:error, %{failure | detail: {:profile_links, created, links.removed}}}
         end
     end
   end
 
-  defp cleanup(session, created, error, _links) do
+  defp cleanup(session, created, error) do
     deletes =
       for uri <- created do
         {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
@@ -2055,40 +2072,40 @@ defmodule AtMcp.Effects.ProtoRune do
     items = if current, do: current["items"], else: migrated(preferences)
     matching = Enum.filter(items, &(&1["value"] == uri))
 
-    {items, unchanged?} =
+    # `pinned` nil keeps a saved feed as it is, and saves a new one unpinned.
+    {items, unchanged?, now_pinned} =
       case {verb, matching} do
         {:save_feed, []} ->
-          {items ++
-             [
-               %{
-                 "id" => AtMcp.ATProto.tid(),
-                 "type" => feed_type(uri),
-                 "value" => uri,
-                 "pinned" => pinned
-               }
-             ], false}
+          item = %{
+            "id" => nil,
+            "type" => feed_type(uri),
+            "value" => uri,
+            "pinned" => pinned == true
+          }
 
-        {:save_feed, found} ->
-          if Enum.all?(found, &(&1["pinned"] == pinned)),
-            do: {items, true},
+          {items ++ [item], false, pinned == true}
+
+        {:save_feed, [first | _] = found} ->
+          if is_nil(pinned) or Enum.all?(found, &(&1["pinned"] == pinned)),
+            do: {items, true, if(is_nil(pinned), do: first["pinned"] == true, else: pinned)},
             else:
               {Enum.map(
                  items,
                  &if(&1["value"] == uri, do: Map.put(&1, "pinned", pinned), else: &1)
-               ), false}
+               ), false, pinned}
 
         {:unsave_feed, []} ->
-          {items, true}
+          {items, true, nil}
 
         {:unsave_feed, _found} ->
-          {Enum.reject(items, &(&1["value"] == uri)), false}
+          {Enum.reject(items, &(&1["value"] == uri)), false, nil}
       end
 
     result = %{
       ok: true,
       action: verb,
       uri: uri,
-      pinned: if(verb == :save_feed, do: pinned),
+      pinned: now_pinned,
       unchanged: unchanged?,
       note: if(not unchanged?, do: @no_swap)
     }
@@ -2098,7 +2115,8 @@ defmodule AtMcp.Effects.ProtoRune do
     else
       # Pinned first, each group in its order, as the app keeps them.
       {pinned_items, saved_items} = Enum.split_with(items, &(&1["pinned"] == true))
-      v2 = Map.put(current || %{"$type" => v2_type}, "items", pinned_items ++ saved_items)
+      items = with_ids(pinned_items ++ saved_items)
+      v2 = Map.put(current || %{"$type" => v2_type}, "items", items)
 
       updated =
         preferences
@@ -2108,6 +2126,19 @@ defmodule AtMcp.Effects.ProtoRune do
 
       %{preferences: updated, result: result}
     end
+  end
+
+  # New items are built without an id and given theirs here, in one batch,
+  # which makes them distinct: ids drawn one at a time in the same
+  # microsecond share their clock id one time in 1,024.
+  defp with_ids(items) do
+    {items, []} =
+      Enum.map_reduce(items, AtMcp.ATProto.tids(Enum.count(items, &is_nil(&1["id"]))), fn
+        %{"id" => nil} = item, [id | ids] -> {Map.put(item, "id", id), ids}
+        item, ids -> {item, ids}
+      end)
+
+    items
   end
 
   defp saved_v2?(%{"$type" => type, "items" => items}) when is_list(items),
@@ -2142,7 +2173,7 @@ defmodule AtMcp.Effects.ProtoRune do
   # rest it saved, each once.
   defp migrated(preferences) do
     timeline = %{
-      "id" => AtMcp.ATProto.tid(),
+      "id" => nil,
       "type" => "timeline",
       "value" => "following",
       "pinned" => true
@@ -2164,7 +2195,7 @@ defmodule AtMcp.Effects.ProtoRune do
         [timeline] ++
           for {uri, pin} <- pinned ++ saved do
             %{
-              "id" => AtMcp.ATProto.tid(),
+              "id" => nil,
               "type" => feed_type(uri),
               "value" => uri,
               "pinned" => pin
@@ -2261,14 +2292,27 @@ defmodule AtMcp.Effects.ProtoRune do
   def write_status(_session, %{record: nil, exists: false} = plan),
     do: {:ok, status_result(plan, :clear, true)}
 
-  def write_status(session, %{record: nil} = plan) do
-    case AtMcp.ATProto.delete_record(session, %{
-           repo: session.did,
-           collection: AtMcp.Network.collection(:status),
-           rkey: "self"
-         }) do
-      {:ok, _} -> {:ok, status_result(plan, :clear, false)}
-      {:error, reason} -> {:error, failure(reason)}
+  # Cleared only if it is still the status read, as a new one is written only
+  # over it: a status set meanwhile by another client is not deleted unseen.
+  def write_status(session, %{record: nil, swap: swap} = plan) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(:status),
+      rkey: "self"
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.delete_record(session, params) do
+      {:ok, _} ->
+        {:ok, status_result(plan, :clear, false)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The account's status")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
     end
   end
 
@@ -2339,10 +2383,10 @@ defmodule AtMcp.Effects.ProtoRune do
         service = field(view, :did)
 
         cond do
-          field(view, :accepts_interactions) != true ->
+          not AtMcp.Effects.takes_feedback?(request.feed, field(view, :accepts_interactions)) ->
             {:error,
              {:invalid_argument, "feed",
-              "this feed does not take feedback (its generator does not accept interactions), so the app offers none"}}
+              "this feed does not take feedback: its generator does not accept interactions and it is not one of the app's own feeds that always do, so the app offers none"}}
 
           not is_binary(service) ->
             {:error, unreadable("a feed generator", response)}

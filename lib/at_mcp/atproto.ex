@@ -529,10 +529,12 @@ defmodule AtMcp.ATProto do
   # `swapRecord` is the CID the record must still have for the write to apply.
   @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swap_record, :string)
 
+  # `swapRecord` is the CID the record must still have for it to be deleted.
   @repo_delete %{
     repo: {:required, :string},
     collection: {:required, :string},
-    rkey: {:required, :string}
+    rkey: {:required, :string},
+    swap_record: :string
   }
 
   @repo_get %{

@@ -1094,7 +1094,8 @@ defmodule AtMcp.Effects do
   @doc """
   Save a custom feed or a list to this account's feeds, pinned (shown as a tab
   on the home screen) or not. A feed already saved is pinned or unpinned as
-  asked, and one already as asked is left alone. Saved feeds are a preference
+  asked, and one already as asked, or saved with `pinned` nil, is left alone;
+  a new one saved with `pinned` nil is not pinned. Saved feeds are a preference
   (`savedFeedsPrefV2`); the preferences are read and written back whole, and
   `actor.putPreferences` has no compare-and-swap, so a change another client
   makes between the read and the write is lost.
@@ -1110,7 +1111,7 @@ defmodule AtMcp.Effects do
     with {:ok, _} <-
            record_argument(uri, "uri", [:generator, :list], "a feed generator or a list"),
          :ok <-
-           if(verb == :unsave_feed or is_boolean(pinned),
+           if(verb == :unsave_feed or is_nil(pinned) or is_boolean(pinned),
              do: :ok,
              else: invalid("pinned", "must be true or false")
            ) do
@@ -1203,6 +1204,34 @@ defmodule AtMcp.Effects do
   defp optional_text(_text, field), do: invalid(field, "must be a string")
 
   @feedback_events %{"show_more" => :request_more, "show_less" => :request_less}
+
+  # The feeds the app always offers feedback on, whatever their generator
+  # says: Bluesky's own Discover and video feeds, in production and staging
+  # (`FEEDBACK_FEEDS` = `PROD_FEEDS` ++ `STAGING_FEEDS` in social-app's
+  # src/lib/constants.ts, read by `isDiscoverFeed` in
+  # src/state/feed-feedback.tsx at 485405a). Its rule is
+  # `isDiscover || feed.acceptsInteractions` (lines 72-76). Feeds of the
+  # trending account (`TRENDING_DID`) need `acceptsInteractions` like any
+  # other: `isTrendingFeed` only widens which events those feeds get, and
+  # show more and show less are allowed for every feed
+  # (`THIRD_PARTY_ALLOWED_INTERACTIONS`).
+  @feedback_feeds [
+    "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot",
+    "at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/thevids",
+    "at://did:plc:yofh3kx63drvfljkibw5zuxo/app.bsky.feed.generator/whats-hot",
+    "at://did:plc:yofh3kx63drvfljkibw5zuxo/app.bsky.feed.generator/thevids"
+  ]
+
+  @doc "The feeds the app offers feedback on whatever their generator says."
+  def feedback_feeds, do: @feedback_feeds
+
+  @doc """
+  Whether the app offers feedback on the feed at `uri` (in DID form) whose
+  generator says `accepts_interactions`: one of `feedback_feeds/0`, or one
+  that accepts interactions.
+  """
+  def takes_feedback?(uri, accepts_interactions),
+    do: uri in @feedback_feeds or accepts_interactions == true
 
   # `feed.defs#interaction` bounds what a feed generator gave its item.
   @feedback_limits %{feed_context: 2000, req_id: 100}
