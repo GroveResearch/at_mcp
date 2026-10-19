@@ -79,8 +79,13 @@ defmodule AtMcp.LeftOut do
     {"**.record.labels", {:todo, 73}},
 
     # What the app shows about an account.
-    {"banner", {:todo, 49}},
-    {"**.avatar", {:todo, 49}},
+    # The profile reads keep an account's avatar; a post's author, a creator,
+    # a reposter, a list member and a feed still drop theirs.
+    {"**.author.avatar", {:todo, @profile_todo}},
+    {"**.creator.avatar", {:todo, @profile_todo}},
+    {"feed[].reason.by.avatar", {:todo, @profile_todo}},
+    {"items[].subject.avatar", {:todo, @profile_todo}},
+    {"feeds[].avatar", {:todo, @profile_todo}},
     {"pinnedPost", {:todo, @profile_todo}},
     {"createdAt", {:todo, @profile_todo}},
     {"**.associated", {:todo, @profile_todo}},

@@ -80,6 +80,8 @@ defmodule AtMcp.SummaryTest do
       "handle" => "author.test",
       "displayName" => "café 日本語 🪁",
       "description" => "a profile",
+      "avatar" => "https://cdn.example/avatar.jpg",
+      "banner" => "https://cdn.example/banner.jpg",
       "followersCount" => 3,
       "followsCount" => 2,
       "postsCount" => 1,
@@ -245,6 +247,19 @@ defmodule AtMcp.SummaryTest do
     end
   end
 
+  # Every client shows a profile's avatar and banner once it is set; these URLs
+  # are ones the service already hosts and already sent, not blobs to fetch.
+  test "a profile summary carries the avatar and banner the service hosts" do
+    profile = AtMcp.Summary.extract(:profile, Map.fetch!(@responses, :profile))
+
+    assert profile.avatar == "https://cdn.example/avatar.jpg"
+    assert profile.banner == "https://cdn.example/banner.jpg"
+
+    none = AtMcp.Summary.extract(:profile, %{"handle" => "plain.test"})
+    assert none.avatar == nil
+    assert none.banner == nil
+  end
+
   # The AppView sends these on every post and profile view. Without them an
   # agent counts a post's likes by listing every liker, and cannot tell that an
   # account labels itself a bot.
@@ -330,6 +345,7 @@ defmodule AtMcp.SummaryTest do
 
   test "a value of another type reads as absent rather than contradicting the schema" do
     assert AtMcp.Summary.extract(:profile, %{"followersCount" => "3"}).followers == nil
+    assert AtMcp.Summary.extract(:profile, %{"avatar" => %{"ref" => "bafy"}}).avatar == nil
     assert AtMcp.Summary.extract(:post, %{"uri" => %{"nested" => true}}).uri == nil
 
     assert AtMcp.Summary.extract(:notification, %{"author" => %{"did" => "did:plc:x"}}).author ==
