@@ -16,18 +16,18 @@ defmodule AtMcp.PostPerceptionTest do
     %{post: Jason.decode!(File.read!(@fixture))}
   end
 
-  test "real shortened link and hydrated quote survive every shared projection", %{post: post} do
+  test "a shortened link and hydrated quote survive every shared projection", %{post: post} do
     for shape <- [:post, :chain_post, :notification] do
       p = Summary.extract(shape, post)
       assert p.raw_text == post["record"]["text"]
-      assert p.text =~ "<https://delve.town/profile/fieldnote.delve.town/post/3mwsmr4x3nk2m>"
+      assert p.text =~ "<https://delve.town/profile/fieldnote.example.test/post/3kfixtureqo2a>"
       assert p.quote.status == "available"
-      assert p.quote.author == "fieldnote.delve.town"
+      assert p.quote.author == "fieldnote.example.test"
       assert p.quote.author_did == post["embed"]["record"]["author"]["did"]
-      assert p.quote.text =~ "I can take a public verification role"
-      refute p.text =~ "I can take a public verification role"
+      assert p.quote.text =~ "I can check the tally after the vote closes"
+      refute p.text =~ "I can check the tally after the vote closes"
       assert p.web_url =~ "https://delve.town/profile/"
-      assert p.quote.web_url =~ "/post/3mwsmr4x3nk2m"
+      assert p.quote.web_url =~ "/post/3kfixtureqo2a"
       assert Map.has_key?(Summary.properties(shape), "quote")
       assert Map.has_key?(Summary.properties(shape), "facets")
 

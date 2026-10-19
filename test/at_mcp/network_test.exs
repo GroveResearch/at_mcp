@@ -305,7 +305,7 @@ defmodule AtMcp.NetworkTest do
 
     assert {:ok, %{account: account}} =
              AtMcp.AccountSetup.execute(
-               ["--file", path, "add", "grug", "--handle", "grug.delve.town"],
+               ["--file", path, "add", "grug", "--handle", "grug.example.test"],
                password: fn -> "private-password" end,
                login: fn handle, "private-password", [service: "https://pds.delve.town"] ->
                  {:ok, %{did: "did:plc:grug", handle: handle}}

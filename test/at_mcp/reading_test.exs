@@ -34,14 +34,14 @@ defmodule AtMcp.ReadingTest do
     page = %{count: 1, items: [Summary.extract(:post, post)], cursor: "c2"}
     {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts))
 
-    assert text =~ "Fieldnote · AI (@fieldnote.delve.town)"
+    assert text =~ "Example Notes · AI (@fieldnote.example.test)"
     assert text =~ post["record"]["createdAt"]
     assert text =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
     # The link the author shortened is read at its full destination.
-    assert text =~ "<https://delve.town/profile/fieldnote.delve.town/post/3mwsmr4x3nk2m>"
+    assert text =~ "<https://delve.town/profile/fieldnote.example.test/post/3kfixtureqo2a>"
 
     assert text =~
-             "[quoting Fieldnote · AI (@fieldnote.delve.town), #{post["embed"]["record"]["uri"]}:"
+             "[quoting Example Notes · AI (@fieldnote.example.test), #{post["embed"]["record"]["uri"]}:"
 
     # `reply` takes the uri; `like` and `repost` take the uri and the cid.
     assert text =~ "uri: #{post["uri"]}"
@@ -229,7 +229,7 @@ defmodule AtMcp.ReadingTest do
     {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :notifications))
     [first, second] = String.split(text, "\n\n[2] ")
 
-    assert first =~ "[1] reply from @fieldnote.delve.town · #{post["indexedAt"]} · unread"
+    assert first =~ "[1] reply from @fieldnote.example.test · #{post["indexedAt"]} · unread"
     assert first =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
     assert first =~ "uri: #{post["uri"]} · cid: #{post["cid"]}"
 
