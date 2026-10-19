@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 53 tools: 52 network verbs, plus
+`AtMcp.MCP.Server` declares 58 tools: 57 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -237,9 +237,24 @@ first and replaces only its first post's text, keeping the rest; an id the
 account does not have is refused, because the service would ignore the update
 without saying so. `delete_draft` returns the draft it deleted.
 
+A post can say who may reply to it (`reply_rule`: everyone, nobody, people
+it mentions, people the account follows, its followers, or a list's members)
+and whether it may be quoted (`quotes`). Those are a `feed.threadgate` and a
+`feed.postgate` under the post's record key, and `post` writes them with the
+post in one `applyWrites` commit, so the post never exists without them; it
+counts once. `set_post_interactions` sets both later, as the app's dialog does:
+an omitted rule is the open one. Who may reply belongs to a thread's first
+post, so `reply` does not take `reply_rule`. `hide_reply` and `detach_quote`
+are separate tools because each is a choice about someone else's post; each
+reads the gate it changes and keeps the rest, and a gate left saying nothing
+is deleted. A post can carry self-labels (`labels`) and a link card (`link`)
+whose title and description the agent gives: at_mcp does not fetch the page.
+`get_thread` with `include_hidden` also reads the replies a thread leaves out
+(`unspecced.getPostThreadOtherV2`), each saying whether its author hid it or
+the account muted its writer.
+
 Absent from the surface: lists, starter packs, saved and pinned feeds,
-thread gates and reply controls, self-labels,
-posting video or link cards, direct messages, reporting, mute words and
+posting video, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from
 `get_suggested_feeds`, receives every

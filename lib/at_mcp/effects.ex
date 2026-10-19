@@ -240,9 +240,21 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  def get_thread(effects, uri) when is_binary(uri) do
+  @doc """
+  What surrounds a post. With `include_hidden: true`, the thread also carries
+  `hidden_replies`: the replies its read leaves out, which the thread's author
+  hid or the account's own settings push down.
+  """
+  def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
     with_session(effects, fn backend, session ->
-      backend.get_thread(session, uri)
+      with {:ok, thread} <- backend.get_thread(session, uri) do
+        if Keyword.get(opts, :include_hidden) == true do
+          with {:ok, hidden} <- backend.get_hidden_replies(session, uri),
+               do: {:ok, Map.put(thread, :hidden_replies, hidden)}
+        else
+          {:ok, thread}
+        end
+      end
     end)
   end
 
@@ -450,7 +462,8 @@ defmodule AtMcp.Effects do
     do: publish(effects, :reply, text, Keyword.put(opts, :reply, uri))
 
   defp publish(effects, verb, text, opts) do
-    with :ok <- validate_post_text(text) do
+    with :ok <- validate_post_text(text),
+         {:ok, opts} <- AtMcp.Interactions.post_options(verb, opts) do
       # Resolve references and build the complete record before taking a slot
       # or marking dispatch. A deleted parent or a local rich-text/record
       # error must not claim a post may have landed or consume publishing
@@ -666,6 +679,68 @@ defmodule AtMcp.Effects do
     paged(effects, opts, fn backend, session, opts -> backend.get_bookmarks(session, opts) end)
   end
 
+  # --- a post's gates ---
+
+  @doc """
+  Set who may reply to one of this account's posts and whether it may be
+  quoted, as the app's dialog sets both: `reply_rule` nil is everyone, `[]`
+  nobody, or a list of rules (`AtMcp.Interactions.reply_rule/1`); `quotes`
+  nil or `"allowed"` lets anyone quote it, `"disabled"` nobody. Replies
+  hidden and quotes detached stay as they are.
+  """
+  def set_post_interactions(effects, uri, reply_rule, quotes) when is_binary(uri) do
+    with {:ok, {repo, _rkey}} <- post_uri(uri, "uri"),
+         {:ok, allow} <- AtMcp.Interactions.reply_rule(reply_rule),
+         {:ok, quotes} <- AtMcp.Interactions.quotes(quotes) do
+      edit_gates(effects, :set_post_interactions, {:interactions, uri, allow, quotes || :allowed},
+        own: {repo, "set_post_interactions sets the rules of a post this account wrote"}
+      )
+    end
+  end
+
+  @doc """
+  Hide (`hide? = true`) or unhide a reply in a thread this account started.
+  The reply is read for its thread's root, which must be this account's post.
+  """
+  def hide_reply(effects, uri, hide?) when is_binary(uri) and is_boolean(hide?) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      edit_gates(
+        effects,
+        if(hide?, do: :hide_reply, else: :unhide_reply),
+        {:hide_reply, uri, hide?}
+      )
+    end
+  end
+
+  @doc """
+  Detach (`detach? = true`) or reattach a post that quotes one of this
+  account's posts. The quoting post is read for what it quotes.
+  """
+  def detach_quote(effects, uri, detach?) when is_binary(uri) and is_boolean(detach?) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      edit_gates(
+        effects,
+        if(detach?, do: :detach_quote, else: :reattach_quote),
+        {:detach_quote, uri, detach?}
+      )
+    end
+  end
+
+  defp edit_gates(effects, verb, edit, opts \\ []) do
+    take_and_write(
+      effects,
+      verb,
+      fn backend, session ->
+        with :ok <- own_post(session, Keyword.get(opts, :own)),
+             do: backend.prepare_gates(session, edit)
+      end,
+      fn prepared -> fn backend, session -> backend.write_gates(session, prepared) end end
+    )
+  end
+
+  defp own_post(_session, nil), do: :ok
+  defp own_post(session, {repo, what}), do: own_repo(session, repo, "uri", what)
+
   # --- drafts ---
 
   # `app.bsky.draft.defs#draftPost` allows a draft's text more room than a
@@ -750,9 +825,7 @@ defmodule AtMcp.Effects do
   # Whether a record's repository is this account's, by DID or by the handle
   # the session holds. Checked with the session, before anything is sent.
   defp own_repo(session, repo, field, what) do
-    handle = Map.get(session, :handle) || Map.get(session, "handle")
-
-    if repo == did_of(session) or (is_binary(handle) and repo == handle),
+    if AtMcp.Interactions.own_repo?(session, repo),
       do: :ok,
       else: invalid(field, "#{what}; #{repo} is another account")
   end

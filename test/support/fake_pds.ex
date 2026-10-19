@@ -8,7 +8,8 @@ defmodule AtMcp.Test.FakePDS do
   method to `{status, body}` that replaces the default answer. `getRecord`
   answers from the records, and 400 `RecordNotFound` for one it does not hold.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
-  test can read back what a write left. Any other method answers `{}`.
+  test can read back what a write left. `uploadBlob` answers a blob reference
+  for the bytes it was sent. Any other method answers `{}`.
   """
   import Plug.Conn
 
@@ -132,8 +133,19 @@ defmodule AtMcp.Test.FakePDS do
     {{200, %{results: results}}, %{state | records: records}}
   end
 
+  defp answer("com.atproto.repo.uploadBlob", %{body: bytes}, state) do
+    blob = %{
+      "$type" => "blob",
+      "ref" => %{"$link" => cid(bytes)},
+      "mimeType" => "image/png",
+      "size" => byte_size(bytes)
+    }
+
+    {{200, %{blob: blob}}, state}
+  end
+
   defp answer(_method, _call, state), do: {{200, %{}}, state}
 
-  defp cid(uri),
-    do: "bafy" <> Base.encode32(:crypto.hash(:sha256, uri), case: :lower, padding: false)
+  defp cid(source),
+    do: "bafy" <> Base.encode32(:crypto.hash(:sha256, source), case: :lower, padding: false)
 end

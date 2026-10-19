@@ -33,7 +33,6 @@ defmodule AtMcp.Endpoints do
       which.
   """
 
-  @posts 88
   @lists 89
   @moderation 90
   @preferences 91
@@ -50,7 +49,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.unspecced.getPostThreadV2",
      {:left_out,
       "The app's newer form of the thread `feed.getPostThread` returns; `get_thread` and `get_thread_chain` read that"}},
-    {"app.bsky.unspecced.getPostThreadOtherV2", {:todo, @posts}},
+    {"app.bsky.unspecced.getPostThreadOtherV2", {:tool, "get_thread"}},
     {"app.bsky.feed.getPosts", {:tool, "get_posts"}},
     {"app.bsky.feed.getLikes", {:tool, "get_likes"}},
     {"app.bsky.feed.getRepostedBy", {:tool, "get_reposted_by"}},
@@ -80,8 +79,8 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.feed.post", {:tool, "post"}},
     {"app.bsky.feed.like", {:tool, "like"}},
     {"app.bsky.feed.repost", {:tool, "repost"}},
-    {"app.bsky.feed.threadgate", {:todo, @posts}},
-    {"app.bsky.feed.postgate", {:todo, @posts}},
+    {"app.bsky.feed.threadgate", {:tool, "set_post_interactions"}},
+    {"app.bsky.feed.postgate", {:tool, "set_post_interactions"}},
     {"app.bsky.graph.muteThread", {:tool, "mute_thread"}},
     {"app.bsky.graph.unmuteThread", {:tool, "unmute_thread"}},
     {"app.bsky.bookmark.createBookmark", {:tool, "bookmark"}},
@@ -254,7 +253,7 @@ defmodule AtMcp.Endpoints do
     {"com.atproto.repo.putRecord", {:tool, "update_profile"}},
     {"com.atproto.repo.deleteRecord", {:tool, "delete_post"}},
     {"com.atproto.repo.uploadBlob", {:tool, "post"}},
-    {"com.atproto.repo.applyWrites", {:todo, @posts}},
+    {"com.atproto.repo.applyWrites", {:tool, "post"}},
     {"com.atproto.repo.getRecord", {:todo, 70}},
     {"com.atproto.repo.listRecords",
      {:left_out,

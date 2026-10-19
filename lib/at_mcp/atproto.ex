@@ -63,6 +63,11 @@ defmodule AtMcp.ATProto do
         parentHeight: :integer
       )
 
+  # The replies a thread read leaves out: those its author hid, and those the
+  # viewer's own settings push down. Below `anchor`, one level at a time.
+  def get_post_thread_other(session, params),
+    do: read(session, "unspecced.getPostThreadOtherV2", params, anchor: {:required, :string})
+
   # proto_rune declares `getAuthorFeed` public-only, so its generated function
   # takes no session, reaches bsky.social rather than the account's own service,
   # and 401s there.
@@ -418,6 +423,51 @@ defmodule AtMcp.ATProto do
   def put_record(session, params),
     do: procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
 
+  @doc """
+  Create, update and delete several records in one commit: all of them land,
+  or none does. `writes` are `{:create | :update, collection, rkey, record}`
+  and `{:delete, collection, rkey}`.
+  """
+  def apply_writes(session, repo, writes) when is_list(writes) do
+    procedure(
+      session,
+      "com.atproto.repo.applyWrites",
+      %{repo: {:required, :string}, writes: {:required, :any}},
+      %{repo: repo, writes: Enum.map(writes, &repo_write/1)}
+    )
+  end
+
+  defp repo_write({op, collection, rkey, record}) when op in [:create, :update],
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites##{op}",
+      "collection" => collection,
+      "rkey" => rkey,
+      "value" => record
+    }
+
+  defp repo_write({:delete, collection, rkey}),
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites#delete",
+      "collection" => collection,
+      "rkey" => rkey
+    }
+
+  @tid_alphabet ~c"234567abcdefghijklmnopqrstuvwxyz"
+
+  @doc """
+  A record key in the TID form the protocol uses: microseconds since the
+  epoch and a random clock id, as 13 sortable base32 characters.
+
+  A post written with its gates needs its key before it is written, because
+  each gate's key must be the post's.
+  """
+  def tid(now_us \\ System.os_time(:microsecond), clock \\ :rand.uniform(1024) - 1) do
+    import Bitwise
+    n = (now_us <<< 10 ||| clock) &&& 0x7FFF_FFFF_FFFF_FFFF
+
+    for i <- 12..0//-1, into: "", do: <<Enum.at(@tid_alphabet, n >>> (5 * i) &&& 31)>>
+  end
+
   @doc "Delete one record from a repository."
   def delete_record(session, params),
     do: procedure(session, "com.atproto.repo.deleteRecord", @repo_delete, params)
@@ -463,8 +513,9 @@ defmodule AtMcp.ATProto do
 
   Takes `:text`, and optionally `:facets` (as `AtMcp.RichText` builds them),
   `:langs`, `:reply` (`%{root: strong_ref, parent: strong_ref}`), `:images`
-  (`[%{blob: blob_ref, alt: String.t()}]`), `:quote` (a strong ref) and
-  `:created_at`.
+  (`[%{blob: blob_ref, alt: String.t()}]`), `:link` (a card,
+  `%{url, title, description, thumb_blob}`), `:quote` (a strong ref),
+  `:labels` (self-label values) and `:created_at`.
 
   Three things this does that `ProtoRune.Bsky.post/3` cannot:
 
@@ -490,7 +541,82 @@ defmodule AtMcp.ATProto do
     |> put_present("langs", Keyword.get(fields, :langs))
     |> put_present("reply", reply_refs(Keyword.get(fields, :reply)))
     |> put_present("embed", post_embed(fields))
+    |> put_present("labels", self_labels(Keyword.get(fields, :labels)))
   end
+
+  # A post's labels about itself, the app's content warnings. The union's type
+  # is `com.atproto`'s, the same on every network.
+  defp self_labels(nil), do: nil
+  defp self_labels([]), do: nil
+
+  defp self_labels(values) when is_list(values),
+    do: %{
+      "$type" => "com.atproto.label.defs#selfLabels",
+      "values" => Enum.map(values, &%{"val" => &1})
+    }
+
+  @doc """
+  A `feed.threadgate` for the post at `post_uri`: who may reply (`allow`: nil
+  for everyone, or the rules `AtMcp.Interactions` reads) and which replies are
+  hidden. `allow` may also be `:keep`, which leaves the record's rule as it is.
+  `current` is the record the repository holds, or nil; every field
+  this does not set is kept, and so is its `createdAt`.
+
+  Returns nil when the gate would say nothing, everyone may reply and nothing
+  is hidden, so the caller deletes the record rather than writing an empty one.
+  """
+  def threadgate_record(post_uri, allow, hidden, current \\ nil) do
+    record =
+      gate(:threadgate, post_uri, current)
+      |> set_rule("allow", allow, fn rules -> rules && Enum.map(rules, &reply_rule/1) end)
+      |> Map.delete("hiddenReplies")
+      |> put_present("hiddenReplies", if(hidden != [], do: hidden))
+
+    if Map.has_key?(record, "allow") or Map.has_key?(record, "hiddenReplies"), do: record
+  end
+
+  @doc """
+  A `feed.postgate` for the post at `post_uri`: whether it may be quoted
+  (`:allowed`, `:disabled`, or `:keep` to leave the record's rule) and which
+  quotes of it are detached. Like
+  `threadgate_record/4`, it keeps what it does not set and is nil when it
+  would say nothing.
+  """
+  def postgate_record(post_uri, quotes, detached, current \\ nil) do
+    record =
+      gate(:postgate, post_uri, current)
+      |> set_rule("embeddingRules", quotes, fn quotes ->
+        if quotes == :disabled, do: [%{"$type" => AtMcp.Network.type(:disable_rule)}]
+      end)
+      |> Map.delete("detachedEmbeddingUris")
+      |> put_present("detachedEmbeddingUris", if(detached != [], do: detached))
+
+    if Map.has_key?(record, "embeddingRules") or Map.has_key?(record, "detachedEmbeddingUris"),
+      do: record
+  end
+
+  # `:keep` leaves a rule as the record has it: hiding a reply does not touch
+  # who may reply.
+  defp set_rule(record, _key, :keep, _wire), do: record
+
+  defp set_rule(record, key, rule, wire),
+    do: record |> Map.delete(key) |> put_present(key, wire.(rule))
+
+  defp gate(kind, post_uri, current) do
+    current = wire_record(current || %{})
+
+    current
+    |> Map.put("$type", AtMcp.Network.collection(kind))
+    |> Map.put("post", post_uri)
+    |> Map.put("createdAt", Map.get(current, "createdAt") || timestamp(nil))
+  end
+
+  defp reply_rule(:mention), do: %{"$type" => AtMcp.Network.type(:mention_rule)}
+  defp reply_rule(:followers), do: %{"$type" => AtMcp.Network.type(:follower_rule)}
+  defp reply_rule(:following), do: %{"$type" => AtMcp.Network.type(:following_rule)}
+
+  defp reply_rule({:list, uri}),
+    do: %{"$type" => AtMcp.Network.type(:list_rule), "list" => uri}
 
   @doc "Build a `feed.like` record over a strong reference."
   def like_record(fields), do: subject_record(:like, fields)
@@ -604,7 +730,10 @@ defmodule AtMcp.ATProto do
   # rather than two keys. Building it here is what keeps that a fact about the
   # record instead of a rule each caller has to remember.
   defp post_embed(fields) do
-    case {images_embed(Keyword.get(fields, :images)), quote_embed(Keyword.get(fields, :quote))} do
+    media =
+      images_embed(Keyword.get(fields, :images)) || external_embed(Keyword.get(fields, :link))
+
+    case {media, quote_embed(Keyword.get(fields, :quote))} do
       {nil, nil} ->
         nil
 
@@ -622,6 +751,26 @@ defmodule AtMcp.ATProto do
         }
     end
   end
+
+  # A link card: the caller's title and description, and an image blob for its
+  # thumbnail when one was uploaded.
+  defp external_embed(nil), do: nil
+
+  defp external_embed(%{url: url} = link) do
+    %{
+      "$type" => AtMcp.Network.type(:embed_external),
+      "external" =>
+        %{
+          "uri" => url,
+          "title" => Map.get(link, :title) || "",
+          "description" => Map.get(link, :description) || ""
+        }
+        |> put_present("thumb", link |> Map.get(:thumb_blob) |> wire_blob_or_nil())
+    }
+  end
+
+  defp wire_blob_or_nil(nil), do: nil
+  defp wire_blob_or_nil(blob), do: wire_blob(blob)
 
   defp images_embed(nil), do: nil
   defp images_embed([]), do: nil

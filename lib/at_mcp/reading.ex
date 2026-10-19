@@ -89,12 +89,28 @@ defmodule AtMcp.Reading do
       end
 
     lines(
-      omitted ++ above ++ [post(node, "[this post]")] ++ replies(node, "reply "),
+      omitted ++
+        above ++ [post(node, "[this post]")] ++ replies(node, "reply ") ++ hidden(node),
       "\n\n"
     )
   end
 
   def thread(_other), do: nil
+
+  # Asked for with `include_hidden`: the replies the thread read left out,
+  # each saying why. Not asked for, there is no `hidden_replies` and no line.
+  defp hidden(%{"hidden_replies" => []}), do: ["No replies under this post are left out."]
+
+  defp hidden(%{"hidden_replies" => [_ | _] = hidden}) do
+    [
+      "Replies under this post left out of the thread: #{length(hidden)}."
+      | hidden
+        |> Enum.with_index(1)
+        |> Enum.map(fn {reply, n} -> post(reply, "[left out #{n}]") end)
+    ]
+  end
+
+  defp hidden(_node), do: []
 
   @doc """
   What `get_thread_chain` read: a conversation from its root down to one post,
@@ -460,9 +476,10 @@ defmodule AtMcp.Reading do
         if(author["blocked_by"] == true, do: "They blocked you"),
         cond do
           is_binary(author["muted_by_list"]) -> "You muted them via a list"
-          author["muted"] == true -> "You muted them"
+          author["muted"] == true or post["muted_by_viewer"] == true -> "You muted them"
           true -> nil
         end,
+        if(post["hidden_by_threadgate"] == true, do: "Hidden by the thread's author"),
         if(viewer["reply_disabled"] == true, do: "You cannot reply to this post"),
         if(viewer["embedding_disabled"] == true, do: "You cannot quote this post"),
         if(viewer["thread_muted"] == true, do: "You muted this thread")

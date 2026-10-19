@@ -196,4 +196,18 @@ defmodule AtMcp.Effects.Backend do
   @doc "Delete a draft. `draft` is the one `find_draft/2` read, for the result to carry."
   @callback delete_draft(state(), id :: String.t(), draft :: map()) ::
               {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Build an edit to a post's gates, reading the records it changes so it keeps
+  what it does not change: `{:interactions, uri, allow, quotes}`,
+  `{:hide_reply, uri, hide?}` or `{:detach_quote, uri, detach?}`. Nothing is
+  sent; an edit that cannot succeed (a post of another account's, a reply that
+  is not one) is `{:error, {:invalid_argument, path, message}}`. The result is
+  passed to `write_gates/2` unchanged.
+  """
+  @callback prepare_gates(state(), edit :: tuple()) :: {:ok, term()} | {:error, reason()}
+  @callback write_gates(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc "The replies a thread read leaves out under `uri`, each saying why."
+  @callback get_hidden_replies(state(), uri :: String.t()) :: {:ok, [map()]} | {:error, reason()}
 end

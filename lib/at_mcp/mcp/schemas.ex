@@ -57,6 +57,62 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `reply_rule` parameter: who may reply. Its limit comes from
+  `AtMcp.Interactions`, which reads it, as do the words it lists
+  (`AtMcp.Interactions.reply_rule_words/0`). `default` says what omitting it
+  means.
+  """
+  defmacro reply_rule(default) do
+    %{rules: max} = AtMcp.Interactions.limits()
+
+    Macro.escape(
+      description:
+        "Who may reply. #{default} [] for nobody. Otherwise up to #{max} of: " <>
+          ~s["mentioned" (accounts the post mentions), "following" (accounts this account follows), "followers" (accounts that follow this account), and the AT URI of a list (its members).],
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc "The `quotes` parameter: whether others may quote the post."
+  defmacro quotes(default) do
+    Macro.escape(
+      description: ~s("disabled": nobody may quote it. "allowed": anyone may. #{default}),
+      schema: %{type: "string", enum: ["allowed", "disabled"]}
+    )
+  end
+
+  @doc "The `labels` parameter: a post's self-labels, from `AtMcp.Interactions.self_labels/0`."
+  defmacro self_labels do
+    labels = AtMcp.Interactions.self_labels()
+
+    Macro.escape(
+      description:
+        "Content warnings the post gives itself, any of #{Enum.join(labels, ", ")}. Readers' apps hide or blur it to match.",
+      schema: %{type: "array", items: %{type: "string", enum: labels}}
+    )
+  end
+
+  @doc "The `link` parameter: a link card the caller describes."
+  defmacro link do
+    thumb = image_upload_schema([])
+
+    Macro.escape(
+      description:
+        "A link card: url (http or https), and the title and description the card shows. at_mcp does not fetch the page, so they are yours to give. thumb is an optional image for the card, base64 data or a file path with its MIME type. A post carries a link card or images, not both.",
+      schema: %{
+        type: "object",
+        required: ["url"],
+        properties: %{
+          url: %{type: "string", description: "The page the card links to"},
+          title: %{type: "string", description: "The card's title"},
+          description: %{type: "string", description: "The card's description"},
+          thumb: Map.put(thumb, :description, "The card's image")
+        }
+      }
+    )
+  end
+
+  @doc """
   The required list parameter of a batch read, stated from the batch limit
   the account enforces (`AtMcp.Effects.max_batch/0`).
   """
@@ -211,6 +267,29 @@ defmodule AtMcp.MCP.Schemas do
         "context" => %{
           "type" => "object",
           "description" => "The depth, parent height and per-node reply cap applied"
+        },
+        "hidden_replies" => %{
+          "type" => ["array", "null"],
+          "description" =>
+            "With include_hidden: the replies this read leaves out, which the thread's author hid or the account's own settings push down. Absent otherwise",
+          "items" => %{
+            "type" => "object",
+            "properties" =>
+              Map.merge(post_view_schema()["properties"], %{
+                "depth" => %{
+                  "type" => ["integer", "null"],
+                  "description" => "Levels below the post read: 1 is a direct reply"
+                },
+                "hidden_by_threadgate" => %{
+                  "type" => ["boolean", "null"],
+                  "description" => "True when the thread's author hid this reply"
+                },
+                "muted_by_viewer" => %{
+                  "type" => ["boolean", "null"],
+                  "description" => "True when this account muted the reply's author"
+                }
+              })
+          }
         }
       })
     )
@@ -294,7 +373,11 @@ defmodule AtMcp.MCP.Schemas do
         "items" => %{"type" => "string"},
         "description" => "Handles published as plain text, without a mention facet"
       },
-      "warning" => nullable_string()
+      "warning" => nullable_string(),
+      "threadgate_uri" =>
+        nullable_string("AT URI of the threadgate written with the post: who may reply"),
+      "postgate_uri" =>
+        nullable_string("AT URI of the postgate written with the post: whether it may be quoted")
     })
   end
 
@@ -327,6 +410,14 @@ defmodule AtMcp.MCP.Schemas do
       "replaced_uri" =>
         nullable_string(
           "AT URI of the post that was pinned before this action, if any; pin_post takes it to put it back"
+        ),
+      "threadgate_uri" =>
+        nullable_string(
+          "AT URI of the post's threadgate after this action; null when the post has none"
+        ),
+      "postgate_uri" =>
+        nullable_string(
+          "AT URI of the post's postgate after this action; null when the post has none"
         )
     })
   end
