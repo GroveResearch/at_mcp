@@ -81,9 +81,9 @@ defmodule AtMcp.FeedContextTest do
     assert summary["author"] == item["post"]["author"]["handle"]
 
     assert text =~
-             "[1] Reposted by #{by["displayName"]} (@#{by["handle"]}) · #{item["reason"]["indexedAt"]}\n" <>
-               "#{item["post"]["author"]["displayName"]} (@#{item["post"]["author"]["handle"]}) · " <>
-               item["post"]["record"]["createdAt"] <> "\n"
+             "[1] Reposted by \"#{by["displayName"]}\" (@#{by["handle"]}) · #{item["reason"]["indexedAt"]}\n" <>
+               "\"#{item["post"]["author"]["displayName"]}\" (@#{item["post"]["author"]["handle"]}) · " <>
+               item["post"]["indexedAt"] <> "\n"
   end
 
   test "a pinned post says so above it", %{feed: feed} do
@@ -93,7 +93,7 @@ defmodule AtMcp.FeedContextTest do
     assert summary["reason"]["type"] == "pin"
 
     assert text =~
-             ~r/\A1 post\.\n\n\[1\] Pinned\n[^\n]+ · #{item["post"]["record"]["createdAt"]}\n/
+             ~r/\A1 post\.\n\n\[1\] Pinned\n[^\n]+ · #{item["post"]["indexedAt"]}\n/
   end
 
   test "a reply says whose post it answers, and whose thread when the root is someone else's",

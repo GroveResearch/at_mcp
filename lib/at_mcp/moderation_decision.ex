@@ -22,6 +22,8 @@ defmodule AtMcp.ModerationDecision do
   the app keeps on the device and never reads from the preferences.
   """
 
+  import AtMcp.Reading.Text
+
   alias AtMcp.Moderation
 
   # moderation/types.ts:21-55.
@@ -607,27 +609,29 @@ defmodule AtMcp.ModerationDecision do
   defp put_present(map, key, value), do: Map.put(map, key, value)
 
   @effects [
-    {"hide", "Hidden by the app"},
-    {"cover", "Behind a warning in the app"},
-    {"cover_media", "Media behind a warning in the app"},
-    {"alert", "Warning in the app"},
-    {"inform", "Note in the app"}
+    {"hide", ~L"Hidden by the app"},
+    {"cover", ~L"Behind a warning in the app"},
+    {"cover_media", ~L"Media behind a warning in the app"},
+    {"alert", ~L"Warning in the app"},
+    {"inform", ~L"Note in the app"}
   ]
 
   @doc """
   The line a reading shows for a post's or an account's `moderation`, as the
   structured content carries it (string keys): where a thread puts it, then
   what the app does and why, one group per effect. Nil when there is nothing
-  to mark.
+  to mark. Made of `AtMcp.Reading.Text` pieces, as `AtMcp.Reading` is: a
+  label's value and a labeler's handle or DID are identifiers, a label's name
+  and a muted word are literals.
   """
   def line(%{} = moderation) do
     causes = Enum.filter(List.wrap(moderation["causes"]), &is_map/1)
 
     place =
       case moderation["in_thread"] do
-        "show_more_replies" -> "Under \"Show more replies\" in the app"
-        "left_out" -> "Left out of this thread by the app; shown when its parent is opened"
-        "under_left_out" -> "Under a reply the app leaves out of this thread"
+        "show_more_replies" -> ~L[Under "Show more replies" in the app]
+        "left_out" -> ~L"Left out of this thread by the app; shown when its parent is opened"
+        "under_left_out" -> ~L"Under a reply the app leaves out of this thread"
         _ -> nil
       end
 
@@ -638,16 +642,13 @@ defmodule AtMcp.ModerationDecision do
         locked =
           if effect in ["hide", "cover", "cover_media"] and
                Enum.any?(group, &(&1["no_override"] == true)),
-             do: " (it cannot be opened)",
-             else: ""
+             do: ~L" (it cannot be opened)"
 
-        heading <> locked <> ": " <> Enum.map_join(group, "; ", &why/1)
+        cat([heading, locked, ~L": ", join(Enum.map(group, &why/1), :semi)])
       end
 
-    case Enum.reject([place | groups], &is_nil/1) do
-      [] -> nil
-      parts -> Enum.join(parts, " · ")
-    end
+    line = join([place | groups], :dot)
+    if empty?(line), do: nil, else: line
   end
 
   def line(_other), do: nil
@@ -655,55 +656,56 @@ defmodule AtMcp.ModerationDecision do
   defp why(%{"type" => "label"} = cause) do
     whose =
       case cause["on"] do
-        "author" -> "author labeled"
-        "quoted_post" -> "quoted post labeled"
-        "quoted_author" -> "quoted post's author labeled"
-        "profile" -> "profile labeled"
-        _ -> "labeled"
+        "author" -> ~L"author labeled"
+        "quoted_post" -> ~L"quoted post labeled"
+        "quoted_author" -> ~L"quoted post's author labeled"
+        "profile" -> ~L"profile labeled"
+        _ -> ~L"labeled"
       end
 
-    # A name is the labeler's own text, quoted so it cannot pass for a line
-    # of the reading.
-    name = if is_binary(cause["label_name"]), do: " (#{inspect(cause["label_name"])})", else: ""
+    # A name is the labeler's own text, a literal, so it cannot pass for a
+    # line of the reading.
+    name =
+      if is_binary(cause["label_name"]), do: cat([~L"(", literal(cause["label_name"]), ~L")"])
 
     by =
       cond do
-        cause["self_label"] == true -> "by its author"
-        is_binary(cause["labeler_handle"]) -> "by " <> cause["labeler_handle"]
-        is_binary(cause["labeler"]) -> "by " <> cause["labeler"]
+        cause["self_label"] == true -> ~L"by its author"
+        is_binary(cause["labeler_handle"]) -> cat([~L"by ", ident(cause["labeler_handle"])])
+        is_binary(cause["labeler"]) -> cat([~L"by ", ident(cause["labeler"])])
         true -> nil
       end
 
-    Enum.join(Enum.reject([whose, "'#{cause["label"]}'#{name}", by], &is_nil/1), " ")
+    join([whose, ident(cause["label"]), name, by], :space)
   end
 
   defp why(%{"type" => "muted_word", "words" => words}) when is_list(words) do
-    quoted = Enum.map_join(words, ", ", &inspect/1)
+    quoted = words |> Enum.filter(&is_binary/1) |> Enum.map(&literal/1) |> join(:comma)
 
     if length(words) == 1,
-      do: "matches your muted word " <> quoted,
-      else: "matches your muted words " <> quoted
+      do: cat([~L"matches your muted word ", quoted]),
+      else: cat([~L"matches your muted words ", quoted])
   end
 
   defp why(%{"type" => type} = cause) do
     whom =
       case cause["on"] do
-        "quoted_author" -> "the quoted post's author"
-        "account" -> "this account"
-        _ -> "the author"
+        "quoted_author" -> ~L"the quoted post's author"
+        "account" -> ~L"this account"
+        _ -> ~L"the author"
       end
 
-    via = if is_binary(cause["list"]), do: " via a list", else: ""
+    via = if is_binary(cause["list"]), do: ~L" via a list"
 
     case type do
-      "muted" -> "you muted #{whom}#{via}"
-      "blocking" -> "you blocked #{whom}#{via}"
-      "blocked_by" -> "#{whom} blocked you"
-      other -> other
+      "muted" -> cat([~L"you muted ", whom, via])
+      "blocking" -> cat([~L"you blocked ", whom, via])
+      "blocked_by" -> cat([whom, ~L" blocked you"])
+      other -> ident(other)
     end
   end
 
-  defp why(_cause), do: ""
+  defp why(_cause), do: nil
 
   @doc """
   Whether a reply in a thread is moved out of the thread's main list, as the
@@ -828,7 +830,7 @@ defmodule AtMcp.ModerationDecision do
     do:
       match_mute_words(
         words,
-        "#{get(link, :title)} #{get(link, :description)}",
+        to_string(get(link, :title)) <> " " <> to_string(get(link, :description)),
         nil,
         nil,
         [],

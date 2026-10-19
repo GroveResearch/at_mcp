@@ -164,7 +164,7 @@ defmodule AtMcp.ModerationMarksTest do
     assert %{in_thread: "show_more_replies"} = three.moderation
     refute Map.has_key?(four, :moderation)
 
-    assert AtMcp.ModerationDecision.line(stringify(one.moderation)) ==
+    assert AtMcp.Reading.Text.to_text(AtMcp.ModerationDecision.line(stringify(one.moderation))) ==
              "Under \"Show more replies\" in the app · Behind a warning in the app: matches your muted word \"spoiler\""
   end
 

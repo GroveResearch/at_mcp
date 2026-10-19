@@ -4,7 +4,10 @@ defmodule AtMcp.FieldCoverageTest do
   # Recorded AppView responses, with identities, text and URLs replaced and
   # every key and value type kept (see test/fixtures/appview/README.md). Each
   # is read the way the backend reads it: decoded, then snakelized by the XRPC
-  # client, then summarized.
+  # client (grouped notifications are read from the raw body), then
+  # summarized. The `viewer_` recordings and the notifications are an
+  # account's own reads of the end-to-end suite's local network, so they carry
+  # the viewer state and notifications a public read does not.
   @fixtures [
     feed: "feed.json",
     thread: "thread.json",
@@ -19,7 +22,12 @@ defmodule AtMcp.FieldCoverageTest do
     starter_packs: "suggested_starter_packs.json",
     feed_info: "feed_generator.json",
     trends: "trends.json",
-    topics: "trending_topics.json"
+    topics: "trending_topics.json",
+    feed: "viewer_timeline.json",
+    feed: "viewer_author_feed.json",
+    thread: "viewer_thread.json",
+    notifications: "notifications.json",
+    grouped_notifications: "grouped_notifications.json"
   ]
 
   @dir Path.expand("../fixtures/appview", __DIR__)
@@ -129,8 +137,12 @@ defmodule AtMcp.FieldCoverageTest do
   defp read(file), do: @dir |> Path.join(file) |> File.read!() |> Jason.decode!()
 
   defp summarize(kind, response) do
-    {:ok, summary} =
-      AtMcp.Effects.ProtoRune.summarize(kind, ProtoRune.Case.snakelize_enum(response))
+    response =
+      if kind == :grouped_notifications,
+        do: response,
+        else: ProtoRune.Case.snakelize_enum(response)
+
+    {:ok, summary} = AtMcp.Effects.ProtoRune.summarize(kind, response)
 
     summary
   end

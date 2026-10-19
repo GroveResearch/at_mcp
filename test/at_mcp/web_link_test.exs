@@ -153,7 +153,7 @@ defmodule AtMcp.WebLinkTest do
                "uri: #{@post} · cid: bafy\nlink: https://bsky.app/profile/alice.test/post/3kpost"
 
       assert text =~
-               "[quoting @bob.test, at://did:plc:bob/app.bsky.feed.post/3kq (link: https://bsky.app/profile/bob.test/post/3kq): quoted]"
+               "[quoting @bob.test, at://did:plc:bob/app.bsky.feed.post/3kq (link: https://bsky.app/profile/bob.test/post/3kq): \"quoted\"]"
 
       assert hd(data["items"])["web_url"] == summary.web_url
     end

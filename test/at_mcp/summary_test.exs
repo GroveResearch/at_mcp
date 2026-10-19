@@ -90,7 +90,14 @@ defmodule AtMcp.SummaryTest do
           }
         ]
       },
-      "viewer" => %{"like" => "at://did:plc:viewer/app.bsky.feed.like/1"}
+      "indexedAt" => "2026-09-13T12:30:01.000Z",
+      "viewer" => %{
+        "like" => "at://did:plc:viewer/app.bsky.feed.like/1",
+        "knownLikers" => %{
+          "count" => 1,
+          "actors" => [%{"did" => "did:plc:f", "handle" => "f.test", "displayName" => "F"}]
+        }
+      }
     },
     chain_post: %{
       "uri" => "at://did:plc:author/app.bsky.feed.post/2",
@@ -120,7 +127,11 @@ defmodule AtMcp.SummaryTest do
       "quoteCount" => 0,
       "labels" => [],
       "threadgate" => @gate,
-      "viewer" => %{"replyDisabled" => true}
+      "indexedAt" => "2026-09-13T12:30:01.000Z",
+      "viewer" => %{
+        "replyDisabled" => true,
+        "knownLikers" => %{"count" => 0, "actors" => []}
+      }
     },
     profile: %{
       "did" => "did:plc:author",
@@ -255,6 +266,9 @@ defmodule AtMcp.SummaryTest do
         "text" => "hello",
         "langs" => ["en"],
         "tags" => ["kites"],
+        "createdAt" => "2026-09-13T12:30:00.000Z",
+        # Read from a like's or repost's record; one response carries every field.
+        "subject" => %{"uri" => "at://did:plc:me/app.bsky.feed.post/s", "cid" => "bafys"},
         "reply" => %{
           "parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"},
           "root" => %{"uri" => "at://did:plc:root/app.bsky.feed.post/r"}
@@ -547,7 +561,9 @@ defmodule AtMcp.SummaryTest do
       "blockingByList" => list,
       "blockedBy" => true,
       "muted" => true,
-      "mutedByList" => list
+      "mutedByList" => list,
+      "mutedOnlyReposts" => true,
+      "mutedOnlyQuoteposts" => false
     }
 
     expected = %{
@@ -557,7 +573,9 @@ defmodule AtMcp.SummaryTest do
       blocking_by_list: list["uri"],
       blocked_by: true,
       muted: true,
-      muted_by_list: list["uri"]
+      muted_by_list: list["uri"],
+      muted_reposts: true,
+      muted_quotes: false
     }
 
     assert AtMcp.Summary.extract(:profile, %{"viewer" => full}).viewer == expected

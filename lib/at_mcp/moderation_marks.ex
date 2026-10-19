@@ -82,13 +82,14 @@ defmodule AtMcp.ModerationMarks do
       do: {:error, :auth_refused, error},
       else:
         {:error,
-         "What the app would hide or warn about is not marked: #{what} could not be read#{said(reason)}."}
+         "What the app would hide or warn about is not marked: " <>
+           what <> " could not be read" <> said(reason) <> "."}
   end
 
   defp said(%AtMcp.Effects.Failure{status: status, message: message}) when is_integer(status) do
     if is_binary(message) and message != "",
-      do: " (the service answered #{status}: #{message})",
-      else: " (the service answered #{status})"
+      do: " (the service answered " <> Integer.to_string(status) <> ": " <> message <> ")",
+      else: " (the service answered " <> Integer.to_string(status) <> ")"
   end
 
   defp said(_reason), do: ""

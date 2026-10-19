@@ -13,6 +13,7 @@ defmodule AtMcp.MCP.WebLinks do
   """
 
   alias AtMcp.WebLink
+  import AtMcp.Reading.Text
 
   @post [:post]
   @account [:profile]
@@ -138,7 +139,7 @@ defmodule AtMcp.MCP.WebLinks do
     values
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, [], []}, fn {value, i}, {:ok, done, notes} ->
-      case value("#{path}/#{i}", value, kinds, effects) do
+      case value(path <> "/" <> Integer.to_string(i), value, kinds, effects) do
         {:ok, value, more} -> {:cont, {:ok, done ++ [value], notes ++ more}}
         error -> {:halt, error}
       end
@@ -151,7 +152,7 @@ defmodule AtMcp.MCP.WebLinks do
         {:ok, link, []}
 
       {:error, why} ->
-        refuse(path, "#{link} #{why}")
+        refuse(path, link <> " " <> why)
 
       {:ok, target} ->
         kind = elem(target, 0)
@@ -161,12 +162,15 @@ defmodule AtMcp.MCP.WebLinks do
             value =
               if kind == :profile,
                 do: did,
-                else: "at://#{did}/#{WebLink.collection(kind)}/#{elem(target, 2)}"
+                else: Enum.join(["at:/", did, WebLink.collection(kind), elem(target, 2)], "/")
 
             {:ok, value, [%{argument: path, link: link, value: value}]}
           end
         else
-          refuse(path, "#{link} is a link to #{WebLink.word(kind)}; this takes #{wanted(kinds)}")
+          refuse(
+            path,
+            link <> " is a link to " <> WebLink.word(kind) <> "; this takes " <> wanted(kinds)
+          )
         end
     end
   end
@@ -189,7 +193,11 @@ defmodule AtMcp.MCP.WebLinks do
 
   defp refuse(path, message), do: {:error, {:invalid_argument, path, message}}
 
-  @doc "The result, saying what each web link given to it was read as."
+  @doc """
+  The result, saying what each web link given to it was read as: a
+  `resolved:` line built from `AtMcp.Reading.Text` pieces, since the link is
+  the caller's and the value comes from a handle's resolution.
+  """
   def note(result, []), do: result
 
   def note(result, resolved) do
@@ -197,7 +205,12 @@ defmodule AtMcp.MCP.WebLinks do
       result,
       :resolved,
       resolved,
-      Enum.map_join(resolved, "\n", &"resolved: #{&1.argument} #{&1.link} is #{&1.value}")
+      resolved
+      |> Enum.map(
+        &cat([~L"resolved: ", ident(&1.argument), ~L" ", url(&1.link), ~L" is ", ident(&1.value)])
+      )
+      |> join(:line)
+      |> to_text()
     )
   end
 end

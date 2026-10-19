@@ -24,31 +24,50 @@ defmodule AtMcp.Reading do
   reposts and follows (which no tool takes), read notifications' `is_read`, and
   the read limits of a thread.
 
+  Nothing a result carries can read as a line or a word of AtMcp's own. The
+  text is built only from `AtMcp.Reading.Text` pieces, and every value from a
+  result goes through one of its renderers: a post's text is fenced, every
+  line of it after `> `, which no line AtMcp writes starts with; other free
+  text someone else wrote (a quoted post's text, a display name, alt text, a
+  card's, publication's, list's, feed's or starter pack's name or
+  description, a label's name) is one double-quoted literal on one line, `"`
+  and backslash escaped; an identifier (a DID, handle, AT URI, CID, cursor,
+  label value, or a word the service chose) is bare only when it is nothing
+  but an identifier's characters, and a literal otherwise; a web address is
+  percent-encoded so it cannot close a bracket or hold a blank; a timestamp
+  is bare only when it is one. AtMcp's own words are `~L` constants. A raw
+  string given to the joiners is refused under test and quoted elsewhere, and
+  `test/at_mcp/reading_text_test.exs` fails if this module interpolates a
+  string or makes a piece itself. In a post's `text`
+  (`AtMcp.RichText.render/2`) the author's `<` and backslash are escaped too,
+  so an unescaped `<…>` is always a link or mention marker AtMcp added.
+
   It only drops what is absent. A post's text is never shortened, every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
   next page is stated with the argument to pass it as. Beside the uri of each
   post, account, list, feed, starter pack and labeler is its `link:`, the web
   link a person opens and shares in the app.
   """
+  import AtMcp.Reading.Text
 
   @doc "A page of posts: timelines, feeds, search results, `get_posts`."
-  def posts(page), do: post_page(page, "post", "posts")
+  def posts(page), do: post_page(page, ~L"post", ~L"posts")
 
   @doc """
   This account's bookmarks: each post as a page of posts shows it, or one line
   for a bookmarked post that is deleted or hidden by a block.
   """
-  def bookmarks(page), do: post_page(page, "bookmark", "bookmarks")
+  def bookmarks(page), do: post_page(page, ~L"bookmark", ~L"bookmarks")
 
   defp post_page(%{"items" => items} = page, one, many) when is_list(items) do
-    header = count(length(items), one, many) <> "." <> next_page(page)
+    header = cat([count(length(items), one, many), ~L".", next_page(page)])
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {post, n} -> post(post, "[#{n}]") end)
+      |> Enum.map(fn {post, n} -> post(post, numbered(n)) end)
 
-    lines([header, page["moderation_unread"] | blocks], "\n\n")
+    to_text(join([header, shown(page["moderation_unread"]) | blocks], :blank))
   end
 
   defp post_page(_other, _one, _many), do: nil
@@ -57,20 +76,28 @@ defmodule AtMcp.Reading do
   def notifications(%{"items" => items} = page) when is_list(items) do
     header =
       if Map.has_key?(page, "seen_at") do
-        count(length(items), "notification group", "notification groups") <>
-          "." <>
-          if(is_binary(page["seen_at"]), do: " Seen up to #{page["seen_at"]}.", else: "") <>
+        cat([
+          count(length(items), ~L"notification group", ~L"notification groups"),
+          ~L".",
+          if(is_binary(page["seen_at"]),
+            do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])
+          ),
           next_page(page)
+        ])
       else
-        count(length(items), "notification", "notifications") <> "." <> next_page(page)
+        cat([
+          count(length(items), ~L"notification", ~L"notifications"),
+          ~L".",
+          next_page(page)
+        ])
       end
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {item, n} -> notification(item, "[#{n}]") end)
+      |> Enum.map(fn {item, n} -> notification(item, numbered(n)) end)
 
-    lines([header | blocks], "\n\n")
+    to_text(join([header | blocks], :blank))
   end
 
   def notifications(_other), do: nil
@@ -93,17 +120,20 @@ defmodule AtMcp.Reading do
     omitted =
       case parents do
         [%{"parent_omitted" => true} | _] ->
-          ["(The conversation goes further up. get_thread_chain reads all of it.)"]
+          [~L"(The conversation goes further up. get_thread_chain reads all of it.)"]
 
         _ ->
           []
       end
 
-    lines(
-      [node["moderation_unread"]] ++
-        omitted ++
-        above ++ [post(node, "[this post]")] ++ replies(node, "reply ") ++ hidden(node),
-      "\n\n"
+    to_text(
+      join(
+        [shown(node["moderation_unread"])] ++
+          omitted ++
+          above ++
+          [post(node, ~L"[this post]")] ++ replies(node, []) ++ hidden(node),
+        :blank
+      )
     )
   end
 
@@ -113,7 +143,7 @@ defmodule AtMcp.Reading do
   # thread. Those the read returned are marked where they stand; the rest are
   # listed after it, each saying why. Not asked for, there is no
   # `hidden_replies` and no line.
-  defp hidden(%{"hidden_replies_unread" => why}) when is_binary(why), do: [why]
+  defp hidden(%{"hidden_replies_unread" => why}) when is_binary(why), do: [shown(why)]
 
   defp hidden(%{"hidden_replies" => hidden} = node) when is_list(hidden) do
     in_place = count_left_out(node)
@@ -121,13 +151,17 @@ defmodule AtMcp.Reading do
     marked =
       if in_place > 0,
         do: [
-          "Replies above that the app leaves out of the thread, each marked where it stands: #{in_place}."
+          cat([
+            ~L"Replies above that the app leaves out of the thread, each marked where it stands: ",
+            int(in_place),
+            ~L"."
+          ])
         ],
         else: []
 
     case hidden do
       [] when in_place == 0 ->
-        ["No replies under this post are left out."]
+        [~L"No replies under this post are left out."]
 
       [] ->
         marked
@@ -135,10 +169,14 @@ defmodule AtMcp.Reading do
       hidden ->
         marked ++
           [
-            "Replies under this post left out of the thread: #{length(hidden)}."
+            cat([
+              ~L"Replies under this post left out of the thread: ",
+              int(length(hidden)),
+              ~L"."
+            ])
             | hidden
               |> Enum.with_index(1)
-              |> Enum.map(fn {reply, n} -> post(reply, "[left out #{n}]") end)
+              |> Enum.map(fn {reply, n} -> post(reply, cat([~L"[left out ", int(n), ~L"]"])) end)
           ]
     end
   end
@@ -163,31 +201,36 @@ defmodule AtMcp.Reading do
     total = length(chain)
 
     header =
-      "A conversation of #{count(total, "post", "posts")}, oldest first. " <>
-        "The last is the post asked about." <> cut(result)
+      cat([
+        ~L"A conversation of ",
+        count(total, ~L"post", ~L"posts"),
+        ~L", oldest first. The last is the post asked about.",
+        cut(result)
+      ])
 
     elements =
       chain
       |> Enum.with_index(1)
-      |> Enum.map(fn {element, n} -> post(element, "[#{n}]") end)
+      |> Enum.map(fn {element, n} -> post(element, numbered(n)) end)
 
     replies = List.wrap(result["replies"])
+    more = omitted(result["replies_omitted"])
 
     under =
-      case {replies, omitted(result["replies_omitted"])} do
-        {[], ""} ->
+      case {replies, more} do
+        {[], nil} ->
           []
 
         {replies, more} ->
           [
-            "Replies to it: #{length(replies)}#{more}."
+            cat([~L"Replies to it: ", int(length(replies)), more, ~L"."])
             | replies
               |> Enum.with_index(1)
-              |> Enum.map(fn {reply, n} -> post(reply, "[reply #{n}]") end)
+              |> Enum.map(fn {reply, n} -> post(reply, cat([~L"[reply ", int(n), ~L"]"])) end)
           ]
       end
 
-    lines([header, result["moderation_unread"] | elements] ++ under, "\n\n")
+    to_text(join([header, shown(result["moderation_unread"]) | elements] ++ under, :blank))
   end
 
   def chain(_other), do: nil
@@ -198,46 +241,49 @@ defmodule AtMcp.Reading do
   """
   def list(%{"list" => %{} = list, "items" => items} = page) when is_list(items) do
     header =
-      count(length(items), "account", "accounts") <> " on this page." <> next_page(page)
+      cat([count(length(items), ~L"account", ~L"accounts"), ~L" on this page.", next_page(page)])
 
     members =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {member, n} -> member(member, "[#{n}]") end)
+      |> Enum.map(fn {member, n} -> member(member, numbered(n)) end)
 
-    lines([list_heading(list, "List"), header | members], "\n\n")
+    to_text(join([list_heading(list, ~L"List"), header | members], :blank))
   end
 
   def list(_other), do: nil
 
   @doc "A page of lists, from `get_lists`."
   def lists(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "list", "lists") <> "." <> next_page(page)
+    header = cat([count(length(items), ~L"list", ~L"lists"), ~L".", next_page(page)])
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {list, n} -> lines([list_heading(list, "[#{n}]"), on_it(list)], "\n") end)
+      |> Enum.map(fn {list, n} -> join([list_heading(list, numbered(n)), on_it(list)], :line) end)
 
-    lines([header | blocks], "\n\n")
+    to_text(join([header | blocks], :blank))
   end
 
   def lists(_other), do: nil
 
   @doc "One starter pack, from `get_starter_pack`."
-  def starter_pack(%{"uri" => uri} = pack) when is_binary(uri), do: pack(pack, "Starter pack")
+  def starter_pack(%{"uri" => uri} = pack) when is_binary(uri),
+    do: to_text(pack(pack, ~L"Starter pack"))
+
   def starter_pack(_other), do: nil
 
   @doc "A page of starter packs, from `get_starter_packs`."
   def starter_packs(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "starter pack", "starter packs") <> "." <> next_page(page)
+    header =
+      cat([count(length(items), ~L"starter pack", ~L"starter packs"), ~L".", next_page(page)])
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {pack, n} -> lines([pack(pack, "[#{n}]"), on_it(pack)], "\n") end)
+      |> Enum.map(fn {pack, n} -> join([pack(pack, numbered(n)), on_it(pack)], :line) end)
 
-    lines([header | blocks], "\n\n")
+    to_text(join([header | blocks], :blank))
   end
 
   def starter_packs(_other), do: nil
@@ -248,7 +294,7 @@ defmodule AtMcp.Reading do
   its description, counts and links, and what it has pinned or made.
   """
   def profile(%{"handle" => handle} = profile) when is_binary(handle),
-    do: account_card(profile, "Profile", :full)
+    do: to_text(account_card(profile, ~L"Profile", :full))
 
   def profile(_other), do: nil
 
@@ -257,14 +303,14 @@ defmodule AtMcp.Reading do
   blocks, mutes, likers and reposters, and `get_profiles`.
   """
   def profiles(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "account", "accounts") <> "." <> next_page(page)
+    header = cat([count(length(items), ~L"account", ~L"accounts"), ~L".", next_page(page)])
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {account, n} -> account_card(account, "[#{n}]", :brief) end)
+      |> Enum.map(fn {account, n} -> account_card(account, numbered(n), :brief) end)
 
-    lines([header, page["moderation_unread"] | blocks], "\n\n")
+    to_text(join([header, shown(page["moderation_unread"]) | blocks], :blank))
   end
 
   def profiles(_other), do: nil
@@ -284,83 +330,99 @@ defmodule AtMcp.Reading do
         "author_labels" => account["labels"]
       })
 
-    lines(
+    made =
+      join(
+        [
+          counted(account["lists"], ~L"list", ~L"lists"),
+          counted(account["feeds"], ~L"feed", ~L"feeds"),
+          counted(account["starter_packs"], ~L"starter pack", ~L"starter packs")
+        ],
+        :dot
+      )
+
+    join(
       [
-        label <>
-          " " <>
-          lines(
+        cat([
+          label,
+          ~L" ",
+          join(
             [
               name,
-              one_line(account["pronouns"]),
-              if(account["labeler"] == true, do: "runs a labeler")
+              shown(account["pronouns"]),
+              if(account["labeler"] == true, do: ~L"runs a labeler")
             ],
-            " · "
-          ),
+            :dot
+          )
+        ]),
         relation(viewer),
-        if(form == :full, do: account["description"], else: one_line(account["description"])),
-        lines(
+        if(form == :full, do: fence(account["description"]), else: shown(account["description"])),
+        join(
           [
-            counted(account["followers"], "follower", "followers"),
-            counted(account["follows"], "following", "following"),
-            counted(account["posts"], "post", "posts"),
-            if(is_binary(account["created_at"]), do: "joined #{account["created_at"]}")
+            counted(account["followers"], ~L"follower", ~L"followers"),
+            counted(account["follows"], ~L"following", ~L"following"),
+            counted(account["posts"], ~L"post", ~L"posts"),
+            if(is_binary(account["created_at"]),
+              do: cat([~L"joined ", time(account["created_at"])])
+            )
           ],
-          " · "
+          :dot
         ),
-        lines(
-          [
-            counted(account["lists"], "list", "lists"),
-            counted(account["feeds"], "feed", "feeds"),
-            counted(account["starter_packs"], "starter pack", "starter packs")
-          ],
-          " · "
-        )
-        |> then(&if(&1 != "", do: "Made: " <> &1)),
-        if(is_binary(account["website"]), do: "Website: #{escape_uri(account["website"])}"),
+        if(not empty?(made), do: cat([~L"Made: ", made])),
+        if(is_binary(account["website"]), do: cat([~L"Website: ", url(account["website"])])),
         case List.wrap(account["links"]) do
           [] ->
             nil
 
           links ->
-            "Links: " <>
-              Enum.map_join(links, "; ", fn link ->
-                url = if is_binary(link["url"]), do: escape_uri(link["url"])
+            cat([
+              ~L"Links: ",
+              join(
+                Enum.map(links, fn link ->
+                  address = url(link["url"])
 
-                case one_line(link["title"]) do
-                  title when title not in [nil, ""] -> lines([title, url && "(#{url})"], " ")
-                  _ -> url
-                end
-              end)
+                  case nonempty(link["title"]) do
+                    nil -> address
+                    title -> join([title, address && cat([~L"(", address, ~L")"])], :space)
+                  end
+                end),
+                :semi
+              )
+            ])
         end,
-        if(is_binary(account["pinned_post"]), do: "Pinned post: #{account["pinned_post"]}"),
+        if(is_binary(account["pinned_post"]),
+          do: cat([~L"Pinned post: ", ident(account["pinned_post"])])
+        ),
         live_line(account["status"], viewer, account["labels"]),
         if(form == :full,
           do:
-            lines(
+            join(
               [
-                if(is_binary(account["avatar"]), do: "Avatar: #{escape_uri(account["avatar"])}"),
-                if(is_binary(account["banner"]), do: "Banner: #{escape_uri(account["banner"])}")
+                if(is_binary(account["avatar"]), do: cat([~L"Avatar: ", url(account["avatar"])])),
+                if(is_binary(account["banner"]), do: cat([~L"Banner: ", url(account["banner"])]))
               ],
-              " · "
+              :dot
             )
         ),
         verified_by(account["verification"]),
         labelled(%{"labels" => account["labels"], "author_did" => account["did"]}),
         AtMcp.ModerationDecision.line(account["moderation"]),
-        account["moderation_unread"],
+        shown(account["moderation_unread"]),
         known_followers(account["known_followers"]),
         joined_via(account["joined_via"]),
         messages_from(account["messages_from"]),
         subscriptions_from(account["subscriptions_from"]),
         subscribed(account["activity_subscription"]),
-        if(is_binary(account["did"]), do: "did: #{account["did"]}"),
+        if(is_binary(account["did"]), do: cat([~L"did: ", ident(account["did"])])),
         web(account)
       ],
-      "\n"
+      :line
     )
   end
 
-  defp account_card(other, label, _form), do: "#{label} #{Jason.encode!(other)}"
+  defp account_card(other, label, _form), do: unknown(other, label)
+
+  # A shape this version does not read, as its JSON in one literal.
+  defp unknown(other, label), do: cat([label, ~L" ", literal(Jason.encode!(other))])
 
   defp counted(n, one, many) when is_integer(n) and n > 0, do: count(n, one, many)
   defp counted(_n, _one, _many), do: nil
@@ -370,46 +432,50 @@ defmodule AtMcp.Reading do
   # through a list puts the list's URI in `blocking`, which `unblock` refuses,
   # so only the list is named then.
   defp relation(viewer) do
-    lines(
+    join(
       [
-        if(is_binary(viewer["following"]), do: "You follow them: #{viewer["following"]}"),
-        if(is_binary(viewer["followed_by"]), do: "Follows you"),
+        if(is_binary(viewer["following"]),
+          do: cat([~L"You follow them: ", ident(viewer["following"])])
+        ),
+        if(is_binary(viewer["followed_by"]), do: ~L"Follows you"),
         cond do
           is_binary(viewer["blocking_by_list"]) ->
-            "You blocked them via a list: #{viewer["blocking_by_list"]}"
+            cat([~L"You blocked them via a list: ", ident(viewer["blocking_by_list"])])
 
           is_binary(viewer["blocking"]) ->
-            "You blocked them: #{viewer["blocking"]}"
+            cat([~L"You blocked them: ", ident(viewer["blocking"])])
 
           true ->
             nil
         end,
-        if(viewer["blocked_by"] == true, do: "They blocked you"),
+        if(viewer["blocked_by"] == true, do: ~L"They blocked you"),
         cond do
           is_binary(viewer["muted_by_list"]) ->
-            "You muted them via a list: #{viewer["muted_by_list"]}"
+            cat([~L"You muted them via a list: ", ident(viewer["muted_by_list"])])
 
           viewer["muted"] == true ->
-            "You muted them"
+            ~L"You muted them"
 
           true ->
             nil
-        end
+        end,
+        # The app's "Reposts Hidden" pill on a profile and an account card.
+        if(viewer["muted_reposts"] == true, do: ~L"You hid their reposts")
       ],
-      " · "
+      :dot
     )
   end
 
   defp live_line(status, viewer, labels) do
     if live?(status, viewer, labels) do
-      lines(
+      join(
         [
-          "Live:",
-          one_line(status["title"]),
-          if(is_binary(status["url"]), do: escape_uri(status["url"])),
-          if(is_binary(status["expires_at"]), do: "until #{status["expires_at"]}")
+          ~L"Live:",
+          shown(status["title"]),
+          url(status["url"]),
+          if(is_binary(status["expires_at"]), do: cat([~L"until ", time(status["expires_at"])]))
         ],
-        " "
+        :space
       )
     end
   end
@@ -420,14 +486,19 @@ defmodule AtMcp.Reading do
         nil
 
       valid ->
-        "Verified by: " <>
-          Enum.map_join(valid, ", ", fn v ->
-            who(%{
-              "author" => v["issuer_handle"],
-              "author_did" => v["issuer"],
-              "display_name" => v["issuer_display_name"]
-            })
-          end)
+        cat([
+          ~L"Verified by: ",
+          join(
+            Enum.map(valid, fn v ->
+              who(%{
+                "author" => v["issuer_handle"],
+                "author_did" => v["issuer"],
+                "display_name" => v["issuer_display_name"]
+              })
+            end),
+            :comma
+          )
+        ])
     end
   end
 
@@ -435,41 +506,71 @@ defmodule AtMcp.Reading do
 
   # The app's "Followed by A, B and 3 others".
   defp known_followers(%{"followers" => [_ | _] = shown} = known) do
-    names = Enum.map(shown, &who(account(&1)))
+    names = join(Enum.map(shown, &who(account(&1))), :comma)
     others = if is_integer(known["count"]), do: known["count"] - length(shown), else: 0
 
-    "Followed by " <>
-      case others do
-        n when n > 0 -> Enum.join(names, ", ") <> " and #{count(n, "other", "others")}"
-        _ -> Enum.join(names, ", ")
-      end
+    cat([
+      ~L"Followed by ",
+      names,
+      if(others > 0, do: cat([~L" and ", count(others, ~L"other", ~L"others")]))
+    ])
   end
 
   defp known_followers(_known), do: nil
 
+  # The app's "Liked by A and B" under a post: at most two of the accounts
+  # this one follows that liked it (KnownLikers in social-app).
+  # The app leaves out of it an account its moderation filters from a list
+  # of accounts: one blocked either way or muted.
+  defp known_likers(%{"actors" => [_ | _] = actors}) do
+    case actors
+         |> Enum.reject(&filtered?(&1["viewer"]))
+         |> Enum.take(2)
+         |> Enum.map(&who(account(&1))) do
+      [] -> nil
+      [one] -> cat([~L"Liked by ", one])
+      [one, two] -> cat([~L"Liked by ", one, ~L" and ", two])
+    end
+  end
+
+  defp known_likers(_known), do: nil
+
+  defp filtered?(%{} = viewer),
+    do:
+      is_binary(viewer["blocking"]) or is_binary(viewer["blocking_by_list"]) or
+        viewer["blocked_by"] == true or viewer["muted"] == true or
+        is_binary(viewer["muted_by_list"])
+
+  defp filtered?(_viewer), do: false
+
   defp joined_via(%{"uri" => uri} = pack) when is_binary(uri),
     do:
-      "Joined through the starter pack " <>
-        lines([named(pack["name"]), by(pack["creator"], nil), uri], " ")
+      cat([
+        ~L"Joined through the starter pack ",
+        join([shown(pack["name"]), by(pack["creator"], nil), ident(uri)], :space)
+      ])
 
   defp joined_via(_pack), do: nil
 
-  defp messages_from("all"), do: "Takes messages from everyone"
-  defp messages_from("following"), do: "Takes messages from people they follow"
-  defp messages_from("none"), do: "Takes no messages"
-  defp messages_from(other) when is_binary(other), do: "Takes messages from: #{other}"
+  defp messages_from("all"), do: ~L"Takes messages from everyone"
+  defp messages_from("following"), do: ~L"Takes messages from people they follow"
+  defp messages_from("none"), do: ~L"Takes no messages"
+
+  defp messages_from(other) when is_binary(other),
+    do: cat([~L"Takes messages from: ", ident(other)])
+
   defp messages_from(_none), do: nil
 
   # Who may subscribe to the account's posts; followers, which no
   # declaration also means, goes without saying.
-  defp subscriptions_from("mutuals"), do: "Lets only mutuals subscribe to its posts"
-  defp subscriptions_from("none"), do: "Lets no one subscribe to its posts"
+  defp subscriptions_from("mutuals"), do: ~L"Lets only mutuals subscribe to its posts"
+  defp subscriptions_from("none"), do: ~L"Lets no one subscribe to its posts"
   defp subscriptions_from(_followers), do: nil
 
   defp subscribed(%{"posts" => true, "replies" => true}),
-    do: "You are subscribed to its posts and replies"
+    do: ~L"You are subscribed to its posts and replies"
 
-  defp subscribed(%{"posts" => true}), do: "You are subscribed to its posts"
+  defp subscribed(%{"posts" => true}), do: ~L"You are subscribed to its posts"
   defp subscribed(_none), do: nil
 
   @doc """
@@ -478,20 +579,23 @@ defmodule AtMcp.Reading do
   is for, and the uri and cid `get_feed` and `like` take.
   """
   def feeds(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "feed", "feeds") <> "." <> next_page(page)
+    header = cat([count(length(items), ~L"feed", ~L"feeds"), ~L".", next_page(page)])
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {feed, n} -> feed(feed, "[#{n}]") end)
+      |> Enum.map(fn {feed, n} -> feed(feed, numbered(n)) end)
 
     missing =
       case page["not_found"] do
-        [_ | _] = uris -> ["The service does not know: " <> Enum.join(uris, ", ")]
-        _ -> []
+        [_ | _] = uris ->
+          [cat([~L"The service does not know: ", join(Enum.map(uris, &ident/1), :comma)])]
+
+        _ ->
+          []
       end
 
-    lines([header | blocks] ++ missing, "\n\n")
+    to_text(join([header | blocks] ++ missing, :blank))
   end
 
   def feeds(_other), do: nil
@@ -499,38 +603,42 @@ defmodule AtMcp.Reading do
   defp feed(%{} = feed, label) do
     viewer = if is_map(feed["viewer"]), do: feed["viewer"], else: %{}
 
-    lines(
+    join(
       [
-        label <>
-          " " <>
-          lines(
+        cat([
+          label,
+          ~L" ",
+          join(
             [
-              named(feed["display_name"]),
+              shown(feed["display_name"]),
               by(feed["creator"], feed["creator_display_name"]),
-              if(is_integer(feed["like_count"]), do: count(feed["like_count"], "like", "likes")),
+              if(is_integer(feed["like_count"]),
+                do: count(feed["like_count"], ~L"like", ~L"likes")
+              ),
               if(AtMcp.Effects.takes_feedback?(feed["uri"], feed["accepts_interactions"]),
-                do: "takes feedback"
+                do: ~L"takes feedback"
               ),
               online(feed)
             ],
-            " · "
-          ),
-        one_line(feed["description"]),
+            :dot
+          )
+        ]),
+        shown(feed["description"]),
         labelled(%{"labels" => feed["labels"], "author_did" => feed["creator_did"]}),
-        if(is_binary(viewer["like"]), do: "You liked this: #{viewer["like"]}"),
-        if(is_binary(feed["avatar"]), do: "Avatar: #{escape_uri(feed["avatar"])}"),
+        if(is_binary(viewer["like"]), do: cat([~L"You liked this: ", ident(viewer["like"])])),
+        if(is_binary(feed["avatar"]), do: cat([~L"Avatar: ", url(feed["avatar"])])),
         ids(feed),
         web(feed)
       ],
-      "\n"
+      :line
     )
   end
 
-  defp feed(other, label), do: "#{label} #{Jason.encode!(other)}"
+  defp feed(other, label), do: unknown(other, label)
 
-  defp online(%{"is_online" => false}), do: "its service is offline"
-  defp online(%{"is_valid" => false}), do: "its service does not match its record"
-  defp online(%{"is_online" => true}), do: "online"
+  defp online(%{"is_online" => false}), do: ~L"its service is offline"
+  defp online(%{"is_valid" => false}), do: ~L"its service does not match its record"
+  defp online(%{"is_online" => true}), do: ~L"online"
   defp online(_feed), do: nil
 
   @doc """
@@ -538,79 +646,88 @@ defmodule AtMcp.Reading do
   is about, some of the accounts posting, and the link the app opens for it.
   """
   def trends(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "trend", "trends") <> "."
+    header = cat([count(length(items), ~L"trend", ~L"trends"), ~L"."])
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {trend, n} -> trend(trend, "[#{n}]") end)
+      |> Enum.map(fn {trend, n} -> trend(trend, numbered(n)) end)
 
     suggested =
       case page["suggested"] do
         [_ | _] = topics ->
           [
-            "Suggested beside them: " <>
-              Enum.map_join(topics, "; ", fn topic ->
-                lines([topic["display_name"] || topic["topic"], topic["link"]], " · ")
-              end)
+            cat([
+              ~L"Suggested beside them: ",
+              join(
+                Enum.map(topics, fn topic ->
+                  join([shown(topic["display_name"] || topic["topic"]), url(topic["link"])], :dot)
+                end),
+                :semi
+              )
+            ])
           ]
 
         _ ->
           []
       end
 
-    lines([header | blocks] ++ suggested, "\n\n")
+    to_text(join([header | blocks] ++ suggested, :blank))
   end
 
   def trends(_other), do: nil
 
   defp trend(%{} = trend, label) do
-    lines(
+    join(
       [
-        label <>
-          " " <>
-          lines(
+        cat([
+          label,
+          ~L" ",
+          join(
             [
-              one_line(trend["display_name"] || trend["topic"]),
-              trend["status"],
-              trend["category"],
+              shown(trend["display_name"] || trend["topic"]),
+              ident(trend["status"]),
+              ident(trend["category"]),
               if(is_integer(trend["post_count"]),
-                do: count(trend["post_count"], "post", "posts")
+                do: count(trend["post_count"], ~L"post", ~L"posts")
               ),
-              if(is_binary(trend["started_at"]), do: "since #{trend["started_at"]}")
+              if(is_binary(trend["started_at"]), do: cat([~L"since ", time(trend["started_at"])]))
             ],
-            " · "
-          ),
-        one_line(trend["description"]),
+            :dot
+          )
+        ]),
+        shown(trend["description"]),
         case List.wrap(trend["actors"]) do
           [] -> nil
-          actors -> "Posting: " <> Enum.map_join(actors, ", ", &who(account(&1)))
+          actors -> cat([~L"Posting: ", join(Enum.map(actors, &who(account(&1))), :comma)])
         end,
-        if(is_binary(trend["link"]), do: "link: #{trend["link"]}")
+        if(is_binary(trend["link"]), do: cat([~L"link: ", url(trend["link"])]))
       ],
-      "\n"
+      :line
     )
   end
 
-  defp trend(other, label), do: "#{label} #{Jason.encode!(other)}"
+  defp trend(other, label), do: unknown(other, label)
 
   @doc "This account's invitation codes: each, how many uses it has left, and who used it."
   def invite_codes(%{"items" => items} = result) when is_list(items) do
     header =
-      lines(
+      join(
         [
-          count(length(items), "invitation code", "invitation codes") <> ".",
-          if(is_binary(result["collection"]), do: "Earned codes: #{result["collection"]}.")
+          cat([count(length(items), ~L"invitation code", ~L"invitation codes"), ~L"."]),
+          if(is_binary(result["collection"]),
+            do: cat([~L"Earned codes: ", ident(result["collection"]), ~L"."])
+          )
         ],
-        " "
+        :space
       )
 
     blocks =
       items
       |> Enum.with_index(1)
-      |> Enum.map(fn {code, n} -> invite_code(code, "[#{n}]") end)
+      |> Enum.map(fn {code, n} -> invite_code(code, numbered(n)) end)
 
-    lines([header | blocks], "\n\n")
+    to_text(join([header | blocks], :blank))
   end
 
   def invite_codes(_other), do: nil
@@ -625,194 +742,291 @@ defmodule AtMcp.Reading do
     defaults = p["interaction_defaults"] || %{}
     adult = p["adult_content"] || %{}
 
-    lines(
-      [
-        "Settings. set_preference changes each kind; save_feed and unsave_feed the saved feeds.",
-        "home_feed (the Following feed, as the app shows it): " <>
-          on_off([
-            {"hide_replies", home["hide_replies"]},
-            {"hide_reposts", home["hide_reposts"]},
-            {"hide_quotes", home["hide_quotes"]},
-            {"saved_feed_samples", home["saved_feed_samples"]}
+    to_text(
+      join(
+        [
+          ~L"Settings. set_preference changes each kind; save_feed and unsave_feed the saved feeds.",
+          cat([
+            ~L"home_feed (the Following feed, as the app shows it): ",
+            on_off([
+              {~L"hide_replies", home["hide_replies"]},
+              {~L"hide_reposts", home["hide_reposts"]},
+              {~L"hide_quotes", home["hide_quotes"]},
+              {~L"saved_feed_samples", home["saved_feed_samples"]}
+            ])
           ]),
-        "threads: sort #{threads["sort"]}, " <> on_off([{"tree_view", threads["tree_view"]}]),
-        "interaction_defaults (each new post in the app starts with): reply_rule " <>
-          Jason.encode!(defaults["reply_rule"]) <> ", quotes #{defaults["quotes"]}",
-        "adult_content: " <>
-          on_off([{"enabled", adult["enabled"]}]) <>
-          "; birth date " <>
-          cond do
-            adult["declared_over_18"] == true -> "set, 18 or over"
-            adult["birth_date_set"] == true -> "set, under 18"
-            true -> "not set"
-          end,
-        "interests: " <>
-          case List.wrap(get_in(p, ["interests", "tags"])) do
-            [] -> "none"
-            tags -> Enum.join(tags, ", ")
-          end,
-        "verification: " <> on_off([{"hide_badges", get_in(p, ["verification", "hide_badges"])}]),
-        "discoverable: " <>
-          on_off([
-            {"hide_from_recommendations",
-             get_in(p, ["discoverable", "hide_from_recommendations"])}
+          cat([
+            ~L"threads: sort ",
+            ident(threads["sort"]),
+            ~L", ",
+            on_off([{~L"tree_view", threads["tree_view"]}])
           ]),
-        "activity_subscriptions: allow #{get_in(p, ["activity_subscriptions", "allow"])}",
-        "content_labels (set_label_visibility): " <>
-          ((p["content_labels"] || %{})
-           |> Enum.sort()
-           |> Enum.map_join(", ", fn {label, visibility} -> "#{label} #{visibility}" end)),
-        "Labelers the app takes labels from (get_labelers): " <>
-          case List.wrap(p["labelers"]) do
-            [] -> "none"
-            dids -> Enum.join(dids, ", ")
+          cat([
+            ~L"interaction_defaults (each new post in the app starts with): reply_rule ",
+            ident_list(defaults["reply_rule"]),
+            ~L", quotes ",
+            ident(defaults["quotes"])
+          ]),
+          cat([
+            ~L"adult_content: ",
+            on_off([{~L"enabled", adult["enabled"]}]),
+            ~L"; birth date ",
+            cond do
+              adult["declared_over_18"] == true -> ~L"set, 18 or over"
+              adult["birth_date_set"] == true -> ~L"set, under 18"
+              true -> ~L"not set"
+            end
+          ]),
+          cat([
+            ~L"interests: ",
+            case List.wrap(get_in(p, ["interests", "tags"])) do
+              [] -> ~L"none"
+              tags -> join(Enum.map(tags, &ident/1), :comma)
+            end
+          ]),
+          cat([
+            ~L"verification: ",
+            on_off([{~L"hide_badges", get_in(p, ["verification", "hide_badges"])}])
+          ]),
+          cat([
+            ~L"discoverable: ",
+            on_off([
+              {~L"hide_from_recommendations",
+               get_in(p, ["discoverable", "hide_from_recommendations"])}
+            ])
+          ]),
+          cat([
+            ~L"activity_subscriptions: allow ",
+            ident(get_in(p, ["activity_subscriptions", "allow"]))
+          ]),
+          cat([
+            ~L"content_labels (set_label_visibility): ",
+            join(
+              (p["content_labels"] || %{})
+              |> Enum.sort()
+              |> Enum.map(fn {label, visibility} ->
+                join([ident(label), ident(visibility)], :space)
+              end),
+              :comma
+            )
+          ]),
+          cat([
+            ~L"Labelers the app takes labels from (get_labelers): ",
+            case List.wrap(p["labelers"]) do
+              [] -> ~L"none"
+              dids -> join(Enum.map(dids, &ident/1), :comma)
+            end
+          ]),
+          case List.wrap(p["muted_words"]) do
+            [] ->
+              ~L"Muted words: none"
+
+            words ->
+              join(
+                [
+                  ~L"Muted words (mute_word, unmute_word):"
+                  | Enum.map(words, fn word ->
+                      cat([
+                        ~L"- ",
+                        join(
+                          [
+                            literal(word["value"]),
+                            if(word["tags_only"] == true,
+                              do: ~L"tags only",
+                              else: ~L"text and tags"
+                            ),
+                            if(word["only_non_followed"] == true,
+                              do: ~L"only accounts not followed"
+                            ),
+                            cond do
+                              word["expired"] == true ->
+                                cat([~L"expired ", time(word["expires_at"])])
+
+                              is_binary(word["expires_at"]) ->
+                                cat([~L"until ", time(word["expires_at"])])
+
+                              true ->
+                                nil
+                            end
+                          ],
+                          :dot
+                        )
+                      ])
+                    end)
+                ],
+                :line
+              )
           end,
-        case List.wrap(p["muted_words"]) do
-          [] ->
-            "Muted words: none"
+          case List.wrap(p["saved_feeds"]) do
+            [] ->
+              ~L"Saved feeds: none"
 
-          words ->
-            "Muted words (mute_word, unmute_word):\n" <>
-              Enum.map_join(words, "\n", fn word ->
-                "- " <>
-                  lines(
-                    [
-                      inspect(word["value"]),
-                      if(word["tags_only"] == true, do: "tags only", else: "text and tags"),
-                      if(word["only_non_followed"] == true,
-                        do: "only accounts not followed"
-                      ),
-                      cond do
-                        word["expired"] == true -> "expired #{word["expires_at"]}"
-                        is_binary(word["expires_at"]) -> "until #{word["expires_at"]}"
-                        true -> nil
-                      end
-                    ],
-                    " · "
-                  )
-              end)
-        end,
-        case List.wrap(p["saved_feeds"]) do
-          [] ->
-            "Saved feeds: none"
-
-          feeds ->
-            "Saved feeds:\n" <>
-              Enum.map_join(feeds, "\n", fn feed ->
-                "- " <>
-                  lines(
-                    [feed["value"], feed["type"], if(feed["pinned"] == true, do: "pinned")],
-                    " · "
-                  )
-              end)
-        end
-      ],
-      "\n"
+            feeds ->
+              join(
+                [
+                  ~L"Saved feeds:"
+                  | Enum.map(feeds, fn feed ->
+                      cat([
+                        ~L"- ",
+                        join(
+                          [
+                            ident(feed["value"]),
+                            ident(feed["type"]),
+                            if(feed["pinned"] == true, do: ~L"pinned")
+                          ],
+                          :dot
+                        )
+                      ])
+                    end)
+                ],
+                :line
+              )
+          end
+        ],
+        :line
+      )
     )
   end
 
   def preferences(_other), do: nil
 
+  # A list of identifiers as JSON writes one: `["following", "at://…"]`.
+  defp ident_list(values) when is_list(values),
+    do: cat([~L"[", join(Enum.map(values, &cat([~L("), ident(&1), ~L(")])), :comma), ~L"]"])
+
+  defp ident_list(nil), do: ~L"null"
+  defp ident_list(other), do: literal(Jason.encode!(other))
+
   @doc "Labelers in detail, from `get_labelers`."
   def labelers(%{"items" => items} = page) when is_list(items) do
     header =
-      count(length(items), "labeler", "labelers") <>
-        "." <>
+      cat([
+        count(length(items), ~L"labeler", ~L"labelers"),
+        ~L".",
         case List.wrap(page["missing"]) do
-          [] -> ""
-          missing -> " Running no labeler: #{Enum.join(missing, ", ")}."
+          [] ->
+            nil
+
+          missing ->
+            cat([~L" Running no labeler: ", join(Enum.map(missing, &ident/1), :comma), ~L"."])
         end
+      ])
 
     blocks =
       Enum.map(items, fn labeler ->
-        lines(
+        join(
           [
-            lines(
+            join(
               [
-                "#{labeler["display_name"] || labeler["handle"]} (@#{labeler["handle"]}, #{labeler["did"]})",
+                cat([
+                  shown(labeler["display_name"] || labeler["handle"]),
+                  ~L" (@",
+                  ident(labeler["handle"]),
+                  ~L", ",
+                  ident(labeler["did"]),
+                  ~L")"
+                ]),
                 cond do
-                  labeler["built_in"] == true -> "the network's own moderation service"
-                  labeler["subscribed"] == true -> "subscribed"
-                  true -> "not subscribed"
+                  labeler["built_in"] == true -> ~L"the network's own moderation service"
+                  labeler["subscribed"] == true -> ~L"subscribed"
+                  true -> ~L"not subscribed"
                 end
               ],
-              " · "
+              :dot
             ),
             web(labeler),
             case List.wrap(labeler["labels"]) do
               [] ->
-                "Defines no labels of its own."
+                ~L"Defines no labels of its own."
 
               labels ->
-                "Labels it defines:\n" <>
-                  Enum.map_join(labels, "\n", fn label ->
-                    "- " <>
-                      lines(
-                        [
-                          label["identifier"],
-                          label["name"],
-                          if(label["global"] == true,
-                            do: "adult content filter, set without labeler"
+                join(
+                  [
+                    ~L"Labels it defines:"
+                    | Enum.map(labels, fn label ->
+                        cat([
+                          ~L"- ",
+                          join(
+                            [
+                              ident(label["identifier"]),
+                              shown(label["name"]),
+                              if(label["global"] == true,
+                                do: ~L"adult content filter, set without labeler"
+                              ),
+                              if(label["setting"],
+                                do: cat([~L"set to ", ident(label["setting"])]),
+                                else: cat([~L"default ", ident(label["default"])])
+                              ),
+                              if(label["adult_only"] == true, do: ~L"adult content")
+                            ],
+                            :dot
                           ),
-                          if(label["setting"],
-                            do: "set to #{label["setting"]}",
-                            else: "default #{label["default"]}"
-                          ),
-                          if(label["adult_only"] == true, do: "adult content")
-                        ],
-                        " · "
-                      ) <>
-                      if(is_binary(label["description"]),
-                        do: ": #{label["description"]}",
-                        else: ""
-                      )
-                  end)
+                          if(is_binary(label["description"]),
+                            do: cat([~L": ", shown(label["description"])])
+                          )
+                        ])
+                      end)
+                  ],
+                  :line
+                )
             end,
-            "Takes reports: " <>
-              lines(
+            cat([
+              ~L"Takes reports: ",
+              join(
                 [
-                  "reasons #{any(labeler["reason_types"])}",
-                  "on #{any(labeler["subject_types"])}",
-                  "records #{any(labeler["subject_collections"])}"
+                  cat([~L"reasons ", any(labeler["reason_types"])]),
+                  cat([~L"on ", any(labeler["subject_types"])]),
+                  cat([~L"records ", any(labeler["subject_collections"])])
                 ],
-                ", "
+                :comma
               )
+            ])
           ],
-          "\n"
+          :line
         )
       end)
 
-    lines([header | blocks], "\n\n")
+    to_text(join([header | blocks], :blank))
   end
 
   def labelers(_other), do: nil
 
-  defp any(values) when is_list(values), do: Enum.join(values, ", ")
-  defp any(_values), do: "any"
+  defp any(values) when is_list(values), do: join(Enum.map(values, &ident/1), :comma)
+  defp any(_values), do: ~L"any"
 
   defp on_off(settings),
     do:
-      Enum.map_join(settings, ", ", fn {name, on} ->
-        "#{name} #{if on == true, do: "on", else: "off"}"
-      end)
+      join(
+        Enum.map(settings, fn {name, on} ->
+          cat([name, if(on == true, do: ~L" on", else: ~L" off")])
+        end),
+        :comma
+      )
 
   @doc "The account's notification settings, one line per reason."
   def notification_settings(%{"settings" => settings}) when is_list(settings) do
-    lines(
-      [
-        "Notification settings. set_notification_setting changes one reason's."
-        | Enum.map(settings, fn setting ->
-            "#{setting["reason"]}: " <>
-              lines(
-                [
-                  if(is_binary(setting["include"]), do: "from #{setting["include"]}"),
-                  on_off([{"list", setting["list"]}, {"push", setting["push"]}])
-                ],
-                ", "
-              )
-          end)
-      ],
-      "\n"
+    to_text(
+      join(
+        [
+          ~L"Notification settings. set_notification_setting changes one reason's."
+          | Enum.map(settings, fn setting ->
+              cat([
+                ident(setting["reason"]),
+                ~L": ",
+                join(
+                  [
+                    if(is_binary(setting["include"]),
+                      do: cat([~L"from ", ident(setting["include"])])
+                    ),
+                    on_off([{~L"list", setting["list"]}, {~L"push", setting["push"]}])
+                  ],
+                  :comma
+                )
+              ])
+            end)
+        ],
+        :line
+      )
     )
   end
 
@@ -823,63 +1037,79 @@ defmodule AtMcp.Reading do
 
     left =
       if is_integer(code["available"]),
-        do: "#{max(code["available"] - length(uses), 0)} of #{code["available"]} uses left"
+        do:
+          cat([
+            int(max(code["available"] - length(uses), 0)),
+            ~L" of ",
+            int(code["available"]),
+            ~L" uses left"
+          ])
 
-    lines(
+    join(
       [
-        label <>
-          " " <>
-          lines([code["code"], left, if(code["disabled"] == true, do: "disabled")], " · "),
+        cat([
+          label,
+          ~L" ",
+          join([ident(code["code"]), left, if(code["disabled"] == true, do: ~L"disabled")], :dot)
+        ]),
         case uses do
           [] ->
             nil
 
           uses ->
-            "Used by: " <> Enum.map_join(uses, ", ", &"#{&1["used_by"]} at #{&1["used_at"]}")
+            cat([
+              ~L"Used by: ",
+              join(
+                Enum.map(uses, &cat([ident(&1["used_by"]), ~L" at ", time(&1["used_at"])])),
+                :comma
+              )
+            ])
         end
       ],
-      "\n"
+      :line
     )
   end
 
-  defp invite_code(other, label), do: "#{label} #{Jason.encode!(other)}"
+  defp invite_code(other, label), do: unknown(other, label)
 
   # A list's name, kind, size and maker on one line, then what it is for, then
   # its uri and where this account stands with it.
   defp list_heading(list, label) do
     viewer = if is_map(list["viewer"]), do: list["viewer"], else: %{}
 
-    lines(
+    join(
       [
-        label <>
-          " " <>
-          lines(
+        cat([
+          label,
+          ~L" ",
+          join(
             [
-              named(list["name"]),
+              shown(list["name"]),
               purpose(list["purpose"]),
               if(is_integer(list["item_count"]),
-                do: count(list["item_count"], "account", "accounts")
+                do: count(list["item_count"], ~L"account", ~L"accounts")
               ),
               by(list["creator"], list["creator_display_name"])
             ],
-            " · "
-          ),
-        one_line(list["description"]),
+            :dot
+          )
+        ]),
+        shown(list["description"]),
         labelled(%{"labels" => list["labels"], "author_did" => list["creator_did"]}),
-        lines(
+        join(
           [
-            if(viewer["muted"] == true, do: "You mute the accounts on it"),
+            if(viewer["muted"] == true, do: ~L"You mute the accounts on it"),
             if(is_binary(viewer["blocked"]),
-              do: "You block the accounts on it: #{viewer["blocked"]}"
+              do: cat([~L"You block the accounts on it: ", ident(viewer["blocked"])])
             ),
             opted_out(viewer)
           ],
-          " · "
+          :dot
         ),
-        "uri: #{list["uri"]}",
+        cat([~L"uri: ", ident(list["uri"])]),
         web(list)
       ],
-      "\n"
+      :line
     )
   end
 
@@ -889,10 +1119,10 @@ defmodule AtMcp.Reading do
     joined =
       case {pack["joined_week_count"], pack["joined_all_time_count"]} do
         {week, all} when is_integer(week) and is_integer(all) ->
-          "#{all} joined through it, #{week} this week"
+          cat([int(all), ~L" joined through it, ", int(week), ~L" this week"])
 
         {_week, all} when is_integer(all) ->
-          "#{all} joined through it"
+          cat([int(all), ~L" joined through it"])
 
         _ ->
           nil
@@ -904,79 +1134,102 @@ defmodule AtMcp.Reading do
           nil
 
         feeds ->
-          "Feeds: " <>
-            Enum.map_join(feeds, "; ", fn feed ->
-              lines([named(feed["display_name"]), by(feed["creator"], nil), feed["uri"]], " · ")
-            end)
+          cat([
+            ~L"Feeds: ",
+            join(
+              Enum.map(feeds, fn feed ->
+                join(
+                  [shown(feed["display_name"]), by(feed["creator"], nil), ident(feed["uri"])],
+                  :dot
+                )
+              end),
+              :semi
+            )
+          ])
       end
 
     sample =
       case List.wrap(pack["members_sample"]) do
-        [] -> nil
-        members -> "Some of its accounts: " <> Enum.map_join(members, ", ", &who(account(&1)))
+        [] ->
+          nil
+
+        members ->
+          cat([~L"Some of its accounts: ", join(Enum.map(members, &who(account(&1))), :comma)])
       end
 
     viewer = if is_map(pack["viewer"]), do: pack["viewer"], else: %{}
 
-    lines(
+    join(
       [
-        label <>
-          " " <>
-          lines(
+        cat([
+          label,
+          ~L" ",
+          join(
             [
-              named(pack["name"]),
+              shown(pack["name"]),
               by(pack["creator"], pack["creator_display_name"]),
               if(is_integer(pack["item_count"]),
-                do: count(pack["item_count"], "account", "accounts")
+                do: count(pack["item_count"], ~L"account", ~L"accounts")
               ),
               joined
             ],
-            " · "
-          ),
-        one_line(pack["description"]),
+            :dot
+          )
+        ]),
+        shown(pack["description"]),
         feeds,
         sample,
         labelled(%{"labels" => pack["labels"], "author_did" => pack["creator_did"]}),
         opted_out(viewer),
-        if(is_binary(pack["list"]), do: "list: #{pack["list"]} (get_list reads every account)"),
-        "uri: #{pack["uri"]}",
+        if(is_binary(pack["list"]),
+          do: cat([~L"list: ", ident(pack["list"]), ~L" (get_list reads every account)"])
+        ),
+        cat([~L"uri: ", ident(pack["uri"])]),
         web(pack)
       ],
-      "\n"
+      :line
     )
   end
 
   # One account on a list: who it is, the list item that puts it there, and
   # whether it asked to be left out.
   defp member(%{} = member, label) do
-    lines(
+    join(
       [
-        label <>
-          " " <>
-          lines(
+        cat([
+          label,
+          ~L" ",
+          join(
             [
               who(account(member)),
-              if(member["opted_out"] == true, do: "asked to be left out of this list")
+              if(member["opted_out"] == true, do: ~L"asked to be left out of this list")
             ],
-            " · "
-          ),
-        one_line(member["description"]),
+            :dot
+          )
+        ]),
+        shown(member["description"]),
         standing(%{"author_viewer" => member["viewer"]}),
-        "item: #{member["item_uri"]}",
+        cat([~L"item: ", ident(member["item_uri"])]),
         web(member)
       ],
-      "\n"
+      :line
     )
   end
 
-  defp member(other, label), do: "#{label} #{Jason.encode!(other)}"
+  defp member(other, label), do: unknown(other, label)
 
   # Read with contains: whether that account is in the list or pack.
-  defp on_it(%{"member_item" => item}) when is_binary(item), do: "Contains the account: #{item}"
-  defp on_it(%{} = item) when is_map_key(item, "member_item"), do: "Does not contain the account"
+  defp on_it(%{"member_item" => item}) when is_binary(item),
+    do: cat([~L"Contains the account: ", ident(item)])
+
+  defp on_it(%{} = item) when is_map_key(item, "member_item"),
+    do: ~L"Does not contain the account"
+
   defp on_it(_item), do: nil
 
-  defp opted_out(%{"opted_out" => uri}) when is_binary(uri), do: "You opted out of it: #{uri}"
+  defp opted_out(%{"opted_out" => uri}) when is_binary(uri),
+    do: cat([~L"You opted out of it: ", ident(uri)])
+
   defp opted_out(_viewer), do: nil
 
   defp account(%{} = account),
@@ -986,18 +1239,15 @@ defmodule AtMcp.Reading do
       "display_name" => account["display_name"]
     }
 
-  defp named(name) when is_binary(name), do: ~s("#{one_line(name)}")
-  defp named(_name), do: nil
-
   defp by(handle, name) when is_binary(handle),
-    do: "by " <> who(%{"author" => one_line(handle), "display_name" => name})
+    do: cat([~L"by ", who(%{"author" => handle, "display_name" => name})])
 
   defp by(_handle, _name), do: nil
 
-  defp purpose(purpose) when purpose in ["curate", "moderation", "reference"],
-    do: "#{purpose} list"
-
-  defp purpose(purpose) when is_binary(purpose), do: "list for #{purpose}"
+  defp purpose("curate"), do: ~L"curate list"
+  defp purpose("moderation"), do: ~L"moderation list"
+  defp purpose("reference"), do: ~L"reference list"
+  defp purpose(purpose) when is_binary(purpose), do: cat([~L"list for ", ident(purpose)])
   defp purpose(_purpose), do: nil
 
   # One post: why a feed shows it, when that is not just that it was posted; a
@@ -1006,19 +1256,20 @@ defmodule AtMcp.Reading do
   defp post(%{} = post, label) do
     case unavailable(post) do
       nil ->
-        header = lines([who(post), post["created_at"], replying(post)], " · ")
+        header = join([who(post), posted(post), replying(post)], :dot)
 
         top =
           case reason(post["reason"]) do
-            nil -> [label <> " " <> header]
-            why -> [label <> " " <> why, header]
+            nil -> [cat([label, ~L" ", header])]
+            why -> [cat([label, ~L" ", why]), header]
           end
 
-        lines(
+        join(
           top ++
             body(post) ++
             [
               engagement(post),
+              known_likers(post["known_likers"]),
               labelled(post),
               AtMcp.ModerationDecision.line(post["moderation"]),
               standing(post),
@@ -1027,23 +1278,27 @@ defmodule AtMcp.Reading do
               web(post)
             ] ++
             viewer(post) ++ [feed_given(post)],
-          "\n"
+          :line
         )
 
       why ->
-        "#{label} #{why}"
+        cat([label, ~L" ", why])
     end
   end
 
-  defp post(other, label), do: "#{label} #{Jason.encode!(other)}"
+  defp post(other, label), do: unknown(other, label)
 
-  defp unavailable(%{"blocked" => true} = post), do: "#{where(post)} is hidden by a block."
-  defp unavailable(%{"not_found" => true} = post), do: "#{where(post)} is deleted or missing."
-  defp unavailable(%{"unresolved" => true} = post), do: "#{where(post)} was not read."
+  defp unavailable(%{"blocked" => true} = post),
+    do: cat([where(post), ~L" is hidden by a block."])
+
+  defp unavailable(%{"not_found" => true} = post),
+    do: cat([where(post), ~L" is deleted or missing."])
+
+  defp unavailable(%{"unresolved" => true} = post), do: cat([where(post), ~L" was not read."])
   defp unavailable(_post), do: nil
 
-  defp where(%{"uri" => uri}) when is_binary(uri), do: "The post #{uri}"
-  defp where(_post), do: "A post"
+  defp where(%{"uri" => uri}) when is_binary(uri), do: cat([~L"The post ", ident(uri)])
+  defp where(_post), do: ~L"A post"
 
   # A group of notifications, as the app's Notifications screen shows it: who
   # acted and what they did, then each post it is about with its uri, which
@@ -1055,82 +1310,93 @@ defmodule AtMcp.Reading do
     count = group["count"]
 
     header =
-      label <>
-        " " <>
-        lines(
+      cat([
+        label,
+        ~L" ",
+        join(
           [
-            lines(
+            join(
               [
                 who_acted(actors, count, kind),
                 group_verb(kind, if(is_integer(count), do: count, else: length(posts)))
               ],
-              " "
+              :space
             ),
-            group["indexed_at"],
-            if(group["is_read"] == false, do: "unread")
+            time(group["indexed_at"]),
+            if(group["is_read"] == false, do: ~L"unread")
           ],
-          " · "
+          :dot
         )
+      ])
 
-    lines(
+    join(
       [header] ++
         Enum.map(posts, fn post ->
-          "  " <>
-            lines(
+          cat([
+            ~L"  ",
+            join(
               [
-                post["uri"],
+                ident(post["uri"]),
                 web(post),
-                if(is_binary(post["text"]), do: inspect(one_line(post["text"]))),
-                if(is_binary(post["via_repost"]), do: "via your repost #{post["via_repost"]}"),
-                if(is_binary(post["parent"]), do: "replying to #{post["parent"]}")
+                shown(post["text"]),
+                if(is_binary(post["via_repost"]),
+                  do: cat([~L"via your repost ", ident(post["via_repost"])])
+                ),
+                if(is_binary(post["parent"]), do: cat([~L"replying to ", ident(post["parent"])]))
               ],
-              " · "
+              :dot
             )
+          ])
         end) ++
         [
-          if(is_binary(group["parent"]), do: "  replying to #{group["parent"]}"),
-          if(is_binary(group["starter_pack"]), do: "  starter pack: #{group["starter_pack"]}"),
-          if(is_binary(group["generator"]), do: "  feed: #{group["generator"]}")
+          if(is_binary(group["parent"]), do: cat([~L"  replying to ", ident(group["parent"])])),
+          if(is_binary(group["starter_pack"]),
+            do: cat([~L"  starter pack: ", ident(group["starter_pack"])])
+          ),
+          if(is_binary(group["generator"]), do: cat([~L"  feed: ", ident(group["generator"])]))
         ],
-      "\n"
+      :line
     )
   end
 
   defp notification(%{} = item, label) do
     header =
-      label <>
-        " " <>
-        lines(
+      cat([
+        label,
+        ~L" ",
+        join(
           [
-            lines([item["reason"], "from", who(item)], " "),
-            item["indexed_at"],
-            if(item["is_read"] == false, do: "unread")
+            join([ident(item["reason"]), ~L"from", who(item)], :space),
+            time(item["indexed_at"]),
+            if(is_binary(item["text"]), do: archived(item["created_at"], item["indexed_at"])),
+            if(item["is_read"] == false, do: ~L"unread")
           ],
-          " · "
+          :dot
         )
+      ])
 
     if is_binary(item["text"]) do
       reply_to = item["reply_parent_uri"]
-      replying = if is_binary(reply_to), do: "replying to #{reply_to}"
+      replying = if is_binary(reply_to), do: cat([~L"replying to ", ident(reply_to)])
 
-      lines(
-        [lines([header, replying], " · ") | body(item)] ++
+      join(
+        [join([header, replying], :dot) | body(item)] ++
           [labelled(item), standing(item), ids(item), web(item)],
-        "\n"
+        :line
       )
     else
       # A like, repost or follow has no text to read and nothing to answer: its
       # own record is not something any tool takes, so it is one line saying
       # what it was about, and anything the app shows about who it is from.
-      lines(
+      join(
         [
           header,
-          about(item["subject_uri"]),
+          about(item),
           joined_through(item["starter_pack"]),
           labelled(item),
           standing(item)
         ],
-        " · "
+        :dot
       )
     end
   end
@@ -1139,7 +1405,7 @@ defmodule AtMcp.Reading do
   # how many more it holds. A group whose kind is about several posts by one
   # account counts posts, not accounts.
   defp who_acted(actors, count, kind) do
-    names = Enum.map(actors, &(&1["handle"] || &1["did"]))
+    names = Enum.map(actors, &ident(&1["handle"] || &1["did"]))
 
     # A group of several posts by one account counts its posts, not accounts:
     # the multiPost groups, and subscribed posts, which the service groups by
@@ -1150,72 +1416,119 @@ defmodule AtMcp.Reading do
         else: 0
 
     case {names, others} do
-      {[], _} -> nil
-      {names, n} when n > 0 -> Enum.join(names, ", ") <> " and #{count(n, "other", "others")}"
-      {[one], _} -> one
-      {names, _} -> Enum.join(Enum.drop(names, -1), ", ") <> " and " <> List.last(names)
+      {[], _} ->
+        nil
+
+      {names, n} when n > 0 ->
+        cat([join(names, :comma), ~L" and ", count(n, ~L"other", ~L"others")])
+
+      {[one], _} ->
+        one
+
+      {names, _} ->
+        cat([join(Enum.drop(names, -1), :comma), ~L" and ", List.last(names)])
     end
   end
 
   @group_verbs %{
-    "likeGroup" => "liked your post",
-    "repostGroup" => "reposted your post",
-    "likeViaRepostGroup" => "liked your repost",
-    "repostViaRepostGroup" => "reposted your repost",
-    "followGroup" => "followed you",
-    "generatorLikeGroup" => "liked your feed",
-    "replyNotification" => "replied",
-    "quoteNotification" => "quoted your post",
-    "mentionNotification" => "mentioned you",
-    "followBackNotification" => "followed you back",
-    "verifiedNotification" => "verified your account",
-    "unverifiedNotification" => "removed your account's verification",
-    "starterPackJoinedNotification" => "joined through your starter pack",
-    "contactMatchNotification" => "joined: a contact of yours"
+    "likeGroup" => ~L"liked your post",
+    "repostGroup" => ~L"reposted your post",
+    "likeViaRepostGroup" => ~L"liked your repost",
+    "repostViaRepostGroup" => ~L"reposted your repost",
+    "followGroup" => ~L"followed you",
+    "generatorLikeGroup" => ~L"liked your feed",
+    "replyNotification" => ~L"replied",
+    "quoteNotification" => ~L"quoted your post",
+    "mentionNotification" => ~L"mentioned you",
+    "followBackNotification" => ~L"followed you back",
+    "verifiedNotification" => ~L"verified your account",
+    "unverifiedNotification" => ~L"removed your account's verification",
+    "starterPackJoinedNotification" => ~L"joined through your starter pack",
+    "contactMatchNotification" => ~L"joined: a contact of yours"
   }
 
   @multi_verbs %{
-    "multiPostLikeGroup" => {"liked", "of your posts"},
-    "multiPostRepostGroup" => {"reposted", "of your posts"},
-    "multiPostLikeViaRepostGroup" => {"liked", "of your reposts"},
-    "multiPostRepostViaRepostGroup" => {"reposted", "of your reposts"}
+    "multiPostLikeGroup" => {~L"liked", ~L"of your posts"},
+    "multiPostRepostGroup" => {~L"reposted", ~L"of your posts"},
+    "multiPostLikeViaRepostGroup" => {~L"liked", ~L"of your reposts"},
+    "multiPostRepostViaRepostGroup" => {~L"reposted", ~L"of your reposts"}
   }
 
   defp one_actor?(kind),
     do: String.starts_with?(to_string(kind), "multiPost") or kind == "subscribedPostGroup"
 
-  defp group_verb("subscribedPostGroup", 1), do: "posted (you are subscribed)"
+  defp group_verb("subscribedPostGroup", 1), do: ~L"posted (you are subscribed)"
 
   defp group_verb("subscribedPostGroup", posts),
-    do: "posted #{posts} times (you are subscribed)"
+    do: cat([~L"posted ", int(posts), ~L" times (you are subscribed)"])
 
   defp group_verb(kind, posts) do
     case Map.fetch(@multi_verbs, kind) do
-      {:ok, {verb, what}} -> "#{verb} #{posts} #{what}"
-      :error -> Map.get(@group_verbs, kind, kind)
+      {:ok, {verb, what}} -> join([verb, int(posts), what], :space)
+      :error -> Map.get(@group_verbs, kind) || ident(kind)
     end
   end
 
   defp joined_through(%{"uri" => uri} = pack) when is_binary(uri),
-    do: "through the starter pack " <> lines([named(pack["name"]), uri], " ")
+    do: cat([~L"through the starter pack ", join([shown(pack["name"]), ident(uri)], :space)])
 
   defp joined_through(_pack), do: nil
 
-  defp about(uri) when is_binary(uri), do: "on #{uri}"
-  defp about(_uri), do: nil
-
-  defp who(%{"author" => handle} = post) when is_binary(handle) do
-    name = post["display_name"]
-    you = if post["is_self"] == true, do: " (you)", else: ""
-    badges = badges(post)
-
-    if is_binary(name) and String.trim(name) != "" and name != handle,
-      do: "#{name} (#{Enum.join(["@" <> handle | badges], ", ")})#{you}",
-      else: "@#{handle}#{if badges != [], do: " (#{Enum.join(badges, ", ")})"}#{you}"
+  # The time the app shows on a post: when the service first saw it, which
+  # the author cannot set. The author's own date goes beside it when it is
+  # more than a day earlier. The app says so ("Archived from") on a thread's
+  # main post only (`BackdatedPostIndicator` in social-app's
+  # ThreadItemAnchor.tsx); here a post reads the same in every read.
+  defp posted(post) do
+    join(
+      [
+        time(post["indexed_at"] || post["created_at"]),
+        archived(post["created_at"], post["indexed_at"])
+      ],
+      :dot
+    )
   end
 
-  defp who(%{"author_did" => did}) when is_binary(did), do: did
-  defp who(_post), do: "unknown author"
+  @day_ms 24 * 60 * 60 * 1000
+
+  defp archived(created, indexed) when is_binary(created) and is_binary(indexed) do
+    with {:ok, created_dt, _} <- DateTime.from_iso8601(created),
+         {:ok, indexed_dt, _} <- DateTime.from_iso8601(indexed),
+         true <- DateTime.diff(indexed_dt, created_dt, :millisecond) > @day_ms do
+      cat([~L"archived from ", time(created)])
+    else
+      _ -> nil
+    end
+  end
+
+  defp archived(_created, _indexed), do: nil
+
+  # What a like, repost or follow is about. A like or repost that came
+  # through this account's repost names that repost as its subject; the app
+  # shows the post itself, which the record names.
+  defp about(%{"reason" => reason, "subject_uri" => repost, "subject_post_uri" => post})
+       when reason in ["like-via-repost", "repost-via-repost"] and is_binary(repost) and
+              is_binary(post),
+       do: cat([~L"on ", ident(post), ~L" via your repost ", ident(repost)])
+
+  defp about(%{"subject_uri" => uri}) when is_binary(uri), do: cat([~L"on ", ident(uri)])
+  defp about(_item), do: nil
+
+  # An account as the app names it: its display name, as a literal, then its
+  # handle and the badges beside it.
+  defp who(%{"author" => handle} = post) when is_binary(handle) do
+    name = one_line(post["display_name"])
+    you = if post["is_self"] == true, do: ~L" (you)"
+    badges = badges(post)
+    at = cat([~L"@", ident(handle)])
+
+    if is_binary(name) and name != "" and name != handle,
+      do: cat([literal(name), ~L" (", join([at | badges], :comma), ~L")", you]),
+      else: cat([at, if(badges != [], do: cat([~L" (", join(badges, :comma), ~L")"])), you])
+  end
+
+  defp who(%{"author_did" => did}) when is_binary(did), do: ident(did)
+  defp who(_post), do: ~L"unknown author"
 
   # What the app shows beside a name: its verification check, the
   # trusted-verifier badge, and the Live badge.
@@ -1225,10 +1538,10 @@ defmodule AtMcp.Reading do
 
     Enum.reject(
       [
-        if(verification["status"] == "valid", do: "verified"),
-        if(verification["trusted_verifier"] == "valid", do: "trusted verifier"),
+        if(verification["status"] == "valid", do: ~L"verified"),
+        if(verification["trusted_verifier"] == "valid", do: ~L"trusted verifier"),
         if(live?(post["author_status"], post["author_viewer"], post["author_labels"]),
-          do: "live"
+          do: ~L"live"
         )
       ],
       &is_nil/1
@@ -1313,17 +1626,31 @@ defmodule AtMcp.Reading do
         nil
 
       [] ->
-        "Who can reply: nobody"
+        ~L"Who can reply: nobody"
 
       rules ->
-        "Who can reply: " <>
-          Enum.map_join(rules, ", ", fn
-            "mentioned" -> "people mentioned"
-            "following" -> "people they follow"
-            "followers" -> "their followers"
-            "at://" <> _ = uri -> lines(["members of", named(lists[uri]), uri], " ")
-            other -> "a rule this version cannot read (#{other})"
-          end)
+        cat([
+          ~L"Who can reply: ",
+          join(
+            Enum.map(rules, fn
+              "mentioned" ->
+                ~L"people mentioned"
+
+              "following" ->
+                ~L"people they follow"
+
+              "followers" ->
+                ~L"their followers"
+
+              "at://" <> _ = uri ->
+                join([~L"members of", shown(lists[uri]), ident(uri)], :space)
+
+              other ->
+                cat([~L"a rule this version cannot read (", ident(other), ~L")"])
+            end),
+            :comma
+          )
+        ])
     end
   end
 
@@ -1339,13 +1666,13 @@ defmodule AtMcp.Reading do
         "display_name" => reason["by_display_name"]
       })
 
-    lines(["Reposted by " <> by, reason["at"]], " · ")
+    join([cat([~L"Reposted by ", by]), time(reason["at"])], :dot)
   end
 
-  defp reason(%{"type" => "pin"}), do: "Pinned"
+  defp reason(%{"type" => "pin"}), do: ~L"Pinned"
 
   defp reason(%{"type" => type}) when is_binary(type),
-    do: "In this feed because: " <> String.replace(type, ~r/\s+/u, " ")
+    do: cat([~L"In this feed because: ", ident(type)])
 
   defp reason(_reason), do: nil
 
@@ -1358,24 +1685,27 @@ defmodule AtMcp.Reading do
     in_thread =
       if is_map(root) and root["status"] == "available" and is_binary(root["author"]) and
            root["author_did"] != (is_map(parent) && parent["author_did"]),
-         do: " in a thread by @#{root["author"]}",
-         else: ""
+         do: cat([~L" in a thread by @", ident(root["author"])])
 
-    "replying to " <> answered(parent, uri) <> in_thread
+    cat([~L"replying to ", answered(parent, ident(uri)), in_thread])
   end
 
   defp replying(_post), do: nil
 
   defp answered(%{"status" => "available", "author" => handle}, uri) when is_binary(handle),
-    do: "@#{handle} (#{uri})"
+    do: cat([~L"@", ident(handle), ~L" (", uri, ~L")"])
 
-  defp answered(%{"status" => "not_found"}, uri), do: "a deleted or missing post (#{uri})"
-  defp answered(%{"status" => "blocked"}, uri), do: "a post hidden by a block (#{uri})"
+  defp answered(%{"status" => "not_found"}, uri),
+    do: cat([~L"a deleted or missing post (", uri, ~L")"])
+
+  defp answered(%{"status" => "blocked"}, uri),
+    do: cat([~L"a post hidden by a block (", uri, ~L")"])
+
   defp answered(_parent, uri), do: uri
 
   defp body(post) do
-    [post["text"] | attachments(post)]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    [fence(post["text"]) | attachments(post)]
+    |> Enum.reject(&empty?/1)
   end
 
   # Images by their alt text, a link card, a video by its alt text, what a
@@ -1388,7 +1718,9 @@ defmodule AtMcp.Reading do
     image_lines =
       images
       |> Enum.with_index(1)
-      |> Enum.map(fn {image, n} -> "[image #{n} of #{length(images)}: #{alt(image)}]" end)
+      |> Enum.map(fn {image, n} ->
+        cat([~L"[image ", int(n), ~L" of ", int(length(images)), ~L": ", alt(image), ~L"]"])
+      end)
 
     link = link(post["link"], :card)
     video = video(post["video"])
@@ -1397,42 +1729,66 @@ defmodule AtMcp.Reading do
     other =
       if images == [] and Enum.all?([link, video, quote], &is_nil/1) and
            is_binary(post["embed_type"]),
-         do: "[embed: #{post["embed_type"]}]"
+         do: cat([~L"[embed: ", ident(post["embed_type"]), ~L"]"])
 
     image_lines ++ [link, video, quote, other]
   end
 
   # Alt text on one line: what the author wrote cannot start a line of its own
   # that reads as another post.
-  defp alt(%{"alt" => alt}) when is_binary(alt) do
-    case one_line(alt) do
-      "" -> "no alt text"
-      alt -> alt
-    end
-  end
+  defp alt(%{"alt" => alt}), do: nonempty(alt) || ~L"no alt text"
+  defp alt(_image), do: ~L"no alt text"
 
-  defp alt(_image), do: "no alt text"
-
-  # "[link: Title — description (https://...)]", leaving out what the card does
-  # not have. Inside a quote, the description is left out.
+  # "[link: "Title" — "description" (https://...)]", leaving out what the card
+  # does not have. Inside a quote, the description is left out.
   defp link(%{"uri" => uri} = link, form) when is_binary(uri) do
     said =
-      lines(
-        [one_line(link["title"]), if(form == :card, do: capped(link["description"]))],
-        " — "
+      join(
+        [nonempty(link["title"]), if(form == :card, do: nonempty(capped(link["description"])))],
+        :dash
       )
 
-    uri = escape_uri(uri)
-    if said == "", do: "[link: #{uri}]", else: "[link: #{said} (#{uri})]"
+    address = url(uri)
+    card = if empty?(said), do: address, else: cat([said, ~L" (", address, ~L")"])
+    cat([~L"[link: ", join([card | publication(link)], :dot), ~L"]"])
   end
 
   defp link(_link, _form), do: nil
 
-  # A card's title or description on one line, as the app's card shows it.
-  defp one_line(text) when is_binary(text),
-    do: text |> String.replace(~r/\s+/u, " ") |> String.trim()
+  # What the app adds to a card built from standard.site records: the publish
+  # date and reading time on an article's card, then the publication and the
+  # account it names as the author.
+  defp publication(link) do
+    standard =
+      Enum.any?(
+        List.wrap(link["records"]),
+        &(is_binary(&1) and &1 =~ ~r"^at://[^/]+/site\.standard\.")
+      )
 
-  defp one_line(_text), do: nil
+    pub = if is_map(link["publication"]), do: link["publication"], else: %{}
+    author = if is_map(link["author"]), do: link["author"], else: %{}
+
+    [
+      if(standard and is_binary(link["published_at"]),
+        do: cat([~L"published ", time(link["published_at"])])
+      ),
+      if(standard and is_integer(link["reading_time"]) and link["reading_time"] > 0,
+        do: cat([int(link["reading_time"]), ~L" min read"])
+      ),
+      if(standard and is_binary(pub["title"]),
+        do:
+          join(
+            [
+              ~L"publication",
+              shown(pub["title"]),
+              if(is_binary(pub["uri"]), do: cat([~L"(", url(pub["uri"]), ~L")"]))
+            ],
+            :space
+          )
+      ),
+      if(standard and is_binary(author["handle"]), do: cat([~L"by @", ident(author["handle"])]))
+    ]
+  end
 
   @description_limit 300
 
@@ -1451,33 +1807,42 @@ defmodule AtMcp.Reading do
     end
   end
 
-  # A URL has no whitespace; one that arrives with some has it percent-encoded,
-  # so it stays one URL on one line.
-  defp escape_uri(uri), do: String.replace(uri, ~r/\s/u, &URI.encode/1)
-
-  defp video(%{} = video), do: "[video: #{alt(video)}]"
+  defp video(%{} = video), do: cat([~L"[video: ", alt(video), ~L"]"])
   defp video(_video), do: nil
 
   defp quoted(%{"status" => "available", "kind" => kind} = quote)
        when kind in ["feed", "list", "starter_pack", "labeler"] do
-    name = one_line(quote["name"])
-    name = if name not in [nil, ""], do: ~s( "#{name}")
-    by = if is_binary(quote["creator"]), do: " by @#{one_line(quote["creator"])}"
-    about = one_line(quote["description"])
-    about = if about not in [nil, ""], do: ": #{about}"
+    what =
+      case kind do
+        "feed" -> ~L"feed"
+        "list" -> ~L"list"
+        "starter_pack" -> ~L"starter pack"
+        "labeler" -> ~L"labeler"
+      end
 
-    "[quoting #{String.replace(kind, "_", " ")}#{name}#{by}, #{quote["uri"]}#{in_brackets(web(quote))}#{about}]"
+    name = nonempty(quote["name"])
+    by = if is_binary(quote["creator"]), do: cat([~L"by @", ident(quote["creator"])])
+    about = nonempty(quote["description"])
+
+    cat([
+      ~L"[quoting ",
+      join([what, name, by], :space),
+      ~L", ",
+      ident(quote["uri"]),
+      in_brackets(web(quote)),
+      if(about, do: cat([~L": ", about])),
+      ~L"]"
+    ])
   end
 
   defp quoted(%{"status" => "available"} = quote) do
     images = length(List.wrap(quote["images"]))
-    pictures = if images > 0, do: " [#{count(images, "image", "images")}]", else: ""
+    pictures = if images > 0, do: cat([~L" [", count(images, ~L"image", ~L"images"), ~L"]"])
 
     media =
-      Enum.map_join([link(quote["link"], :quote), video(quote["video"])], fn
-        nil -> ""
-        attached -> " " <> attached
-      end)
+      for attached <- [link(quote["link"], :quote), video(quote["video"])],
+          attached != nil,
+          do: cat([~L" ", attached])
 
     author =
       if is_binary(quote["author"]),
@@ -1492,21 +1857,29 @@ defmodule AtMcp.Reading do
               "author_labels"
             ])
           ),
-        else: "a post"
+        else: ~L"a post"
 
     # The quoted post's labels and any block or mute with its author, in the
     # words the post's own lines use.
-    notes =
-      case lines([labelled(quote), standing(%{"author_viewer" => quote["author_viewer"]})], " · ") do
-        "" -> ""
-        notes -> " · " <> notes
-      end
+    notes = join([labelled(quote), standing(%{"author_viewer" => quote["author_viewer"]})], :dot)
+    notes = if not empty?(notes), do: cat([~L" · ", notes])
 
-    "[quoting #{author}, #{quote["uri"]}#{in_brackets(web(quote))}: #{quote["text"]}#{pictures}#{media}#{notes}]"
+    cat(
+      [
+        ~L"[quoting ",
+        join([author, posted(quote)], :dot),
+        ~L", ",
+        ident(quote["uri"]),
+        in_brackets(web(quote)),
+        ~L": ",
+        shown(quote["text"] || ""),
+        pictures
+      ] ++ media ++ [notes, ~L"]"]
+    )
   end
 
   defp quoted(%{"status" => status} = quote) when is_binary(status),
-    do: "[quoting #{quote["uri"]}: #{status}]"
+    do: cat([~L"[quoting ", ident(quote["uri"]), ~L": ", ident(status), ~L"]"])
 
   defp quoted(_quote), do: nil
 
@@ -1516,15 +1889,15 @@ defmodule AtMcp.Reading do
   defp engagement(post) do
     counts =
       for {key, one, many} <- [
-            {"like_count", "like", "likes"},
-            {"repost_count", "repost", "reposts"},
-            {"reply_count", "reply", "replies"},
-            {"quote_count", "quote", "quotes"}
+            {"like_count", ~L"like", ~L"likes"},
+            {"repost_count", ~L"repost", ~L"reposts"},
+            {"reply_count", ~L"reply", ~L"replies"},
+            {"quote_count", ~L"quote", ~L"quotes"}
           ],
           is_integer(post[key]) and post[key] > 0,
           do: count(post[key], one, many)
 
-    lines(counts, " · ")
+    join(counts, :dot)
   end
 
   # Labels by value, each once: "Labels: graphic-media; author: bot (self)".
@@ -1540,10 +1913,17 @@ defmodule AtMcp.Reading do
     on_author = labels(post["author_labels"], author)
 
     case {on_post, on_author} do
-      {[], []} -> nil
-      {values, []} -> "Labels: " <> Enum.join(values, ", ")
-      {[], values} -> "Labels: author: " <> Enum.join(values, ", ")
-      {own, theirs} -> "Labels: #{Enum.join(own, ", ")}; author: #{Enum.join(theirs, ", ")}"
+      {[], []} ->
+        nil
+
+      {values, []} ->
+        cat([~L"Labels: ", join(values, :comma)])
+
+      {[], values} ->
+        cat([~L"Labels: author: ", join(values, :comma)])
+
+      {own, theirs} ->
+        cat([~L"Labels: ", join(own, :comma), ~L"; author: ", join(theirs, :comma)])
     end
   end
 
@@ -1565,7 +1945,7 @@ defmodule AtMcp.Reading do
     shown
     |> Enum.map(& &1["val"])
     |> Enum.uniq()
-    |> Enum.map(&if(&1 in self, do: &1 <> " (self)", else: &1))
+    |> Enum.map(&cat([ident(&1), if(&1 in self, do: ~L" (self)")]))
   end
 
   defp labels(_labels, _author), do: []
@@ -1587,26 +1967,26 @@ defmodule AtMcp.Reading do
     author = if is_map(post["author_viewer"]), do: post["author_viewer"], else: %{}
     viewer = if is_map(post["viewer"]), do: post["viewer"], else: %{}
 
-    lines(
+    join(
       [
         cond do
-          is_binary(author["blocking_by_list"]) -> "You blocked them via a list"
-          is_binary(author["blocking"]) -> "You blocked them"
+          is_binary(author["blocking_by_list"]) -> ~L"You blocked them via a list"
+          is_binary(author["blocking"]) -> ~L"You blocked them"
           true -> nil
         end,
-        if(author["blocked_by"] == true, do: "They blocked you"),
+        if(author["blocked_by"] == true, do: ~L"They blocked you"),
         cond do
-          is_binary(author["muted_by_list"]) -> "You muted them via a list"
-          author["muted"] == true or post["muted_by_viewer"] == true -> "You muted them"
+          is_binary(author["muted_by_list"]) -> ~L"You muted them via a list"
+          author["muted"] == true or post["muted_by_viewer"] == true -> ~L"You muted them"
           true -> nil
         end,
-        if(post["hidden_by_threadgate"] == true, do: "Hidden by the thread's author"),
+        if(post["hidden_by_threadgate"] == true, do: ~L"Hidden by the thread's author"),
         left_out_reason(post),
-        if(viewer["reply_disabled"] == true, do: "You cannot reply to this post"),
-        if(viewer["embedding_disabled"] == true, do: "You cannot quote this post"),
-        if(viewer["thread_muted"] == true, do: "You muted this thread")
+        if(viewer["reply_disabled"] == true, do: ~L"You cannot reply to this post"),
+        if(viewer["embedding_disabled"] == true, do: ~L"You cannot quote this post"),
+        if(viewer["thread_muted"] == true, do: ~L"You muted this thread")
       ],
-      " · "
+      :dot
     )
   end
 
@@ -1621,52 +2001,61 @@ defmodule AtMcp.Reading do
         nil
 
       is_integer(post["depth"]) and post["depth"] > 1 ->
-        "Under a reply the app leaves out of the thread"
+        ~L"Under a reply the app leaves out of the thread"
 
       true ->
-        "Left out of the thread by the app"
+        ~L"Left out of the thread by the app"
     end
   end
 
   defp left_out_reason(_post), do: nil
 
   defp ids(post) do
-    lines(
+    join(
       [
-        if(is_binary(post["uri"]), do: "uri: #{post["uri"]}"),
-        if(is_binary(post["cid"]), do: "cid: #{post["cid"]}")
+        if(is_binary(post["uri"]), do: cat([~L"uri: ", ident(post["uri"])])),
+        if(is_binary(post["cid"]), do: cat([~L"cid: ", ident(post["cid"])]))
       ],
-      " · "
+      :dot
     )
   end
 
   # The web link a person opens and shares, beside the uri tools take.
-  defp web(%{"web_url" => url}) when is_binary(url), do: "link: #{url}"
+  defp web(%{"web_url" => address}) when is_binary(address), do: cat([~L"link: ", url(address)])
   defp web(_item), do: nil
 
-  defp in_brackets(nil), do: ""
-  defp in_brackets(said), do: " (#{said})"
+  defp in_brackets(nil), do: nil
+  defp in_brackets(said), do: cat([~L" (", said, ~L")"])
 
   # What a custom feed gave the item, which `feed_feedback` hands back.
   defp feed_given(post) do
-    case lines(
-           [
-             if(is_binary(post["feed_context"]), do: "feed_context: #{post["feed_context"]}"),
-             if(is_binary(post["req_id"]), do: "req_id: #{post["req_id"]}")
-           ],
-           " · "
-         ) do
-      "" -> nil
-      given -> "For feed_feedback: " <> given
-    end
+    given =
+      join(
+        [
+          if(is_binary(post["feed_context"]),
+            do: cat([~L"feed_context: ", literal(post["feed_context"])])
+          ),
+          if(is_binary(post["req_id"]), do: cat([~L"req_id: ", literal(post["req_id"])]))
+        ],
+        :dot
+      )
+
+    if not empty?(given), do: cat([~L"For feed_feedback: ", given])
   end
 
   # The viewing account's own like or repost of the post: the uri `unlike` and
-  # `unrepost` take, and the reason not to like it twice.
+  # `unrepost` take, and the reason not to like it twice. Then whether it has
+  # bookmarked the post or pinned it to its profile, which the app shows on
+  # the bookmark button and in the post's menu.
   defp viewer(%{"viewer" => %{} = viewer}) do
-    for {key, verb} <- [{"like", "You liked this"}, {"repost", "You reposted this"}],
-        is_binary(viewer[key]),
-        do: "#{verb}: #{viewer[key]}"
+    [
+      if(is_binary(viewer["like"]), do: cat([~L"You liked this: ", ident(viewer["like"])])),
+      if(is_binary(viewer["repost"]),
+        do: cat([~L"You reposted this: ", ident(viewer["repost"])])
+      ),
+      if(viewer["bookmarked"] == true, do: ~L"You bookmarked this"),
+      if(viewer["pinned"] == true, do: ~L"You pinned this to your profile")
+    ]
   end
 
   defp viewer(_post), do: []
@@ -1674,56 +2063,63 @@ defmodule AtMcp.Reading do
   defp ancestors(%{} = parent, acc), do: ancestors(parent["parent"], [parent | acc])
   defp ancestors(_none, acc), do: acc
 
-  defp parent_label(1), do: "[parent]"
-  defp parent_label(up), do: "[parent, #{up} up]"
+  defp numbered(n), do: cat([~L"[", int(n), ~L"]"])
 
-  defp replies(node, prefix) do
+  defp parent_label(1), do: ~L"[parent]"
+  defp parent_label(up), do: cat([~L"[parent, ", int(up), ~L" up]"])
+
+  # Replies under a node, each labelled by its place: `[reply 2]`, `[reply 2.1]`.
+  defp replies(node, path) do
     replies = List.wrap(node["replies"])
 
     shown =
       replies
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {reply, n} ->
-        label = "#{prefix}#{n}"
-        [post(reply, "[#{label}]") | replies(reply, label <> ".")]
+        place = path ++ [n]
+        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]"])
+        [post(reply, label) | replies(reply, place)]
       end)
 
     case node["replies_omitted"] do
       n when is_integer(n) and n > 0 ->
-        shown ++ ["(#{n} more replies to #{node["uri"]} not shown)"]
+        shown ++
+          [cat([~L"(", int(n), ~L" more replies to ", ident(node["uri"]), ~L" not shown)"])]
 
       _ ->
         shown
     end
   end
 
-  defp omitted(n) when is_integer(n) and n > 0, do: " (#{n} more not shown)"
-  defp omitted(_n), do: ""
+  defp omitted(n) when is_integer(n) and n > 0, do: cat([~L" (", int(n), ~L" more not shown)"])
+  defp omitted(_n), do: nil
 
   defp cut(%{"chain_before" => before} = result) when is_binary(before),
     do:
-      " #{earlier(result["chain_omitted"])}To read further up, call get_thread_chain again with before: #{before}"
+      cat([
+        ~L" ",
+        earlier(result["chain_omitted"]),
+        ~L"To read further up, call get_thread_chain again with before: ",
+        ident(before)
+      ])
 
   defp cut(%{"chain_truncated" => true} = result),
     do:
-      " #{earlier(result["chain_omitted"])}It does not reach the root: an earlier post could not be read."
+      cat([
+        ~L" ",
+        earlier(result["chain_omitted"]),
+        ~L"It does not reach the root: an earlier post could not be read."
+      ])
 
-  defp cut(_result), do: ""
+  defp cut(_result), do: nil
 
-  defp earlier(n) when is_integer(n) and n > 0, do: "#{n} earlier posts are not shown. "
-  defp earlier(_n), do: ""
+  defp earlier(n) when is_integer(n) and n > 0,
+    do: cat([int(n), ~L" earlier posts are not shown. "])
+
+  defp earlier(_n), do: nil
 
   defp next_page(%{"cursor" => cursor}) when is_binary(cursor),
-    do: " For the next page, pass cursor: #{cursor}"
+    do: cat([~L" For the next page, pass cursor: ", ident(cursor)])
 
-  defp next_page(_page), do: ""
-
-  defp count(1, one, _many), do: "1 #{one}"
-  defp count(n, _one, many), do: "#{n} #{many}"
-
-  defp lines(parts, separator) do
-    parts
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.join(separator)
-  end
+  defp next_page(_page), do: nil
 end

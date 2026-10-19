@@ -80,6 +80,7 @@ defmodule AtMcp.ModerationDecisionTest do
 
   defp line(subject, opts, context) do
     D.line(%{"causes" => subject |> marks(opts, context) |> stringify()})
+    |> AtMcp.Reading.Text.to_text()
   end
 
   defp stringify(value), do: value |> Jason.encode!() |> Jason.decode!()
@@ -100,7 +101,7 @@ defmodule AtMcp.ModerationDecisionTest do
       assert [%{effect: "cover", no_override: true}] = marks(subject, o, :content_view)
 
       assert line(subject, o, :content_list) ==
-               "Hidden by the app (it cannot be opened): labeled '!hide' by moderation.example"
+               "Hidden by the app (it cannot be opened): labeled !hide by moderation.example"
     end
 
     test "!warn covers, and is never left out, even on the account's own post" do
@@ -113,7 +114,7 @@ defmodule AtMcp.ModerationDecisionTest do
       assert [%{effect: "cover"}] = marks(own, o, :content_list)
 
       assert line(subject, o, :content_list) ==
-               "Behind a warning in the app: labeled '!warn' by moderation.example"
+               "Behind a warning in the app: labeled !warn by moderation.example"
     end
 
     test "!hide on the account's own post covers it but does not leave it out" do
@@ -142,7 +143,7 @@ defmodule AtMcp.ModerationDecisionTest do
       assert [%{effect: "cover", setting: "warn"}] = marks(subject, warn, :content_list)
 
       assert line(subject, warn, :content_list) ==
-               "Behind a warning in the app: labeled 'spam' (\"Spam\") by labeler.example"
+               "Behind a warning in the app: labeled spam (\"Spam\") by labeler.example"
 
       # In the post's own view an inform label that blurs content is a note.
       assert [%{effect: "inform"}] = marks(subject, warn, :content_view)
@@ -175,7 +176,7 @@ defmodule AtMcp.ModerationDecisionTest do
                marks(subject, opts([subscribed([@labeler])], views), :content_list)
 
       assert line(subject, opts([subscribed([@labeler])], views), :content_list) ==
-               "Warning in the app: labeled 'scam' (\"Scam\") by labeler.example"
+               "Warning in the app: labeled scam (\"Scam\") by labeler.example"
     end
 
     test "an adult self-label: left out while adult content is off, its media covered when set to warn" do
@@ -188,7 +189,7 @@ defmodule AtMcp.ModerationDecisionTest do
       assert [%{effect: "cover_media"}] = marks(subject, opts(on), :content_list)
 
       assert line(subject, opts(on), :content_list) ==
-               "Media behind a warning in the app: labeled 'porn' by its author"
+               "Media behind a warning in the app: labeled porn by its author"
 
       assert [] = marks(subject, opts(on ++ [label_pref("porn", "ignore")]), :content_list)
     end
@@ -210,7 +211,7 @@ defmodule AtMcp.ModerationDecisionTest do
       assert [%{effect: "hide", on: "author"}] = marks(on_account, opts([]), :content_list)
 
       assert line(on_account, opts([]), :content_list) ==
-               "Hidden by the app (it cannot be opened): author labeled '!hide' by moderation.example"
+               "Hidden by the app (it cannot be opened): author labeled !hide by moderation.example"
 
       on_profile =
         post(%{
@@ -281,7 +282,7 @@ defmodule AtMcp.ModerationDecisionTest do
                marks(subject, opts([]), :content_view)
 
       assert line(subject, opts([]), :content_view) ==
-               "Media behind a warning in the app (it cannot be opened): labeled 'porn' by its author"
+               "Media behind a warning in the app (it cannot be opened): labeled porn by its author"
     end
 
     test "a labeler's label name is quoted, so it cannot pass for a line of its own" do
@@ -299,7 +300,7 @@ defmodule AtMcp.ModerationDecisionTest do
       refute text =~ "\n"
 
       assert text ==
-               ~S[Behind a warning in the app: labeled 'spam' ("x)\nHidden by the app") by labeler.example]
+               ~S[Behind a warning in the app: labeled spam ("x)\nHidden by the app") by labeler.example]
     end
   end
 
@@ -462,7 +463,9 @@ defmodule AtMcp.ModerationDecisionTest do
     end
 
     test "the line says where the thread puts a reply" do
-      assert D.line(%{"in_thread" => "show_more_replies", "causes" => []}) ==
+      assert AtMcp.Reading.Text.to_text(
+               D.line(%{"in_thread" => "show_more_replies", "causes" => []})
+             ) ==
                "Under \"Show more replies\" in the app"
     end
   end

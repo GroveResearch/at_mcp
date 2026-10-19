@@ -132,10 +132,10 @@ defmodule AtMcp.DiscoveryTest do
       assert feeds =~ "uri: #{@feed} · cid: bafyGEN"
 
       trends = hd(call(state, "get_trends", %{"kind" => "topics"}).content).text
-      assert trends =~ "[1] Kites · hot · sports · 12 posts · since 2026-10-18T00:00:00Z"
-      assert trends =~ "Posting: Alice (@alice.test)"
+      assert trends =~ "[1] \"Kites\" · hot · sports · 12 posts · since 2026-10-18T00:00:00Z"
+      assert trends =~ ~s|Posting: "Alice" (@alice.test)|
       assert trends =~ "link: /search?q=kites"
-      assert trends =~ "Suggested beside them: Kites · /search?q=kites"
+      assert trends =~ ~s(Suggested beside them: "Kites" · /search?q=kites)
 
       codes = hd(call(state, "get_invite_codes", %{}).content).text
       assert codes =~ "1 invitation code. Earned codes: enabled."
