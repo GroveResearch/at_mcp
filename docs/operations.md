@@ -536,6 +536,33 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.2 to 0.2.3
+
+0.2.3 stores data in the same format as 0.2.2 and starts from the same
+environment, so rolling back works as below. No tool or argument changed.
+Reads now pass on more of what the service returns, so a client reading
+results sees more.
+
+- **Post reads** (#71) carry the service's `like_count`, `repost_count`,
+  `reply_count` and `quote_count`, and the post's and author's `labels`
+  (each `{val, src, neg}`, plus `exp` when set). Profiles carry `labels`. In
+  the readable text, a post gains a counts line only when some count is above
+  zero (for example `12 likes · 5 replies`), and a labels line naming each
+  value once, with `(self)` for a label the author applied to itself.
+  Expired and negated labels, and client directives such as
+  `!no-unauthenticated`, stay in `structuredContent` but are left out of the
+  text. A post with no engagement and no labels reads exactly as in 0.2.2.
+- **Block and mute state** (#72). Profiles, and each post's author (as
+  `author_viewer`), carry `following`, `followed_by`, `blocking`,
+  `blocking_by_list`, `blocked_by`, `muted` and `muted_by_list`. Posts carry
+  `reply_disabled`, `embedding_disabled` and `thread_muted`. A state the
+  service didn't send stays absent, never `false`. The text adds a line only
+  when something is unusual: "They blocked you", "You blocked them", "You
+  muted them", "You cannot reply to this post", "You cannot quote this post",
+  "You muted this thread". A block made through a list puts the list's URI in
+  `blocking`, as the service does; `unblock` refuses it, since only the list
+  can undo it.
+
 ### From 0.2.1 to 0.2.2
 
 0.2.2 stores data in the same format as 0.2.1, apart from one optional field,

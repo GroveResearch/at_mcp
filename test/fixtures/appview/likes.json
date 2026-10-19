@@ -1,0 +1,43 @@
+{
+  "likes": [
+    {
+      "actor": {
+        "did": "did:plc:yxn3veu4d4visgnbwhzyimtd",
+        "handle": "lwdzj3ccwx.example.test",
+        "displayName": "xxxxxx",
+        "avatar": "https://example.test/22epfberkhav",
+        "associated": {
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2027-06-22T06:16:07.463Z",
+        "indexedAt": "2027-06-22T06:27:33.862Z"
+      },
+      "createdAt": "2027-06-22T07:45:19.408Z",
+      "indexedAt": "2027-06-22T07:45:19.408Z"
+    },
+    {
+      "actor": {
+        "did": "did:plc:6jlhmxylfwixs4wyj76vrbe5",
+        "handle": "fcdwo5i5ea.example.test",
+        "displayName": "xxxxxxxxxxxxxx",
+        "avatar": "https://example.test/pcdqy7bvowm7",
+        "associated": {
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2027-06-22T06:31:01.959Z",
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2027-06-22T06:43:37.256Z"
+      },
+      "createdAt": "2027-06-22T07:09:14.028Z",
+      "indexedAt": "2027-06-22T07:09:14.028Z"
+    }
+  ],
+  "cursor": "2027-06-22T07:09:14.028Z",
+  "uri": "at://did:plc:cq4wcrv73vv6bkcgwjpyvpk3/app.bsky.feed.post/s2l6wfwbk7ms4"
+}
