@@ -1762,6 +1762,7 @@ defmodule AtMcp.Effects.ProtoRune do
          record: record,
          unresolved: unresolved,
          reply: Keyword.get(opts, :reply),
+         declared_root: get_in(opts, [:reply_ref, :declared_root]),
          rkey: rkey,
          gates: gates
        }}
@@ -1847,19 +1848,26 @@ defmodule AtMcp.Effects.ProtoRune do
         summary =
           if prepared.reply, do: Map.put(summary, :reply_to, prepared.reply), else: summary
 
-        {:ok, mention_warnings(summary, prepared.unresolved)}
+        {:ok,
+         summary
+         |> mention_warnings(prepared.unresolved)
+         |> root_warning(Map.get(prepared, :declared_root), record)}
 
       {:error, reason} ->
         {:error, failure(reason)}
     end
   end
 
-  def post(session, text, %{record: record, unresolved: unresolved, reply: reply}) do
+  def post(session, text, %{record: record, unresolved: unresolved, reply: reply} = prepared) do
     case create(session, :post, record) do
       {:ok, result} ->
         summary = summarize_write(result, text)
         summary = if reply, do: Map.put(summary, :reply_to, reply), else: summary
-        {:ok, mention_warnings(summary, unresolved)}
+
+        {:ok,
+         summary
+         |> mention_warnings(unresolved)
+         |> root_warning(Map.get(prepared, :declared_root), record)}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -4298,8 +4306,14 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def resolve_post(session, uri) when is_binary(uri) do
     with {:ok, ref, response} <- fetch_strong_ref(session, uri) do
-      root = root_of(response)
-      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: ref.uri))}
+      case root_of(response) do
+        nil ->
+          {:ok, Map.put(ref, :root, ref.uri)}
+
+        root ->
+          with {:ok, root_uri} <- root_did_uri(session, root.uri, ref.uri),
+               do: {:ok, Map.put(ref, :root, root_uri)}
+      end
     end
   end
 
@@ -4637,8 +4651,72 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp reply_refs(session, uri) when is_binary(uri) do
     with {:ok, parent, response} <- fetch_strong_ref(session, uri),
-         :ok <- reply_allowed(session, parent.uri) do
-      {:ok, %{root: root_of(response) || parent, parent: parent}}
+         :ok <- reply_allowed(session, parent.uri),
+         do: reply_root(session, root_of(response), parent)
+  end
+
+  # The parent's record names the root as its writer spelled it, and a client
+  # may have spelled it with the root author's handle. An AppView files a
+  # thread under the root's DID-form URI: the reference AppView serves no
+  # reply that copied a handle-form root, and another was seen counting such a
+  # reply on its parent while listing it in no thread. The root is written
+  # here as its DID-form URI with the CID the root has now, read like the
+  # parent's. A root that is gone (RecordNotFound) keeps the CID the parent
+  # declared: a thread whose first post was deleted can still be answered. A
+  # handle that does not resolve, or any other failed read, refuses the reply
+  # before anything is written: there is no DID-form root to write.
+  defp reply_root(_session, nil, parent), do: {:ok, %{root: parent, parent: parent}}
+
+  defp reply_root(session, %{uri: declared, cid: declared_cid}, parent) do
+    with {:ok, root_uri} <- root_did_uri(session, declared, parent.uri) do
+      root =
+        case fetch_strong_ref(session, root_uri) do
+          {:ok, ref, _response} ->
+            {:ok, ref}
+
+          {:error, {:referenced_record_unreadable, _, :not_found}} ->
+            {:ok, %{uri: root_uri, cid: declared_cid}}
+
+          {:error, _} = error ->
+            error
+        end
+
+      with {:ok, root} <- root do
+        refs = %{root: root, parent: parent}
+        {:ok, if(root.uri == declared, do: refs, else: Map.put(refs, :declared_root, declared))}
+      end
+    end
+  end
+
+  # The DID-form URI of the root a parent declares. A DID-form one is taken as
+  # it is; a handle-form one has its handle resolved.
+  defp root_did_uri(session, declared, parent_uri) do
+    case AtMcp.ATProto.parse_uri(declared) do
+      {:ok, {"did:" <> _, _collection, _rkey}} ->
+        {:ok, declared}
+
+      {:ok, {handle, collection, rkey}} ->
+        case resolve_actor(session, handle) do
+          {:ok, did} ->
+            {:ok, "at://#{did}/#{collection}/#{rkey}"}
+
+          {:error, {:handle_not_resolved, _}} ->
+            {:error,
+             AtMcp.Effects.Failure.new(:refused,
+               message:
+                 "The post #{parent_uri} names its thread's root as #{declared}, and the handle #{handle} in it could not be resolved to a DID, so the root could not be named the way the app files threads. Nothing was sent."
+             )}
+
+          {:error, _} = error ->
+            error
+        end
+
+      {:error, _} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The post #{parent_uri} names its thread's root as #{inspect(declared)}, which is not an AT URI. Nothing was sent."
+         )}
     end
   end
 
@@ -5362,6 +5440,20 @@ defmodule AtMcp.Effects.ProtoRune do
       warning:
         "These handles could not be resolved. They were published as plain text, without mention facets."
     })
+  end
+
+  # The parent names its root in a form the AppView does not file threads
+  # under, so the app may show the parent out of its thread. The reply itself
+  # names the root by DID; this says so, as a fact about the parent.
+  defp root_warning(result, nil, _record), do: result
+
+  defp root_warning(result, declared, record) do
+    written = get_in(record, ["reply", "root", "uri"])
+
+    note =
+      "The parent names its thread's root as #{declared}, not by DID; the app may not show the parent in that thread. This reply names the root as #{written}."
+
+    Map.update(result, :warning, note, &(&1 <> " " <> note))
   end
 
   defp summarize_write(result, text) when is_map(result) do

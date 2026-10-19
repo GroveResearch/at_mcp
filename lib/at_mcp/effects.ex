@@ -867,6 +867,7 @@ defmodule AtMcp.Effects do
 
   defp publish(effects, verb, text, opts) do
     with :ok <- validate_post_text(text),
+         :ok <- not_only_an_at_uri(text),
          :ok <- reference(opts[:reply], &post_uri(&1, "uri")),
          :ok <- reference(opts[:quote], &quotable(&1)),
          {:ok, opts} <- AtMcp.Interactions.post_options(verb, opts) do
@@ -881,6 +882,20 @@ defmodule AtMcp.Effects do
         fn opts -> fn backend, session -> backend.post(session, text, opts) end end
       )
     end
+  end
+
+  # A post whose whole text is one AT URI is almost always an argument put in
+  # the wrong slot: the post to answer or quote, given as the text. Published,
+  # it is a post that says nothing but an address. Any other word beside the
+  # URI, or a web link, is published as written.
+  defp not_only_an_at_uri(text) do
+    if Regex.match?(~r/\A\s*at:\/\/\S+\s*\z/u, text),
+      do:
+        invalid(
+          "text",
+          "the text is only an AT URI. To reply to that post, pass it as uri and write the reply in text; to quote it, pass it as quote"
+        ),
+      else: :ok
   end
 
   # A reply's parent is a post, and a quote is a post or a record the app

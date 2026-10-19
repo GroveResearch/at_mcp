@@ -35,9 +35,15 @@ defmodule AtMcp.WriteRecordsTest do
         &(&1 ++ [%{method: method, query: conn.query_params, body: body}])
       )
 
+      {status, body} =
+        case response(method, conn) do
+          {status, body} -> {status, body}
+          body -> {200, body}
+        end
+
       conn
       |> put_resp_content_type("application/json")
-      |> send_resp(200, Jason.encode!(response(method, conn)))
+      |> send_resp(status, Jason.encode!(body))
     end
 
     defp response("com.atproto.repo.createRecord", _conn),
@@ -45,6 +51,29 @@ defmodule AtMcp.WriteRecordsTest do
 
     defp response("com.atproto.repo.putRecord", _conn),
       do: %{uri: "at://did:plc:self/c/self", cid: "bafyreiself"}
+
+    # A parent whose writer named its thread's root by handle, and one whose
+    # root is gone.
+    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "under-" <> root}}) do
+      repo = if root == "unresolvable", do: "nobody.example", else: "other.example"
+
+      declared =
+        if root == "gone",
+          do: "at://did:plc:other/town.delve.feed.post/gone",
+          else: "at://#{repo}/town.delve.feed.post/#{root}"
+
+      %{
+        uri: "at://did:plc:other/town.delve.feed.post/under-#{root}",
+        cid: "bafyreiparent",
+        value: %{text: "parent", reply: %{root: %{uri: declared, cid: "bafyreideclared"}}}
+      }
+    end
+
+    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "gone"}}),
+      do: {400, %{error: "RecordNotFound", message: "Could not locate record"}}
+
+    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "root"}}),
+      do: %{uri: "at://did:plc:other/town.delve.feed.post/root", cid: "bafyreiroot", value: %{}}
 
     defp response("com.atproto.repo.getRecord", conn) do
       %{
@@ -74,6 +103,11 @@ defmodule AtMcp.WriteRecordsTest do
           size: 3
         }
       }
+
+    defp response("com.atproto.identity.resolveHandle", %{
+           query_params: %{"handle" => "nobody.example"}
+         }),
+         do: {400, %{error: "InvalidRequest", message: "Unable to resolve handle"}}
 
     defp response("com.atproto.identity.resolveHandle", _conn), do: %{did: "did:plc:other"}
     defp response(_method, _conn), do: %{}
@@ -505,6 +539,56 @@ defmodule AtMcp.WriteRecordsTest do
                "root" => %{"uri" => parent, "cid" => "bafyreiparent"},
                "parent" => %{"uri" => parent, "cid" => "bafyreiparent"}
              }
+    end
+  end
+
+  describe "a reply under a parent that names its root by handle (#144)" do
+    test "names the root by DID with the root's current CID, and says the parent did not", %{
+      calls: calls,
+      session: session
+    } do
+      parent = "at://did:plc:other/town.delve.feed.post/under-root"
+      assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
+
+      assert written(calls).body["record"]["reply"] == %{
+               "root" => %{
+                 "uri" => "at://did:plc:other/town.delve.feed.post/root",
+                 "cid" => "bafyreiroot"
+               },
+               "parent" => %{"uri" => parent, "cid" => "bafyreiparent"}
+             }
+
+      assert result.warning ==
+               "The parent names its thread's root as at://other.example/town.delve.feed.post/root, not by DID; the app may not show the parent in that thread. This reply names the root as at://did:plc:other/town.delve.feed.post/root."
+    end
+
+    test "a root that is gone keeps the CID the parent declared", %{
+      calls: calls,
+      session: session
+    } do
+      parent = "at://did:plc:other/town.delve.feed.post/under-gone"
+      assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "still here", reply: parent)
+
+      assert written(calls).body["record"]["reply"]["root"] == %{
+               "uri" => "at://did:plc:other/town.delve.feed.post/gone",
+               "cid" => "bafyreideclared"
+             }
+
+      refute Map.has_key?(result, :warning)
+    end
+
+    test "a root whose handle does not resolve is refused before anything is written", %{
+      calls: calls,
+      session: session
+    } do
+      parent = "at://did:plc:other/town.delve.feed.post/under-unresolvable"
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} =
+               AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
+
+      assert message =~ "at://nobody.example/town.delve.feed.post/unresolvable"
+      assert message =~ "Nothing was sent"
+      assert sent(calls, "com.atproto.repo.createRecord") == []
     end
   end
 

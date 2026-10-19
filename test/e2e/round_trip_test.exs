@@ -230,6 +230,81 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert call!(them, "get_thread", %{"uri" => root["uri"]})["replies"] == []
     end
 
+    test "a reply under a parent that names its root by handle: the reply names the root by DID and is served under it, and mute_thread mutes that root",
+         %{net: net, me: me, them: them, session: session} do
+      root = post!(them, "the first post of a thread")
+      sync(net)
+
+      # The parent is written by another client, outside AtMcp's tools: its
+      # reply.root names the root with the root author's handle, not its DID.
+      {:ok, {_did, collection, rkey}} = AtMcp.ATProto.parse_uri(root["uri"])
+      handle_root = "at://#{them.handle}/#{collection}/#{rkey}"
+
+      {:ok, written} =
+        AtMcp.ATProto.create_record(session, %{
+          repo: me.did,
+          collection: collection,
+          record: %{
+            "$type" => collection,
+            "text" => "a parent naming its root by handle",
+            "createdAt" => DateTime.utc_now() |> DateTime.to_iso8601(),
+            "reply" => %{
+              "root" => %{"uri" => handle_root, "cid" => root["cid"]},
+              "parent" => %{"uri" => root["uri"], "cid" => root["cid"]}
+            }
+          }
+        })
+
+      parent = written[:uri] || written["uri"]
+      sync(net)
+
+      reply = call!(them, "reply", %{"uri" => parent, "text" => "under that parent"})
+      sync(net)
+
+      # The reply names the root as the AppView files threads: by DID, with
+      # the root's CID, and says the parent did not.
+      assert record(them, reply["uri"])["reply"] == %{
+               "root" => %{"uri" => root["uri"], "cid" => root["cid"]},
+               "parent" => %{"uri" => parent, "cid" => written[:cid] || written["cid"]}
+             }
+
+      assert reply["warning"] =~ "names its thread's root as #{handle_root}, not by DID"
+
+      # The reference AppView serves neither the parent, whose root names
+      # nothing it indexed, nor a reply that copies that root. A reply that
+      # names the root by DID is served, and its conversation reaches the root;
+      # only the parent is missing from it, as it is from the app.
+      assert Enum.sort([reply["uri"], root["uri"]]) ==
+               Enum.sort(
+                 Enum.map(
+                   call!(them, "get_posts", %{"uris" => [parent, reply["uri"], root["uri"]]})[
+                     "items"
+                   ],
+                   & &1["uri"]
+                 )
+               )
+
+      chain = call!(them, "get_thread_chain", %{"uri" => reply["uri"]})
+      assert chain["root_uri"] == root["uri"]
+
+      assert [%{"uri" => first}, %{"uri" => ^parent, "not_found" => true}, %{"uri" => last}] =
+               chain["chain"]
+
+      assert {first, last} == {root["uri"], reply["uri"]}
+
+      # Muting the thread through the parent mutes the root the AppView knows.
+      call!(them, "mute_thread", %{"uri" => parent})
+      sync(net)
+      assert only_post(them, root["uri"])["viewer"]["thread_muted"]
+      call!(them, "unmute_thread", %{"uri" => parent})
+      sync(net)
+      refute only_post(them, root["uri"])["viewer"]["thread_muted"]
+
+      call!(them, "delete_post", %{"uri" => reply["uri"]})
+      call!(me, "delete_post", %{"uri" => parent})
+      call!(them, "delete_post", %{"uri" => root["uri"]})
+    end
+
     test "a post with an image: get_post_images reads the AppView's copy back",
          %{net: net, me: me} do
       post =
