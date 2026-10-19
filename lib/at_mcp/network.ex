@@ -105,7 +105,12 @@ defmodule AtMcp.Network do
     generator_view: "feed.defs#generatorView",
     list_view: "graph.defs#listView",
     starter_pack_view: "graph.defs#starterPackViewBasic",
-    labeler_view: "labeler.defs#labelerView"
+    labeler_view: "labeler.defs#labelerView",
+    reason_repost: "feed.defs#reasonRepost",
+    reason_pin: "feed.defs#reasonPin",
+    post_view: "feed.defs#postView",
+    not_found_post: "feed.defs#notFoundPost",
+    blocked_post: "feed.defs#blockedPost"
   }
 
   # Read at compile time so a release carries no runtime dependency on priv/.
@@ -303,9 +308,11 @@ defmodule AtMcp.Network do
   A lexicon-defined `$type` AtMcp matches on or writes: `:mention_facet`,
   `:link_facet`, `:tag_facet`, an embed (`:embed_record`,
   `:embed_record_with_media`, `:embed_images`, `:embed_external`, `:embed_video`
-  or `:embed_gallery`), or the view of a quoted feed, list, starter pack or
+  or `:embed_gallery`), the view of a quoted feed, list, starter pack or
   labeler (`:generator_view`, `:list_view`, `:starter_pack_view`,
-  `:labeler_view`).
+  `:labeler_view`), a feed reason (`:reason_repost`, `:reason_pin`), or a
+  reply's parent or root in a feed (`:post_view`, `:not_found_post`,
+  `:blocked_post`).
   """
   @spec type(atom()) :: String.t()
   def type(kind) when is_map_key(@types, kind), do: nsid(Map.fetch!(@types, kind))

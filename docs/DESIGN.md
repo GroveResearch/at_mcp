@@ -186,6 +186,14 @@ creator). A further quote stays a `nested_uri` rather than recursively
 expanding. `embed_type` identifies the embed's kind, including kinds this
 projection does not interpret.
 
+A feed (timeline, author feed, custom feed, list feed, likes) wraps each post
+with what the app shows above it. `reason` says why the post is there: a
+repost, with who reposted it, when, and the repost record's uri, or a pin.
+`reply_parent` and `reply_root` say whose post a reply answers and whose
+thread it is in, with a status when the feed reports that post deleted or
+blocked. They are null outside feeds, where the service does not send them;
+`reply_to` is the parent's uri everywhere.
+
 These are read projections of what the server already returned, not extra
 requests or image pixels. `get_post_images` is the one read that fetches
 pictures, for one post at a time: it takes the `fullsize` URLs from that post's
