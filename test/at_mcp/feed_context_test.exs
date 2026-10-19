@@ -127,6 +127,36 @@ defmodule AtMcp.FeedContextTest do
              " · replying to @account14.example.test (#{item["reply"]["parent"]["uri"]})\n"
   end
 
+  test "a reason or parent view this version does not know is said as such", %{feed: feed} do
+    item =
+      feed
+      |> reposted()
+      |> Map.put("reason", %{"$type" => "app.bsky.feed.defs#reasonSomethingNew"})
+
+    {text, [summary]} = read([item])
+
+    assert summary["reason"] ==
+             %{"type" => "app.bsky.feed.defs#reasonSomethingNew"}
+             |> Map.merge(Map.new(~w(by by_did by_display_name at uri), &{&1, nil}))
+
+    assert text =~ "[1] In this feed because: app.bsky.feed.defs#reasonSomethingNew\n"
+
+    item = reply_by(feed, "account14.example.test")
+    uri = item["reply"]["parent"]["uri"]
+
+    unknown =
+      put_in(item, ["reply", "parent"], %{
+        "$type" => "app.bsky.feed.defs#somethingNewPost",
+        "uri" => uri,
+        "author" => %{"did" => "did:plc:x", "handle" => "x.test"}
+      })
+
+    {text, [summary]} = read([unknown])
+    assert summary["reply_parent"]["status"] == "unsupported"
+    # Whose post it was is unknown; whose thread it is in is still said.
+    assert text =~ " · replying to #{uri} in a thread by @account14.example.test\n"
+  end
+
   test "a reply to a deleted or blocked post says that, with the uri it answers", %{feed: feed} do
     item = reply_by(feed, "account14.example.test")
     uri = item["reply"]["parent"]["uri"]

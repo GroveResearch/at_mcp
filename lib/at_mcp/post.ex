@@ -67,10 +67,18 @@ defmodule AtMcp.Post do
 
   # The parent or root of a reply in a feed is a full post view, or a
   # `notFoundPost` / `blockedPost` carrying its uri (and, when blocked, the
-  # author's DID).
+  # author's DID). The union's `$type` decides; a member this version does not
+  # know is `unsupported`, not a post. A view without `$type` is read by its
+  # flags.
   defp reply_post(post) when is_map(post) do
+    type = get(post, [:"$type"])
+
     status =
       cond do
+        type == Network.type(:post_view) -> "available"
+        type == Network.type(:not_found_post) -> "not_found"
+        type == Network.type(:blocked_post) -> "blocked"
+        is_binary(type) -> "unsupported"
         get(post, [:not_found]) == true or get(post, [:notFound]) == true -> "not_found"
         get(post, [:blocked]) == true -> "blocked"
         true -> "available"

@@ -216,6 +216,10 @@ defmodule AtMcp.Reading do
   end
 
   defp reason(%{"type" => "pin"}), do: "Pinned"
+
+  defp reason(%{"type" => type}) when is_binary(type),
+    do: "In this feed because: " <> String.replace(type, ~r/\s+/u, " ")
+
   defp reason(_reason), do: nil
 
   # What a reply answers: the parent's uri, and, when a feed said so, whose post

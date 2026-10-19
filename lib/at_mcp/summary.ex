@@ -137,7 +137,8 @@ defmodule AtMcp.Summary do
 
   # The post a reply in a feed answers, or its thread's root.
   @reply_post [
-    {:status, :string, [["status"]], "available, not_found or blocked"},
+    {:status, :string, [["status"]],
+     "available, not_found, blocked, or unsupported for a view this version does not read"},
     {:uri, :string, [["uri"]], "AT URI of the post"},
     {:author, :string, [["author"]], "Author handle"},
     {:author_did, :string, [["author_did"]], "Author DID"},
