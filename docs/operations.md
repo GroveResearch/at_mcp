@@ -536,6 +536,21 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.9 to 0.2.10
+
+0.2.10 stores data in the same format as 0.2.9 and starts from the same
+environment, so rolling back works as below.
+
+- **Moderation** (#90, #121): `report` (to the network's moderation service or
+  a labeler the account subscribes to; the service's moderators see the report
+  and which account sent it; it cannot be withdrawn), `mute_word` /
+  `unmute_word`, `subscribe_labeler` / `unsubscribe_labeler`,
+  `set_label_visibility`, `mute_list` / `unmute_list`, `block_list` /
+  `unblock_list`, `get_moderation_lists`, `get_labelers`; `get_preferences`
+  shows muted words, labelers and label settings. Preferences change as the
+  official client does, every other preference kept. On delve.town, which runs
+  no moderation service, `report` is refused before anything is sent.
+
 ### From 0.2.8 to 0.2.9
 
 0.2.9 stores data in the same format as 0.2.8 and starts from the same
