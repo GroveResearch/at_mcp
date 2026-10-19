@@ -240,10 +240,94 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  def get_thread(effects, uri) when is_binary(uri) do
+  @doc """
+  What surrounds a post. With `include_hidden: true`, the replies the app
+  leaves out of the thread, which the thread's author hid or the account's own
+  settings push down, are read too. The thread read already returns most of
+  them, unmarked: each of those is marked where it stands (`left_out`, with
+  `hidden_by_threadgate` or `muted_by_viewer` when the service says which),
+  and `hidden_replies` lists only the ones the thread read did not return. A
+  failed read of them leaves the thread as read and says why in
+  `hidden_replies_unread`.
+  """
+  def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
     with_session(effects, fn backend, session ->
-      backend.get_thread(session, uri)
+      with {:ok, thread} <- backend.get_thread(session, uri) do
+        if Keyword.get(opts, :include_hidden) == true,
+          do: with_hidden(thread, backend.get_hidden_replies(session, uri)),
+          else: {:ok, thread}
+      end
     end)
+  end
+
+  defp with_hidden(thread, {:ok, hidden}) when is_list(hidden) do
+    by_uri = for reply <- hidden, uri = summary_uri(reply), into: %{}, do: {uri, reply}
+    {thread, shown} = mark_left_out(thread, by_uri, MapSet.new())
+
+    {:ok,
+     Map.put(
+       thread,
+       :hidden_replies,
+       Enum.reject(hidden, &MapSet.member?(shown, summary_uri(&1)))
+     )}
+  end
+
+  # A refused credential is recovered and the read made again, as for any read.
+  # Anything else keeps the thread already read, with one line saying the
+  # left-out replies could not be read and why.
+  defp with_hidden(thread, {:error, reason} = error) do
+    if AtMcp.Effects.Failure.kind(reason) == :auth_refused,
+      do: error,
+      else: {:ok, Map.put(thread, :hidden_replies_unread, hidden_unread(reason))}
+  end
+
+  defp hidden_unread(%AtMcp.Effects.Failure{status: 501}),
+    do:
+      "The replies this thread leaves out could not be read: the account's service does not serve them (it answered 501)."
+
+  defp hidden_unread(%AtMcp.Effects.Failure{status: status, message: message})
+       when is_integer(status) do
+    said = if is_binary(message) and message != "", do: ": #{message}", else: ""
+
+    "The replies this thread leaves out could not be read: the account's service answered #{status}#{said}."
+  end
+
+  defp hidden_unread(_reason),
+    do: "The replies this thread leaves out could not be read: the request did not complete."
+
+  defp summary_uri(%{uri: uri}) when is_binary(uri), do: uri
+  defp summary_uri(%{"uri" => uri}) when is_binary(uri), do: uri
+  defp summary_uri(_), do: nil
+
+  # The replies under the post read, at every depth it returned.
+  defp mark_left_out(node, by_uri, shown) when is_map(node) do
+    {replies, shown} =
+      Enum.map_reduce(Map.get(node, :replies) || [], shown, fn reply, shown ->
+        {reply, shown} =
+          case Map.fetch(by_uri, summary_uri(reply)) do
+            {:ok, hidden} -> {left_out(reply, hidden), MapSet.put(shown, summary_uri(reply))}
+            :error -> {reply, shown}
+          end
+
+        mark_left_out(reply, by_uri, shown)
+      end)
+
+    {if(Map.has_key?(node, :replies), do: Map.put(node, :replies, replies), else: node), shown}
+  end
+
+  defp mark_left_out(node, _by_uri, shown), do: {node, shown}
+
+  # `depth` is where the left-out read found it: a reply at depth 1 is left
+  # out itself, one deeper may be there only because a reply above it is.
+  defp left_out(reply, hidden) do
+    Map.merge(reply, %{
+      left_out: true,
+      depth: Map.get(hidden, :depth),
+      hidden_by_threadgate:
+        Map.get(reply, :hidden_by_threadgate) == true or
+          Map.get(hidden, :hidden_by_threadgate) == true,
+      muted_by_viewer: Map.get(hidden, :muted_by_viewer) == true
+    })
   end
 
   def get_thread_chain(effects, uri, opts \\ []) when is_binary(uri) and is_list(opts) do
@@ -451,7 +535,8 @@ defmodule AtMcp.Effects do
     do: publish(effects, :reply, text, Keyword.put(opts, :reply, uri))
 
   defp publish(effects, verb, text, opts) do
-    with :ok <- validate_post_text(text) do
+    with :ok <- validate_post_text(text),
+         {:ok, opts} <- AtMcp.Interactions.post_options(verb, opts) do
       # Resolve references and build the complete record before taking a slot
       # or marking dispatch. A deleted parent or a local rich-text/record
       # error must not claim a post may have landed or consume publishing
@@ -622,7 +707,7 @@ defmodule AtMcp.Effects do
           is_nil(contains) ->
             backend.get_lists(session, actor || did_of(session), page)
 
-          is_nil(actor) or own_actor?(session, actor) ->
+          is_nil(actor) or AtMcp.Interactions.own_repo?(session, actor) ->
             backend.get_lists_with_membership(session, contains, page)
 
           true ->
@@ -657,7 +742,7 @@ defmodule AtMcp.Effects do
 
       {:ok, {repo, collection, rkey}} ->
         did =
-          if own_actor?(session, repo),
+          if AtMcp.Interactions.own_repo?(session, repo),
             do: {:ok, did_of(session)},
             else: backend.resolve_actor(session, repo)
 
@@ -1145,6 +1230,138 @@ defmodule AtMcp.Effects do
     paged(effects, opts, fn backend, session, opts -> backend.get_bookmarks(session, opts) end)
   end
 
+  # --- a post's gates ---
+
+  @doc """
+  Set who may reply to one of this account's posts and whether it may be
+  quoted. The app's dialog starts from the post's current settings, so a rule
+  not given (nil) is kept as it is. `reply_rule` `["everyone"]` is everyone,
+  `[]` nobody, or a list of rules (`AtMcp.Interactions.reply_rule/1`);
+  `quotes` `"allowed"` lets anyone quote it, `"disabled"` nobody. Replies
+  hidden and quotes detached stay as they are.
+  """
+  def set_post_interactions(effects, uri, reply_rule, quotes) when is_binary(uri) do
+    with {:ok, {repo, _rkey}} <- post_uri(uri, "uri"),
+         {:ok, allow} <- keep_or(reply_rule, &AtMcp.Interactions.reply_rule/1),
+         {:ok, quotes} <- keep_or(quotes, &AtMcp.Interactions.quotes/1) do
+      edit_gates(effects, :set_post_interactions, {:interactions, uri, allow, quotes},
+        own: {repo, "set_post_interactions sets the rules of a post this account wrote"}
+      )
+    end
+  end
+
+  @doc """
+  Hide (`hide? = true`) or unhide a reply in a thread this account started.
+  The reply is read for its thread's root, which must be this account's post.
+  """
+  def hide_reply(effects, uri, hide?) when is_binary(uri) and is_boolean(hide?) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      edit_gates(
+        effects,
+        if(hide?, do: :hide_reply, else: :unhide_reply),
+        {:hide_reply, uri, hide?}
+      )
+    end
+  end
+
+  @doc """
+  Detach (`detach? = true`) or reattach a post that quotes one of this
+  account's posts. The quoting post is read for what it quotes.
+  """
+  def detach_quote(effects, uri, detach?) when is_binary(uri) and is_boolean(detach?) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      edit_gates(
+        effects,
+        if(detach?, do: :detach_quote, else: :reattach_quote),
+        {:detach_quote, uri, detach?}
+      )
+    end
+  end
+
+  defp edit_gates(effects, verb, edit, opts \\ []) do
+    take_and_write(
+      effects,
+      verb,
+      fn backend, session ->
+        with :ok <- own_post(session, Keyword.get(opts, :own)),
+             do: backend.prepare_gates(session, edit)
+      end,
+      fn prepared -> fn backend, session -> backend.write_gates(session, prepared) end end
+    )
+  end
+
+  defp keep_or(nil, _read), do: {:ok, :keep}
+  defp keep_or(given, read), do: read.(given)
+
+  defp own_post(_session, nil), do: :ok
+  defp own_post(session, {repo, what}), do: own_repo(session, repo, "uri", what)
+
+  # --- drafts ---
+
+  # `app.bsky.draft.defs#draftPost` allows a draft's text more room than a
+  # post's, so a long text can be drafted and later split into posts.
+  @draft_text %{graphemes: 1_000, bytes: 10_000}
+
+  @doc "What a draft's text may be: `app.bsky.draft.defs#draftPost`."
+  def draft_text_limits, do: @draft_text
+
+  def get_drafts(effects, opts \\ []) do
+    paged(effects, opts, fn backend, session, opts -> backend.get_drafts(session, opts) end)
+  end
+
+  @doc """
+  Save `text` as a new draft, or, given the id of one this account has, as the
+  text of its first post, keeping the rest of it. The draft is read first, so
+  an id the account does not have is refused rather than silently ignored.
+  """
+  def save_draft(effects, text, id \\ nil) when is_binary(text) do
+    with :ok <- validate_draft_text(text) do
+      case id do
+        nil ->
+          take_and_write(effects, :save_draft, fn backend, session ->
+            backend.save_draft(session, nil, AtMcp.ATProto.draft(text))
+          end)
+
+        id ->
+          take_and_write(
+            effects,
+            :save_draft,
+            fn backend, session -> backend.find_draft(session, id) end,
+            fn current ->
+              fn backend, session ->
+                backend.save_draft(session, id, AtMcp.ATProto.draft(text, current))
+              end
+            end
+          )
+      end
+    end
+  end
+
+  @doc "Delete a draft. It is read first, so the result carries what was deleted."
+  def delete_draft(effects, id) when is_binary(id) do
+    take_and_write(
+      effects,
+      :delete_draft,
+      fn backend, session -> backend.find_draft(session, id) end,
+      fn current -> fn backend, session -> backend.delete_draft(session, id, current) end end
+    )
+  end
+
+  defp validate_draft_text(text) do
+    %{graphemes: graphemes, bytes: bytes} = @draft_text
+
+    cond do
+      not String.valid?(text) ->
+        invalid("text", "must be valid UTF-8")
+
+      byte_size(text) > bytes or String.length(text) > graphemes ->
+        invalid("text", "a draft holds at most #{graphemes} graphemes and #{bytes} UTF-8 bytes")
+
+      true ->
+        :ok
+    end
+  end
+
   # A tool argument that names a post, checked before a session is taken: an
   # AT URI whose collection is a post on either network. What is wrong is said
   # about the argument by name, so a caller can fix the call.
@@ -1163,7 +1380,7 @@ defmodule AtMcp.Effects do
   # Whether a record's repository is this account's, by DID or by the handle
   # the session holds. Checked with the session, before anything is sent.
   defp own_repo(session, repo, field, what) do
-    if own_actor?(session, repo),
+    if AtMcp.Interactions.own_repo?(session, repo),
       do: :ok,
       else: invalid(field, "#{what}; #{repo} is another account")
   end

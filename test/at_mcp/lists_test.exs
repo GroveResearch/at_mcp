@@ -311,14 +311,11 @@ defmodule AtMcp.ListsTest do
       {"i6", @pack_list, "did:plc:bob"}
     ]
 
-    @commit "bafycommit"
-
     defp pds(answers \\ %{}, records \\ %{}) do
       items = Map.new(@items, fn {rkey, list, subject} -> item(rkey, list, subject) end)
 
       defaults = %{
-        "com.atproto.identity.resolveHandle" => {200, %{did: @alice}},
-        "com.atproto.sync.getLatestCommit" => {200, %{cid: @commit, rev: "rev1"}}
+        "com.atproto.identity.resolveHandle" => {200, %{did: @alice}}
       }
 
       {session, pds} =
@@ -354,7 +351,8 @@ defmodule AtMcp.ListsTest do
     defp committed(pds) do
       assert [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
       assert body["repo"] == "did:plc:self"
-      assert body["swapCommit"] in [nil, @commit]
+      # The fake PDS refuses a swapCommit that is not its current commit.
+      assert body["swapCommit"] == nil or is_binary(body["swapCommit"])
       assert Lexicon.problems(body, "com.atproto.repo.applyWrites") == []
 
       for %{"value" => value, "collection" => collection} <- body["writes"] do
@@ -591,7 +589,7 @@ defmodule AtMcp.ListsTest do
       %{effects: effects, pds: pds} = pds()
       assert {:ok, _} = AtMcp.Effects.delete_list(effects, @mine)
 
-      assert [%{body: %{"swapCommit" => @commit}}] =
+      assert [%{body: %{"swapCommit" => "bafy" <> _}}] =
                FakePDS.sent(pds, "com.atproto.repo.applyWrites")
 
       swap = {400, %{error: "InvalidSwap", message: "Commit was at bafyother"}}
@@ -649,8 +647,9 @@ defmodule AtMcp.ListsTest do
       # The second commit names the one the first made, so a change in between
       # stops it.
       assert [first, second] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
-      assert first.body["swapCommit"] == @commit
-      assert second.body["swapCommit"] == FakePDS.cid("commit 1")
+      assert is_binary(first.body["swapCommit"])
+      assert second.body["swapCommit"] == FakePDS.commit(Agent.get(pds, & &1))
+      refute second.body["swapCommit"] == first.body["swapCommit"]
 
       assert {:ok, %{isError: true, structuredContent: %{code: "partially_written"} = sc}, :state} =
                AtMcp.MCP.Tools.respond(result, :state)

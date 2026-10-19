@@ -1030,21 +1030,6 @@ defmodule AtMcp.Effects.ProtoRune do
   defp edit(edits, key, ""), do: Map.put(edits, key, nil)
   defp edit(edits, key, value), do: Map.put(edits, key, value)
 
-  # The commit an edit is built over. A PDS always serves this; an answer
-  # without a CID is one AtMcp cannot write over safely.
-  defp latest_commit(session) do
-    case AtMcp.ATProto.get_latest_commit(session, session.did) do
-      {:ok, response} ->
-        case field(response, :cid) do
-          cid when is_binary(cid) -> {:ok, cid}
-          _ -> {:error, unreadable("the repository's latest commit", response)}
-        end
-
-      {:error, reason} ->
-        {:error, failure(reason)}
-    end
-  end
-
   defp own_repo_uri?(session, uri) do
     case is_binary(uri) && AtMcp.ATProto.parse_uri(uri) do
       {:ok, {repo, _, _}} -> repo == session.did
@@ -1301,7 +1286,9 @@ defmodule AtMcp.Effects.ProtoRune do
     with :ok <- validate_post_languages(opts),
          {rich_text, unresolved} = AtMcp.RichText.build(text, session),
          {:ok, opts} <- resolve_references(session, opts),
-         {:ok, images} <- upload_images(session, Keyword.get(opts, :images)) do
+         {:ok, opts} <- resolve_reply_lists(session, opts),
+         {:ok, images} <- upload_images(session, Keyword.get(opts, :images)),
+         {:ok, link} <- upload_link_thumb(session, Keyword.get(opts, :link)) do
       record =
         AtMcp.ATProto.post_record(
           text: rich_text.text,
@@ -1309,10 +1296,21 @@ defmodule AtMcp.Effects.ProtoRune do
           langs: Keyword.get(opts, :langs),
           reply: Keyword.get(opts, :reply_ref),
           images: images,
-          quote: Keyword.get(opts, :quote_ref)
+          link: link,
+          quote: Keyword.get(opts, :quote_ref),
+          labels: Keyword.get(opts, :labels)
         )
 
-      {:ok, %{record: record, unresolved: unresolved, reply: Keyword.get(opts, :reply)}}
+      {rkey, gates} = post_gates(session, record, opts)
+
+      {:ok,
+       %{
+         record: record,
+         unresolved: unresolved,
+         reply: Keyword.get(opts, :reply),
+         rkey: rkey,
+         gates: gates
+       }}
     else
       {:error, {:referenced_record_unreadable, _uri}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
@@ -1355,7 +1353,52 @@ defmodule AtMcp.Effects.ProtoRune do
          do: post(session, text, prepared)
   end
 
+  # A post with a reply or quote rule is written with its gates in one
+  # commit: the post never exists without them, so nobody can reply or quote
+  # in between, and a failure leaves neither.
   @impl true
+  def post(session, text, %{record: record, rkey: rkey, gates: [_ | _] = gates} = prepared) do
+    post = AtMcp.Network.collection(:post)
+
+    writes =
+      [{:create, post, rkey, record}] ++
+        Enum.map(gates, fn {kind, gate} ->
+          {:create, AtMcp.Network.collection(kind), rkey, gate}
+        end)
+
+    case AtMcp.ATProto.apply_writes(session, session.did, writes) do
+      {:ok, response} ->
+        # A successful applyWrites committed every write, and `results` is
+        # optional in its output: the post's address is known before sending
+        # (this account's DID and the record key chosen here), so a service
+        # that leaves results out still says what was written. Only the CID
+        # then comes back as nil.
+        written =
+          case field(response, :results) do
+            [first | _] when is_map(first) -> first
+            _ -> %{}
+          end
+
+        summary =
+          written
+          |> summarize_write(text)
+          |> Map.update!(:uri, &(&1 || "at://#{session.did}/#{post}/#{rkey}"))
+          |> Map.merge(
+            Map.new(gates, fn {kind, _} ->
+              {:"#{kind}_uri", "at://#{session.did}/#{AtMcp.Network.collection(kind)}/#{rkey}"}
+            end)
+          )
+
+        summary =
+          if prepared.reply, do: Map.put(summary, :reply_to, prepared.reply), else: summary
+
+        {:ok, mention_warnings(summary, prepared.unresolved)}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
   def post(session, text, %{record: record, unresolved: unresolved, reply: reply}) do
     case create(session, :post, record) do
       {:ok, result} ->
@@ -1559,6 +1602,417 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # --- a post's gates ---
+
+  # The gates a new post is written with, and the record key they share with
+  # it. A post with none is written as before, under a key the PDS picks.
+  defp post_gates(session, record, opts) do
+    quotes = Keyword.get(opts, :quotes)
+
+    if Keyword.has_key?(opts, :reply_rule) or quotes == :disabled do
+      rkey = AtMcp.ATProto.tid()
+      uri = "at://#{session.did}/#{AtMcp.Network.collection(:post)}/#{rkey}"
+      created = %{"createdAt" => record["createdAt"]}
+
+      gates =
+        [
+          if(Keyword.has_key?(opts, :reply_rule),
+            do:
+              {:threadgate,
+               AtMcp.ATProto.threadgate_record(
+                 uri,
+                 Keyword.fetch!(opts, :reply_rule),
+                 [],
+                 created
+               )}
+          ),
+          if(quotes == :disabled,
+            do: {:postgate, AtMcp.ATProto.postgate_record(uri, :disabled, [], created)}
+          )
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      {rkey, gates}
+    else
+      {nil, []}
+    end
+  end
+
+  # A link card's thumbnail is a blob the record references, like an image.
+  defp upload_link_thumb(_session, nil), do: {:ok, nil}
+  defp upload_link_thumb(_session, %{thumb: nil} = link), do: {:ok, link}
+
+  defp upload_link_thumb(session, %{thumb: thumb} = link) do
+    with {:ok, [%{blob: blob}]} <- upload_images(session, [thumb]),
+         do: {:ok, link |> Map.delete(:thumb) |> Map.put(:thumb_blob, blob)}
+  end
+
+  @doc """
+  Read what an edit to a post's gates needs and build the writes, before
+  anything is sent. `edit` is one of:
+
+    * `{:interactions, uri, allow, quotes}`: set who may reply to and quote
+      this account's post at `uri`;
+    * `{:hide_reply, uri, hide?}`: hide or unhide a reply in a thread this
+      account started;
+    * `{:detach_quote, uri, detach?}`: detach or reattach a post quoting one
+      of this account's posts.
+
+  Each reads the gate it changes and keeps everything it does not change.
+  """
+  #
+  # Every edit reads the repository's commit before anything else, and writes
+  # only over it (`swapCommit`): a gate changed meanwhile, by the app or
+  # another client, is never overwritten with what was read before.
+  @impl true
+  def prepare_gates(session, {:interactions, uri, allow, quotes}) do
+    {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+    post = "at://#{session.did}/#{collection}/#{rkey}"
+
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, response} <- read_post(session, uri),
+         :ok <- first_post(response, allow),
+         {:ok, allow} <- resolve_lists(session, allow),
+         {:ok, threadgate} <- own_record(session, :threadgate, rkey),
+         {:ok, postgate} <- own_record(session, :postgate, rkey) do
+      # A reply has no thread of its own to gate: its threadgate is left as is.
+      reply? = reply?(response)
+      allow = if reply?, do: :keep, else: allow
+      hidden = strings(threadgate, :hidden_replies)
+      detached = strings(postgate, :detached_embedding_uris)
+      threadgate_now = AtMcp.ATProto.threadgate_record(post, allow, hidden, threadgate)
+      postgate_now = AtMcp.ATProto.postgate_record(post, quotes, detached, postgate)
+
+      gates([
+        {:threadgate, rkey, threadgate, threadgate_now},
+        {:postgate, rkey, postgate, postgate_now}
+      ])
+      |> with_result(
+        %{
+          action: :set_post_interactions,
+          uri: post,
+          reply_rule: if(not reply?, do: AtMcp.Interactions.reply_rule_words(threadgate_now)),
+          quotes: AtMcp.Interactions.quotes_word(postgate_now)
+        },
+        commit
+      )
+    end
+  end
+
+  def prepare_gates(session, {:hide_reply, uri, hide?}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, response} <- read_post(session, uri),
+         {:ok, root} <- thread_root(response, uri),
+         {:ok, {root_repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(root),
+         :ok <- own(session, root_repo, "the reply's thread was started by #{root_repo}"),
+         {:ok, threadgate} <- own_record(session, :threadgate, rkey),
+         reply = canonical(response, uri),
+         {:ok, hidden} <-
+           AtMcp.Interactions.hidden_replies(strings(threadgate, :hidden_replies), reply, hide?) do
+      post = "at://#{session.did}/#{collection}/#{rkey}"
+
+      gates([
+        {:threadgate, rkey, threadgate,
+         AtMcp.ATProto.threadgate_record(post, :keep, hidden, threadgate)}
+      ])
+      |> with_result(
+        %{
+          action: if(hide?, do: :hide_reply, else: :unhide_reply),
+          uri: reply,
+          subject_uri: post
+        },
+        commit
+      )
+    end
+  end
+
+  def prepare_gates(session, {:detach_quote, uri, detach?}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, response} <- read_post(session, uri),
+         {:ok, quoted} <- quoted_post(response, uri),
+         {:ok, {quoted_repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(quoted),
+         :ok <- own(session, quoted_repo, "it quotes #{quoted}, a post by another account"),
+         {:ok, postgate} <- own_record(session, :postgate, rkey),
+         quoting = canonical(response, uri),
+         {:ok, detached} <-
+           AtMcp.Interactions.detached_quotes(
+             strings(postgate, :detached_embedding_uris),
+             quoting,
+             detach?
+           ) do
+      post = "at://#{session.did}/#{collection}/#{rkey}"
+
+      gates([
+        {:postgate, rkey, postgate,
+         AtMcp.ATProto.postgate_record(post, :keep, detached, postgate)}
+      ])
+      |> with_result(
+        %{
+          action: if(detach?, do: :detach_quote, else: :reattach_quote),
+          uri: quoting,
+          subject_uri: post
+        },
+        commit
+      )
+    end
+  end
+
+  @doc """
+  Write what `prepare_gates/2` built, in one commit over the one it read.
+  Nothing to change writes nothing, and the result says `unchanged`.
+  """
+  @impl true
+  def write_gates(_session, %{writes: [], result: result}),
+    do: {:ok, Map.put(result, :unchanged, true)}
+
+  def write_gates(session, %{writes: writes, result: result, commit: commit}) do
+    case AtMcp.ATProto.apply_writes(session, session.did, writes, swap_commit: commit) do
+      {:ok, _} ->
+        {:ok, Map.put(result, :unchanged, false)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The account's repository")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # The commit an edit is built over. A PDS always serves this; an answer
+  # without a CID is one AtMcp cannot write over safely.
+  defp latest_commit(session) do
+    case AtMcp.ATProto.get_latest_commit(session, session.did) do
+      {:ok, response} ->
+        case field(response, :cid) do
+          cid when is_binary(cid) -> {:ok, cid}
+          _ -> {:error, unreadable("the repository's latest commit", response)}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # A list rule names its list by address, and the AppView lets a reply
+  # through only when that address, in DID form, is a list its author is on.
+  # A list given by a handle-form address is resolved before anything is
+  # written; one whose handle cannot be resolved is refused, naming the entry.
+  defp resolve_reply_lists(session, opts) do
+    case Keyword.fetch(opts, :reply_rule) do
+      {:ok, rules} when is_list(rules) ->
+        with {:ok, rules} <- resolve_lists(session, rules),
+             do: {:ok, Keyword.put(opts, :reply_rule, rules)}
+
+      _ ->
+        {:ok, opts}
+    end
+  end
+
+  defp resolve_lists(session, rules) when is_list(rules) do
+    rules
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {rule, i}, {:ok, acc} ->
+      case did_form_rule(session, rule, i) do
+        {:ok, rule} -> {:cont, {:ok, acc ++ [rule]}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp resolve_lists(_session, rules), do: {:ok, rules}
+
+  defp did_form_rule(_session, {:list, "at://did:" <> _} = rule, _i), do: {:ok, rule}
+
+  defp did_form_rule(session, {:list, uri}, i) do
+    {:ok, {repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    case resolve_actor(session, repo) do
+      {:ok, did} ->
+        {:ok, {:list, "at://#{did}/#{collection}/#{rkey}"}}
+
+      {:error, {:handle_not_resolved, _}} ->
+        invalid(
+          "reply_rule/#{i}",
+          "the handle #{repo} in #{uri} could not be resolved; give the list's AT URI in DID form (at://did:.../#{collection}/#{rkey})"
+        )
+
+      error ->
+        error
+    end
+  end
+
+  defp did_form_rule(_session, rule, _i), do: {:ok, rule}
+
+  # Each gate as it was and as it will be becomes a create, an update, a
+  # delete, or nothing; the result names each gate the post has afterwards.
+  defp gates(changes) do
+    writes =
+      Enum.flat_map(changes, fn {kind, rkey, before, now} ->
+        collection = AtMcp.Network.collection(kind)
+
+        case {before, now} do
+          {nil, nil} ->
+            []
+
+          {nil, now} ->
+            [{:create, collection, rkey, now}]
+
+          {_, nil} ->
+            [{:delete, collection, rkey}]
+
+          {before, now} ->
+            if same_gate?(before, now), do: [], else: [{:update, collection, rkey, now}]
+        end
+      end)
+
+    uris =
+      Map.new(changes, fn {kind, rkey, _before, now} ->
+        {:"#{kind}_uri", if(now, do: gate_uri(now, kind, rkey))}
+      end)
+
+    {writes, uris}
+  end
+
+  # A gate rebuilt from the record read, with nothing set differently, is the
+  # same record: writing it would change nothing but the repository's commit.
+  defp same_gate?(before, now), do: AtMcp.ATProto.wire_record(before) == now
+
+  defp gate_uri(gate, kind, rkey) do
+    {:ok, {repo, _, _}} = AtMcp.ATProto.parse_uri(gate["post"])
+    "at://#{repo}/#{AtMcp.Network.collection(kind)}/#{rkey}"
+  end
+
+  defp with_result({writes, uris}, result, commit),
+    do:
+      {:ok,
+       %{
+         writes: writes,
+         commit: commit,
+         result: Map.merge(%{ok: true}, Map.merge(result, uris))
+       }}
+
+  # The post an edit names, read through the account's service. A post the
+  # service will not hand over is the same refusal a reply's parent gets.
+  defp read_post(session, uri) do
+    with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri) do
+      case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+        {:ok, response} when is_map(response) -> {:ok, response}
+        {:ok, _other} -> {:error, {:referenced_record_unreadable, uri}}
+        {:error, reason} -> reference_error(uri, failure(reason))
+      end
+    end
+  end
+
+  # One of this account's gate records, or nil when the repository has none.
+  defp own_record(session, kind, rkey) do
+    case AtMcp.ATProto.get_record(session, %{
+           repo: session.did,
+           collection: AtMcp.Network.collection(kind),
+           rkey: rkey
+         }) do
+      {:ok, response} ->
+        case AtMcp.Response.fetch(response, :value) do
+          {:ok, value} when is_map(value) -> {:ok, value}
+          _ -> {:ok, nil}
+        end
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found] ->
+        {:ok, nil}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp reply?(response),
+    do: is_binary(AtMcp.Response.dig(response, [:value, :reply, :root, :uri]))
+
+  defp first_post(response, allow) do
+    if reply?(response) and allow not in [nil, :keep],
+      do:
+        invalid(
+          "reply_rule",
+          "applies to a thread's first post; this post is a reply, so who may reply is set on the thread's first post"
+        ),
+      else: :ok
+  end
+
+  defp thread_root(response, uri) do
+    case AtMcp.Response.dig(response, [:value, :reply, :root, :uri]) do
+      root when is_binary(root) -> {:ok, root}
+      _ -> invalid("uri", "#{uri} is not a reply; only replies can be hidden")
+    end
+  end
+
+  # The post a post quotes, alone or beside media.
+  defp quoted_post(response, uri) do
+    embed = AtMcp.Response.dig(response, [:value, :embed])
+
+    quoted =
+      AtMcp.Response.dig(embed, [:record, :record, :uri]) ||
+        AtMcp.Response.dig(embed, [:record, :uri])
+
+    with true <- is_binary(quoted),
+         {:ok, {_repo, collection, _rkey}} <- AtMcp.ATProto.parse_uri(quoted),
+         true <- AtMcp.Network.collection?(collection, :post) do
+      {:ok, quoted}
+    else
+      _ -> invalid("uri", "#{uri} does not quote a post")
+    end
+  end
+
+  defp own(session, repo, why) do
+    if AtMcp.Interactions.own_repo?(session, repo),
+      do: :ok,
+      else: invalid("uri", "names a post of another account's thread or post: #{why}")
+  end
+
+  defp strings(nil, _key), do: []
+
+  defp strings(record, key) do
+    case AtMcp.Response.fetch(record, key) do
+      {:ok, list} when is_list(list) -> Enum.filter(list, &is_binary/1)
+      _ -> []
+    end
+  end
+
+  defp invalid(path, message), do: {:error, {:invalid_argument, path, message}}
+
+  @doc """
+  The replies a thread read leaves out under the post at `uri`: those the
+  thread's author hid and those the account's own settings push down, such as
+  replies by accounts it muted. Each says which.
+  """
+  @impl true
+  def get_hidden_replies(session, uri) do
+    case AtMcp.ATProto.get_post_thread_other(session, %{anchor: uri}) do
+      {:ok, response} ->
+        case field(response, :thread) do
+          items when is_list(items) -> {:ok, Enum.map(items, &hidden_reply/1)}
+          _ -> {:error, unreadable("the replies a thread leaves out", response)}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp hidden_reply(item) when is_map(item) do
+    value = of_type(item, :value, &is_map/1) || %{}
+
+    (of_type(value, :post, &is_map/1) || %{uri: field(item, :uri)})
+    |> post_view()
+    |> Map.merge(%{
+      depth: of_type(item, :depth, &is_integer/1),
+      hidden_by_threadgate: flag(value, [:hidden_by_threadgate, :hiddenByThreadgate]),
+      muted_by_viewer: flag(value, [:muted_by_viewer, :mutedByViewer])
+    })
+  end
+
+  defp hidden_reply(other), do: %{value: to_string_safe(other)}
+
   # --- pins, thread mutes and bookmarks ---
 
   @doc """
@@ -1662,6 +2116,134 @@ defmodule AtMcp.Effects.ProtoRune do
     session
     |> AtMcp.ATProto.get_bookmarks(paging(opts, %{}))
     |> read(:bookmarks, &bookmark_item/1)
+  end
+
+  # --- drafts ---
+
+  @impl true
+  def get_drafts(session, opts) do
+    session
+    |> AtMcp.ATProto.get_drafts(paging(opts, %{}))
+    |> read(:drafts, &AtMcp.Summary.extract(:draft, &1))
+  end
+
+  # The service has no read of one draft, so finding one is reading pages of
+  # them. Drafts are few — the service may cap how many an account keeps — and
+  # this many pages of the largest page the lexicon allows is far past any
+  # cap seen; a draft beyond them is reported as not found.
+  @draft_page 100
+  @draft_pages 10
+
+  @doc """
+  The draft with this id, as the service holds it, in the keys it is written
+  with. A draft this account does not have is refused, naming `id`: the
+  service would ignore an update to it without saying so.
+  """
+  @impl true
+  def find_draft(session, id) when is_binary(id), do: find_draft(session, id, nil, @draft_pages)
+
+  defp find_draft(_session, id, _cursor, 0), do: no_draft(id)
+
+  defp find_draft(session, id, cursor, pages) do
+    case AtMcp.ATProto.get_drafts(
+           session,
+           AtMcp.ATProto.params(%{limit: @draft_page, cursor: cursor})
+         ) do
+      {:ok, response} ->
+        drafts = field(response, :drafts)
+
+        found =
+          is_list(drafts) &&
+            Enum.find(drafts, &(is_map(&1) and field(&1, :id) == id))
+
+        cond do
+          not is_list(drafts) ->
+            {:error, unreadable("a page of drafts", response)}
+
+          found ->
+            {:ok, AtMcp.ATProto.wire_record(field(found, :draft) || %{})}
+
+          is_binary(cursor_of(response)) ->
+            find_draft(session, id, cursor_of(response), pages - 1)
+
+          true ->
+            no_draft(id)
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp no_draft(id),
+    do: {:error, {:invalid_argument, "id", "this account has no draft with id #{id}"}}
+
+  @impl true
+  def save_draft(session, nil, draft) do
+    case AtMcp.ATProto.create_draft(session, %{draft: draft}) do
+      {:ok, response} when is_map(response) ->
+        case field(response, :id) do
+          id when is_binary(id) -> {:ok, draft_result(:save_draft, id, draft)}
+          _ -> {:error, unreadable("a created draft", response)}
+        end
+
+      {:ok, other} ->
+        {:error, unreadable("a created draft", other)}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  def save_draft(session, id, draft) when is_binary(id) do
+    case AtMcp.ATProto.update_draft(session, %{draft: %{"id" => id, "draft" => draft}}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> saved_draft(session, id, draft)
+    end
+  end
+
+  # `updateDraft` answers success for an id it does not hold and ignores the
+  # update (its lexicon says so), so a draft deleted between the read that
+  # found it and the update would be reported saved when nothing was. The
+  # draft is read again, for whether it still exists only: the service queues
+  # an update and applies it later, so `getDrafts` can still show the text from
+  # before, and the result carries the draft as sent. A draft gone by then is a
+  # refusal; a read that fails says nothing either way, so the update's outcome
+  # is unknown. A deletion still queued is not seen by this check.
+  defp saved_draft(session, id, draft) do
+    case find_draft(session, id) do
+      {:ok, _still_there} ->
+        {:ok, draft_result(:save_draft, id, draft)}
+
+      {:error, {:invalid_argument, "id", _}} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved. " <>
+               "Call save_draft without an id to keep the text as a new draft.",
+           detail: {:draft_gone, id}
+         )}
+
+      {:error, reason} ->
+        {:error, AtMcp.Effects.Failure.new(:indeterminate, detail: {:draft_unconfirmed, reason})}
+    end
+  end
+
+  @impl true
+  def delete_draft(session, id, draft) when is_binary(id) do
+    case AtMcp.ATProto.delete_draft(session, %{id: id}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, draft_result(:delete_draft, id, draft)}
+    end
+  end
+
+  defp draft_result(action, id, draft) do
+    %{
+      ok: true,
+      action: action,
+      id: id,
+      draft: AtMcp.Summary.extract(:draft, %{"id" => id, "draft" => draft})
+    }
   end
 
   # --- the write half ---
@@ -2269,10 +2851,45 @@ defmodule AtMcp.Effects.ProtoRune do
 
     node
     |> thread_node(2, 2)
+    |> mark_hidden(hidden_by_threadgate(thread, node))
     |> Map.put(:context, %{depth: 2, parent_height: 2, max_replies_per_node: @thread_max_replies})
   end
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
+
+  # `feed.getPostThread` returns the replies the thread's author hid among the
+  # others, unmarked; the app leaves them out because the thread's threadgate
+  # lists them. The response carries that threadgate (beside the thread, and on
+  # the root post's view when the root is the post read), so each reply it
+  # lists is marked where it stands.
+  defp hidden_by_threadgate(thread, node) do
+    [[:threadgate, :record, :hidden_replies], [:post, :threadgate, :record, :hidden_replies]]
+    |> Enum.zip([thread, node])
+    |> Enum.flat_map(fn {path, from} ->
+      case AtMcp.Response.dig(from, path) do
+        list when is_list(list) -> Enum.filter(list, &is_binary/1)
+        _ -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp mark_hidden(node, hidden) do
+    if MapSet.size(hidden) == 0, do: node, else: mark_hidden_node(node, hidden)
+  end
+
+  defp mark_hidden_node(node, hidden) when is_map(node) do
+    node =
+      if MapSet.member?(hidden, node[:uri]),
+        do: Map.put(node, :hidden_by_threadgate, true),
+        else: node
+
+    node
+    |> Map.update(:parent, nil, &mark_hidden_node(&1, hidden))
+    |> Map.update(:replies, [], fn replies -> Enum.map(replies, &mark_hidden_node(&1, hidden)) end)
+  end
+
+  defp mark_hidden_node(other, _hidden), do: other
 
   # `shown_below` is 1 for a parent: one of its replies is the post this read
   # shows under it.
