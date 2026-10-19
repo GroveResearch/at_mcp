@@ -4,7 +4,7 @@ defmodule AtMcp.MixProject do
   def project do
     [
       app: :at_mcp,
-      version: "0.2.10",
+      version: "0.2.11",
       elixir: "~> 1.19",
       description: "An agent's own AT Protocol identity, sessions and tools through MCP",
       package: [

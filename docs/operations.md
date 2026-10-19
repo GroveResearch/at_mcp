@@ -536,6 +536,22 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.10 to 0.2.11
+
+0.2.11 stores data in the same format as 0.2.10 and starts from the same
+environment, so rolling back works as below.
+
+- **`like` and `repost` take `cid` as optional** (#51, #125): left out, the
+  AppView's CID for the subject is used; a given cid that differs from the
+  record's is refused, naming the record's CID.
+- **A reference that can't be read says why** (#53, #124): not found (deleted,
+  taken down, never existed, or not indexed yet), or the service's own refusal.
+  A reply must name a post; a quote may name a post, feed, list, starter pack
+  or labeler.
+- **The input validator is loaded at start** (#74, #123), so the first checked
+  call can't miss its validation deadline (the stdio server runs through
+  `eval`, which loads code on demand).
+
 ### From 0.2.9 to 0.2.10
 
 0.2.10 stores data in the same format as 0.2.9 and starts from the same
