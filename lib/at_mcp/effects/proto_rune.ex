@@ -543,6 +543,125 @@ defmodule AtMcp.Effects.ProtoRune do
     |> read(:feed, &feed_item/1)
   end
 
+  # --- lists and starter packs ---
+
+  @impl true
+  def get_list(session, uri, opts) when is_binary(uri) do
+    case AtMcp.ATProto.get_list(session, paging(opts, %{list: uri})) do
+      {:ok, response} -> list_page(response)
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  # A list's members are a page; the list itself rides beside them.
+  defp list_page(response) do
+    with {:ok, page} <- page(response, :items, &list_member/1) do
+      case AtMcp.Response.fetch(response, :list) do
+        {:ok, list} when is_map(list) -> {:ok, Map.put(page, :list, list_view(list))}
+        _ -> {:error, unreadable("a list", response)}
+      end
+    end
+  end
+
+  @impl true
+  def get_lists(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_lists(list_paging(opts, actor))
+    |> read(:lists, &list_view/1)
+  end
+
+  @impl true
+  def get_lists_with_membership(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_lists_with_membership(list_paging(opts, actor))
+    |> read(:lists_with_membership, fn item -> with_membership(item, :list, &list_view/1) end)
+  end
+
+  defp list_paging(opts, actor),
+    do: Map.put(paging(opts, %{actor: actor}), :purposes, Keyword.get(opts, :purposes, []))
+
+  @impl true
+  def get_starter_pack(session, uri) when is_binary(uri) do
+    case AtMcp.ATProto.get_starter_pack(session, %{starterPack: uri}) do
+      {:ok, response} ->
+        case AtMcp.Response.fetch(response, :starter_pack) do
+          {:ok, pack} when is_map(pack) -> {:ok, pack_view(pack)}
+          _ -> {:error, unreadable("a starter pack", response)}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_actor_starter_packs(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_actor_starter_packs(paging(opts, %{actor: actor}))
+    |> read(:starter_packs, &pack_view/1)
+  end
+
+  @impl true
+  def search_starter_packs(session, query, opts) when is_binary(query) do
+    session
+    |> AtMcp.ATProto.search_starter_packs(paging(opts, %{q: query}))
+    |> read(:starter_packs, &pack_view/1)
+  end
+
+  @impl true
+  def get_starter_packs_with_membership(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_starter_packs_with_membership(paging(opts, %{actor: actor}))
+    |> read(:starter_packs_with_membership, fn item ->
+      with_membership(item, :starter_pack, &pack_view/1)
+    end)
+  end
+
+  # A list or starter pack read with an account in mind, and the list item
+  # that puts that account in it, if one does.
+  defp with_membership(item, key, view) when is_map(item) do
+    viewed =
+      case AtMcp.Response.fetch(item, key) do
+        {:ok, value} when is_map(value) -> view.(value)
+        _ -> view.(%{})
+      end
+
+    item_uri =
+      AtMcp.Response.dig(item, [:list_item, :uri]) ||
+        AtMcp.Response.dig(item, ["listItem", "uri"])
+
+    Map.put(viewed, :member_item, if(is_binary(item_uri), do: item_uri))
+  end
+
+  defp with_membership(other, _key, _view), do: %{value: to_string_safe(other)}
+
+  # A list's purpose in the words the list tools take: a token's name on any
+  # network, or the value as sent when this version does not know it.
+  defp purpose_name(token) when is_atom(token) and not is_nil(token),
+    do: purpose_name(Atom.to_string(token))
+
+  defp purpose_name(token) when is_binary(token) do
+    case token |> String.split("#") |> List.last() do
+      "curatelist" -> "curate"
+      "modlist" -> "moderation"
+      "referencelist" -> "reference"
+      _ -> token
+    end
+  end
+
+  defp purpose_name(other), do: other
+
+  defp list_view(list) when is_map(list) do
+    summary = AtMcp.Summary.extract(:list, list)
+    %{summary | purpose: purpose_name(summary.purpose)}
+  end
+
+  defp list_view(other), do: %{value: to_string_safe(other)}
+
+  defp list_member(item), do: AtMcp.Summary.extract(:list_member, item)
+
+  defp pack_view(pack), do: AtMcp.Summary.extract(:starter_pack, pack)
+
   @doc """
   Publish a post. `opts` carries what a post can hold beyond its text:
   `:reply` (a parent AT URI), `:images`, `:quote` and `:langs`.
@@ -1352,6 +1471,13 @@ defmodule AtMcp.Effects.ProtoRune do
   def summarize(:profile, response), do: {:ok, summarize_profile(response)}
   def summarize(:likes, response), do: page(response, :likes, &actor_item/1)
   def summarize(:feeds, response), do: page(response, :feeds, &summarize_generator/1)
+  def summarize(:list, response), do: list_page(response)
+  def summarize(:lists, response), do: page(response, :lists, &list_view/1)
+
+  def summarize(:starter_pack, response),
+    do: {:ok, pack_view(field(response, :starter_pack))}
+
+  def summarize(:starter_packs, response), do: page(response, :starter_packs, &pack_view/1)
 
   defp summarize_thread(thread) when is_map(thread) do
     node = field(thread, :thread) || thread

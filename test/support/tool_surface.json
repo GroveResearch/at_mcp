@@ -102,6 +102,16 @@
         "uri"
       ]
     },
+    "get_list": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "get_list_feed": {
       "arguments": {
         "cursor": "string",
@@ -111,6 +121,16 @@
       "required": [
         "list"
       ]
+    },
+    "get_lists": {
+      "arguments": {
+        "actor": "string",
+        "contains": "string",
+        "cursor": "string",
+        "limit": "integer",
+        "purpose": "string"
+      },
+      "required": []
     },
     "get_membership": {
       "arguments": {},
@@ -189,6 +209,24 @@
       "required": [
         "uri"
       ]
+    },
+    "get_starter_pack": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_starter_packs": {
+      "arguments": {
+        "actor": "string",
+        "contains": "string",
+        "cursor": "string",
+        "limit": "integer",
+        "query": "string"
+      },
+      "required": []
     },
     "get_suggested_feeds": {
       "arguments": {

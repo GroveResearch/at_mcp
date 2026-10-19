@@ -110,7 +110,10 @@ defmodule AtMcp.Network do
     reason_pin: "feed.defs#reasonPin",
     post_view: "feed.defs#postView",
     not_found_post: "feed.defs#notFoundPost",
-    blocked_post: "feed.defs#blockedPost"
+    blocked_post: "feed.defs#blockedPost",
+    curatelist: "graph.defs#curatelist",
+    modlist: "graph.defs#modlist",
+    referencelist: "graph.defs#referencelist"
   }
 
   # Read at compile time so a release carries no runtime dependency on priv/.
@@ -312,7 +315,8 @@ defmodule AtMcp.Network do
   labeler (`:generator_view`, `:list_view`, `:starter_pack_view`,
   `:labeler_view`), a feed reason (`:reason_repost`, `:reason_pin`), or a
   reply's parent or root in a feed (`:post_view`, `:not_found_post`,
-  `:blocked_post`).
+  `:blocked_post`), or a list's purpose (`:curatelist`, `:modlist`,
+  `:referencelist`).
   """
   @spec type(atom()) :: String.t()
   def type(kind) when is_map_key(@types, kind), do: nsid(Map.fetch!(@types, kind))

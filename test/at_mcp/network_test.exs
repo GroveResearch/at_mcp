@@ -205,10 +205,17 @@ defmodule AtMcp.NetworkTest do
       AtMcp.ATProto.get_profiles(session, ["self.example"])
       AtMcp.ATProto.get_posts(session, ["at://did:plc:x/c/1"])
       AtMcp.ATProto.get_relationships(session, "self.example", ["other.example"])
+      AtMcp.ATProto.get_list(session, %{list: "at://did:plc:x/c/1"})
+      AtMcp.ATProto.get_lists(session, %{actor: "self.example", purposes: ["curatelist"]})
+      AtMcp.ATProto.get_lists_with_membership(session, %{actor: "self.example"})
+      AtMcp.ATProto.get_starter_pack(session, %{starterPack: "at://did:plc:x/c/1"})
+      AtMcp.ATProto.get_actor_starter_packs(session, %{actor: "self.example"})
+      AtMcp.ATProto.search_starter_packs(session, %{q: "x"})
+      AtMcp.ATProto.get_starter_packs_with_membership(session, %{actor: "self.example"})
 
       asked = Agent.get(paths, & &1)
 
-      assert length(asked) == 25
+      assert length(asked) == 32
       assert Enum.all?(asked, &String.starts_with?(&1, "/xrpc/town.delve."))
     end
   end

@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 43 tools: 42 network verbs, plus
+`AtMcp.MCP.Server` declares 47 tools: 46 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -107,7 +107,10 @@ feeds, searches, `get_posts`, `get_thread`, `get_thread_chain`), where it is
 `AtMcp.Reading`'s text: each post's author, time, what it replies to, its
 text, attachments, the like, repost, reply and quote counts and the post's and
 author's labels when the service sent them, and the uri and cid the write tools
-take, with no `null`s and none of the fields only a program uses. Most MCP clients give a model
+take, with no `null`s and none of the fields only a program uses. Lists and
+starter packs read the same way (`get_list`, `get_lists`, `get_starter_pack`,
+`get_starter_packs`): a list's name, kind, size and maker, then its accounts,
+each with the list item record that puts it there. Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients
@@ -127,6 +130,7 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_suggested_feeds`, `get_list_feed`, `get_actor_likes` |
 | Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
+| Lists | `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
 | Account | `identity_status` |
 
@@ -221,8 +225,9 @@ quota to read. It exists because an agent acts faster than a person while the
 account outlives the run. There is no tool for declining to act; an agent that
 ends its turn without calling a write tool has not posted.
 
-Absent from the surface: lists, starter packs, saved and pinned feeds, pinned
-posts, thread gates and reply controls, self-labels, bookmarks,
+Absent from the surface: making and editing lists and starter packs, saved
+and pinned feeds, pinned posts, thread gates and reply controls, self-labels,
+bookmarks,
 posting video or link cards, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from

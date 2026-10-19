@@ -166,6 +166,10 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_feed", %{"feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
     {"get_suggested_feeds", %{}},
     {"get_list_feed", %{"list" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
+    {"get_list", %{"uri" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
+    {"get_lists", %{"actor" => "alice.test", "purpose" => "curate"}},
+    {"get_starter_pack", %{"uri" => "at://did:plc:mock/app.bsky.graph.starterpack/p1"}},
+    {"get_starter_packs", %{"query" => "agents"}},
     {"post", %{"text" => "café 日本語 🪁"}},
     {"reply", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "text" => "reply"}},
     {"like", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "cid" => "bafyfixture"}},
@@ -196,7 +200,11 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_feed" => :posts,
     "get_list_feed" => :posts,
     "get_thread" => :thread,
-    "get_thread_chain" => :chain
+    "get_thread_chain" => :chain,
+    "get_list" => :list,
+    "get_lists" => :lists,
+    "get_starter_pack" => :starter_pack,
+    "get_starter_packs" => :starter_packs
   }
 
   test "every tool returns structured content its declared schema accepts" do
@@ -293,6 +301,12 @@ defmodule AtMcp.MCP.ToolsTest do
     assert Map.has_key?(items.("get_relationships"), "followed_by")
 
     assert Map.has_key?(items.("get_notifications"), "reason")
+
+    # A list's page is its members, and the list rides beside them; lists and
+    # starter packs are neither posts nor profiles.
+    assert Map.has_key?(items.("get_list"), "item_uri")
+    assert Map.has_key?(items.("get_lists"), "purpose")
+    assert Map.has_key?(items.("get_starter_packs"), "members_sample")
   end
 
   test "account failures give stable codes and a recovery action" do

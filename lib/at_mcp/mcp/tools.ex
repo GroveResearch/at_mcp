@@ -171,6 +171,19 @@ defmodule AtMcp.MCP.Tools do
     )
   end
 
+  # An argument the input schema accepts and AtMcp still cannot act on: a post
+  # in another account's repository, a list URI that is not a list. It is the
+  # same refusal as a schema mismatch, naming the argument, and it is decided
+  # before anything is sent.
+  def respond({:error, {:invalid_argument, path, message}}, state) do
+    error(
+      state,
+      "invalid_arguments",
+      "error: #{path}: #{message}. Nothing was sent and nothing was counted against the write quota.",
+      %{problems: [%{path: path, message: message}]}
+    )
+  end
+
   def respond({:error, {:write_quota_exhausted, resets_at}}, state) do
     reset = iso8601(resets_at)
 
@@ -243,9 +256,10 @@ defmodule AtMcp.MCP.Tools do
   def respond(other, state), do: {:ok, encode(other), state}
 
   @doc """
-  `respond/2` for a read made of posts. The structured content is the same;
-  the text a model reads is `AtMcp.Reading`'s `reading` of it (`:posts`,
-  `:notifications`, `:thread` or `:chain`) instead of the serialized JSON. A
+  `respond/2` for a read made of posts, lists or starter packs. The
+  structured content is the same; the text a model reads is `AtMcp.Reading`'s
+  `reading` of it (`:posts`, `:notifications`, `:thread`, `:chain`, `:list`,
+  `:lists`, `:starter_pack` or `:starter_packs`) instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """
   def respond({:ok, summary}, state, reading) do
