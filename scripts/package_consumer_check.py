@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-package-") as scratch:
                          "licenses/flock_ex/LICENSE", "licenses/flock_ex/NOTICE.md",
                          "licenses/lexicons/LICENSE.txt", "licenses/lexicons/LICENSE-MIT.txt",
                          "licenses/lexicons/LICENSE-APACHE.txt", "licenses/lexicons/NOTICE.md",
-                         "lib/at_mcp/native_lock.ex"]:
+                         "lib/at_mcp/native_lock.ex", "VERSION"]:
             assert required in names, f"package missing {required}"
         repo = Path(__file__).resolve().parent.parent
         for source in (repo / "licenses").rglob("*"):
@@ -38,6 +38,10 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-package-") as scratch:
         assert any(name.startswith("priv/lexicons/") for name in names)
         assert not any(name.endswith((".so", ".beam")) for name in names), "host binaries in package"
         inner.extractall(package, filter="data")
+    # The package is the version in its VERSION, whatever the consumer's own
+    # environment says (RELEASE_VERSION below is the consumer's, not ours).
+    version = (package / "VERSION").read_text().strip()
+    assert re.fullmatch(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?", version), f"package VERSION {version!r}"
     consumer = root / "consumer"
     (consumer / "config").mkdir(parents=True)
     (consumer / "mix.exs").write_text('''defmodule Consumer.MixProject do
@@ -55,7 +59,8 @@ end
                                'System.fetch_env!("CONSUMER_STATE")')
     (consumer / "config/config.exs").write_text("import Config\n" + config)
     (consumer / "check.exs").write_text(
-        'false = Map.has_key?(:ranch.info(), :at_mcp_http)\n' + blocks[2] + '''
+        'false = Map.has_key?(:ranch.info(), :at_mcp_http)\n'
+        f'"{version}" = to_string(Application.spec(:at_mcp, :vsn))\n' + blocks[2] + '''
 "did:plc:agent.test" = profile.did
 "did:plc:agent.test" = AtMcp.Effects.session_did(effects)
 {:ok, post} = AtMcp.Effects.post(effects, "Hello from the unpacked package")
@@ -73,7 +78,8 @@ IO.puts("package consumer: documented identity/profile/disconnect/reconnect plus
                    MIX_HOME=os.environ.get("MIX_HOME", str(Path.home() / ".mix")))
         env.update(CONSUMER_STATE=str(root / "state"), AT_MCP_SERVICE=pds.url,
                    AT_MCP_HANDLE="agent.test", AT_MCP_APP_PASSWORD="fixture-app-password",
-                   PROTO_RUNE_PATH=str(root / "nonexistent-override-must-be-ignored"))
+                   PROTO_RUNE_PATH=str(root / "nonexistent-override-must-be-ignored"),
+                   RELEASE_VERSION="9.9.9-consumer-must-be-ignored")
         subprocess.run(["mix", "deps.get"], cwd=consumer, env=env, check=True)
         subprocess.run(["mix", "run", "check.exs"], cwd=consumer, env=env, check=True)
         assert FakePDS.created == 1, "exactly one fixture write expected"

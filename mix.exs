@@ -4,7 +4,7 @@ defmodule AtMcp.MixProject do
   def project do
     [
       app: :at_mcp,
-      version: "0.2.11",
+      version: version(),
       elixir: "~> 1.19",
       description: "An agent's own AT Protocol identity, sessions and tools through MCP",
       package: [
@@ -17,6 +17,7 @@ defmodule AtMcp.MixProject do
           "c_src",
           "Makefile",
           "mix.exs",
+          "VERSION",
           "README.md",
           "decisions.md",
           "LICENSE",
@@ -48,6 +49,34 @@ defmodule AtMcp.MixProject do
     ]
   end
 
+  # The version comes from the release tag, not from this file, so a release
+  # is cut by pushing a tag and nothing else. In order:
+  #
+  #   VERSION          a file beside this one that CI writes into the Hex
+  #                    package it publishes, so an application depending on
+  #                    the package compiles it as the version it asked for,
+  #                    whatever its own environment holds. Not committed;
+  #                    `mix hex.build` refuses to build a package without it.
+  #   RELEASE_VERSION  the environment, which CI sets from a `vX.Y.Z` tag
+  #                    (scripts/release_version.sh) when it builds a release.
+  #   0.0.0-dev        anything else: a checkout, a pull request, main. The
+  #                    release's BUILD still names the commit it came from.
+  #
+  # A value that is not a semantic version stops the build.
+  defp version do
+    given =
+      case File.read(Path.join(__DIR__, "VERSION")) do
+        {:ok, file} -> String.trim(file)
+        {:error, _} -> String.trim(System.get_env("RELEASE_VERSION", ""))
+      end
+
+    cond do
+      given == "" -> "0.0.0-dev"
+      match?({:ok, _}, Version.parse(given)) -> given
+      true -> Mix.raise("version #{inspect(given)} is not a semantic version (X.Y.Z)")
+    end
+  end
+
   def application do
     [
       extra_applications: [:logger, :inets, :ssl],
@@ -67,12 +96,27 @@ defmodule AtMcp.MixProject do
   # installing one needs only the release.
   @doc false
   def write_build(release) do
+    same_version!(release)
     File.write!(Path.join(release.path, "BUILD"), build_name(release.version) <> "\n")
     File.cp_r!("rel/examples", Path.join(release.path, "examples"))
     File.cp_r!("licenses", Path.join(release.path, "licenses"))
     File.cp!("LICENSE", Path.join(release.path, "LICENSE"))
     Code.require_file("rel/notices.exs")
     AtMcp.ReleaseNotices.install(release)
+  end
+
+  # Mix recompiles on file changes, not on RELEASE_VERSION, so a build left
+  # from another version would go into this release under the old version.
+  # CI always builds from nothing; elsewhere this says to.
+  defp same_version!(release) do
+    built = to_string(release.applications[:at_mcp][:vsn])
+
+    if built != release.version do
+      Mix.raise(
+        "at_mcp was compiled as #{built}, but this release is #{release.version}: " <>
+          "run `MIX_ENV=#{Mix.env()} mix clean` and build the release again"
+      )
+    end
   end
 
   defp build_name(version) do

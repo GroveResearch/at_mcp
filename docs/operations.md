@@ -989,6 +989,12 @@ mix deps.get
 MIX_ENV=prod mix release               # _build/prod/rel/at_mcp
 ```
 
+A build from a checkout is version `0.0.0-dev`; its `BUILD` file names the
+commit. To build it as a version, as CI does for a tag, set `RELEASE_VERSION`:
+`RELEASE_VERSION=0.3.0 MIX_ENV=prod mix release`. Mix does not recompile when
+only the version changes, so after building another version run
+`MIX_ENV=prod mix clean` first; the release refuses to assemble otherwise.
+
 For direct stdio, use the absolute path to `_build/prod/rel/at_mcp/bin/at_mcp-stdio`
 in the [client configuration](../README.md#connect-a-first-account). To use the
 service units, first copy the build into their release layout. These commands
@@ -1196,21 +1202,34 @@ baseline must be available in this public repository; no private Git history
 is required. Do not skip the check or use a rebuilt candidate as its own
 previous release.
 
-Pushing a version tag publishes one; a merge to `main` does not. A release is
-its version: bump `version:` in `mix.exs` in a pull request and merge it,
-then tag that commit of `main` with `v` and the version (for 0.3.0):
+Pushing a version tag publishes one; a merge to `main` does not. The tag is
+the version: nothing in the repository changes to cut a release. Tag a commit
+of `main` whose run of `check` passed in the merge queue or on main, with `v`
+and the version (for 0.3.0):
 
 ```sh
-git tag v0.3.0 && git push origin v0.3.0
+git tag -a v0.3.0 -m "AtMcp 0.3.0" origin/main && git push origin v0.3.0
 ```
 
-CI tests the tagged commit, refuses a tag that is not `v` + the version in
-`mix.exs`, builds the Linux and macOS releases, and publishes only after both platforms
-pass. Publication requires both exact-version tarballs and their checksum files;
-a partial platform build does not create or replace a release. Once the GitHub
-release is published, CI publishes the package and its docs to Hex with
-`mix hex.publish`, using the `HEX_API_KEY` secret in the repository's `hex`
-environment.
+(`origin/main` after a `git fetch`; any older commit of main that passed works
+too.) CI refuses a tag that is not `vX.Y.Z`, or whose commit is not on main or
+has no passing run of `check` there, before anything is built
+(`scripts/release_version.sh`). It then builds and tests the tagged commit as
+that version (`RELEASE_VERSION`, which `mix.exs` reads), builds the Linux and
+macOS releases, and publishes only after both platforms pass. Publication
+requires both exact-version tarballs and their checksum files; a partial
+platform build does not create or replace a release. Once the GitHub release
+is published, CI writes the version into the package's `VERSION` file and
+publishes the package and its docs to Hex with `mix hex.publish`, using the
+`HEX_API_KEY` secret in the repository's `hex` environment. A tag that was
+refused, or whose run failed, publishes nothing; delete it
+(`git push origin :refs/tags/v0.3.0`) and tag again.
+
+Upgrade notes are not a release step. A pull request that changes what an
+upgrade needs, or what an operator sees, adds its note under
+[Upgrade](#upgrade) in that same pull request, in a section headed
+`From A to the next release`, A being the newest release; the first pull
+request after a release renames that heading to the version it shipped as.
 
 ## Bootstrap a fresh public repository
 

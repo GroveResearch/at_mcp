@@ -15,9 +15,13 @@ name: check
 #   on request     test, release (Linux), macos; nothing is published
 #
 # Publishing is a deliberate act: docs/operations.md's "Publish a release"
-# says how to push a tag. A release is its version: the tag is `v` + the
-# version in mix.exs, and the build jobs refuse any other. Both advertised
-# platforms must pass before a release can be created or updated.
+# says how to push a tag. The tag is the version: a `vX.Y.Z` tag builds and
+# publishes X.Y.Z (scripts/release_version.sh sets RELEASE_VERSION, which
+# mix.exs reads), and nothing in the repository is changed to cut one. `test`
+# refuses any other tag, and a tag on a commit that is not on main or has no
+# passing run of this workflow in the merge queue or on main, before anything
+# is built. Both advertised platforms must pass before a release can be
+# created or updated.
 # macOS runs only on a tag or on request because macOS runner minutes on this
 # private repository bill at ten times Linux's.
 #
@@ -52,13 +56,25 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # actions: read lets a tag's run find the passing run of its commit.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v7
+
+      # On a tag, the version it publishes; nothing otherwise. A tag that is
+      # not vX.Y.Z on a commit of main that passed this workflow stops here.
+      - name: Take the version from the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release_version.sh --from-green-main >> "$GITHUB_ENV"
 
       - name: Verify release platform and baseline contracts
         run: |
           python3 scripts/release_platform_contract_test.py
           python3 scripts/published_release_test.py
+          scripts/release_version_test.sh
 
       # The runtime is pinned to a version whose upstream license notices are
       # in rel/notices/, because the release refuses to build without them
@@ -90,11 +106,14 @@ jobs:
 
       # The package's consumer compiles every dependency from nothing, so this
       # runs in the merge queue and on main, not on each pull request push.
+      # The package carries its version in VERSION, as the hex job writes it.
       - name: Build documentation and the local Hex package
         if: github.event_name != 'pull_request'
         run: |
           mix docs
+          echo "${RELEASE_VERSION:-0.0.0-dev}" > VERSION
           mix hex.build
+          rm VERSION
           python3 scripts/package_consumer_check.py at_mcp-*.tar
 
       # The official client packages gate the independent MCP checks. Without
@@ -187,17 +206,20 @@ jobs:
 
       - run: mix deps.get
 
+      # `test` has already refused a bad tag; this only names the version.
+      - name: Take the version from the tag
+        run: scripts/release_version.sh >> "$GITHUB_ENV"
+
       - run: mix release
 
-      # A release is its version: the tag that publishes it is `v` + the
-      # version in mix.exs, and a pushed tag that says anything else stops here.
-      - name: Name the release and check the tag
+      # On a tag, the release must be the tag's version.
+      - name: Name the release and check it is the tag's version
         id: build
         run: |
           test "$(uname -m)" = x86_64
           version=$(cut -d' ' -f2 _build/prod/rel/at_mcp/releases/start_erl.data)
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "the tag is $GITHUB_REF_NAME, but mix.exs says version $version: a release tag is v$version"
+          if [ -n "${RELEASE_VERSION:-}" ] && [ "$version" != "$RELEASE_VERSION" ]; then
+            echo "the tag is v$RELEASE_VERSION, but the release was built as $version"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -288,17 +310,20 @@ jobs:
 
       - run: mix deps.get
 
+      # `test` has already refused a bad tag; this only names the version.
+      - name: Take the version from the tag
+        run: scripts/release_version.sh >> "$GITHUB_ENV"
+
       - run: mix release
 
-      # A release is its version: the tag that publishes it is `v` + the
-      # version in mix.exs, and a pushed tag that says anything else stops here.
-      - name: Name the release and check the tag
+      # On a tag, the release must be the tag's version.
+      - name: Name the release and check it is the tag's version
         id: build
         run: |
           test "$(uname -m)" = arm64
           version=$(cut -d' ' -f2 _build/prod/rel/at_mcp/releases/start_erl.data)
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "the tag is $GITHUB_REF_NAME, but mix.exs says version $version: a release tag is v$version"
+          if [ -n "${RELEASE_VERSION:-}" ] && [ "$version" != "$RELEASE_VERSION" ]; then
+            echo "the tag is v$RELEASE_VERSION, but the release was built as $version"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -423,9 +448,10 @@ jobs:
           fi
 
   # The Hex package and its docs, from the tagged commit, once its GitHub
-  # release is published. The build jobs have already refused a tag that is
-  # not `v` + the version in mix.exs. HEX_API_KEY is a Hex key that can publish
-  # this package, kept in the `hex` environment, which only v* tags can use.
+  # release is published, as the tag's version. The package carries that
+  # version in VERSION, so an application depending on it compiles it as the
+  # version it asked for. HEX_API_KEY is a Hex key that can publish this
+  # package, kept in the `hex` environment, which only v* tags can use.
   hex:
     needs: publish
     if: ${{ !cancelled() && needs.publish.result == 'success' }}
@@ -442,6 +468,11 @@ jobs:
           otp-version: "28.5.0.7"
 
       - run: mix deps.get
+
+      - name: Write the tag's version into the package
+        run: |
+          scripts/release_version.sh | cut -d= -f2 > VERSION
+          test -s VERSION
 
       - run: mix hex.publish --yes
         env:
