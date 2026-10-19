@@ -20,14 +20,21 @@ KINDS = {"query", "procedure", "subscription", "record"}
 
 
 def walk(root):
+    if not os.path.isdir(root):
+        sys.exit(f"no lexicon directory at {root}")
     for d, _, files in os.walk(root):
         for f in files:
             if not f.endswith(".json"):
                 continue
+            path = os.path.join(d, f)
+            # A lexicon that cannot be read (a broken symlink, a file that is
+            # not JSON) stops the script: skipping it would drop its NSID from
+            # the list, and the coverage test would pass without it.
             try:
-                doc = json.load(open(os.path.join(d, f)))
-            except (OSError, ValueError):
-                continue
+                with open(path) as fh:
+                    doc = json.load(fh)
+            except (OSError, ValueError) as err:
+                sys.exit(f"cannot read lexicon {path}: {err}")
             kind = doc.get("defs", {}).get("main", {}).get("type")
             if kind in KINDS:
                 yield doc["id"], kind
