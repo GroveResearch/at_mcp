@@ -226,7 +226,15 @@ defmodule AtMcp.Reading do
     image_lines ++ [link, video, quote, other]
   end
 
-  defp alt(%{"alt" => alt}) when is_binary(alt) and alt != "", do: alt
+  # Alt text on one line: what the author wrote cannot start a line of its own
+  # that reads as another post.
+  defp alt(%{"alt" => alt}) when is_binary(alt) do
+    case one_line(alt) do
+      "" -> "no alt text"
+      alt -> alt
+    end
+  end
+
   defp alt(_image), do: "no alt text"
 
   # "[link: Title — description (https://...)]", leaving out what the card does
@@ -234,11 +242,11 @@ defmodule AtMcp.Reading do
   defp link(%{"uri" => uri} = link, form) when is_binary(uri) do
     said =
       lines(
-        [link["title"], if(form == :card, do: link["description"])]
-        |> Enum.map(&one_line/1),
+        [one_line(link["title"]), if(form == :card, do: capped(link["description"]))],
         " — "
       )
 
+    uri = escape_uri(uri)
     if said == "", do: "[link: #{uri}]", else: "[link: #{said} (#{uri})]"
   end
 
@@ -250,13 +258,35 @@ defmodule AtMcp.Reading do
 
   defp one_line(_text), do: nil
 
+  @description_limit 300
+
+  # A card's description, on one line and at most 300
+  # characters: a page's summary, not the page. The structured content keeps it
+  # whole.
+  defp capped(text) do
+    case one_line(text) do
+      text when is_binary(text) ->
+        if String.length(text) > @description_limit,
+          do: String.slice(text, 0, @description_limit - 1) <> "…",
+          else: text
+
+      other ->
+        other
+    end
+  end
+
+  # A URL has no whitespace; one that arrives with some has it percent-encoded,
+  # so it stays one URL on one line.
+  defp escape_uri(uri), do: String.replace(uri, ~r/\s/u, &URI.encode/1)
+
   defp video(%{} = video), do: "[video: #{alt(video)}]"
   defp video(_video), do: nil
 
   defp quoted(%{"status" => "available", "kind" => kind} = quote)
        when kind in ["feed", "list", "starter_pack", "labeler"] do
-    name = if is_binary(quote["name"]) and quote["name"] != "", do: ~s( "#{quote["name"]}")
-    by = if is_binary(quote["creator"]), do: " by @#{quote["creator"]}"
+    name = one_line(quote["name"])
+    name = if name not in [nil, ""], do: ~s( "#{name}")
+    by = if is_binary(quote["creator"]), do: " by @#{one_line(quote["creator"])}"
     about = one_line(quote["description"])
     about = if about not in [nil, ""], do: ": #{about}"
 

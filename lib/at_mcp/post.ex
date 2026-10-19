@@ -213,8 +213,16 @@ defmodule AtMcp.Post do
 
     entries = if gallery, do: get(media, [:items]), else: get(media, [:images])
 
+    # A gallery item is a union; only its image members are images.
+    image_types = [
+      Network.type(:embed_gallery) <> "#viewImage",
+      Network.type(:embed_gallery) <> "#image"
+    ]
+
     if is_list(entries) do
-      for entry <- entries, is_map(entry) do
+      for entry <- entries,
+          is_map(entry),
+          not gallery or get(entry, [:"$type"]) in image_types do
         thumb = get(entry, [:thumb]) || get(entry, [:thumbnail])
         fullsize = get(entry, [:fullsize])
         blob = get(entry, [:image])
