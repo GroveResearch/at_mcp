@@ -134,6 +134,32 @@ defmodule AtMcp.Effects.Backend do
               {:ok, summary()} | {:error, reason()}
 
   @doc """
+  Read what a list or starter pack write keeps or removes, and build every
+  record it sends, before anything is sent. `request` is one of:
+
+    * `{:create_list, %{name, purpose, description, avatar}}`, `purpose` a
+      token (`:curatelist`, `:modlist`), `avatar` `%{data, mime_type}` or nil
+    * `{:update_list, uri, changes}` and `{:update_starter_pack, uri, changes}`,
+      `changes` holding only the fields that change (`:name`, `:description`,
+      `:avatar`, `:feeds`); `""` and `[]` remove a field
+    * `{:delete_list, uri}` and `{:delete_starter_pack, uri}`
+    * `{:add_to_list, uri, did}` and `{:remove_from_list, uri, did}`, `uri` a
+      list or a starter pack
+    * `{:create_starter_pack, %{name, description, actors, feeds}}`, `actors`
+      DIDs
+    * `{:set_list_opt_out, uri, opted_out}`, `uri` anyone's starter pack or
+      its list
+
+  Every `uri` but the last's is this account's, in DID form. A record the
+  request cannot apply to (no list there, a starter pack's list given to
+  `delete_list`, an account that is not on the list) is
+  `{:invalid_argument, field, message}`. The result is passed to
+  `write_list/2` unchanged.
+  """
+  @callback prepare_list_write(state(), request :: tuple()) :: {:ok, term()} | {:error, reason()}
+  @callback write_list(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
   Build a complete post before its quota reservation and dispatch mark.
 
   Resolve references and rich text and prepare any blobs here. No post record

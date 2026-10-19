@@ -31,8 +31,11 @@ defmodule AtMcp.LimitsTest do
   test "every batch tool states the batch limit the account enforces", %{tools: tools} do
     max = AtMcp.Effects.max_batch()
 
+    # Batch reads. `create_starter_pack` also takes `actors`, bounded by the
+    # commit that writes them, not by this limit.
     batches =
       for {name, tool} <- tools,
+          tool.annotations[:readOnlyHint] == true,
           {param, %{type: "array"} = schema} <- tool.inputSchema.properties,
           param in [:uris, :actors, :others],
           do: {name, tool, schema}

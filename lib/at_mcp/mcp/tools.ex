@@ -30,6 +30,23 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "changed_meanwhile", "error: " <> failure.message)
 
+  # A deletion too large for one commit that stopped part way: the commits
+  # that landed deleted `deleted`, and the message says what became of the
+  # next one, in the service's words.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:partially_written, deleted, _}} =
+           failure},
+        state
+      ),
+      do:
+        error(
+          state,
+          "partially_written",
+          "error: " <> failure.message,
+          Map.reject(%{deleted: deleted, http_status: failure.status}, fn {_, v} -> is_nil(v) end)
+        )
+
   def respond(
         {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:draft_gone, id}} = failure},
         state
@@ -384,6 +401,28 @@ defmodule AtMcp.MCP.Tools do
       else
         AtMcp.Effects.update_profile(effects, updates)
       end
+    end
+  end
+
+  @doc """
+  The fields of a list or starter pack write, from tool arguments: the given
+  `keys`, leaving out any not given, and an `avatar` read into bytes here, as
+  a post's images are, so a bad one refuses the call before anything is sent.
+  """
+  def list_fields(args, keys) when is_map(args) do
+    fields =
+      for key <- keys, key != :avatar, Map.has_key?(args, key), into: %{}, do: {key, args[key]}
+
+    if :avatar in keys do
+      case Map.get(args, :avatar) do
+        image when image in [nil, %{}] ->
+          {:ok, fields}
+
+        image ->
+          with {:ok, image} <- decode_image(image), do: {:ok, Map.put(fields, :avatar, image)}
+      end
+    else
+      {:ok, fields}
     end
   end
 

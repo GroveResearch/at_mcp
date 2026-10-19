@@ -21,7 +21,8 @@ defmodule AtMcp.Test.FakePDS do
   `deleteDraft` change them, and an update to an id it does not hold is ignored
   and answered `{}`, as the lexicon says. With `drafts_lag: true` an update is
   accepted and not applied yet, as a service that queues it does. Any other
-  method answers `{}`.
+  method answers `{}`. An answer given as a list is taken one per call, the
+  last staying; `:default` in it stands for the PDS's own answer.
   """
   import Plug.Conn
 
@@ -98,6 +99,10 @@ defmodule AtMcp.Test.FakePDS do
         {:ok, [answer]} ->
           answer
 
+        {:ok, [:default | rest]} ->
+          Agent.update(state, &put_in(&1.answers[method], rest))
+          Agent.get_and_update(state, &answer(method, call, &1))
+
         {:ok, [answer | rest]} ->
           Agent.update(state, &put_in(&1.answers[method], rest))
           answer
@@ -173,7 +178,8 @@ defmodule AtMcp.Test.FakePDS do
         end
       end)
 
-    {{200, %{results: results}}, %{state | records: records}}
+    state = %{state | records: records}
+    {{200, %{results: results, commit: %{cid: commit(state), rev: "rev"}}}, state}
   end
 
   defp answer("com.atproto.repo.listRecords", %{query: q}, state) do

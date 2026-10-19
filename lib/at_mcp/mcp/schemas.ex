@@ -127,6 +127,19 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `actors` parameter of `create_starter_pack`, stating how many accounts
+  one commit makes a pack with (`AtMcp.Effects.max_pack_actors/0`).
+  """
+  defmacro pack_actors(description) do
+    max = AtMcp.Effects.max_pack_actors()
+
+    Macro.escape(
+      description: "#{description}; at most #{max}",
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc """
   A tool description with the limits it names filled in from their
   declarations: `{batch}` is the batch range, `{thread}` the shape
   `get_thread` reads.
@@ -170,6 +183,8 @@ defmodule AtMcp.MCP.Schemas do
   defmacro starter_pack, do: Macro.escape(object(AtMcp.Summary.properties(:starter_pack)))
 
   defmacro starter_pack_page, do: Macro.escape(page(with_member_item(:starter_pack)))
+
+  defmacro list_result, do: Macro.escape(list_result_schema())
 
   defmacro notification_page, do: Macro.escape(notification_page_schema())
 
@@ -505,6 +520,37 @@ defmodule AtMcp.MCP.Schemas do
           )
         )
     }
+  end
+
+  # What a list or starter pack write did: the record it wrote or deleted, and
+  # the list it applies to.
+  defp list_result_schema do
+    object(%{
+      "ok" => %{"type" => ["boolean", "null"]},
+      "action" => nullable_string(),
+      "uri" =>
+        nullable_string(
+          "AT URI of the record this wrote, or of the one it deleted: the list, list item, starter pack or opt-out"
+        ),
+      "cid" => nullable_string("CID of the record this wrote"),
+      "list" => nullable_string("AT URI of the list this applies to"),
+      "actor" => nullable_string("DID of the account added to or removed from the list"),
+      "name" => nullable_string("The name written, when this set one"),
+      "purpose" => nullable_string("curate or moderation, for a list this made"),
+      "opted_out" => %{
+        "type" => ["boolean", "null"],
+        "description" => "Whether this account is now opted out of the list"
+      },
+      "deleted" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" => "AT URIs of every record this deleted"
+      },
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" => "True when the account already stood as asked, so nothing was written"
+      }
+    })
   end
 
   # A bookmarked post, or the placeholder the service sends for one that is

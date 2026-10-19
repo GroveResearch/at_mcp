@@ -38,7 +38,6 @@ defmodule AtMcp.Endpoints do
   """
 
   @posts 88
-  @lists 89
   @moderation 90
   @preferences 91
   @dms 92
@@ -121,9 +120,9 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.graph.getList", {:tool, "get_list"}},
     {"app.bsky.graph.getLists", {:tool, "get_lists"}},
     {"app.bsky.graph.getListsWithMembership", {:tool, "get_lists"}},
-    {"app.bsky.graph.list", {:todo, @lists}},
-    {"app.bsky.graph.listitem", {:todo, @lists}},
-    {"app.bsky.graph.referencelistoptout", {:todo, @lists}},
+    {"app.bsky.graph.list", {:tool, "create_list"}},
+    {"app.bsky.graph.listitem", {:tool, "add_to_list"}},
+    {"app.bsky.graph.referencelistoptout", {:tool, "set_list_opt_out"}},
     {"app.bsky.graph.getStarterPack", {:tool, "get_starter_pack"}},
     {"app.bsky.graph.getStarterPacks",
      {:left_out,
@@ -134,7 +133,7 @@ defmodule AtMcp.Endpoints do
      {:left_out,
       "The first version of `graph.searchStarterPacksV2`, which `get_starter_packs` calls"}},
     {"app.bsky.graph.searchStarterPacksV2", {:tool, "get_starter_packs"}},
-    {"app.bsky.graph.starterpack", {:todo, @lists}},
+    {"app.bsky.graph.starterpack", {:tool, "create_starter_pack"}},
     {"app.bsky.unspecced.getSuggestedStarterPacks", {:todo, @feeds}},
     {"app.bsky.unspecced.getOnboardingSuggestedStarterPacks", {:todo, @feeds}},
 
@@ -230,9 +229,7 @@ defmodule AtMcp.Endpoints do
     {"com.atproto.repo.uploadBlob", {:tool, "post"}},
     {"com.atproto.repo.applyWrites", {:tool, "post"}},
     {"com.atproto.repo.getRecord", {:todo, 70}},
-    {"com.atproto.repo.listRecords",
-     {:left_out,
-      "Lists a repository's raw records; the app reads views, and `get_record` (#70) reads one record"}},
+    {"com.atproto.repo.listRecords", {:tool, "remove_from_list"}},
     {"com.atproto.repo.describeRepo",
      {:left_out, "Describes a repository's collections, for tools that inspect repositories"}},
     {"com.atproto.repo.importRepo",
@@ -266,7 +263,7 @@ defmodule AtMcp.Endpoints do
      {:left_out, "Publishes or resolves lexicon schemas, for developers of an application"}},
     {"com.atproto.sync.*",
      {:left_out,
-      "Repository sync, for relays and AppViews; editing a post's gates reads the latest commit (`getLatestCommit`) to write over it and nothing newer"}},
+      "Repository sync, for relays and AppViews; editing a post's gates, and the list and starter pack writes built from reads, read the latest commit (`getLatestCommit`) to write over it and nothing newer"}},
     {"com.atproto.admin.*", {:left_out, "The PDS operator's administration API"}},
     {"com.atproto.temp.*", {:left_out, "Temporary service-to-service methods"}},
     {"tools.ozone.*", {:left_out, "Ozone, the moderation service's API for moderators"}},

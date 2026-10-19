@@ -60,6 +60,24 @@ defmodule AtMcp.PublishingQuotaTest do
     "delete_post" => %{"uri" => "at://p"},
     "update_profile" => %{"display_name" => "n"},
     "update_seen" => %{},
+    "create_list" => %{"name" => "n", "purpose" => "curate"},
+    "update_list" => %{"uri" => "at://did:plc:mock/app.bsky.graph.list/l", "name" => "n"},
+    "delete_list" => %{"uri" => "at://did:plc:mock/app.bsky.graph.list/l"},
+    "add_to_list" => %{"list" => "at://did:plc:mock/app.bsky.graph.list/l", "actor" => "a.test"},
+    "remove_from_list" => %{
+      "list" => "at://did:plc:mock/app.bsky.graph.list/l",
+      "actor" => "a.test"
+    },
+    "create_starter_pack" => %{"name" => "n"},
+    "update_starter_pack" => %{
+      "uri" => "at://did:plc:mock/app.bsky.graph.starterpack/p",
+      "name" => "n"
+    },
+    "delete_starter_pack" => %{"uri" => "at://did:plc:mock/app.bsky.graph.starterpack/p"},
+    "set_list_opt_out" => %{
+      "list" => "at://did:plc:x/app.bsky.graph.starterpack/p",
+      "opted_out" => true
+    },
     "pin_post" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
     "unpin_post" => %{},
     "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},

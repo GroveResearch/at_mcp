@@ -217,7 +217,7 @@ defmodule AtMcp.Summary do
     {:blocked, :record, ["blocked"],
      "AT URI of the viewing account's block of the accounts on this list"},
     {:opted_out, :record, ["referenceListOptOut", "reference_list_opt_out"],
-     "AT URI of the viewing account's opt-out from this starter pack's list"}
+     "AT URI of the viewing account's opt-out from this starter pack's list; set_list_opt_out with opted_out false deletes it"}
   ]
 
   # A feed a starter pack recommends, as its view hydrates it or its record
@@ -348,7 +348,7 @@ defmodule AtMcp.Summary do
         {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
          "When it was made, as an ISO 8601 timestamp"},
         {:list, :string, [["list", "uri"], ["record", "list"]],
-         "AT URI of its list of accounts; get_list reads every one"},
+         "AT URI of its list of accounts; get_list reads every one, add_to_list and remove_from_list take it or the pack's uri"},
         {:creator, :string, [["creator", "handle"]], "Handle of the account that made it"},
         {:creator_did, :string, [["creator", "did"]], "DID of the account that made it"},
         {:creator_display_name, :string,

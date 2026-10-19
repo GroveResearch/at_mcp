@@ -89,6 +89,9 @@ defmodule AtMcp.Network do
     profile: "actor.profile",
     generator: "feed.generator",
     list: "graph.list",
+    list_item: "graph.listitem",
+    starter_pack: "graph.starterpack",
+    list_opt_out: "graph.referencelistoptout",
     threadgate: "feed.threadgate",
     postgate: "feed.postgate"
   }

@@ -677,11 +677,11 @@ defmodule AtMcp.Effects do
   # --- lists and starter packs ---
 
   # The words the list tools use for a list's purpose, and the tokens the
-  # service takes. `graph.getLists` does not return a starter pack's list
-  # (`reference`); `get_starter_packs` reads those.
+  # service takes. A starter pack's list (`reference`) is made with its pack,
+  # and `graph.getLists` does not return one.
   @list_purposes %{"curate" => :curatelist, "moderation" => :modlist}
 
-  @doc "The purposes `get_lists` takes, and the record token each names."
+  @doc "The purposes `create_list` and `get_lists` take, and the record token each names."
   def list_purposes, do: @list_purposes
 
   def get_list(effects, uri, opts \\ []) when is_binary(uri) do
@@ -782,6 +782,212 @@ defmodule AtMcp.Effects do
   defp given_names([]), do: "none"
   defp given_names(given), do: Enum.map_join(given, " and ", fn {key, _} -> key end)
 
+  @doc """
+  Make a list. `fields`: `:name`, `:purpose` (`"curate"` or `"moderation"`),
+  and optionally `:description` and `:avatar` (`%{data, mime_type}`).
+  """
+  def create_list(effects, fields) when is_map(fields) do
+    with {:ok, purpose} <- list_purpose(fields[:purpose]),
+         :ok <- text_argument(fields[:name] || "", "name", :list_name),
+         :ok <- text_argument(fields[:description], "description", :description),
+         :ok <- list_avatar(fields[:avatar]) do
+      request =
+        {:create_list,
+         Map.merge(Map.take(fields, [:name, :description, :avatar]), %{purpose: purpose})}
+
+      list_write(effects, :create_list, fn _backend, _session -> {:ok, request} end)
+    end
+  end
+
+  @doc """
+  Change a list of this account's. `changes` holds only what changes: `:name`,
+  `:description` (`""` removes it) and `:avatar`. The list record is read
+  first and every other field kept.
+  """
+  def update_list(effects, uri, changes) when is_binary(uri) and is_map(changes) do
+    with {:ok, parts} <- record_argument(uri, "uri", [:list], "a list"),
+         :ok <- some_change(changes, "name, description or avatar"),
+         :ok <- text_argument(changes[:name], "name", :list_name),
+         :ok <- text_argument(changes[:description], "description", :description),
+         :ok <- list_avatar(changes[:avatar]) do
+      list_write(effects, :update_list, fn _backend, session ->
+        with {:ok, uri} <-
+               own_record(session, parts, "uri", "update_list changes a list this account made") do
+          {:ok, {:update_list, uri, changes}}
+        end
+      end)
+    end
+  end
+
+  @doc "Delete a list of this account's and every list item on it, in one commit."
+  def delete_list(effects, uri) when is_binary(uri) do
+    with {:ok, parts} <- record_argument(uri, "uri", [:list], "a list") do
+      list_write(effects, :delete_list, fn _backend, session ->
+        with {:ok, uri} <-
+               own_record(session, parts, "uri", "delete_list deletes a list this account made") do
+          {:ok, {:delete_list, uri}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Put an account on a list of this account's. `list` is the list's AT URI or
+  a starter pack's, whose list it then is. A handle is resolved first.
+  """
+  def add_to_list(effects, list, actor) when is_binary(list) and is_binary(actor),
+    do: membership(effects, :add_to_list, list, actor)
+
+  @doc """
+  Take an account off a list of this account's: every list item that puts it
+  there is deleted, found by reading the account's list items.
+  """
+  def remove_from_list(effects, list, actor) when is_binary(list) and is_binary(actor),
+    do: membership(effects, :remove_from_list, list, actor)
+
+  defp membership(effects, verb, list, actor) do
+    with {:ok, parts} <-
+           record_argument(list, "list", [:list, :starter_pack], "a list or a starter pack") do
+      list_write(effects, verb, fn backend, session ->
+        with {:ok, list} <-
+               own_record(
+                 session,
+                 parts,
+                 "list",
+                 "#{verb} changes a list or starter pack this account made"
+               ),
+             {:ok, did} <- backend.resolve_actor(session, actor) do
+          {:ok, {verb, list, did}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Make a starter pack: its list of `:actors` (handles or DIDs, resolved
+  first), the pack naming it and up to three `:feeds`, all in one commit.
+  `fields` also takes `:name` and `:description`.
+  """
+  def create_starter_pack(effects, fields) when is_map(fields) do
+    actors = Enum.uniq(List.wrap(fields[:actors]))
+    max = max_pack_actors()
+
+    with :ok <- text_argument(fields[:name] || "", "name", :pack_name),
+         :ok <- text_argument(fields[:description], "description", :description),
+         :ok <- pack_feeds(fields[:feeds]),
+         :ok <-
+           if(length(actors) > max,
+             do:
+               invalid(
+                 "actors",
+                 "a starter pack is made in one commit, which holds at most #{max} accounts; this call gave #{length(actors)}"
+               ),
+             else: :ok
+           ) do
+      list_write(effects, :create_starter_pack, fn backend, session ->
+        with {:ok, dids} <- resolve_actors(backend, session, actors) do
+          {:ok,
+           {:create_starter_pack,
+            fields |> Map.take([:name, :description, :feeds]) |> Map.put(:actors, Enum.uniq(dids))}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Change a starter pack of this account's: `:name`, `:description` (`""`
+  removes it) or `:feeds` (`[]` removes them). Its accounts change with
+  `add_to_list` and `remove_from_list`.
+  """
+  def update_starter_pack(effects, uri, changes) when is_binary(uri) and is_map(changes) do
+    with {:ok, parts} <- record_argument(uri, "uri", [:starter_pack], "a starter pack"),
+         :ok <- some_change(changes, "name, description or feeds"),
+         :ok <- text_argument(changes[:name], "name", :pack_name),
+         :ok <- text_argument(changes[:description], "description", :description),
+         :ok <- pack_feeds(changes[:feeds]) do
+      list_write(effects, :update_starter_pack, fn _backend, session ->
+        with {:ok, uri} <-
+               own_record(
+                 session,
+                 parts,
+                 "uri",
+                 "update_starter_pack changes a starter pack this account made"
+               ) do
+          {:ok, {:update_starter_pack, uri, changes}}
+        end
+      end)
+    end
+  end
+
+  @doc "Delete a starter pack of this account's, its list and the list's items."
+  def delete_starter_pack(effects, uri) when is_binary(uri) do
+    with {:ok, parts} <- record_argument(uri, "uri", [:starter_pack], "a starter pack") do
+      list_write(effects, :delete_starter_pack, fn _backend, session ->
+        with {:ok, uri} <-
+               own_record(
+                 session,
+                 parts,
+                 "uri",
+                 "delete_starter_pack deletes a starter pack this account made"
+               ) do
+          {:ok, {:delete_starter_pack, uri}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Ask to be left out of a starter pack's list, anyone's (`opted_out` true), or
+  take that back (false). `list` is the pack's AT URI or its list's.
+  """
+  def set_list_opt_out(effects, list, opted_out) when is_binary(list) do
+    with {:ok, _parts} <-
+           record_argument(list, "list", [:list, :starter_pack], "a starter pack or its list"),
+         :ok <-
+           if(is_boolean(opted_out),
+             do: :ok,
+             else: invalid("opted_out", "must be true or false")
+           ) do
+      list_write(effects, :set_list_opt_out, fn backend, session ->
+        with {:ok, list} <- did_uri(backend, session, list),
+             do: {:ok, {:set_list_opt_out, list, opted_out}}
+      end)
+    end
+  end
+
+  # Every list and starter pack write. Its arguments were checked before this,
+  # without a session. `request` then runs with one: a record in another
+  # account's repository is refused and a handle is resolved, still before
+  # anything is sent. The backend reads what the write keeps or removes and
+  # builds every record, and one dispatch writes them.
+  defp list_write(effects, verb, request) do
+    take_and_write(
+      effects,
+      verb,
+      fn backend, session ->
+        with {:ok, request} <- request.(backend, session),
+             do: backend.prepare_list_write(session, request)
+      end,
+      fn prepared -> fn backend, session -> backend.write_list(session, prepared) end end
+    )
+  end
+
+  defp resolve_actors(backend, session, actors) do
+    Enum.reduce_while(actors, {:ok, []}, fn actor, {:ok, dids} ->
+      case backend.resolve_actor(session, actor) do
+        {:ok, did} -> {:cont, {:ok, dids ++ [did]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc """
+  The most accounts `create_starter_pack` takes. A starter pack, its list and
+  the list's items are made in one `applyWrites`, so this is that commit's
+  writes less the two records that are not items.
+  """
+  def max_pack_actors, do: AtMcp.ATProto.max_writes() - 2
+
   defp list_purpose(purpose) do
     case Map.fetch(@list_purposes, purpose) do
       {:ok, token} -> {:ok, token}
@@ -795,6 +1001,132 @@ defmodule AtMcp.Effects do
 
   defp list_purpose_filter(purpose) do
     with {:ok, token} <- list_purpose(purpose), do: {:ok, [Atom.to_string(token)]}
+  end
+
+  # What `graph.list` and `graph.starterpack` allow in their free text, as
+  # `{fewest bytes, most bytes, most graphemes}`. The two networks' lexicons
+  # declare the same numbers, so they are not read from vendored copies;
+  # `test/at_mcp/lists_test.exs` checks them against the lexicon.
+  @text_limits %{
+    list_name: {1, 64, nil},
+    pack_name: {1, 500, 50},
+    description: {0, 3000, 300}
+  }
+
+  @doc false
+  def text_limits, do: @text_limits
+
+  defp text_argument(nil, _field, _kind), do: :ok
+
+  defp text_argument(text, field, kind) when is_binary(text) do
+    {min, bytes, graphemes} = Map.fetch!(@text_limits, kind)
+
+    cond do
+      not String.valid?(text) ->
+        invalid(field, "must be valid UTF-8")
+
+      byte_size(text) < min ->
+        invalid(field, "must not be empty")
+
+      byte_size(text) > bytes ->
+        invalid(field, "may be at most #{bytes} bytes; this is #{byte_size(text)}")
+
+      graphemes && String.length(text) > graphemes ->
+        invalid(
+          field,
+          "may be at most #{graphemes} characters; this is #{String.length(text)}"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp text_argument(_other, field, _kind), do: invalid(field, "must be a string")
+
+  # `graph.list` takes a PNG or JPEG avatar of at most 1,000,000 bytes.
+  @avatar_types ["image/png", "image/jpeg"]
+  @avatar_bytes 1_000_000
+
+  defp list_avatar(nil), do: :ok
+
+  defp list_avatar(%{data: data, mime_type: type}) do
+    cond do
+      type not in @avatar_types ->
+        invalid("avatar", "must be image/png or image/jpeg; this is #{type}")
+
+      byte_size(data) > @avatar_bytes ->
+        invalid(
+          "avatar",
+          "may be at most #{@avatar_bytes} bytes; this is #{byte_size(data)}"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  # `graph.starterpack` recommends at most three feeds, each a feed generator.
+  defp pack_feeds(nil), do: :ok
+
+  defp pack_feeds(feeds) when is_list(feeds) do
+    cond do
+      length(feeds) > 3 ->
+        invalid("feeds", "a starter pack recommends at most 3 feeds")
+
+      true ->
+        Enum.reduce_while(feeds, :ok, fn feed, :ok ->
+          case record_argument(feed, "feeds", [:generator], "a feed generator") do
+            {:ok, _} -> {:cont, :ok}
+            error -> {:halt, error}
+          end
+        end)
+    end
+  end
+
+  defp some_change(changes, names) do
+    if Enum.any?(changes, fn {_key, value} -> not is_nil(value) end),
+      do: :ok,
+      else: invalid("name", "give #{names} to change")
+  end
+
+  # A tool argument that names a record: an AT URI whose collection is one of
+  # `kinds` on either network. Checked before a session is taken; what is wrong
+  # is said about the argument by name, so a caller can fix the call.
+  defp record_argument(uri, field, kinds, what) when is_binary(uri) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {_repo, collection, _rkey} = parts} ->
+        if Enum.any?(kinds, &AtMcp.Network.collection?(collection, &1)),
+          do: {:ok, parts},
+          else:
+            invalid(
+              field,
+              "must be the AT URI of #{what}; #{uri} is a #{collection} record"
+            )
+
+      {:error, _} ->
+        invalid(
+          field,
+          "must be an AT URI of the form at://<handle or DID>/<collection>/<rkey>"
+        )
+    end
+  end
+
+  defp record_argument(_uri, field, _kinds, what),
+    do: invalid(field, "must be the AT URI of #{what}")
+
+  # A record this account edits: in its own repository, named by its DID or the
+  # handle the session holds. Answered as the URI in DID form, which is how
+  # other records name it. Checked with the session, before anything is sent.
+  defp own_record(session, {repo, collection, rkey}, field, what) do
+    if own_actor?(session, repo),
+      do: {:ok, "at://#{did_of(session)}/#{collection}/#{rkey}"},
+      else: invalid(field, "#{what}; #{repo} is another account")
+  end
+
+  defp own_actor?(session, actor) do
+    handle = Map.get(session, :handle) || Map.get(session, "handle")
+    actor == did_of(session) or (is_binary(handle) and actor == handle)
   end
 
   defp present(value) when is_binary(value) do
