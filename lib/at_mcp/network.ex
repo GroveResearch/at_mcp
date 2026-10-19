@@ -98,7 +98,14 @@ defmodule AtMcp.Network do
     tag_facet: "richtext.facet#tag",
     embed_record: "embed.record",
     embed_record_with_media: "embed.recordWithMedia",
-    embed_images: "embed.images"
+    embed_images: "embed.images",
+    embed_external: "embed.external",
+    embed_video: "embed.video",
+    embed_gallery: "embed.gallery",
+    generator_view: "feed.defs#generatorView",
+    list_view: "graph.defs#listView",
+    starter_pack_view: "graph.defs#starterPackViewBasic",
+    labeler_view: "labeler.defs#labelerView"
   }
 
   # Read at compile time so a release carries no runtime dependency on priv/.
@@ -294,8 +301,11 @@ defmodule AtMcp.Network do
 
   @doc """
   A lexicon-defined `$type` AtMcp matches on or writes: `:mention_facet`,
-  `:link_facet`, `:tag_facet`, `:embed_record`, `:embed_record_with_media` or
-  `:embed_images`.
+  `:link_facet`, `:tag_facet`, an embed (`:embed_record`,
+  `:embed_record_with_media`, `:embed_images`, `:embed_external`, `:embed_video`
+  or `:embed_gallery`), or the view of a quoted feed, list, starter pack or
+  labeler (`:generator_view`, `:list_view`, `:starter_pack_view`,
+  `:labeler_view`).
   """
   @spec type(atom()) :: String.t()
   def type(kind) when is_map_key(@types, kind), do: nsid(Map.fetch!(@types, kind))

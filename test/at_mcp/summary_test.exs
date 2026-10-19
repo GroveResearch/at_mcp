@@ -155,7 +155,9 @@ defmodule AtMcp.SummaryTest do
 
       assert read == described, "#{shape} reads and describes different fields"
 
-      for {key, value} <- Map.delete(summary, :viewer) do
+      # A post's media is images, a link card or a video, never more than one;
+      # this response has images, and test/at_mcp/embed_test.exs reads the others.
+      for {key, value} <- Map.drop(summary, [:viewer, :link, :video]) do
         refute is_nil(value), "#{shape}.#{key} is described but was not read from a full response"
       end
     end

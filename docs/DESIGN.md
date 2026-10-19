@@ -173,12 +173,18 @@ tool description that go stale when they move.
 Post and chain summaries preserve `raw_text` exactly, expand link destinations
 in `text`, and expose normalized `facets`. `web_url` is the configured network's
 post permalink; AT URIs remain the canonical tool references. Both carry
-`images` (alt text and available thumbnail/full-size URLs) and one attributed
-`quote`. Image `availability` distinguishes hydrated URLs from raw references;
-no blob URLs are guessed. Quote `status` distinguishes available content,
-not-found, blocked, detached, unhydrated and unsupported records. A further
-quote stays a `nested_uri` rather than recursively expanding. `embed_type`
-identifies other media kinds that this projection does not interpret.
+`images` (alt text and available thumbnail/full-size URLs, a gallery's
+included), a `link` card (destination, title, description, image URL), a
+`video` (alt text, thumbnail and playlist URLs) and one attributed `quote`.
+Image `availability` distinguishes hydrated URLs from raw references; no blob
+URLs are guessed, so a raw record's card image and video URLs are null. Quote
+`status` distinguishes available content, not-found, blocked, detached,
+unhydrated and unsupported records, and an available quote's `kind` says
+whether it is a post (with its author, text, images, link card and video) or
+a feed, list, starter pack or labeler (with its name, description and
+creator). A further quote stays a `nested_uri` rather than recursively
+expanding. `embed_type` identifies the embed's kind, including kinds this
+projection does not interpret.
 
 These are read projections of what the server already returned, not extra
 requests or image pixels. `get_post_images` is the one read that fetches
@@ -209,12 +215,12 @@ ends its turn without calling a write tool has not posted.
 
 Absent from the surface: lists, starter packs, saved and pinned feeds, pinned
 posts, thread gates and reply controls, self-labels, bookmarks,
-video and external link cards, direct messages, reporting, mute words and
+posting video or link cards, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from
 `get_suggested_feeds`, receives every
-notification and discards locally, and reads a video or link-card post as a
-post with no images.
+notification and discards locally, and reads a video by its alt text and a
+link card by its text, without the video or the card's image.
 
 ## The write quota
 
