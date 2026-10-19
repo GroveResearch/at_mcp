@@ -18,6 +18,7 @@ defmodule AtMcp.ReplyReferenceTest do
   @readable "at://did:plc:other/app.bsky.feed.post/readable"
   @gone "at://did:plc:other/app.bsky.feed.post/gone"
   @broken "at://did:plc:other/app.bsky.feed.post/broken"
+  @no_repo "at://did:plc:nobody/app.bsky.feed.post/norepo"
 
   defmodule PDS do
     @moduledoc false
@@ -49,6 +50,10 @@ defmodule AtMcp.ReplyReferenceTest do
       case conn.query_params["rkey"] do
         "gone" ->
           {400, %{error: "RecordNotFound", message: "Could not locate record"}}
+
+        # The AppView's answer for a repository it does not know.
+        "norepo" ->
+          {400, %{error: "InvalidRequest", message: "Could not find repo: did:plc:nobody"}}
 
         # The service is having a bad day. The record it was asked about may be
         # perfectly fine.
@@ -121,8 +126,13 @@ defmodule AtMcp.ReplyReferenceTest do
     assert result.structuredContent.code == "referenced_record_unreadable"
     assert result.structuredContent.uri == @gone
 
+    # The service said RecordNotFound, so the refusal says that and nothing else.
+    assert result.structuredContent.cause == "not_found"
+
     text = Enum.find(result.content, &(&1.type == "text")).text
     assert text =~ @gone
+    assert text =~ "RecordNotFound"
+    refute text =~ "not a post"
     assert text =~ "write quota"
 
     # The write quota is the claim: a refusal that costs a write is the defect.
@@ -146,6 +156,69 @@ defmodule AtMcp.ReplyReferenceTest do
     assert result[:isError]
     assert result.structuredContent.code == "referenced_record_unreadable"
     assert AtMcp.Effects.quota_status(effects).used == used
+  end
+
+  test "any other refusal passes on the service's error name and message", %{
+    calls: calls,
+    state: state
+  } do
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "reply",
+               %{"uri" => @no_repo, "text" => "hello"},
+               state
+             )
+
+    assert %{
+             code: "referenced_record_unreadable",
+             cause: "refused",
+             service_error: "InvalidRequest"
+           } = result.structuredContent
+
+    text = Enum.find(result.content, &(&1.type == "text")).text
+    assert text =~ "InvalidRequest: Could not find repo: did:plc:nobody"
+    refute text =~ "deleted"
+    assert sent(calls, "com.atproto.repo.createRecord") == []
+  end
+
+  test "a reply to a record that is not a post, or a quote of one the app does not show as a card, is refused before anything is read",
+       %{calls: calls, effects: effects, state: state} do
+    list = "at://did:plc:other/app.bsky.graph.list/l"
+    like = "at://did:plc:other/app.bsky.feed.like/k"
+
+    for {tool, arguments, expected} <- [
+          {"reply", %{"uri" => list, "text" => "hello"}, "uri: must be the AT URI of a post"},
+          {"post", %{"text" => "hello", "quote" => like},
+           "quote: must be the AT URI of a post, a feed generator, a list"}
+        ] do
+      assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(tool, arguments, state)
+      assert result.structuredContent.code == "invalid_arguments"
+      assert Enum.find(result.content, &(&1.type == "text")).text =~ expected
+    end
+
+    assert Agent.get(calls, & &1) == []
+    assert AtMcp.Effects.quota_status(effects).used == 0
+  end
+
+  # The app renders `embed.record` for a feed, a list, a starter pack or a
+  # labeler as a card, so a quote of one is a quote like any other.
+  test "a quote of a list is written as a record embed", %{calls: calls, state: state} do
+    list = "at://did:plc:other/app.bsky.graph.list/l"
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "post",
+               %{"text" => "this list", "quote" => list},
+               state
+             )
+
+    refute result[:isError]
+    [write] = sent(calls, "com.atproto.repo.createRecord")
+
+    assert write.body["record"]["embed"]["record"] == %{
+             "uri" => list,
+             "cid" => "bafyreiparent"
+           }
   end
 
   test "a service that failed reading the parent is not reported as a missing record", %{

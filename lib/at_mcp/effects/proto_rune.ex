@@ -1754,7 +1754,7 @@ defmodule AtMcp.Effects.ProtoRune do
          gates: gates
        }}
     else
-      {:error, {:referenced_record_unreadable, _uri}} = error -> error
+      {:error, {:referenced_record_unreadable, _uri, _cause}} = error -> error
       {:error, {:reply_disabled, _uri}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
     end
@@ -4137,8 +4137,8 @@ defmodule AtMcp.Effects.ProtoRune do
     with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri) do
       case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
         {:ok, response} when is_map(response) -> {:ok, response}
-        {:ok, _other} -> {:error, {:referenced_record_unreadable, uri}}
-        {:error, reason} -> reference_error(uri, failure(reason))
+        {:ok, _other} -> {:error, {:referenced_record_unreadable, uri, :unusable_answer}}
+        {:error, reason} -> reference_error(uri, reason)
       end
     end
   end
@@ -4286,7 +4286,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
       {:ok, %{record: record, pinned: ref && ref.uri, previous: previous, swap: swap}}
     else
-      {:error, {:referenced_record_unreadable, _}} = error -> error
+      {:error, {:referenced_record_unreadable, _uri, _cause}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
     end
   end
@@ -4659,23 +4659,44 @@ defmodule AtMcp.Effects.ProtoRune do
     else
       # An answer arrived and carried no CID: the record is unusable as a
       # reference whatever else it is.
-      :error -> {:error, {:referenced_record_unreadable, uri}}
-      {:ok, _not_a_cid} -> {:error, {:referenced_record_unreadable, uri}}
-      {:error, reason} -> reference_error(uri, failure(reason))
+      :error -> {:error, {:referenced_record_unreadable, uri, :unusable_answer}}
+      {:ok, _not_a_cid} -> {:error, {:referenced_record_unreadable, uri, :unusable_answer}}
+      {:error, reason} -> reference_error(uri, reason)
     end
   end
 
   # A service that refuses to hand over one record is saying something about
-  # that record: it is deleted, not indexed yet, or not what the uri claims,
-  # and the caller's move is to reference something else. A transport failure,
-  # an outage, or a credential the service rejected says nothing about the
-  # record at all, and a caller told "it may be deleted" about a post that is
-  # still there stops trying instead of retrying. So only a refusal becomes
+  # that record, and the refusal carries what: `RecordNotFound` (read as
+  # `not_found_or_failure/3` reads it) means it holds no such record; any other
+  # refusal passes on the service's error name and message. A transport
+  # failure, an outage, or a credential the service rejected says nothing about
+  # the record at all, and a caller told "it may be deleted" about a post that
+  # is still there stops trying instead of retrying. So only a refusal becomes
   # `referenced_record_unreadable`; everything else keeps its own kind.
-  defp reference_error(uri, %AtMcp.Effects.Failure{kind: :refused}),
-    do: {:error, {:referenced_record_unreadable, uri}}
+  defp reference_error(uri, reason) do
+    case not_found_or_failure(reason, "record", uri) do
+      %AtMcp.Effects.Failure{detail: {:not_found, _, _}} ->
+        {:error, {:referenced_record_unreadable, uri, :not_found}}
 
-  defp reference_error(_uri, %AtMcp.Effects.Failure{} = failure), do: {:error, failure}
+      %AtMcp.Effects.Failure{kind: :refused} = failure ->
+        {:error,
+         {:referenced_record_unreadable, uri, {:refused, error_name(reason), failure.message}}}
+
+      failure ->
+        {:error, failure}
+    end
+  end
+
+  # The service's error name as it sent it: proto_rune keeps it as an atom or
+  # a snake_case string.
+  defp error_name(%ProtoRune.XRPC.Error{reason: reason})
+       when is_atom(reason) and not is_nil(reason),
+       do: reason |> Atom.to_string() |> Macro.camelize()
+
+  defp error_name(%ProtoRune.XRPC.Error{reason: reason}) when is_binary(reason),
+    do: Macro.camelize(reason)
+
+  defp error_name(_reason), do: nil
 
   # The address a record is known by everywhere: the DID form the service
   # answers a read with, whichever form the caller named it in. A handle can

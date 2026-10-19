@@ -1329,7 +1329,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:quote, :string,
       description:
-        "AT URI of a post to quote. Its CID is read from the record itself, so only the URI is needed."
+        "AT URI of a post to quote, or of a feed, list, starter pack or labeler to show as a card. Its CID is read from the record itself, so only the URI is needed."
     )
 
     param(
@@ -1393,7 +1393,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:quote, :string,
       description:
-        "AT URI of a post to quote. Its CID is read from the record itself, so only the URI is needed."
+        "AT URI of a post to quote, or of a feed, list, starter pack or labeler to show as a card. Its CID is read from the record itself, so only the URI is needed."
     )
 
     param(

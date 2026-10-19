@@ -235,13 +235,18 @@ defmodule AtMcp.MCP.Tools do
   # read runs before the write quota is charged, so this refusal costs nothing —
   # and saying so is the difference between a caller that tries a different
   # post and one that believes it has spent a write it has not.
-  def respond({:error, {:referenced_record_unreadable, uri}}, state) do
+  # The refusal says what the service said about the record, since each cause
+  # calls for a different move: a record that is not there means referencing
+  # another; any other refusal is passed on in the service's own words.
+  def respond({:error, {:referenced_record_unreadable, uri, cause}}, state) do
+    {why, details} = unreadable_cause(cause)
+
     error(
       state,
       "referenced_record_unreadable",
-      "error: the record at #{uri} could not be read, so the reference could not be built. " <>
-        "It may be deleted, not indexed yet, or not a post. Nothing was written and nothing was counted against the write quota.",
-      %{uri: uri}
+      "error: the record at #{uri} could not be read, so the reference could not be built: #{why}. " <>
+        "Nothing was written and nothing was counted against the write quota.",
+      Map.merge(%{uri: uri}, details)
     )
   end
 
@@ -580,6 +585,26 @@ defmodule AtMcp.MCP.Tools do
 
   defp iso8601(seconds) when is_integer(seconds),
     do: seconds |> DateTime.from_unix!() |> DateTime.to_iso8601()
+
+  defp unreadable_cause(:not_found),
+    do:
+      {"the service has no record there (RecordNotFound); it was deleted, taken down, never existed, or is not indexed yet (records on another server are read through the AppView)",
+       %{cause: "not_found"}}
+
+  defp unreadable_cause(:unusable_answer),
+    do: {"the service answered without the record's CID", %{cause: "unusable_answer"}}
+
+  defp unreadable_cause({:refused, nil, nil}),
+    do:
+      {"the service refused to read it and said nothing more; it may be deleted, not indexed yet, or not what the URI names",
+       %{cause: "refused"}}
+
+  defp unreadable_cause({:refused, name, message}) do
+    said = [name, message] |> Enum.reject(&is_nil/1) |> Enum.join(": ")
+
+    {"the service refused to read it (#{said})",
+     Map.reject(%{cause: "refused", service_error: name}, fn {_, v} -> is_nil(v) end)}
+  end
 
   defp error(state, code, message, details \\ %{}) do
     result = ExMCP.Server.DSL.Result.error(message)

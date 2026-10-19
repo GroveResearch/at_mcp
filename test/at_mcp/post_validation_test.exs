@@ -1,6 +1,8 @@
 defmodule AtMcp.PostValidationTest do
   use ExUnit.Case, async: false
 
+  @parent "at://did:plc:x/app.bsky.feed.post/parent"
+
   defmodule Backend do
     # References are read before the write quota is charged; nothing here
     # refers to another record.
@@ -34,11 +36,11 @@ defmodule AtMcp.PostValidationTest do
        ctx do
     for text <- [String.duplicate("a", 301), "a" <> String.duplicate("\u0301", 1500)] do
       assert {:error, :post_text_too_long} = AtMcp.Effects.post(ctx.effects, text)
-      assert {:error, :post_text_too_long} = AtMcp.Effects.reply(ctx.effects, "at://parent", text)
+      assert {:error, :post_text_too_long} = AtMcp.Effects.reply(ctx.effects, @parent, text)
     end
 
     assert {:error, :invalid_post_text} = AtMcp.Effects.post(ctx.effects, <<255>>)
-    assert {:error, :invalid_post_text} = AtMcp.Effects.reply(ctx.effects, "at://parent", <<255>>)
+    assert {:error, :invalid_post_text} = AtMcp.Effects.reply(ctx.effects, @parent, <<255>>)
     refute_received {:backend, _, _, _}
     assert AtMcp.Effects.quota_status(ctx.effects).used == 0
     assert %{used: 0} = AtMcp.WriteQuota.status(ctx.quota, "did:plc:text")
@@ -52,8 +54,8 @@ defmodule AtMcp.PostValidationTest do
     for text <- texts do
       assert {:ok, %{text: ^text}} = AtMcp.Effects.post(ctx.effects, text)
       assert_received {:backend, :post, ^text, nil}
-      assert {:ok, %{text: ^text}} = AtMcp.Effects.reply(ctx.effects, "at://parent", text)
-      assert_received {:backend, :post, ^text, "at://parent"}
+      assert {:ok, %{text: ^text}} = AtMcp.Effects.reply(ctx.effects, @parent, text)
+      assert_received {:backend, :post, ^text, @parent}
     end
 
     assert %{used: 6} = AtMcp.WriteQuota.status(ctx.quota, "did:plc:text")

@@ -255,7 +255,7 @@ defmodule AtMcp.PinsBookmarksTest do
     test "pin_post refuses a post it cannot read, before writing anything" do
       %{effects: effects, pds: pds} = pds(%{@profile => profile()})
 
-      assert {:error, {:referenced_record_unreadable, @mine}} =
+      assert {:error, {:referenced_record_unreadable, @mine, :not_found}} =
                AtMcp.Effects.pin_post(effects, @mine)
 
       assert FakePDS.sent(pds, "com.atproto.repo.putRecord") == []
