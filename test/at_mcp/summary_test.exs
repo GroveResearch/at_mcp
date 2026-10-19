@@ -143,7 +143,21 @@ defmodule AtMcp.SummaryTest do
               "$type" => "app.bsky.embed.recordWithMedia#view",
               "record" => %{"record" => %{"uri" => "at://author.test/app.bsky.feed.post/q"}},
               "media" => @responses.post["embed"]
-            }
+            },
+            # What a feed item says beside the post, as the feed read passes it.
+            "feed_context" =>
+              AtMcp.Post.feed_context(%{
+                "reason" => %{
+                  "$type" => "app.bsky.feed.defs#reasonRepost",
+                  "by" => %{"did" => "did:plc:r", "handle" => "r.test", "displayName" => "R"},
+                  "uri" => "at://did:plc:r/app.bsky.feed.repost/1",
+                  "indexedAt" => "2026-10-01T00:00:00Z"
+                },
+                "reply" => %{
+                  "parent" => @responses.post,
+                  "root" => @responses.post
+                }
+              })
           })
         else
           source

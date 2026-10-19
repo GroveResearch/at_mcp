@@ -121,6 +121,29 @@ defmodule AtMcp.Summary do
      "One attributed quoted record; null when absent"}
   ]
 
+  # Why a feed shows a post, read from the feed item around it
+  # (`AtMcp.Post.feed_context/1`).
+  @reason [
+    {:type, :string, [["type"]],
+     "repost or pin; another value is a reason type this version does not read"},
+    {:by, :string, [["by"]], "Handle of the account that reposted it"},
+    {:by_did, :string, [["by_did"]], "DID of the account that reposted it"},
+    {:by_display_name, :string, [["by_display_name"]],
+     "Display name of the account that reposted it"},
+    {:at, :string, [["at"]], "When it was reposted, as an ISO 8601 timestamp"},
+    {:uri, :string, [["uri"]],
+     "AT URI of the repost record; `unrepost` takes it when the repost is the account's own"}
+  ]
+
+  # The post a reply in a feed answers, or its thread's root.
+  @reply_post [
+    {:status, :string, [["status"]], "available, not_found or blocked"},
+    {:uri, :string, [["uri"]], "AT URI of the post"},
+    {:author, :string, [["author"]], "Author handle"},
+    {:author_did, :string, [["author_did"]], "Author DID"},
+    {:display_name, :string, [["display_name"]], "Author display name"}
+  ]
+
   @post [
     {:uri, :string, [["uri"]], "AT URI of the post"},
     {:cid, :string, [["cid"]], "CID of the post"},
@@ -132,6 +155,12 @@ defmodule AtMcp.Summary do
      "When the author wrote it, as an ISO 8601 timestamp"},
     {:reply_to, :string, [["record", "reply", "parent", "uri"]],
      "AT URI of the post this one replies to; null on the root"},
+    {:reason, {:object, @reason}, [["feed_context", "reason"]],
+     "Why a feed shows this post: someone reposted it, or the author pinned it. Null when it is there as a post, and outside feeds"},
+    {:reply_parent, {:object, @reply_post}, [["feed_context", "reply_parent"]],
+     "Who the reply answers, as the feed reported it. Null on a root post and outside feeds"},
+    {:reply_root, {:object, @reply_post}, [["feed_context", "reply_root"]],
+     "The root of the reply's thread, as the feed reported it. Null on a root post and outside feeds"},
     {:like_count, :integer, [["like_count"], ["likeCount"]],
      "How many likes the service counts on the post"},
     {:repost_count, :integer, [["repost_count"], ["repostCount"]],

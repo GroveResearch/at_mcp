@@ -7,7 +7,8 @@ defmodule AtMcp.Reading do
   against the tool's output schema and a program reads. For posts and
   notifications the two readers want different things. A program wants every field, `null`s included, so it can tell absent
   from empty. A model reading a page of posts wants what a person scrolling a
-  client sees: who wrote it, when, what it replies to, what it says, and the
+  client sees: why a feed shows it (a repost or a pin), who wrote it, when,
+  whose post it replies to, what it says, and the
   identifiers it needs to act on it (`reply` takes the uri, `like` and `repost`
   take the uri and cid), with the counts and labels a client shows beside it
   and any block or mute between the account and the author. Serialized JSON repeats every key on every post, gives
@@ -124,16 +125,23 @@ defmodule AtMcp.Reading do
 
   def chain(_other), do: nil
 
-  # One post: a header line saying who, when and what it answers, the text,
-  # what is attached to it, then the identifiers to act on it with.
+  # One post: why a feed shows it, when that is not just that it was posted; a
+  # header line saying who, when and what it answers; the text; what is
+  # attached to it; then the identifiers to act on it with.
   defp post(%{} = post, label) do
     case unavailable(post) do
       nil ->
+        header = lines([who(post), post["created_at"], replying(post)], " · ")
+
+        top =
+          case reason(post["reason"]) do
+            nil -> [label <> " " <> header]
+            why -> [label <> " " <> why, header]
+          end
+
         lines(
-          [
-            label <> " " <> lines([who(post), post["created_at"], replying(post)], " · ")
-            | body(post)
-          ] ++
+          top ++
+            body(post) ++
             [engagement(post), labelled(post), standing(post), ids(post) | viewer(post)],
           "\n"
         )
@@ -194,8 +202,45 @@ defmodule AtMcp.Reading do
   defp who(%{"author_did" => did}) when is_binary(did), do: did
   defp who(_post), do: "unknown author"
 
-  defp replying(%{"reply_to" => uri}) when is_binary(uri), do: "replying to #{uri}"
+  # The line the app puts above a post in a feed: "Reposted by" or "Pinned".
+  # The repost record's uri is in the structured content.
+  defp reason(%{"type" => "repost"} = reason) do
+    by =
+      who(%{
+        "author" => reason["by"],
+        "author_did" => reason["by_did"],
+        "display_name" => reason["by_display_name"]
+      })
+
+    lines(["Reposted by " <> by, reason["at"]], " · ")
+  end
+
+  defp reason(%{"type" => "pin"}), do: "Pinned"
+  defp reason(_reason), do: nil
+
+  # What a reply answers: the parent's uri, and, when a feed said so, whose post
+  # that is and whose thread it is in when the root's author is someone else.
+  defp replying(%{"reply_to" => uri} = post) when is_binary(uri) do
+    parent = post["reply_parent"]
+    root = post["reply_root"]
+
+    in_thread =
+      if is_map(root) and root["status"] == "available" and is_binary(root["author"]) and
+           root["author_did"] != (is_map(parent) && parent["author_did"]),
+         do: " in a thread by @#{root["author"]}",
+         else: ""
+
+    "replying to " <> answered(parent, uri) <> in_thread
+  end
+
   defp replying(_post), do: nil
+
+  defp answered(%{"status" => "available", "author" => handle}, uri) when is_binary(handle),
+    do: "@#{handle} (#{uri})"
+
+  defp answered(%{"status" => "not_found"}, uri), do: "a deleted or missing post (#{uri})"
+  defp answered(%{"status" => "blocked"}, uri), do: "a post hidden by a block (#{uri})"
+  defp answered(_parent, uri), do: uri
 
   defp body(post) do
     [post["text"] | attachments(post)]
