@@ -343,4 +343,34 @@ defmodule AtMcp.NetworkTest do
 
     assert AtMcp.Network.label() == "delve.town"
   end
+
+  test "config :at_mcp, :appview replaces the AppView only when it names both service and url" do
+    on_exit(fn -> Application.delete_env(:at_mcp, :appview) end)
+    Application.delete_env(:at_mcp, :appview)
+    assert AtMcp.Network.appview_service() == "did:web:api.bsky.app#bsky_appview"
+    assert AtMcp.Network.appview_url() == "https://api.bsky.app/xrpc"
+
+    Application.put_env(:at_mcp, :appview,
+      service: "did:plc:local#bsky_appview",
+      url: "http://localhost:2584/xrpc"
+    )
+
+    assert AtMcp.Network.appview_service() == "did:plc:local#bsky_appview"
+    assert AtMcp.Network.appview_url() == "http://localhost:2584/xrpc"
+
+    for partial <- [
+          [service: "did:plc:local#bsky_appview"],
+          [url: "http://localhost/xrpc"],
+          [service: nil, url: "x"],
+          "x"
+        ] do
+      Application.put_env(:at_mcp, :appview, partial)
+
+      assert_raise ArgumentError,
+                   ~r/must give both service and url/,
+                   &AtMcp.Network.appview_service/0
+
+      assert_raise ArgumentError, ~r/must give both service and url/, &AtMcp.Network.appview_url/0
+    end
+  end
 end

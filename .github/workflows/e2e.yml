@@ -1,0 +1,61 @@
+name: e2e
+
+# The end-to-end round trips (test/e2e): every write tool against upstream's
+# reference PDS and AppView, run on the runner by scripts/e2e.sh. Only on
+# request: it builds an atproto checkout and is not part of a pull request's
+# checks. docs/operations.md, "End-to-end round trips", says what it covers.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pg
+          POSTGRES_PASSWORD: password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_POSTGRES_URL: postgresql://pg:password@127.0.0.1:5432/postgres
+      REDIS_HOST: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned with check.yml's runtime.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      # The version atproto's package.json requires.
+      - run: npm install --global pnpm@11.11.0
+
+      # The built atproto checkout, keyed on the commit scripts/e2e.sh names.
+      - id: atproto
+        run: echo "commit=$(grep -m1 '^ATPROTO_COMMIT=' scripts/e2e.sh | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: _build/e2e/atproto
+          key: e2e-atproto-${{ runner.os }}-${{ steps.atproto.outputs.commit }}
+
+      - run: mix deps.get
+
+      - run: scripts/e2e.sh

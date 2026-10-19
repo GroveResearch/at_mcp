@@ -270,6 +270,19 @@ defmodule AtMcp.FeedProfileWritesTest do
       assert Lexicon.problems(record, "app.bsky.feed.like") == []
     end
 
+    test "a repost of a post named with a handle names it in DID form" do
+      %{effects: effects, pds: pds} = pds()
+
+      assert {:ok, %{subject_uri: "at://did:plc:alice/town.delve.feed.post/p"}} =
+               AtMcp.Effects.repost(effects, "at://alice.test/town.delve.feed.post/p", "bafyp")
+
+      assert [%{body: %{"record" => record, "collection" => "town.delve.feed.repost"}}] =
+               FakePDS.sent(pds, "com.atproto.repo.createRecord")
+
+      assert record["subject"] ==
+               %{"uri" => "at://did:plc:alice/town.delve.feed.post/p", "cid" => "bafyp"}
+    end
+
     test "save_feed migrates the first-version preference, keeps every other one, and adds to the old one" do
       v1 = %{
         "$type" => "town.delve.actor.defs#savedFeedsPref",
@@ -531,6 +544,19 @@ defmodule AtMcp.FeedProfileWritesTest do
       Application.put_env(:at_mcp, :network, :bluesky)
       on_exit(fn -> Application.delete_env(:at_mcp, :network) end)
       :ok
+    end
+
+    # The AppView counts a notification unread when it was indexed after the
+    # seen time, so a seen time cut to the second leaves unread whatever
+    # arrived earlier in that second (found against the reference AppView).
+    test "update_seen without a time sends now to the millisecond" do
+      %{effects: effects, pds: pds} = pds()
+      assert {:ok, %{action: :update_seen}} = AtMcp.Effects.update_seen(effects)
+
+      assert [%{body: %{"seenAt" => seen_at}}] =
+               FakePDS.sent(pds, "app.bsky.notification.updateSeen")
+
+      assert seen_at =~ ~r/\.\d{3}Z$/
     end
 
     @profile "at://did:plc:self/app.bsky.actor.profile/self"

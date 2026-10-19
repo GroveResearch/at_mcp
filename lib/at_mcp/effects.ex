@@ -873,8 +873,15 @@ defmodule AtMcp.Effects do
     take_and_write(effects, :unlike, fn backend, session -> backend.unlike(session, like_uri) end)
   end
 
+  # A repost, like a like, names its subject by DID: the AppView counts a
+  # repost whose subject is a handle-form AT URI nowhere.
   def repost(effects, uri, cid) when is_binary(uri) and is_binary(cid) do
-    take_and_write(effects, :repost, fn backend, session -> backend.repost(session, uri, cid) end)
+    take_and_write(
+      effects,
+      :repost,
+      fn backend, session -> did_uri(backend, session, uri) end,
+      fn uri -> fn backend, session -> backend.repost(session, uri, cid) end end
+    )
   end
 
   def unrepost(effects, repost_uri) when is_binary(repost_uri) do
@@ -1069,18 +1076,21 @@ defmodule AtMcp.Effects do
 
   @doc "Mark notifications seen."
   def update_seen(effects, seen_at \\ nil) do
+    # Now is kept to the millisecond: the AppView counts a notification unread
+    # when it was indexed after the seen time, so a time cut to the second
+    # would leave unread whatever arrived earlier in that second.
     seen =
       case seen_at do
         %DateTime{} = dt ->
           dt
 
         nil ->
-          DateTime.utc_now() |> DateTime.truncate(:second)
+          DateTime.utc_now() |> DateTime.truncate(:millisecond)
 
         iso when is_binary(iso) ->
           case DateTime.from_iso8601(iso) do
             {:ok, dt, _} -> dt
-            {:error, _} -> DateTime.utc_now() |> DateTime.truncate(:second)
+            {:error, _} -> DateTime.utc_now() |> DateTime.truncate(:millisecond)
           end
       end
 
