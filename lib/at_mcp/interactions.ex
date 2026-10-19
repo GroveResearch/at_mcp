@@ -9,9 +9,9 @@ defmodule AtMcp.Interactions do
   same repository as the post. The app sets both rules in one dialog, so
   `set_post_interactions` sets both, and `post` can write them with the post.
 
-  A reply rule is `nil` (everyone may reply), `[]` (nobody may) or a list of
-  `:mention`, `:following`, `:followers` and `{:list, uri}`. A quote rule is
-  `:allowed` or `:disabled`.
+  A reply rule is `nil` (everyone may reply; the argument `["everyone"]`), `[]`
+  (nobody may) or a list of `:mention`, `:following`, `:followers` and
+  `{:list, uri}`. A quote rule is `:allowed` or `:disabled`.
 
   Everything here runs before a session is taken, so a refusal costs nothing
   and sends nothing. A refusal is `{:error, {:invalid_argument, path, message}}`,
@@ -30,8 +30,45 @@ defmodule AtMcp.Interactions do
 
   @reply_rules %{"mentioned" => :mention, "following" => :following, "followers" => :followers}
 
-  @doc "The words `reply_rule` takes besides a list's AT URI."
+  @doc "The words `reply_rule` takes besides a list's AT URI and `\"everyone\"`."
   def reply_rule_words, do: Map.keys(@reply_rules) |> Enum.sort()
+
+  @doc """
+  A threadgate's `allow` as `reply_rule` words: `["everyone"]` when the gate
+  sets no rule, `[]` for nobody, and a list's AT URI for a list rule. A rule
+  this does not know is given by its `$type`.
+  """
+  def reply_rule_words(nil), do: ["everyone"]
+
+  def reply_rule_words(%{"allow" => allow}) when is_list(allow) do
+    words =
+      Map.new(@reply_rules, fn {word, rule} -> {AtMcp.Network.type(rule_type(rule)), word} end)
+
+    Enum.map(allow, fn rule ->
+      type = rule["$type"]
+
+      cond do
+        type == AtMcp.Network.type(:list_rule) -> rule["list"]
+        Map.has_key?(words, type) -> Map.fetch!(words, type)
+        true -> type
+      end
+    end)
+  end
+
+  def reply_rule_words(%{}), do: ["everyone"]
+
+  defp rule_type(:mention), do: :mention_rule
+  defp rule_type(:following), do: :following_rule
+  defp rule_type(:followers), do: :follower_rule
+
+  @doc "A postgate's quote rule now: `\"disabled\"` when it holds a disable rule."
+  def quotes_word(%{"embeddingRules" => rules}) when is_list(rules) do
+    if Enum.any?(rules, &(&1["$type"] == AtMcp.Network.type(:disable_rule))),
+      do: "disabled",
+      else: "allowed"
+  end
+
+  def quotes_word(_postgate), do: "allowed"
 
   @self_labels ["sexual", "nudity", "porn", "graphic-media"]
 
@@ -43,6 +80,7 @@ defmodule AtMcp.Interactions do
   word from `reply_rule_words/0` or the AT URI of a list record.
   """
   def reply_rule(nil), do: {:ok, nil}
+  def reply_rule(["everyone"]), do: {:ok, nil}
 
   def reply_rule(rules) when is_list(rules) do
     rules
@@ -79,6 +117,9 @@ defmodule AtMcp.Interactions do
         {:error, "#{uri} is not an AT URI"}
     end
   end
+
+  defp reply_rule_entry("everyone"),
+    do: {:error, ~s("everyone" stands alone: ["everyone"] lets anyone reply)}
 
   defp reply_rule_entry(word) when is_map_key(@reply_rules, word),
     do: {:ok, Map.fetch!(@reply_rules, word)}

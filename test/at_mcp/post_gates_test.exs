@@ -37,7 +37,7 @@ defmodule AtMcp.PostGatesTest do
       generator = "at://did:plc:x/app.bsky.feed.generator/hot"
 
       for {rule, path} <- [
-            {["everyone"], "reply_rule/0"},
+            {["everyone", "mentioned"], "reply_rule/0"},
             {["mentioned", generator], "reply_rule/1"}
           ] do
         result = call(ctx.state, "post", %{"text" => "t", "reply_rule" => rule})
@@ -231,6 +231,72 @@ defmodule AtMcp.PostGatesTest do
       valid!(threadgate["value"], "app.bsky.feed.threadgate")
     end
 
+    # applyWrites' `results` is optional. The writes were committed; the
+    # post's address was chosen before sending, so the result still names it.
+    test "a post with gates is reported written when the service leaves out results" do
+      %{effects: effects, pds: pds} =
+        pds(%{}, %{
+          "com.atproto.repo.applyWrites" => {200, %{commit: %{cid: "bafycommit", rev: "r"}}}
+        })
+
+      assert {:ok, result} = AtMcp.Effects.post(effects, "gated", quotes: "disabled")
+      [post, _postgate] = applied(pds)
+      rkey = post["rkey"]
+
+      assert result.uri == "at://did:plc:self/app.bsky.feed.post/#{rkey}"
+      assert result.cid == nil
+      assert result.postgate_uri == "at://did:plc:self/app.bsky.feed.postgate/#{rkey}"
+    end
+
+    test "a list named by its handle-form address is written in DID form" do
+      by_handle = "at://self.example/app.bsky.graph.list/friends"
+      %{effects: effects, pds: pds} = pds(%{@mine => post("mine")})
+
+      assert {:ok, _} = AtMcp.Effects.post(effects, "x", reply_rule: [by_handle])
+      [_post, threadgate] = applied(pds)
+      assert [%{"list" => @list}] = threadgate["value"]["allow"]
+
+      assert {:ok, %{reply_rule: ["mentioned", @list]}} =
+               AtMcp.Effects.set_post_interactions(effects, @mine, ["mentioned", by_handle], nil)
+
+      assert {:error, {:invalid_argument, "reply_rule/0", message}} =
+               AtMcp.Effects.set_post_interactions(
+                 effects,
+                 @mine,
+                 ["at://nobody.example/app.bsky.graph.list/x"],
+                 nil
+               )
+
+      assert message =~ "could not be resolved; give the list's AT URI in DID form"
+    end
+
+    test "a gate edit writes only over the commit it read, and refuses when the repository moved" do
+      %{effects: effects, pds: pds} = pds(%{@mine => post("mine")})
+
+      assert {:ok, _} = AtMcp.Effects.set_post_interactions(effects, @mine, nil, "disabled")
+      [apply] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      [%{}] = FakePDS.sent(pds, "com.atproto.sync.getLatestCommit")
+      assert is_binary(apply.body["swapCommit"])
+
+      # Another write lands between the read and the write.
+      %{pds: pds, state: state} =
+        pds(%{@mine => post("mine")}, %{
+          "com.atproto.sync.getLatestCommit" => {200, %{cid: "bafystale", rev: "1"}}
+        })
+
+      {:ok, result, ^state} =
+        AtMcp.MCP.Server.handle_call_tool(
+          "set_post_interactions",
+          %{"uri" => @mine, "quotes" => "disabled"},
+          state
+        )
+
+      assert result.isError
+      assert result.structuredContent.code == "changed_meanwhile"
+      assert hd(result.content).text =~ "nothing was written"
+      assert FakePDS.record(pds, @postgate) == nil
+    end
+
     test "a post without gates is written as before, and quotes allowed writes no postgate" do
       %{effects: effects, pds: pds} = pds()
       assert {:ok, result} = AtMcp.Effects.post(effects, "plain", quotes: "allowed")
@@ -317,26 +383,63 @@ defmodule AtMcp.PostGatesTest do
       valid!(create["value"], "app.bsky.feed.postgate")
     end
 
-    test "set_post_interactions with neither rule opens the post and deletes empty gates" do
-      %{effects: effects, pds: pds} =
-        pds(%{
-          @mine => post("mine"),
-          @threadgate => %{
-            "$type" => "app.bsky.feed.threadgate",
-            "post" => @mine,
-            "createdAt" => @at,
-            "allow" => []
-          },
-          @postgate => %{
-            "$type" => "app.bsky.feed.postgate",
-            "post" => @mine,
-            "createdAt" => @at,
-            "embeddingRules" => [%{"$type" => "app.bsky.feed.postgate#disableRule"}]
-          }
-        })
+    defp gated(allow, embedding_rules) do
+      pds(%{
+        @mine => post("mine"),
+        @threadgate => %{
+          "$type" => "app.bsky.feed.threadgate",
+          "post" => @mine,
+          "createdAt" => @at,
+          "allow" => allow
+        },
+        @postgate => %{
+          "$type" => "app.bsky.feed.postgate",
+          "post" => @mine,
+          "createdAt" => @at,
+          "embeddingRules" => embedding_rules
+        }
+      })
+    end
 
-      assert {:ok, %{threadgate_uri: nil, postgate_uri: nil}} =
+    @following [%{"$type" => "app.bsky.feed.threadgate#followingRule"}]
+    @disabled [%{"$type" => "app.bsky.feed.postgate#disableRule"}]
+
+    # The app's dialog starts from the post's current settings, so a rule not
+    # given is one the person did not touch.
+    test "set_post_interactions keeps a rule it is not given, and says which rules are in force" do
+      %{effects: effects, pds: pds} = gated(@following, [])
+
+      assert {:ok, result} = AtMcp.Effects.set_post_interactions(effects, @mine, nil, "disabled")
+      assert %{reply_rule: ["following"], quotes: "disabled", unchanged: false} = result
+      assert %{threadgate_uri: @threadgate, postgate_uri: @postgate} = result
+
+      # Only the postgate was written; the threadgate is as it was.
+      assert [%{"$type" => "com.atproto.repo.applyWrites#update", "collection" => collection}] =
+               applied(pds)
+
+      assert collection == "app.bsky.feed.postgate"
+      assert FakePDS.record(pds, @threadgate)["allow"] == @following
+    end
+
+    test "set_post_interactions with neither rule writes nothing and says so" do
+      %{effects: effects, pds: pds} = gated(@following, @disabled)
+
+      assert {:ok, %{unchanged: true, reply_rule: ["following"], quotes: "disabled"}} =
                AtMcp.Effects.set_post_interactions(effects, @mine, nil, nil)
+
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+    end
+
+    test "set_post_interactions opens the post when told everyone and allowed, deleting the gates" do
+      %{effects: effects, pds: pds} = gated([], @disabled)
+
+      assert {:ok,
+              %{
+                threadgate_uri: nil,
+                postgate_uri: nil,
+                reply_rule: ["everyone"],
+                quotes: "allowed"
+              }} = AtMcp.Effects.set_post_interactions(effects, @mine, ["everyone"], "allowed")
 
       assert Enum.map(applied(pds), & &1["$type"]) == [
                "com.atproto.repo.applyWrites#delete",
@@ -401,6 +504,10 @@ defmodule AtMcp.PostGatesTest do
       assert held["hiddenReplies"] == [reply]
       assert held["allow"] == [%{"$type" => "app.bsky.feed.threadgate#mentionRule"}]
       valid!(held, "app.bsky.feed.threadgate")
+
+      # Hiding it again changes nothing, so nothing is written.
+      assert {:ok, %{unchanged: true}} = AtMcp.Effects.hide_reply(effects, reply, true)
+      assert [_] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
 
       assert {:ok, %{action: :unhide_reply}} = AtMcp.Effects.hide_reply(effects, reply, false)
       held = FakePDS.record(pds, @threadgate)

@@ -67,8 +67,8 @@ defmodule AtMcp.MCP.Schemas do
 
     Macro.escape(
       description:
-        "Who may reply. #{default} [] for nobody. Otherwise up to #{max} of: " <>
-          ~s["mentioned" (accounts the post mentions), "following" (accounts this account follows), "followers" (accounts that follow this account), and the AT URI of a list (its members).],
+        "Who may reply. #{default} [\"everyone\"] for everyone, [] for nobody. Otherwise up to #{max} of: " <>
+          ~s["mentioned" (accounts the post mentions), "following" (accounts this account follows), "followers" (accounts that follow this account), and the AT URI of a list (its members; a handle in it is resolved to the DID form the app matches).],
       schema: %{type: "array", maxItems: max, items: %{type: "string"}}
     )
   end
@@ -437,7 +437,21 @@ defmodule AtMcp.MCP.Schemas do
       "postgate_uri" =>
         nullable_string(
           "AT URI of the post's postgate after this action; null when the post has none"
-        )
+        ),
+      "reply_rule" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "set_post_interactions: who may reply now, in reply_rule's words: [\"everyone\"], [] for nobody, or the rules. Null for a reply, whose thread's first post sets it"
+      },
+      "quotes" =>
+        nullable_string(
+          "set_post_interactions: whether others may quote the post now: allowed or disabled"
+        ),
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" => "True when the post already had these settings, so nothing was written"
+      }
     })
   end
 

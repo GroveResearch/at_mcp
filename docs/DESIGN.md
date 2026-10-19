@@ -246,16 +246,26 @@ it mentions, people the account follows, its followers, or a list's members)
 and whether it may be quoted (`quotes`). Those are a `feed.threadgate` and a
 `feed.postgate` under the post's record key, and `post` writes them with the
 post in one `applyWrites` commit, so the post never exists without them; it
-counts once. `set_post_interactions` sets both later, as the app's dialog does:
-an omitted rule is the open one. Who may reply belongs to a thread's first
-post, so `reply` does not take `reply_rule`. `hide_reply` and `detach_quote`
-are separate tools because each is a choice about someone else's post; each
-reads the gate it changes and keeps the rest, and a gate left saying nothing
-is deleted. A post can carry self-labels (`labels`) and a link card (`link`)
+counts once. `set_post_interactions` changes them later, as the app's dialog
+does, starting from the current settings: a rule not given is kept, and the
+result states both rules now in force. Who may reply belongs to a thread's
+first post, so `reply` does not take `reply_rule`. A list rule is written with
+the list's DID-form address, which is what the AppView matches; a handle-form
+address is resolved first. `hide_reply` and `detach_quote` are separate tools
+because each is a choice about someone else's post. Each edit reads the
+repository's latest commit, then the gate it changes, keeps the rest, and
+writes over that commit only (`swapCommit`): a repository changed meanwhile is
+refused as `changed_meanwhile` with nothing written. An edit that changes
+nothing writes nothing and says `unchanged`; a gate left saying nothing is
+deleted. A post can carry self-labels (`labels`) and a link card (`link`)
 whose title and description the agent gives: at_mcp does not fetch the page.
-`get_thread` with `include_hidden` also reads the replies a thread leaves out
-(`unspecced.getPostThreadOtherV2`), each saying whether its author hid it or
-the account muted its writer.
+`feed.getPostThread` returns replies the thread's author hid among the others;
+`get_thread` marks those the response's threadgate lists. With
+`include_hidden` it also reads the replies the app leaves out
+(`unspecced.getPostThreadOtherV2`): one the thread read already returned is
+marked where it stands, saying whether its author hid it or the account muted
+its writer, and only the rest are listed after the thread. If that read fails,
+the thread is returned with a line saying why.
 
 Absent from the surface: lists, starter packs, saved and pinned feeds,
 posting video, direct messages, reporting, mute words and

@@ -429,14 +429,29 @@ defmodule AtMcp.ATProto do
   or none does. `writes` are `{:create | :update, collection, rkey, record}`
   and `{:delete, collection, rkey}`.
   """
-  def apply_writes(session, repo, writes) when is_list(writes) do
+  def apply_writes(session, repo, writes, opts \\ []) when is_list(writes) do
+    params = %{repo: repo, writes: Enum.map(writes, &repo_write/1)}
+
+    # `swapCommit`: the repository commit the writes were built over. The
+    # service applies none of them if the repository has moved on since.
+    params =
+      case Keyword.get(opts, :swap_commit) do
+        nil -> params
+        commit -> Map.put(params, :swap_commit, commit)
+      end
+
     procedure(
       session,
       "com.atproto.repo.applyWrites",
-      %{repo: {:required, :string}, writes: {:required, :any}},
-      %{repo: repo, writes: Enum.map(writes, &repo_write/1)}
+      %{repo: {:required, :string}, writes: {:required, :any}, swap_commit: :string},
+      params
     )
   end
+
+  @doc "The repository's current commit: `%{cid, rev}`."
+  def get_latest_commit(session, did),
+    do:
+      query(session, "com.atproto.sync.getLatestCommit", %{did: {:required, :string}}, %{did: did})
 
   defp repo_write({op, collection, rkey, record}) when op in [:create, :update],
     do: %{

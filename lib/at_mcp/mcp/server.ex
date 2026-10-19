@@ -1036,7 +1036,7 @@ defmodule AtMcp.MCP.Server do
   tool "set_post_interactions",
        write_description(
          :set_post_interactions,
-         "Set who may reply to one of this account's posts and whether others may quote it. Both are set at once, as the app's dialog sets them: an omitted reply_rule means everyone may reply, an omitted quotes means anyone may quote. Replies hidden and quotes detached stay as they are. Who may reply belongs to a thread's first post; for a reply, give no reply_rule. The result names the threadgate and postgate the post has afterwards."
+         "Set who may reply to one of this account's posts and whether others may quote it. A rule left out is kept as the post has it, as the app's dialog starts from the current settings; a rule given replaces it. Replies hidden and quotes detached stay as they are. Who may reply belongs to a thread's first post; for a reply, give no reply_rule. The result states both rules now in force (reply_rule, quotes) and names the threadgate and postgate the post has afterwards. When nothing would change, nothing is written and unchanged is true."
        ) do
     annotations(
       write_annotations(:set_post_interactions, %{
@@ -1053,13 +1053,13 @@ defmodule AtMcp.MCP.Server do
     param(
       :reply_rule,
       {:array, :string},
-      AtMcp.MCP.Schemas.reply_rule("Omit for everyone; this replaces the post's current rule.")
+      AtMcp.MCP.Schemas.reply_rule("Omit to keep the post's current rule; given, it replaces it.")
     )
 
     param(
       :quotes,
       :string,
-      AtMcp.MCP.Schemas.quotes("Omitted: anyone may; this replaces the post's current rule.")
+      AtMcp.MCP.Schemas.quotes("Omit to keep the post's current rule; given, it replaces it.")
     )
 
     run(fn a, state ->

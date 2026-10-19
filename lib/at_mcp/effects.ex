@@ -766,16 +766,17 @@ defmodule AtMcp.Effects do
 
   @doc """
   Set who may reply to one of this account's posts and whether it may be
-  quoted, as the app's dialog sets both: `reply_rule` nil is everyone, `[]`
-  nobody, or a list of rules (`AtMcp.Interactions.reply_rule/1`); `quotes`
-  nil or `"allowed"` lets anyone quote it, `"disabled"` nobody. Replies
+  quoted. The app's dialog starts from the post's current settings, so a rule
+  not given (nil) is kept as it is. `reply_rule` `["everyone"]` is everyone,
+  `[]` nobody, or a list of rules (`AtMcp.Interactions.reply_rule/1`);
+  `quotes` `"allowed"` lets anyone quote it, `"disabled"` nobody. Replies
   hidden and quotes detached stay as they are.
   """
   def set_post_interactions(effects, uri, reply_rule, quotes) when is_binary(uri) do
     with {:ok, {repo, _rkey}} <- post_uri(uri, "uri"),
-         {:ok, allow} <- AtMcp.Interactions.reply_rule(reply_rule),
-         {:ok, quotes} <- AtMcp.Interactions.quotes(quotes) do
-      edit_gates(effects, :set_post_interactions, {:interactions, uri, allow, quotes || :allowed},
+         {:ok, allow} <- keep_or(reply_rule, &AtMcp.Interactions.reply_rule/1),
+         {:ok, quotes} <- keep_or(quotes, &AtMcp.Interactions.quotes/1) do
+      edit_gates(effects, :set_post_interactions, {:interactions, uri, allow, quotes},
         own: {repo, "set_post_interactions sets the rules of a post this account wrote"}
       )
     end
@@ -820,6 +821,9 @@ defmodule AtMcp.Effects do
       fn prepared -> fn backend, session -> backend.write_gates(session, prepared) end end
     )
   end
+
+  defp keep_or(nil, _read), do: {:ok, :keep}
+  defp keep_or(given, read), do: read.(given)
 
   defp own_post(_session, nil), do: :ok
   defp own_post(session, {repo, what}), do: own_repo(session, repo, "uri", what)

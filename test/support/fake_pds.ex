@@ -12,7 +12,9 @@ defmodule AtMcp.Test.FakePDS do
   `handles` (`%{handle => did}`, the session's own handle included) answers
   with the DID-form uri, as a real PDS does, and `resolveHandle` resolves them.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
-  test can read back what a write left. `uploadBlob` answers a blob reference
+  test can read back what a write left. `getLatestCommit` answers a commit that
+  any change to the records moves, and `applyWrites` with a `swapCommit` that
+  is not it answers 400 `InvalidSwap`. `uploadBlob` answers a blob reference
   for the bytes it was sent. `drafts` is the account's drafts, as
   `getDrafts` lists them (`%{id, draft, ...}`); `createDraft`, `updateDraft` and
   `deleteDraft` change them, and an update to an id it does not hold is ignored
@@ -136,6 +138,22 @@ defmodule AtMcp.Test.FakePDS do
     {{200, %{}}, %{state | records: Map.delete(state.records, uri)}}
   end
 
+  # The repository's commit is a digest of its records, so any write moves it.
+  defp answer("com.atproto.sync.getLatestCommit", _call, state),
+    do: {{200, %{cid: commit(state), rev: "rev"}}, state}
+
+  defp answer("com.atproto.repo.applyWrites", %{body: %{"swapCommit" => swap} = call_body}, state)
+       when is_binary(swap) do
+    if swap == commit(state),
+      do:
+        answer(
+          "com.atproto.repo.applyWrites",
+          %{body: Map.delete(call_body, "swapCommit")},
+          state
+        ),
+      else: {{400, %{error: "InvalidSwap", message: "Commit was at #{commit(state)}"}}, state}
+  end
+
   defp answer("com.atproto.repo.applyWrites", %{body: b}, state) do
     {results, records} =
       Enum.map_reduce(b["writes"], state.records, fn write, records ->
@@ -195,6 +213,10 @@ defmodule AtMcp.Test.FakePDS do
     do: {{200, %{}}, %{state | drafts: Enum.reject(state.drafts, &(&1.id == id))}}
 
   defp draft(_op, _call, state), do: {{200, %{}}, state}
+
+  @doc "The repository's current commit CID: a digest of every record it holds."
+  def commit(%{records: records}),
+    do: cid(:erlang.term_to_binary(records |> Map.to_list() |> Enum.sort()))
 
   @doc "The CID the PDS gives the record at `uri`, or the blob of these bytes."
   def cid(source),
