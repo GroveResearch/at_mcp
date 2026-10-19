@@ -29,6 +29,21 @@ defmodule AtMcp.MCP.Schemas do
   """
 
   @doc """
+  The `reasons` parameter of `get_notifications`: the lexicon's reasons, so an
+  unknown one is refused as an invalid argument before anything is sent.
+  """
+  defmacro notification_reasons do
+    Macro.escape(
+      description:
+        "Only notifications for these reasons. The service filters after it pages, so a page can be short or empty while more remain: follow the cursor until there is none. Omit for all",
+      schema: %{
+        type: "array",
+        items: %{type: "string", enum: AtMcp.Notifications.reasons()}
+      }
+    )
+  end
+
+  @doc """
   The `limit` parameter of a paged read, stated from the limits the account
   enforces (`AtMcp.Effects.page_limits/0`). `noun` names what is counted.
   """

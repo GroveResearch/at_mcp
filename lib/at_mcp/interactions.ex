@@ -37,7 +37,8 @@ defmodule AtMcp.Interactions do
   @doc """
   A threadgate's `allow` as `reply_rule` words: `["everyone"]` when the gate
   sets no rule, `[]` for nobody, and a list's AT URI for a list rule. A rule
-  this does not know is given by its `$type`.
+  this does not know, or a list rule that names no list, is given by its
+  `$type`, so it reads as a rule that could not be read rather than as nobody.
   """
   def reply_rule_words(nil), do: ["everyone"]
 
@@ -49,9 +50,10 @@ defmodule AtMcp.Interactions do
       type = rule["$type"]
 
       cond do
-        type == AtMcp.Network.type(:list_rule) -> rule["list"]
+        type == AtMcp.Network.type(:list_rule) and is_binary(rule["list"]) -> rule["list"]
         Map.has_key?(words, type) -> Map.fetch!(words, type)
-        true -> type
+        is_binary(type) -> type
+        true -> "unknown"
       end
     end)
   end

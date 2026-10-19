@@ -67,39 +67,6 @@ defmodule AtMcp.Summary do
     {:playlist, :string, [["playlist"]], "URL of the AppView's HLS playlist for the video"}
   ]
 
-  # What the app shows beside an account's name wherever it appears: the
-  # verification check, and the Live badge (`actor.defs#verificationState`,
-  # `#statusView`). Declared once for a profile, a post's author, a quoted
-  # post's author and a notification's author.
-  @verification [
-    {:status, :string, [["verified_status"], ["verifiedStatus"]],
-     "valid, invalid or none: valid is the check the app shows beside the name"},
-    {:trusted_verifier, :string, [["trusted_verifier_status"], ["trustedVerifierStatus"]],
-     "valid, invalid or none: valid is the app's trusted-verifier badge; such an account can verify others"}
-  ]
-
-  @status [
-    {:kind, :string, [["status"]],
-     "The status's type, such as app.bsky.actor.status#live, the app's Live badge"},
-    {:active, :boolean, [["is_active"], ["isActive"]],
-     "True while the status is current, as the service judged it when it answered"},
-    {:disabled, :boolean, [["is_disabled"], ["isDisabled"]],
-     "True when the service has switched the status off for this account"},
-    {:expires_at, :string, [["expires_at"], ["expiresAt"]],
-     "When the status ends, as an ISO 8601 timestamp"},
-    {:url, :string, [["embed", "external", "uri"]], "Where the status links: the live stream"},
-    {:title, :string, [["embed", "external", "title"]], "The linked page's title"}
-  ]
-
-  # The author facts every post read carries, from the post view's `author`.
-  # A quoted post and a notification name the same facts from their own views.
-  @author_badges [
-    {:author_verification, {:object, @verification}, [["author", "verification"]],
-     "Whether the app shows the author as verified; null when the service gave no verification state"},
-    {:author_status, {:object, @status}, [["author", "status"]],
-     "The author's status, such as live; null when there is none"}
-  ]
-
   # A label as the AppView returns it on a post or an account: what it says and
   # who applied it. A label an account applied to itself has its own DID as src.
   # A key the service did not send is left out of the label rather than sent as
@@ -140,6 +107,42 @@ defmodule AtMcp.Summary do
     {:muted, :boolean, ["muted"], "True when the viewing account has muted them"},
     {:muted_by_list, :list, ["mutedByList", "muted_by_list"],
      "AT URI of the moderation list through which the viewing account mutes them"}
+  ]
+
+  # What the app shows beside an account's name wherever it appears: the
+  # verification check, and the Live badge (`actor.defs#verificationState`,
+  # `#statusView`). Declared once for a profile, a post's author, a quoted
+  # post's author and a notification's author.
+  @verification [
+    {:status, :string, [["verified_status"], ["verifiedStatus"]],
+     "valid, invalid or none: valid is the check the app shows beside the name"},
+    {:trusted_verifier, :string, [["trusted_verifier_status"], ["trustedVerifierStatus"]],
+     "valid, invalid or none: valid is the app's trusted-verifier badge; such an account can verify others"}
+  ]
+
+  @status [
+    {:kind, :string, [["status"]],
+     "The status's type, such as app.bsky.actor.status#live, the app's Live badge"},
+    {:active, :boolean, [["is_active"], ["isActive"]],
+     "True while the status is current, as the service judged it when it answered"},
+    {:disabled, :boolean, [["is_disabled"], ["isDisabled"]],
+     "True when the service has switched the status off for this account"},
+    {:expires_at, :string, [["expires_at"], ["expiresAt"]],
+     "When the status ends, as an ISO 8601 timestamp"},
+    {:url, :string, [["embed", "external", "uri"]], "Where the status links: the live stream"},
+    {:title, :string, [["embed", "external", "title"]], "The linked page's title"},
+    {:uri, :string, [["uri"]], "AT URI of the status record"},
+    {:labels, {:list, @label, :omit_null}, [["labels"]],
+     "Labels on the status itself; the app hides the Live badge for some"}
+  ]
+
+  # The author facts every post read carries, from the post view's `author`.
+  # A quoted post and a notification name the same facts from their own views.
+  @author_badges [
+    {:author_verification, {:object, @verification}, [["author", "verification"]],
+     "Whether the app shows the author as verified; null when the service gave no verification state"},
+    {:author_status, {:object, @status}, [["author", "status"]],
+     "The author's status, such as live; null when there is none"}
   ]
 
   @quote [
@@ -419,6 +422,8 @@ defmodule AtMcp.Summary do
         {:did, :string, [["did"]], "DID of the feed generator service"},
         {:display_name, :string, [["display_name"], ["displayName"]], "Feed display name"},
         {:description, :string, [["description"]], "Feed description"},
+        {:avatar, :string, [["avatar"]],
+         "URL of the feed's avatar image the service hosts; null when none is set"},
         {:creator, :string, [["creator", "handle"]], "Creator handle"},
         {:creator_did, :string, [["creator", "did"]], "Creator DID"},
         {:creator_display_name, :string,

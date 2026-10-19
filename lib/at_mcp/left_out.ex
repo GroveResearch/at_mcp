@@ -74,23 +74,22 @@ defmodule AtMcp.LeftOut do
     {"**.embed.record.record.list",
      "The list behind a quoted starter pack; the quote's uri is what the app opens"},
 
-    # What the app shows about an account beside its name: its avatar. The
-    # profile reads keep it as a URL, as they keep a banner; beside a post, a
-    # name or a list it is a picture, which no text says.
+    # What the app shows about an account beside its name: its avatar. A
+    # profile read gives its URL, in the structured content and the text, as
+    # it gives the banner's; beside a post, a name or a list it is a picture,
+    # which no text says.
     {"**.author.avatar", "The author's avatar picture; get_profile reads its URL"},
     {"**.creator.avatar", "The creator's avatar picture; get_profile reads its URL"},
     {"feed[].reason.by.avatar", "The reposter's avatar picture; get_profile reads its URL"},
     {"items[].subject.avatar", "A list member's avatar picture; get_profile reads its URL"},
-    {"feeds[].avatar", "A feed's avatar picture; the app's feed card shows it beside the name"},
-    {"view.avatar", "A feed's avatar picture; the app's feed card shows it beside the name"},
     {"trends[].actors[].avatar", "An avatar picture; get_profile reads its URL"},
     {"pinnedPost.cid", "The pinned post's CID; get_posts with `pinned_post` reads it"},
     {"**.associated",
-     "What an account has made, whether it runs a labeler, and who may message it: a profile reads these (`lists`, `feeds`, `starter_packs`, `labeler`, `messages_from`), and get_profile reads them for an account met elsewhere. Who may subscribe to its posts waits on the notification settings (#91), and a third-party messaging button is not read"},
+     "What an account has made, whether it runs a labeler, and who may message it: a profile reads these (`lists`, `feeds`, `starter_packs`, `labeler`, `messages_from`), and get_profile reads them for an account met elsewhere. Who may add it to a group chat (`chat.allowGroupInvites`) is not read: at_mcp has no direct messages (#92). Who may subscribe to its posts waits on the notification settings (#91), and a third-party messaging button is not read"},
     {"**.verification",
      "Whether the app shows an account as verified: a profile (`verification`, with who verified it) and a post's or quote's author (`author_verification`) read it, and get_profile reads it for an account met elsewhere"},
     {"**.status.*",
-     "An account's status, the app's Live badge: a profile (`status`) and a post's or quote's author (`author_status`) read its kind, whether it is on, when it ends and where it links, and get_profile reads it for an account met elsewhere. Its record, CID and the link card's description and picture are not what the badge shows"},
+     "An account's status, the app's Live badge: a profile (`status`) and a post's or quote's author (`author_status`) read its kind, whether it is on, when it ends, where it links, its AT URI and its own labels (the app hides the badge when moderation filters them), and get_profile reads it for an account met elsewhere. Its record, CID and the link card's description and picture are not what the badge shows"},
     {"**.author.createdAt", "When the author's account was made; get_profile reads it"},
     {"**.creator.createdAt", "When the creator's account was made; get_profile reads it"},
     {"**.creator.description", "The creator's profile description; get_profile reads it"},

@@ -38,10 +38,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
-    param(:reasons, {:array, :string},
-      description:
-        "Only notifications for these reasons, as the service names them: like, repost, follow, mention, reply, quote, starterpack-joined and others. Omit for all"
-    )
+    param(:reasons, {:array, :string}, AtMcp.MCP.Schemas.notification_reasons())
 
     run(fn a, state ->
       e = state.effects

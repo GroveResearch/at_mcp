@@ -252,6 +252,14 @@ defmodule AtMcp.MCP.ReadPagesTest do
     call(client, "get_notifications", %{})
     assert_receive {:wire, "/xrpc/app.bsky.notification.listNotifications", wire, _headers}
     refute URI.query_decoder(wire) |> Enum.any?(&(elem(&1, 0) == "reasons"))
+
+    # A reason the lexicon does not name is refused before anything is sent.
+    assert {:ok, %{"isError" => true, "structuredContent" => %{"code" => "invalid_arguments"}}} =
+             ExMCP.Client.call_tool(client, "get_notifications", %{"reasons" => ["likes"]},
+               format: :map
+             )
+
+    refute_receive {:wire, "/xrpc/app.bsky.notification.listNotifications", _, _}
   end
 
   test "search_posts sends author, mentions, sort, since, until and lang on the wire, as searchPostsV2 names them",

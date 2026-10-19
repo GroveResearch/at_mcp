@@ -16,6 +16,7 @@ defmodule AtMcp.SummaryTest do
     "isActive" => true,
     "isDisabled" => false,
     "expiresAt" => "2026-09-13T13:00:00.000Z",
+    "labels" => [%{"src" => "did:plc:labeler", "val" => "spam"}],
     "embed" => %{
       "$type" => "app.bsky.embed.external#view",
       "external" => %{"uri" => "https://stream.example/live", "title" => "On air"}
@@ -178,6 +179,7 @@ defmodule AtMcp.SummaryTest do
       "did" => "did:web:feeds.example",
       "displayName" => "What's hot",
       "description" => "posts the service currently surfaces",
+      "avatar" => "https://cdn.example/feed.jpg",
       "creator" => %{"handle" => "author.test", "did" => "did:plc:author", "displayName" => "A"},
       "likeCount" => 12,
       "acceptsInteractions" => true,
@@ -631,7 +633,13 @@ defmodule AtMcp.SummaryTest do
     assert %{status: "valid", by: [%{issuer_handle: "verifier.test", valid: true}]} =
              profile.verification
 
-    assert %{active: true, url: "https://stream.example/live"} = profile.status
+    assert %{
+             active: true,
+             url: "https://stream.example/live",
+             uri: "at://did:plc:author/app.bsky.actor.status/self",
+             labels: [%{val: "spam"}]
+           } = profile.status
+
     assert {profile.lists, profile.feeds, profile.starter_packs} == {2, 1, 1}
     assert profile.labeler == false
     assert profile.messages_from == "following"

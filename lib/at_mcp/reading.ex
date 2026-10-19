@@ -268,7 +268,9 @@ defmodule AtMcp.Reading do
         "author" => handle,
         "display_name" => account["display_name"],
         "author_verification" => account["verification"],
-        "author_status" => account["status"]
+        "author_status" => account["status"],
+        "author_viewer" => viewer,
+        "author_labels" => account["labels"]
       })
 
     lines(
@@ -283,14 +285,7 @@ defmodule AtMcp.Reading do
             ],
             " · "
           ),
-        lines(
-          [
-            if(is_binary(viewer["following"]), do: "You follow them"),
-            if(is_binary(viewer["followed_by"]), do: "Follows you"),
-            standing(%{"author_viewer" => viewer})
-          ],
-          " · "
-        ),
+        relation(viewer),
         if(form == :full, do: account["description"], else: one_line(account["description"])),
         lines(
           [
@@ -327,7 +322,17 @@ defmodule AtMcp.Reading do
               end)
         end,
         if(is_binary(account["pinned_post"]), do: "Pinned post: #{account["pinned_post"]}"),
-        live_line(account["status"]),
+        live_line(account["status"], viewer, account["labels"]),
+        if(form == :full,
+          do:
+            lines(
+              [
+                if(is_binary(account["avatar"]), do: "Avatar: #{escape_uri(account["avatar"])}"),
+                if(is_binary(account["banner"]), do: "Banner: #{escape_uri(account["banner"])}")
+              ],
+              " · "
+            )
+        ),
         verified_by(account["verification"]),
         labelled(%{"labels" => account["labels"], "author_did" => account["did"]}),
         known_followers(account["known_followers"]),
@@ -344,8 +349,43 @@ defmodule AtMcp.Reading do
   defp counted(n, one, many) when is_integer(n) and n > 0, do: count(n, one, many)
   defp counted(_n, _one, _many), do: nil
 
-  defp live_line(status) do
-    if live?(status) do
+  # How the account relates to this one, with the record URIs `unfollow` and
+  # `unblock` take, and the list a block or mute comes through. A block
+  # through a list puts the list's URI in `blocking`, which `unblock` refuses,
+  # so only the list is named then.
+  defp relation(viewer) do
+    lines(
+      [
+        if(is_binary(viewer["following"]), do: "You follow them: #{viewer["following"]}"),
+        if(is_binary(viewer["followed_by"]), do: "Follows you"),
+        cond do
+          is_binary(viewer["blocking_by_list"]) ->
+            "You blocked them via a list: #{viewer["blocking_by_list"]}"
+
+          is_binary(viewer["blocking"]) ->
+            "You blocked them: #{viewer["blocking"]}"
+
+          true ->
+            nil
+        end,
+        if(viewer["blocked_by"] == true, do: "They blocked you"),
+        cond do
+          is_binary(viewer["muted_by_list"]) ->
+            "You muted them via a list: #{viewer["muted_by_list"]}"
+
+          viewer["muted"] == true ->
+            "You muted them"
+
+          true ->
+            nil
+        end
+      ],
+      " · "
+    )
+  end
+
+  defp live_line(status, viewer, labels) do
+    if live?(status, viewer, labels) do
       lines(
         [
           "Live:",
@@ -450,6 +490,7 @@ defmodule AtMcp.Reading do
         one_line(feed["description"]),
         labelled(%{"labels" => feed["labels"], "author_did" => feed["creator_did"]}),
         if(is_binary(viewer["like"]), do: "You liked this: #{viewer["like"]}"),
+        if(is_binary(feed["avatar"]), do: "Avatar: #{escape_uri(feed["avatar"])}"),
         ids(feed)
       ],
       "\n"
@@ -811,7 +852,7 @@ defmodule AtMcp.Reading do
   defp who(%{"author" => handle} = post) when is_binary(handle) do
     name = post["display_name"]
     you = if post["is_self"] == true, do: " (you)", else: ""
-    badges = badges(post["author_verification"], post["author_status"])
+    badges = badges(post)
 
     if is_binary(name) and String.trim(name) != "" and name != handle,
       do: "#{name} (#{Enum.join(["@" <> handle | badges], ", ")})#{you}",
@@ -823,23 +864,89 @@ defmodule AtMcp.Reading do
 
   # What the app shows beside a name: its verification check, the
   # trusted-verifier badge, and the Live badge.
-  defp badges(verification, status) do
-    verification = if is_map(verification), do: verification, else: %{}
+  defp badges(post) do
+    verification =
+      if is_map(post["author_verification"]), do: post["author_verification"], else: %{}
 
     Enum.reject(
       [
         if(verification["status"] == "valid", do: "verified"),
         if(verification["trusted_verifier"] == "valid", do: "trusted verifier"),
-        if(live?(status), do: "live")
+        if(live?(post["author_status"], post["author_viewer"], post["author_labels"]),
+          do: "live"
+        )
       ],
       &is_nil/1
     )
   end
 
-  defp live?(%{"active" => true, "kind" => kind} = status) when is_binary(kind),
-    do: status["disabled"] != true and String.ends_with?(kind, "#live")
+  # The hosts the app shows a Live badge for, and its rule for showing one,
+  # as bluesky-social/social-app has them at 24e0ebbcd18b794934d617de20477c82a37ac2f0:
+  # `DEFAULT_ALLOWED_DOMAINS`, `useActorStatus` and `isStatusValidForViewers`
+  # in src/features/liveNow/index.tsx, `getLiveNowHost` and
+  # `isStatusStillActive` in src/features/liveNow/utils.ts, and `moderateStatus`
+  # (packages/api/src/moderation/subjects/status.ts in bluesky-social/atproto
+  # at 9f66a7e). The badge shows for a live status whose AT URI is set, whose
+  # link is an external embed on one of these hosts (its registrable domain),
+  # that is not disabled and has not expired by this machine's clock (the app
+  # checks `expiresAt`, not the service's `isActive`), and that moderation does
+  # not filter from a content list: no block either way, no mute, no label in
+  # effect on the status, and no `!hide` or `!takedown` on the account. The app
+  # can add hosts by remote configuration and hide for labels the viewer's
+  # moderation preferences hide; neither is visible here, so this can only be
+  # stricter on hosts and looser on preference-hidden account labels.
+  @live_hosts ~w(twitch.tv stream.place bluecast.app youtube.com substack.com beehiiv.com)
 
-  defp live?(_status), do: false
+  defp live?(status, viewer, account_labels) do
+    viewer = if is_map(viewer), do: viewer, else: %{}
+
+    is_map(status) and is_binary(status["kind"]) and
+      status["kind"] == AtMcp.Network.type(:status_live) and is_binary(status["uri"]) and
+      status["disabled"] != true and live_host?(status["url"]) and
+      future?(status["expires_at"]) and not labelled?(status["labels"]) and
+      not is_binary(viewer["blocking"]) and not is_binary(viewer["blocking_by_list"]) and
+      viewer["blocked_by"] != true and viewer["muted"] != true and
+      not is_binary(viewer["muted_by_list"]) and
+      not Enum.any?(List.wrap(account_labels), fn label ->
+        is_map(label) and label["val"] in ["!hide", "!takedown"] and label["neg"] != true
+      end)
+  end
+
+  defp live_host?(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
+        host = String.downcase(host)
+        Enum.any?(@live_hosts, &(host == &1 or String.ends_with?(host, "." <> &1)))
+
+      _ ->
+        false
+    end
+  end
+
+  defp live_host?(_url), do: false
+
+  defp future?(at) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, at, _offset} -> DateTime.compare(at, DateTime.utc_now()) == :gt
+      _ -> false
+    end
+  end
+
+  defp future?(_at), do: false
+
+  # Whether any label is in effect: not expired and not removed by a negation.
+  # Unlike the labels line, a `!` value counts: it is an instruction to hide.
+  defp labelled?(labels) when is_list(labels) do
+    now = DateTime.utc_now()
+
+    current =
+      Enum.filter(labels, &(is_map(&1) and is_binary(&1["val"]) and not expired?(&1, now)))
+
+    negated = for %{"neg" => true, "val" => val} <- current, into: MapSet.new(), do: val
+    Enum.any?(current, &(&1["neg"] != true and &1["val"] not in negated))
+  end
+
+  defp labelled?(_labels), do: false
 
   # The line the app shows under a gated post: who may reply. Said only when
   # it is not everyone; a post with no gate on it has no line.
@@ -860,7 +967,7 @@ defmodule AtMcp.Reading do
             "following" -> "people they follow"
             "followers" -> "their followers"
             "at://" <> _ = uri -> lines(["members of", named(lists[uri]), uri], " ")
-            other -> other
+            other -> "a rule this version cannot read (#{other})"
           end)
     end
   end
@@ -1020,7 +1127,16 @@ defmodule AtMcp.Reading do
     author =
       if is_binary(quote["author"]),
         do:
-          who(Map.take(quote, ["author", "display_name", "author_verification", "author_status"])),
+          who(
+            Map.take(quote, [
+              "author",
+              "display_name",
+              "author_verification",
+              "author_status",
+              "author_viewer",
+              "author_labels"
+            ])
+          ),
         else: "a post"
 
     # The quoted post's labels and any block or mute with its author, in the
