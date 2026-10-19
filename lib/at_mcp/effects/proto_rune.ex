@@ -711,16 +711,10 @@ defmodule AtMcp.Effects.ProtoRune do
   def update_profile(session, updates) when is_list(updates) do
     safe = Keyword.take(updates, [:display_name, :description])
 
-    with {:ok, current} <- current_profile(session),
+    with {:ok, current, swap} <- current_profile(session),
          {:ok, blobs} <- upload_profile_images(session, updates),
          record = AtMcp.ATProto.profile_record(merge_profile(current, safe), blobs),
-         {:ok, result} <-
-           AtMcp.ATProto.put_record(session, %{
-             repo: session.did,
-             collection: AtMcp.Network.collection(:profile),
-             rkey: "self",
-             record: record
-           }) do
+         {:ok, result} <- put_profile(session, record, swap) do
       {:ok,
        %{
          ok: true,
@@ -733,6 +727,43 @@ defmodule AtMcp.Effects.ProtoRune do
     else
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # The profile is written only over the record it was built from. Between the
+  # read and this write the app, or another client, may have changed it; a
+  # write over that change would undo it without anyone seeing. `swapRecord`
+  # makes the service refuse instead. With no record read, nothing is swapped:
+  # the lexicon's null swap would also refuse a profile created meanwhile, but
+  # it is "nullable and optional" and not every PDS reads it the same way.
+  defp put_profile(session, record, swap) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(:profile),
+      rkey: "self",
+      record: record
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The profile")}
+
+      other ->
+        other
+    end
+  end
+
+  # A compare-and-swap the service refused: the record changed between the
+  # read and the write, and the write did not happen.
+  defp changed_meanwhile(what) do
+    AtMcp.Effects.Failure.new(:refused,
+      message:
+        "#{what} changed between reading it and writing it, so nothing was written. " <>
+          "Read it again and retry if the change still applies.",
+      detail: {:changed_meanwhile, what}
+    )
   end
 
   # An avatar or banner is a blob the profile record references, so it is
@@ -796,7 +827,7 @@ defmodule AtMcp.Effects.ProtoRune do
   def resolve_post(session, uri) when is_binary(uri) do
     with {:ok, ref, response} <- fetch_strong_ref(session, uri) do
       root = root_of(response)
-      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: uri))}
+      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: ref.uri))}
     end
   end
 
@@ -808,7 +839,7 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def prepare_pin(session, uri) do
     with {:ok, ref} <- pin_ref(session, uri),
-         {:ok, current} <- current_profile(session) do
+         {:ok, current, swap} <- current_profile(session) do
       previous = AtMcp.Response.dig(current, [:pinned_post, :uri])
       previous = if is_binary(previous), do: previous
 
@@ -817,7 +848,7 @@ defmodule AtMcp.Effects.ProtoRune do
           do: nil,
           else: AtMcp.ATProto.pinned_profile_record(current, ref)
 
-      {:ok, %{record: record, pinned: uri, previous: previous}}
+      {:ok, %{record: record, pinned: ref && ref.uri, previous: previous, swap: swap}}
     else
       {:error, {:referenced_record_unreadable, _}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
@@ -835,13 +866,8 @@ defmodule AtMcp.Effects.ProtoRune do
   def pin(_session, %{record: nil, previous: nil}),
     do: {:ok, %{ok: true, action: :unpin_post, uri: nil, subject_uri: nil, replaced_uri: nil}}
 
-  def pin(session, %{record: record, pinned: pinned, previous: previous}) do
-    case AtMcp.ATProto.put_record(session, %{
-           repo: session.did,
-           collection: AtMcp.Network.collection(:profile),
-           rkey: "self",
-           record: record
-         }) do
+  def pin(session, %{record: record, pinned: pinned, previous: previous, swap: swap}) do
+    case put_profile(session, record, swap) do
       {:ok, result} ->
         {:ok,
          %{
@@ -1030,7 +1056,7 @@ defmodule AtMcp.Effects.ProtoRune do
          {:ok, response} <-
            AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}),
          {:ok, cid} when is_binary(cid) <- AtMcp.Response.fetch(response, :cid) do
-      {:ok, %{uri: uri, cid: cid}, response}
+      {:ok, %{uri: canonical(response, uri), cid: cid}, response}
     else
       # An answer arrived and carried no CID: the record is unusable as a
       # reference whatever else it is.
@@ -1051,6 +1077,19 @@ defmodule AtMcp.Effects.ProtoRune do
     do: {:error, {:referenced_record_unreadable, uri}}
 
   defp reference_error(_uri, %AtMcp.Effects.Failure{} = failure), do: {:error, failure}
+
+  # The address a record is known by everywhere: the DID form the service
+  # answers a read with, whichever form the caller named it in. A handle can
+  # move to another account and back, and the AppView matches pins, thread
+  # mutes, bookmarks and gates by the DID form, so a reference written with a
+  # handle names nothing it will ever show. A service that answers without a
+  # DID-form uri leaves the caller's.
+  defp canonical(response, uri) do
+    case AtMcp.Response.fetch(response, :uri) do
+      {:ok, "at://did:" <> _ = canonical} -> canonical
+      _ -> uri
+    end
+  end
 
   defp root_of(response) do
     with {:ok, value} when is_map(value) <- AtMcp.Response.fetch(response, :value),
@@ -1092,8 +1131,10 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   # A profile update starts from the record it is about to replace, so a field
-  # nobody mentioned survives it. A repository with no profile record yet is
-  # not an error: the account simply has no profile, and this writes the first.
+  # nobody mentioned survives it, and writes it back only if it is still that
+  # record: the CID read here is the `swapRecord` of the write (`put_profile/3`).
+  # A repository with no profile record yet is not an error: the account simply
+  # has no profile, and this writes the first; its CID is nil.
   defp current_profile(session) do
     case AtMcp.ATProto.get_record(session, %{
            repo: session.did,
@@ -1101,14 +1142,20 @@ defmodule AtMcp.Effects.ProtoRune do
            rkey: "self"
          }) do
       {:ok, response} ->
+        cid =
+          case AtMcp.Response.fetch(response, :cid) do
+            {:ok, cid} when is_binary(cid) -> cid
+            _ -> nil
+          end
+
         case AtMcp.Response.fetch(response, :value) do
-          {:ok, value} when is_map(value) -> {:ok, value}
-          _ -> {:ok, %{}}
+          {:ok, value} when is_map(value) -> {:ok, value, cid}
+          _ -> {:ok, %{}, cid}
         end
 
       {:error, %ProtoRune.XRPC.Error{reason: reason}}
       when reason in [:not_found, :record_not_found] ->
-        {:ok, %{}}
+        {:ok, %{}, nil}
 
       {:error, reason} ->
         {:error, reason}

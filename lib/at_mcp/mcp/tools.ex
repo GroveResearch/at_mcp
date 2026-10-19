@@ -21,6 +21,15 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "wrong_record_kind", failure.message)
 
+  # A compare-and-swap write the service refused because the record changed
+  # after AtMcp read it. Nothing was written; the message says what changed.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, _}} = failure},
+        state
+      ),
+      do: error(state, "changed_meanwhile", "error: " <> failure.message)
+
   def respond({:error, :not_connected}, state),
     do:
       error(

@@ -42,14 +42,18 @@ defmodule AtMcp.PinsBookmarksTest do
       assert hd(result.content).text =~ "Nothing was sent"
     end
 
-    test "pin_post takes this account's post by DID or by its handle" do
+    test "pin_post takes this account's post by DID or by its handle, and pins the DID form" do
       state = mock()
 
       for repo <- ["did:plc:mock", "mock.test"] do
         uri = "at://#{repo}/app.bsky.feed.post/1"
         result = call(state, "pin_post", %{"uri" => uri})
         refute result[:isError], inspect(result)
-        assert %{"action" => "pin_post", "subject_uri" => ^uri} = result.structuredContent
+
+        assert %{
+                 "action" => "pin_post",
+                 "subject_uri" => "at://did:plc:mock/app.bsky.feed.post/1"
+               } = result.structuredContent
       end
     end
 
@@ -190,6 +194,48 @@ defmodule AtMcp.PinsBookmarksTest do
       assert Lexicon.problems(record, "app.bsky.actor.profile") == []
     end
 
+    test "pin_post by a handle-form address pins the DID form the service answered with" do
+      by_handle = "at://self.example/town.delve.feed.post/mine"
+      %{effects: effects, pds: pds} = pds(%{@profile => profile(), @mine => post("pin me")})
+
+      assert {:ok, %{subject_uri: @mine}} = AtMcp.Effects.pin_post(effects, by_handle)
+
+      [put] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
+      assert put.body["record"]["pinnedPost"]["uri"] == @mine
+    end
+
+    test "pin_post writes only over the profile it read, and says so when it changed" do
+      %{effects: effects, pds: pds} = pds(%{@profile => profile(), @mine => post("pin me")})
+      assert {:ok, _} = AtMcp.Effects.pin_post(effects, @mine)
+
+      [get | _] =
+        for %{query: %{"collection" => "town.delve.actor.profile"}} = call <-
+              FakePDS.sent(pds, "com.atproto.repo.getRecord"),
+            do: call
+
+      assert get.query["rkey"] == "self"
+      [put] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
+      # The fake PDS derives a record's CID from its address.
+      assert put.body["swapRecord"] == FakePDS.cid(@profile)
+
+      %{effects: effects, pds: pds} =
+        pds(%{@profile => profile(), @mine => post("pin me")}, %{
+          "com.atproto.repo.putRecord" =>
+            {400, %{error: "InvalidSwap", message: "Record was at bafyother"}}
+        })
+
+      state = %{effects: effects}
+
+      {:ok, result, ^state} =
+        AtMcp.MCP.Server.handle_call_tool("pin_post", %{"uri" => @mine}, state)
+
+      assert result.isError
+      assert result.structuredContent.code == "changed_meanwhile"
+      assert hd(result.content).text =~ "The profile changed between reading it and writing it"
+      assert hd(result.content).text =~ "nothing was written"
+      assert FakePDS.record(pds, @profile) == profile()
+    end
+
     test "unpin_post removes only the pin, and writes nothing when nothing is pinned" do
       %{effects: effects, pds: pds} =
         pds(%{@profile => profile(%{"pinnedPost" => %{"uri" => @before, "cid" => "bafyold"}})})
@@ -234,6 +280,41 @@ defmodule AtMcp.PinsBookmarksTest do
       assert mute.body == %{"root" => root}
       assert Lexicon.problems(mute.body, "app.bsky.graph.muteThread") == []
       assert Lexicon.problems(unmute.body, "app.bsky.graph.unmuteThread") == []
+    end
+
+    test "mute_thread on a handle-form address mutes the DID-form root" do
+      by_handle = "at://self.example/town.delve.feed.post/mine"
+      %{effects: effects, pds: pds} = pds(%{@mine => post("a thread")})
+
+      assert {:ok, %{uri: @mine}} = AtMcp.Effects.mute_thread(effects, by_handle)
+      assert [%{body: %{"root" => @mine}}] = FakePDS.sent(pds, "town.delve.graph.muteThread")
+    end
+
+    @tag network: :bluesky
+    test "bookmark and unbookmark by a handle-form address both send the DID form" do
+      uri = "at://did:plc:other/app.bsky.feed.post/1"
+      by_handle = "at://other.example/app.bsky.feed.post/1"
+
+      {session, pds} =
+        FakePDS.start(
+          records: %{uri => %{"text" => "save"}},
+          handles: %{"other.example" => "did:plc:other"}
+        )
+
+      effects =
+        start_supervised!(
+          {AtMcp.Effects,
+           backend: AtMcp.Effects.ProtoRune,
+           backend_state: session,
+           write_quota: AtMcp.Test.QuotaFixture.quota(10)},
+          id: make_ref()
+        )
+
+      assert {:ok, %{uri: ^uri}} = AtMcp.Effects.bookmark(effects, by_handle)
+      assert {:ok, %{uri: ^uri}} = AtMcp.Effects.unbookmark(effects, by_handle)
+
+      assert [%{body: %{"uri" => ^uri}}] = FakePDS.sent(pds, "app.bsky.bookmark.createBookmark")
+      assert [%{body: %{"uri" => ^uri}}] = FakePDS.sent(pds, "app.bsky.bookmark.deleteBookmark")
     end
 
     @tag network: :bluesky
