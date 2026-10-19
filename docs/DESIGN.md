@@ -118,7 +118,13 @@ relates to this one, the description, counts, links, pinned post and what the
 account has made. A post is one view whichever read shows it: a feed, a
 thread, a chain, a notification and a quote each say its author's badges,
 labels and any block or mute with its author in the same words, and a gated
-post says who may reply. Most MCP clients give a model
+post says who may reply. Its time is the one the app shows, when the service
+first saw it (`indexed_at`), with the author's own `created_at` beside it as
+"archived from" when that is more than a day earlier, as the app marks a
+backdated post. A mention reads with the DID it notified, `@alice.test
+<did:plc:…>`, so it is told apart from an `@word` that notified nobody. A
+link card built from standard.site records names its publication, the author
+the app names on it, the publish date and the reading time. Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients
@@ -277,7 +283,10 @@ service reports with no record of the account's behind them: whether the other
 account blocks this one (`blocked_by`), whether this one has muted it
 (`muted`), the list a block or mute comes through, and whether the service lets
 the account reply to or quote a post (`reply_disabled`, `embedding_disabled`) and
-whether it muted the post's thread (`thread_muted`). A post carries its author's as
+whether it muted the post's thread (`thread_muted`), bookmarked the post
+(`bookmarked`) or pinned it to its profile (`pinned`); a post also carries
+the accounts this one follows that liked it (`known_likers`), the app's
+"Liked by" line. A post carries its author's as
 `author_viewer`, so a reader of a post sees a block without a second read. A
 state the service did not mention is left out, never reported as `false`.
 Blocked only through a moderation list, the AppView puts the list's own URI in

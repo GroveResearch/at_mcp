@@ -10,8 +10,8 @@ defmodule AtMcp.RichText do
 
   `render/2` is the other direction, for a post AtMcp read: a facet's
   destination lives beside the text, not in it, so an agent reading only the
-  text cannot tell where a shortened link goes or which account an `@handle`
-  is.
+  text cannot tell where a shortened link goes, or whether an `@handle` is a
+  mention that notified an account or words that notified nobody.
   """
   alias ProtoRune.{Atproto.Identity, RichText}
 
@@ -57,9 +57,11 @@ defmodule AtMcp.RichText do
 
   A link facet's span is a display form — often a truncated domain — while the
   destination is in the facet, so the destination is written into the text
-  after the span it belongs to. Mention and tag spans already read as
-  themselves and are left alone; their DID and tag are returned in the resolved
-  list.
+  after the span it belongs to. A mention facet's DID is written after its
+  span the same way, `@alice.test <did:plc:…>`: the app links the span to that
+  account and the service notified it, while an `@word` with no facet is
+  plain text that notified nobody. Tag spans already read as themselves and
+  are left alone. Every facet is also returned in the resolved list.
 
   Offsets are UTF-8 bytes, as the lexicon defines them. A facet whose range is
   not a pair of integers inside this text, whose features are not a list, or
@@ -153,9 +155,11 @@ defmodule AtMcp.RichText do
   end
 
   # The text is never replaced, only added to: a reader sees what the author
-  # wrote plus where the link goes.
+  # wrote plus where the link goes, or which account the mention notified.
   defp written(%{type: "link", uri: uri, text: shown}) when uri != shown,
     do: shown <> " <" <> uri <> ">"
+
+  defp written(%{type: "mention", did: did, text: shown}), do: shown <> " <" <> did <> ">"
 
   defp written(%{text: shown}), do: shown
 

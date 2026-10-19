@@ -215,6 +215,7 @@ defmodule AtMcp.Post do
           author: get(view, [:author, :handle]),
           author_did: get(view, [:author, :did]),
           display_name: get(view, [:author, :display_name]) || get(view, [:author, :displayName]),
+          indexed_at: get(view, [:indexed_at]) || get(view, [:indexedAt]),
           created_at: get(value, [:created_at]) || get(value, [:createdAt]),
           raw_text: get(value, [:text]),
           text: text,
@@ -287,21 +288,68 @@ defmodule AtMcp.Post do
   end
 
   # A link card. The hydrated view's `thumb` is a URL; a raw record's is a blob,
-  # which is not read.
+  # which is not read. A card the AppView built from standard.site records
+  # (`embed.external#viewExternal`) also names the publication, its author,
+  # the publish date and the reading time, which the app shows on the card
+  # (StandardSiteEmbed in bluesky-social/social-app at 62b95002).
   defp link(embed) do
     case get(media(embed), [:external]) do
       external when is_map(external) ->
         thumb = get(external, [:thumb])
+        source = get(external, [:source])
+
+        records =
+          for ref <-
+                List.wrap(get(external, [:associated_refs]) || get(external, [:associatedRefs])),
+              uri = get(ref, [:uri]),
+              is_binary(uri),
+              do: uri
 
         %{
           uri: get(external, [:uri]),
           title: get(external, [:title]),
           description: get(external, [:description]),
-          thumb: if(is_binary(thumb), do: thumb)
+          thumb: if(is_binary(thumb), do: thumb),
+          published_at: either(external, [:created_at], [:createdAt]),
+          reading_time: either(external, [:reading_time], [:readingTime]),
+          publication:
+            if(is_map(source),
+              do: %{
+                uri: get(source, [:uri]),
+                title: get(source, [:title]),
+                description: get(source, [:description])
+              }
+            ),
+          author: card_author(external, records),
+          records: if(records != [], do: records)
         }
 
       _ ->
         nil
+    end
+  end
+
+  # The account the app names on a standard.site card as "by @handle"
+  # (StandardSiteMetaRow), found among the card's associated profiles: the
+  # owner of its publication record where the card shows the publication, or
+  # of its document record where it shows none. The collections are
+  # standard.site's own lexicon, which no network rename touches.
+  defp card_author(external, records) do
+    kind = if is_map(get(external, [:source])), do: "publication", else: "document"
+
+    profiles =
+      List.wrap(get(external, [:associated_profiles]) || get(external, [:associatedProfiles]))
+
+    with "at://" <> rest <-
+           Enum.find(
+             records,
+             &String.starts_with?(record_collection(&1) || "", "site.standard." <> kind)
+           ),
+         [did | _] <- String.split(rest, "/"),
+         profile when is_map(profile) <- Enum.find(profiles, &(get(&1, [:did]) == did)) do
+      profile
+    else
+      _ -> nil
     end
   end
 

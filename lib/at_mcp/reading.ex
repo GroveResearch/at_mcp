@@ -391,7 +391,9 @@ defmodule AtMcp.Reading do
 
           true ->
             nil
-        end
+        end,
+        # The app's "Reposts Hidden" pill on a profile and an account card.
+        if(viewer["muted_reposts"] == true, do: "You hid their reposts")
       ],
       " · "
     )
@@ -443,6 +445,17 @@ defmodule AtMcp.Reading do
   end
 
   defp known_followers(_known), do: nil
+
+  # The app's "Liked by A and B" under a post: at most two of the accounts
+  # this one follows that liked it (KnownLikers in social-app).
+  defp known_likers(%{"actors" => [_ | _] = actors}) do
+    case Enum.map(Enum.take(actors, 2), &who(account(&1))) do
+      [one] -> "Liked by " <> one
+      [one, two] -> "Liked by #{one} and #{two}"
+    end
+  end
+
+  defp known_likers(_known), do: nil
 
   defp joined_via(%{"uri" => uri} = pack) when is_binary(uri),
     do:
@@ -1003,7 +1016,7 @@ defmodule AtMcp.Reading do
   defp post(%{} = post, label) do
     case unavailable(post) do
       nil ->
-        header = lines([who(post), post["created_at"], replying(post)], " · ")
+        header = lines([who(post), posted(post), replying(post)], " · ")
 
         top =
           case reason(post["reason"]) do
@@ -1016,6 +1029,7 @@ defmodule AtMcp.Reading do
             body(post) ++
             [
               engagement(post),
+              known_likers(post["known_likers"]),
               labelled(post),
               standing(post),
               who_can_reply(post),
@@ -1100,6 +1114,7 @@ defmodule AtMcp.Reading do
           [
             lines([item["reason"], "from", who(item)], " "),
             item["indexed_at"],
+            if(is_binary(item["text"]), do: archived(item["created_at"], item["indexed_at"])),
             if(item["is_read"] == false, do: "unread")
           ],
           " · "
@@ -1196,6 +1211,34 @@ defmodule AtMcp.Reading do
     do: "through the starter pack " <> lines([named(pack["name"]), uri], " ")
 
   defp joined_through(_pack), do: nil
+
+  # The time the app shows on a post: when the service first saw it, which
+  # the author cannot set. The author's own date goes beside it, as the app's
+  # "Archived from", when it is more than a day earlier
+  # (`BackdatedPostIndicator` in social-app's ThreadItemAnchor.tsx).
+  defp posted(post) do
+    lines(
+      [
+        post["indexed_at"] || post["created_at"],
+        archived(post["created_at"], post["indexed_at"])
+      ],
+      " · "
+    )
+  end
+
+  @day_ms 24 * 60 * 60 * 1000
+
+  defp archived(created, indexed) when is_binary(created) and is_binary(indexed) do
+    with {:ok, created_dt, _} <- DateTime.from_iso8601(created),
+         {:ok, indexed_dt, _} <- DateTime.from_iso8601(indexed),
+         true <- DateTime.diff(indexed_dt, created_dt, :millisecond) > @day_ms do
+      "archived from #{created}"
+    else
+      _ -> nil
+    end
+  end
+
+  defp archived(_created, _indexed), do: nil
 
   defp about(uri) when is_binary(uri), do: "on #{uri}"
   defp about(_uri), do: nil
@@ -1419,10 +1462,37 @@ defmodule AtMcp.Reading do
       )
 
     uri = escape_uri(uri)
-    if said == "", do: "[link: #{uri}]", else: "[link: #{said} (#{uri})]"
+    card = if said == "", do: uri, else: "#{said} (#{uri})"
+    "[link: " <> lines([card | publication(link)], " · ") <> "]"
   end
 
   defp link(_link, _form), do: nil
+
+  # What the app adds to a card built from standard.site records: the publish
+  # date and reading time on an article's card, then the publication and the
+  # account it names as the author.
+  defp publication(link) do
+    standard = Enum.any?(List.wrap(link["records"]), &(&1 =~ ~r"^at://[^/]+/site\.standard\."))
+    pub = if is_map(link["publication"]), do: link["publication"], else: %{}
+    author = if is_map(link["author"]), do: link["author"], else: %{}
+
+    [
+      if(standard and is_binary(link["published_at"]), do: "published #{link["published_at"]}"),
+      if(standard and is_integer(link["reading_time"]), do: "#{link["reading_time"]} min read"),
+      if(is_binary(pub["title"]),
+        do:
+          lines(
+            [
+              "publication",
+              named(pub["title"]),
+              if(is_binary(pub["uri"]), do: "(#{escape_uri(pub["uri"])})")
+            ],
+            " "
+          )
+      ),
+      if(is_binary(author["handle"]), do: "by @#{author["handle"]}")
+    ]
+  end
 
   # A card's title or description on one line, as the app's card shows it.
   defp one_line(text) when is_binary(text),
@@ -1497,6 +1567,8 @@ defmodule AtMcp.Reading do
         "" -> ""
         notes -> " · " <> notes
       end
+
+    author = lines([author, posted(quote)], " · ")
 
     "[quoting #{author}, #{quote["uri"]}#{in_brackets(web(quote))}: #{quote["text"]}#{pictures}#{media}#{notes}]"
   end
@@ -1658,11 +1730,19 @@ defmodule AtMcp.Reading do
   end
 
   # The viewing account's own like or repost of the post: the uri `unlike` and
-  # `unrepost` take, and the reason not to like it twice.
+  # `unrepost` take, and the reason not to like it twice. Then whether it has
+  # bookmarked the post or pinned it to its profile, which the app shows on
+  # the bookmark button and in the post's menu.
   defp viewer(%{"viewer" => %{} = viewer}) do
-    for {key, verb} <- [{"like", "You liked this"}, {"repost", "You reposted this"}],
-        is_binary(viewer[key]),
-        do: "#{verb}: #{viewer[key]}"
+    for(
+      {key, verb} <- [{"like", "You liked this"}, {"repost", "You reposted this"}],
+      is_binary(viewer[key]),
+      do: "#{verb}: #{viewer[key]}"
+    ) ++
+      [
+        if(viewer["bookmarked"] == true, do: "You bookmarked this"),
+        if(viewer["pinned"] == true, do: "You pinned this to your profile")
+      ]
   end
 
   defp viewer(_post), do: []

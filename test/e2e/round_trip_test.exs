@@ -83,6 +83,7 @@ defmodule AtMcp.E2E.RoundTripTest do
 
     %{
       net: net,
+      pds: info["pds"],
       moderation: info["moderation"],
       feed: info["feed"],
       me: account.(info["accounts"]["self"]),
@@ -1527,6 +1528,101 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       call!(them, "delete_post", %{"uri" => post["uri"]})
       sync(net)
+    end
+  end
+
+  describe "what this account sees" do
+    test "bookmark and pin_post read back as this account's on the post; a mention reads with the DID it notified",
+         %{net: net, me: me, them: them, session: session, pds: pds} do
+      follows = [
+        call!(me, "follow", %{"actor" => them.handle}),
+        call!(them, "follow", %{"actor" => me.handle})
+      ]
+
+      mine = post!(me, "kites for @#{them.handle}")
+      sync(net)
+      reply = call!(them, "reply", %{"uri" => mine["uri"], "text" => "@#{me.handle} yes"})
+      quote = post!(them, "look at this", %{"quote" => mine["uri"]})
+      like = call!(them, "like", %{"uri" => mine["uri"]})
+      repost = call!(them, "repost", %{"uri" => mine["uri"]})
+      sync(net)
+
+      call!(me, "pin_post", %{"uri" => mine["uri"]})
+      call!(me, "bookmark", %{"uri" => quote["uri"]})
+      call!(me, "like", %{"uri" => quote["uri"]})
+      sync(net)
+
+      read = fn ->
+        result = call(me, "get_posts", %{"uris" => [mine["uri"], quote["uri"]]})
+        refute result[:isError]
+        {result.structuredContent["items"], hd(result.content).text}
+      end
+
+      {[p, q], text} = read.()
+      assert p["viewer"]["pinned"] == true
+      assert p["viewer"]["bookmarked"] == false
+      assert q["viewer"]["bookmarked"] == true
+      # The service leaves out `pinned` on a post that is not.
+      refute q["viewer"]["pinned"]
+      assert text =~ "You pinned this to your profile"
+      assert text =~ "You bookmarked this"
+      # The mention the post tool resolved notified them, and reads so.
+      assert p["text"] == "kites for @#{them.handle} <#{them.did}>"
+      assert p["raw_text"] == "kites for @#{them.handle}"
+      assert is_binary(p["indexed_at"]) and is_binary(p["created_at"])
+
+      if dir = System.get_env("AT_MCP_E2E_RECORD"), do: record(session, pds, me, mine, dir)
+
+      call!(me, "unbookmark", %{"uri" => quote["uri"]})
+      call!(me, "unpin_post", %{})
+      sync(net)
+
+      {[p, q], text} = read.()
+      refute p["viewer"]["pinned"]
+      assert q["viewer"]["bookmarked"] == false
+      refute text =~ "You pinned this"
+      refute text =~ "You bookmarked this"
+
+      call!(me, "unlike", %{"uri" => q["viewer"]["like"]})
+      call!(them, "unlike", %{"uri" => like["uri"]})
+      call!(them, "unrepost", %{"uri" => repost["uri"]})
+
+      for post <- [reply, quote], do: call!(them, "delete_post", %{"uri" => post["uri"]})
+      call!(me, "delete_post", %{"uri" => mine["uri"]})
+
+      for {follow, account} <- Enum.zip(follows, [me, them]),
+          do: call!(account, "unfollow", %{"uri" => follow["uri"]})
+
+      sync(net)
+    end
+  end
+
+  # The AppView's answers to this account's own reads, as the service sent
+  # them, for test/at_mcp/field_coverage_test.exs: public recordings carry no
+  # viewer state and no notifications. scripts/record_appview_fixtures.py
+  # --scrub replaces every identity and text in them before they are kept
+  # (test/fixtures/appview/README.md).
+  defp record(session, pds, me, post, dir) do
+    File.mkdir_p!(dir)
+
+    for {file, method, params} <- [
+          {"viewer_timeline.json", "app.bsky.feed.getTimeline", [limit: 30]},
+          {"viewer_author_feed.json", "app.bsky.feed.getAuthorFeed",
+           [actor: me.did, includePins: true, filter: "posts_with_replies", limit: 30]},
+          {"viewer_thread.json", "app.bsky.feed.getPostThread",
+           [uri: post["uri"], depth: 2, parentHeight: 2]},
+          {"notifications.json", "app.bsky.notification.listNotifications", [limit: 30]},
+          {"grouped_notifications.json", "app.bsky.notification.getGroupedNotifications",
+           [limit: 30]}
+        ] do
+      url = pds <> "/xrpc/" <> method
+      {:ok, auth, _session} = ProtoRune.Session.authorization_headers(session, "GET", url)
+      headers = Map.merge(auth, AtMcp.Network.request_headers(method, session))
+
+      %{status: 200, body: body} =
+        Req.get!(url, params: params, headers: headers, decode_body: false)
+
+      File.write!(Path.join(dir, file), body)
     end
   end
 

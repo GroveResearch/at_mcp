@@ -113,7 +113,8 @@ defmodule AtMcp.ViewerContextTest do
 
       assert post.viewer == %{
                like: HTTP.relation(owner, "like"),
-               repost: HTTP.relation(owner, "repost")
+               repost: HTTP.relation(owner, "repost"),
+               bookmarked: true
              }
 
       {:ok, %{items: [feed_post]}} = Backend.get_author_feed(session, "author.test", [])

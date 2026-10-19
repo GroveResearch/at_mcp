@@ -129,24 +129,26 @@ defmodule AtMcp.Effects.ProtoRune do
       |> AtMcp.ATProto.params()
 
     case AtMcp.ATProto.grouped_notifications(session, params) do
-      {:ok, %{"groups" => groups} = response} when is_list(groups) ->
-        views = related_views(response["relatedViews"])
-
-        {:ok,
-         %{
-           count: length(groups),
-           items: for(%{} = group <- groups, do: notification_group(group, views)),
-           cursor: response["cursor"],
-           seen_at: response["seenAt"]
-         }}
-
-      {:ok, other} ->
-        {:error, unreadable("grouped notifications", if(is_map(other), do: other, else: %{}))}
-
-      {:error, reason} ->
-        {:error, failure(reason)}
+      {:ok, response} -> grouped(response)
+      {:error, reason} -> {:error, failure(reason)}
     end
   end
+
+  # The raw body, camelCase as the service sent it.
+  defp grouped(%{"groups" => groups} = response) when is_list(groups) do
+    views = related_views(response["relatedViews"])
+
+    {:ok,
+     %{
+       count: length(groups),
+       items: for(%{} = group <- groups, do: notification_group(group, views)),
+       cursor: response["cursor"],
+       seen_at: response["seenAt"]
+     }}
+  end
+
+  defp grouped(other),
+    do: {:error, unreadable("grouped notifications", if(is_map(other), do: other, else: %{}))}
 
   # The related views by what names them: a profile by DID, anything else by
   # its uri.
@@ -194,7 +196,9 @@ defmodule AtMcp.Effects.ProtoRune do
         %{
           "uri" => item["post"],
           "author" => get_in(views, [item["post"], "author", "handle"]),
-          "text" => get_in(views, [item["post"], "record", "text"]),
+          # Read as a post's text is anywhere: links at their destination,
+          # each mention with the DID it notified.
+          "text" => post_text(get_in(views, [item["post"], "record"])),
           "viaRepost" => item["viaRepost"],
           "parent" => item["parent"]
         }
@@ -215,6 +219,13 @@ defmodule AtMcp.Effects.ProtoRune do
       "generator" => kind["generator"]
     })
   end
+
+  defp post_text(%{"text" => text} = record) do
+    {rendered, _facets} = AtMcp.RichText.render(text, record["facets"])
+    rendered
+  end
+
+  defp post_text(_record), do: nil
 
   # `...notification.getGroupedNotifications#likeGroup` is `likeGroup`.
   defp kind_name(type) when is_binary(type), do: type |> String.split("#") |> List.last()
@@ -5170,6 +5181,9 @@ defmodule AtMcp.Effects.ProtoRune do
     do: {:ok, pack_view(field(response, :starter_pack))}
 
   def summarize(:starter_packs, response), do: page(response, :starter_packs, &pack_view/1)
+  def summarize(:notifications, response), do: page(response, :notifications, &notif_item/1)
+  # Read from the raw body, as `get_grouped_notifications/2` reads it.
+  def summarize(:grouped_notifications, response), do: grouped(response)
 
   defp summarize_thread(thread) when is_map(thread) do
     node = field(thread, :thread) || thread

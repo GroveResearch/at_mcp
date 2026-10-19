@@ -707,7 +707,17 @@ defmodule AtMcp.PreferencesTest do
           "$type" => "app.bsky.feed.defs#postView",
           "uri" => "at://did:plc:alice/app.bsky.feed.post/r",
           "author" => %{"did" => "did:plc:alice", "handle" => "alice.test"},
-          "record" => %{"text" => "nice kite"}
+          "record" => %{
+            "text" => "nice kite @self.test",
+            "facets" => [
+              %{
+                "index" => %{"byteStart" => 10, "byteEnd" => 20},
+                "features" => [
+                  %{"$type" => "app.bsky.richtext.facet#mention", "did" => "did:plc:self"}
+                ]
+              }
+            ]
+          }
         }
       ]
     }
@@ -755,7 +765,8 @@ defmodule AtMcp.PreferencesTest do
                "kind" => "replyNotification",
                "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
                "parent" => "at://did:plc:self/app.bsky.feed.post/p",
-               "posts" => [%{"text" => "nice kite"}]
+               # The mention reads with the DID it notified, as in any post.
+               "posts" => [%{"text" => "nice kite @self.test <did:plc:self>"}]
              } = reply
 
       {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
@@ -774,6 +785,7 @@ defmodule AtMcp.PreferencesTest do
                ~s(at://did:plc:self/app.bsky.feed.post/p · link: https://bsky.app/profile/did:plc:self/post/p · "a kite")
 
       assert text =~ "alice.test replied"
+      assert text =~ ~s("nice kite @self.test <did:plc:self>")
       assert text =~ "replying to at://did:plc:self/app.bsky.feed.post/p"
     end
 

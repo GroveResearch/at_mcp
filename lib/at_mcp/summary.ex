@@ -58,12 +58,39 @@ defmodule AtMcp.Summary do
              {key, :string, [[Atom.to_string(key)]], doc}
            end)
 
-  # A link card as the AppView hydrated it, or as a raw record wrote it.
+  # An account as `actor.defs#profileViewBasic` names it.
+  @account_basic [
+    {:did, :string, [["did"]], "Account DID"},
+    {:handle, :string, [["handle"]], "Account handle"},
+    {:web_url, {:web, :profile}, [["handle"], ["did"]], @link_doc},
+    {:display_name, :string, [["display_name"], ["displayName"]], "Display name"}
+  ]
+
+  # A link card as the AppView hydrated it, or as a raw record wrote it. A
+  # card for a standard.site article or publication carries more, which the
+  # app shows on it: the publication, its author, the publish date and the
+  # reading time (`AtMcp.Post`).
   @link [
     {:uri, :string, [["uri"]], "The link's destination"},
     {:title, :string, [["title"]], "The card's title"},
     {:description, :string, [["description"]], "The card's description"},
-    {:thumb, :string, [["thumb"]], "URL of the AppView's copy of the card's image"}
+    {:thumb, :string, [["thumb"]], "URL of the AppView's copy of the card's image"},
+    {:published_at, :string, [["published_at"]],
+     "When the linked page was published, as an ISO 8601 timestamp, when the service knows"},
+    {:reading_time, :integer, [["reading_time"]],
+     "How many minutes the linked article takes to read, when the service knows"},
+    {:publication,
+     {:object,
+      [
+        {:uri, :string, [["uri"]], "The publication's web address"},
+        {:title, :string, [["title"]], "The publication's name"},
+        {:description, :string, [["description"]], "The publication's description"}
+      ]}, [["publication"]],
+     "The publication the linked page belongs to, such as a standard.site blog; null when none"},
+    {:author, {:object, @account_basic}, [["author"]],
+     "The account the app names on the card as 'by @handle': the owner of the standard.site record behind it; null when none"},
+    {:records, {:list, :string}, [["records"]],
+     "AT URIs of the records behind the card, such as a site.standard.document; null when none"}
   ]
 
   @video [
@@ -97,7 +124,11 @@ defmodule AtMcp.Summary do
     {:embedding_disabled, :boolean, ["embeddingDisabled", "embedding_disabled"],
      "True when the service says the viewing account cannot quote this post"},
     {:thread_muted, :boolean, ["threadMuted", "thread_muted"],
-     "True when the viewing account has muted this post's thread"}
+     "True when the viewing account has muted this post's thread"},
+    {:bookmarked, :boolean, ["bookmarked"],
+     "True when the viewing account has bookmarked this post; unbookmark removes it"},
+    {:pinned, :boolean, ["pinned"],
+     "True when this is the post the viewing account pinned to its profile; unpin_post removes it"}
   ]
 
   @actor_viewer [
@@ -111,7 +142,11 @@ defmodule AtMcp.Summary do
      "True when they block the viewing account"},
     {:muted, :boolean, ["muted"], "True when the viewing account has muted them"},
     {:muted_by_list, :list, ["mutedByList", "muted_by_list"],
-     "AT URI of the moderation list through which the viewing account mutes them"}
+     "AT URI of the moderation list through which the viewing account mutes them"},
+    {:muted_reposts, :boolean, ["mutedOnlyReposts", "muted_only_reposts"],
+     "True when the viewing account hides only their reposts, the app's 'Reposts Hidden'"},
+    {:muted_quotes, :boolean, ["mutedOnlyQuoteposts", "muted_only_quoteposts"],
+     "True when the viewing account hides only their quote posts"}
   ]
 
   # What the app shows beside an account's name wherever it appears: the
@@ -162,10 +197,13 @@ defmodule AtMcp.Summary do
     {:author, :string, [["author"]], "Quoted author's handle"},
     {:author_did, :string, [["author_did"]], "Quoted author's DID"},
     {:display_name, :string, [["display_name"]], "Quoted author's display name"},
+    {:indexed_at, :string, [["indexed_at"]],
+     "When the service first saw the quoted post, as an ISO 8601 timestamp: the time the app shows on it"},
     {:created_at, :string, [["created_at"]],
-     "When the quoted post was written, as an ISO 8601 timestamp"},
+     "When the quoted post's author says it was written, as an ISO 8601 timestamp"},
     {:raw_text, :string, [["raw_text"]], "Exact quoted author's text"},
-    {:text, :string, [["text"]], "Quoted text with full link destinations"},
+    {:text, :string, [["text"]],
+     "Quoted text with full link destinations, and the DID each mention notified"},
     {:facets, {:list, @facets}, [["facets"]], "Quoted text's normalized facets"},
     {:images, {:list, @image_view}, [["images"]], "Quoted post's image metadata, not pixels"},
     {:link, {:object, @link}, [["link"]], "Quoted post's link card"},
@@ -191,7 +229,8 @@ defmodule AtMcp.Summary do
 
   # Computed content is declared once for reads, chains and notifications.
   @content [
-    {:text, :string, [["perception", "text"]], "Post text with full link destinations"},
+    {:text, :string, [["perception", "text"]],
+     "Post text with full link destinations, and after each mention the DID it notified, as `@handle <did>`; an @word without one notified nobody"},
     {:raw_text, :string, [["perception", "raw_text"]],
      "Exact author text, without appended observations"},
     {:facets, {:list, @facets}, [["perception", "facets"]],
@@ -232,6 +271,12 @@ defmodule AtMcp.Summary do
     {:display_name, :string, [["display_name"]], "Author display name"}
   ]
 
+  # The likers of a post the viewing account follows (`feed.defs#knownLikers`).
+  @known_likers [
+    {:count, :integer, [["count"]], "How many such accounts the service counts"},
+    {:actors, {:list, @account_basic}, [["actors"]], "Some of them, as the service chose"}
+  ]
+
   # A list a thread's gate lets reply (`graph.defs#listViewBasic`).
   @gate_list [
     {:uri, :string, [["uri"]], "AT URI of the list"},
@@ -246,8 +291,10 @@ defmodule AtMcp.Summary do
           {:author_did, :string, [["author", "did"]], "Author DID"},
           {:display_name, :string, [["author", "display_name"], ["author", "displayName"]],
            "Author display name, as the account set it"},
+          {:indexed_at, :string, [["indexed_at"], ["indexedAt"]],
+           "When the service first saw the post, as an ISO 8601 timestamp: the time the app shows on it"},
           {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
-           "When the author wrote it, as an ISO 8601 timestamp"},
+           "When the author says they wrote it, as an ISO 8601 timestamp; the author chooses it. The app shows it beside indexed_at, as 'Archived from', when it is more than a day earlier"},
           {:reply_to, :string, [["record", "reply", "parent", "uri"]],
            "AT URI of the post this one replies to; null on the root"},
           {:reason, {:object, @reason}, [["feed_context", "reason"]],
@@ -275,7 +322,10 @@ defmodule AtMcp.Summary do
           {:reply_rule, {:list, :string}, [["perception", "reply_rule"]],
            "Who may reply, from the gate the thread's author set: [\"everyone\"], or any of mentioned, following, followers and a list's AT URI; [] is nobody. Null when the post carries no gate: a reply's is on its thread's first post, and viewer.reply_disabled says whether this account may answer it"},
           {:reply_lists, {:list, @gate_list}, [["threadgate", "lists"]],
-           "The lists reply_rule names, with their names"}
+           "The lists reply_rule names, with their names"},
+          {:known_likers, {:object, @known_likers},
+           [["viewer", "known_likers"], ["viewer", "knownLikers"]],
+           "Accounts the viewing account follows that liked the post, as the app's 'Liked by' line under it shows them; null when the service named none"}
         ] ++ @author_badges
 
   # The viewing account's relationship to a list: a mute or block of the
@@ -304,14 +354,6 @@ defmodule AtMcp.Summary do
     {:web_url, {:web, :profile}, [["subject", "handle"], ["subject", "did"]], @link_doc},
     {:display_name, :string, [["subject", "display_name"], ["subject", "displayName"]],
      "Display name"}
-  ]
-
-  # An account as `actor.defs#profileViewBasic` names it.
-  @account_basic [
-    {:did, :string, [["did"]], "Account DID"},
-    {:handle, :string, [["handle"]], "Account handle"},
-    {:web_url, {:web, :profile}, [["handle"], ["did"]], @link_doc},
-    {:display_name, :string, [["display_name"], ["displayName"]], "Display name"}
   ]
 
   # One post of a draft. Images a draft holds are files on the device that
@@ -368,7 +410,8 @@ defmodule AtMcp.Summary do
   @group_post [
     {:uri, :string, [["uri"]], "AT URI of the post"},
     {:web_url, {:web, :record}, [["uri"], ["author"]], @link_doc},
-    {:text, :string, [["text"]], "The post's text; null when the service sent no view of it"},
+    {:text, :string, [["text"]],
+     "The post's text, with full link destinations and the DID each mention notified; null when the service sent no view of it"},
     {:via_repost, :string, [["viaRepost"]],
      "AT URI of this account's repost the action came through, when it did"},
     {:parent, :string, [["parent"]], "AT URI of the post it replies to, when it is a reply"}
@@ -646,7 +689,9 @@ defmodule AtMcp.Summary do
             {:uri, :string, [["uri"]], "AT URI of the notification record"},
             {:cid, :string, [["cid"]], "CID of the notification record"},
             {:indexed_at, :string, [["indexed_at"], ["indexedAt"]],
-             "When the service indexed this notification, as an ISO 8601 timestamp"},
+             "When the service indexed this notification, as an ISO 8601 timestamp: the time the app shows on it"},
+            {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
+             "When the notification's record says it was made, as an ISO 8601 timestamp; its author chooses it"},
             {:subject_uri, :string, [["reason_subject"], ["reasonSubject"]],
              "AT URI of the record this activity addresses, when provided"},
             {:reply_parent_uri, :string, [["record", "reply", "parent", "uri"]],

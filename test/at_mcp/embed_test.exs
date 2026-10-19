@@ -75,10 +75,16 @@ defmodule AtMcp.EmbedTest do
              "uri" => card["uri"],
              "title" => card["title"],
              "description" => card["description"],
-             "thumb" => card["thumb"]
+             "thumb" => card["thumb"],
+             "published_at" => card["createdAt"],
+             "reading_time" => nil,
+             "publication" => nil,
+             "author" => nil,
+             "records" => nil
            }
 
-    # The recorded card has no description, so the line has none.
+    # The recorded card has no description, so the line has none. Nor does
+    # the app show a publish date on a card no standard.site record backs.
     assert card["description"] == ""
     assert text =~ "\n[link: #{card["title"]} (#{card["uri"]})]\n"
     refute text =~ "[embed:"
@@ -203,7 +209,7 @@ defmodule AtMcp.EmbedTest do
     assert summary["quote"]["created_at"] == quoted["value"]["createdAt"]
 
     assert text =~
-             "[quoting #{quoted["author"]["displayName"]} (@#{quoted["author"]["handle"]}), #{quoted["uri"]} " <>
+             "[quoting #{quoted["author"]["displayName"]} (@#{quoted["author"]["handle"]}) · #{quoted["indexedAt"]}, #{quoted["uri"]} " <>
                "(link: #{AtMcp.WebLink.record(quoted["uri"], quoted["author"]["handle"])}): "
 
     assert text =~ " [link: #{card["title"]} (#{card["uri"]})]]"
@@ -346,7 +352,17 @@ defmodule AtMcp.EmbedTest do
                "description" => "",
                "thumb" => blob
              }
-           }).link == %{uri: "https://example.test/a", title: "A", description: "", thumb: nil}
+           }).link == %{
+             uri: "https://example.test/a",
+             title: "A",
+             description: "",
+             thumb: nil,
+             published_at: nil,
+             reading_time: nil,
+             publication: nil,
+             author: nil,
+             records: nil
+           }
 
     assert post.(%{"$type" => "app.bsky.embed.video", "video" => blob, "alt" => "a heron"}).video ==
              %{alt: "a heron", thumbnail: nil, playlist: nil}

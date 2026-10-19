@@ -1,0 +1,309 @@
+{
+  "groups": [
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "isRead": false,
+      "indexedAt": "2027-04-06T15:56:32.382Z",
+      "count": 202,
+      "kind": {
+        "post": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh",
+        "items": [
+          {
+            "actor": "did:plc:kn2byaow3x6hvec3b6thhcr4"
+          }
+        ],
+        "$type": "app.bsky.notification.getGroupedNotifications#repostGroup"
+      },
+      "$type": "app.bsky.notification.getGroupedNotifications#group"
+    },
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "isRead": false,
+      "indexedAt": "2027-04-06T15:56:32.365Z",
+      "count": 202,
+      "kind": {
+        "post": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh",
+        "items": [
+          {
+            "actor": "did:plc:kn2byaow3x6hvec3b6thhcr4"
+          }
+        ],
+        "$type": "app.bsky.notification.getGroupedNotifications#likeGroup"
+      },
+      "$type": "app.bsky.notification.getGroupedNotifications#group"
+    },
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "isRead": false,
+      "indexedAt": "2027-04-06T15:56:32.348Z",
+      "count": 202,
+      "kind": {
+        "post": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.feed.post/lvrx6thbsw4ox",
+        "$type": "app.bsky.notification.getGroupedNotifications#quoteNotification"
+      },
+      "$type": "app.bsky.notification.getGroupedNotifications#group"
+    },
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "isRead": false,
+      "indexedAt": "2027-04-06T15:56:32.341Z",
+      "count": 202,
+      "kind": {
+        "post": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.feed.post/5eqkqhl5cio5x",
+        "parent": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh",
+        "$type": "app.bsky.notification.getGroupedNotifications#mentionNotification"
+      },
+      "$type": "app.bsky.notification.getGroupedNotifications#group"
+    },
+    {
+      "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "isRead": false,
+      "indexedAt": "2027-04-06T15:56:32.199Z",
+      "count": 202,
+      "kind": {
+        "actor": "did:plc:kn2byaow3x6hvec3b6thhcr4",
+        "$type": "app.bsky.notification.getGroupedNotifications#followBackNotification"
+      },
+      "$type": "app.bsky.notification.getGroupedNotifications#group"
+    }
+  ],
+  "relatedViews": [
+    {
+      "did": "did:plc:kn2byaow3x6hvec3b6thhcr4",
+      "handle": "squ2fhhycd.example.test",
+      "associated": {
+        "labeler": true,
+        "activitySubscription": {
+          "allowSubscriptions": "followers"
+        }
+      },
+      "viewer": {
+        "muted": false,
+        "mutedOnlyReposts": false,
+        "mutedOnlyQuoteposts": false,
+        "blockedBy": false,
+        "following": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.graph.follow/7n6glplroniko",
+        "followedBy": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.graph.follow/36lxj6htzc4tc"
+      },
+      "labels": [],
+      "$type": "app.bsky.actor.defs#profileViewBasic"
+    },
+    {
+      "uri": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh",
+      "cid": "bafy3isnsvqljmcrqmkvrkgn56uxjut44twjdxreqropxotaqe6ynucyabe",
+      "author": {
+        "did": "did:plc:fpf7r4x7spo2cwtbhookrgwm",
+        "handle": "yud6lggybb.example.test",
+        "associated": {
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "viewer": {
+          "muted": false,
+          "mutedOnlyReposts": false,
+          "mutedOnlyQuoteposts": false,
+          "blockedBy": false
+        },
+        "labels": []
+      },
+      "record": {
+        "text": "xxxxxxxxxxxxxxxxxxx",
+        "$type": "app.bsky.feed.post",
+        "facets": [
+          {
+            "index": {
+              "byteEnd": 19,
+              "byteStart": 10
+            },
+            "features": [
+              {
+                "did": "did:plc:kn2byaow3x6hvec3b6thhcr4",
+                "$type": "app.bsky.richtext.facet#mention"
+              }
+            ]
+          }
+        ],
+        "createdAt": "2027-04-06T15:56:32.208162Z"
+      },
+      "bookmarkCount": 0,
+      "replyCount": 181,
+      "repostCount": 514,
+      "likeCount": 585,
+      "quoteCount": 428,
+      "indexedAt": "2027-04-06T15:56:32.208Z",
+      "viewer": {
+        "bookmarked": false,
+        "threadMuted": false,
+        "embeddingDisabled": false,
+        "pinned": true
+      },
+      "labels": [],
+      "$type": "app.bsky.feed.defs#postView"
+    },
+    {
+      "uri": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.feed.post/lvrx6thbsw4ox",
+      "cid": "bafynk7ygeek6i5pwswoievnso3jycci5tqn6cv4pflfb53nnedp3a4cpcn",
+      "author": {
+        "did": "did:plc:kn2byaow3x6hvec3b6thhcr4",
+        "handle": "squ2fhhycd.example.test",
+        "associated": {
+          "labeler": true,
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "viewer": {
+          "muted": false,
+          "mutedOnlyReposts": false,
+          "mutedOnlyQuoteposts": false,
+          "blockedBy": false,
+          "following": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.graph.follow/7n6glplroniko",
+          "followedBy": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.graph.follow/36lxj6htzc4tc"
+        },
+        "labels": []
+      },
+      "record": {
+        "text": "xxxxxxxxxxxx",
+        "$type": "app.bsky.feed.post",
+        "embed": {
+          "$type": "app.bsky.embed.record",
+          "record": {
+            "cid": "bafy3isnsvqljmcrqmkvrkgn56uxjut44twjdxreqropxotaqe6ynucyabe",
+            "uri": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh"
+          }
+        },
+        "createdAt": "2027-04-06T15:56:32.348800Z"
+      },
+      "embed": {
+        "record": {
+          "uri": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh",
+          "cid": "bafy3isnsvqljmcrqmkvrkgn56uxjut44twjdxreqropxotaqe6ynucyabe",
+          "author": {
+            "did": "did:plc:fpf7r4x7spo2cwtbhookrgwm",
+            "handle": "yud6lggybb.example.test",
+            "associated": {
+              "activitySubscription": {
+                "allowSubscriptions": "followers"
+              }
+            },
+            "viewer": {
+              "muted": false,
+              "mutedOnlyReposts": false,
+              "mutedOnlyQuoteposts": false,
+              "blockedBy": false
+            },
+            "labels": []
+          },
+          "value": {
+            "text": "xxxxxxxxxxxxxxxxxxx",
+            "$type": "app.bsky.feed.post",
+            "facets": [
+              {
+                "index": {
+                  "byteEnd": 19,
+                  "byteStart": 10
+                },
+                "features": [
+                  {
+                    "did": "did:plc:kn2byaow3x6hvec3b6thhcr4",
+                    "$type": "app.bsky.richtext.facet#mention"
+                  }
+                ]
+              }
+            ],
+            "createdAt": "2027-04-06T15:56:32.208162Z"
+          },
+          "labels": [],
+          "likeCount": 585,
+          "replyCount": 181,
+          "repostCount": 514,
+          "quoteCount": 428,
+          "indexedAt": "2027-04-06T15:56:32.208Z",
+          "embeds": [],
+          "$type": "app.bsky.embed.record#viewRecord"
+        },
+        "$type": "app.bsky.embed.record#view"
+      },
+      "bookmarkCount": 205,
+      "replyCount": 0,
+      "repostCount": 0,
+      "likeCount": 585,
+      "quoteCount": 0,
+      "indexedAt": "2027-04-06T15:56:32.348Z",
+      "viewer": {
+        "like": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.like/fqokuioxm5s73",
+        "bookmarked": true,
+        "threadMuted": false,
+        "embeddingDisabled": false
+      },
+      "labels": [],
+      "$type": "app.bsky.feed.defs#postView"
+    },
+    {
+      "uri": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.feed.post/5eqkqhl5cio5x",
+      "cid": "bafybrkd6iewafhluouk6iakis2wh7gn2tkar23xn62d4h6xlewf4ro5fgl",
+      "author": {
+        "did": "did:plc:kn2byaow3x6hvec3b6thhcr4",
+        "handle": "squ2fhhycd.example.test",
+        "associated": {
+          "labeler": true,
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "viewer": {
+          "muted": false,
+          "mutedOnlyReposts": false,
+          "mutedOnlyQuoteposts": false,
+          "blockedBy": false,
+          "following": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.graph.follow/7n6glplroniko",
+          "followedBy": "at://did:plc:kn2byaow3x6hvec3b6thhcr4/app.bsky.graph.follow/36lxj6htzc4tc"
+        },
+        "labels": []
+      },
+      "record": {
+        "text": "xxxxxxxxxxxxxxx",
+        "$type": "app.bsky.feed.post",
+        "reply": {
+          "root": {
+            "cid": "bafy3isnsvqljmcrqmkvrkgn56uxjut44twjdxreqropxotaqe6ynucyabe",
+            "uri": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh"
+          },
+          "parent": {
+            "cid": "bafy3isnsvqljmcrqmkvrkgn56uxjut44twjdxreqropxotaqe6ynucyabe",
+            "uri": "at://did:plc:fpf7r4x7spo2cwtbhookrgwm/app.bsky.feed.post/ju5ijsf63ngnh"
+          }
+        },
+        "facets": [
+          {
+            "index": {
+              "byteEnd": 11,
+              "byteStart": 0
+            },
+            "features": [
+              {
+                "did": "did:plc:fpf7r4x7spo2cwtbhookrgwm",
+                "$type": "app.bsky.richtext.facet#mention"
+              }
+            ]
+          }
+        ],
+        "createdAt": "2027-04-06T15:56:32.341209Z"
+      },
+      "bookmarkCount": 0,
+      "replyCount": 0,
+      "repostCount": 0,
+      "likeCount": 0,
+      "quoteCount": 0,
+      "indexedAt": "2027-04-06T15:56:32.341Z",
+      "viewer": {
+        "bookmarked": false,
+        "threadMuted": false,
+        "embeddingDisabled": false
+      },
+      "labels": [],
+      "$type": "app.bsky.feed.defs#postView"
+    }
+  ]
+}
