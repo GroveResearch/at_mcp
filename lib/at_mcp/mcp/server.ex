@@ -790,7 +790,7 @@ defmodule AtMcp.MCP.Server do
   tool "delete_list",
        write_description(
          :delete_list,
-         "Delete a list this account made and every list item on it, in one commit. A starter pack's list is deleted with delete_starter_pack. The result's deleted names every record removed."
+         "Delete a list this account made and every list item on it: in one commit, or for a list of more than 199 accounts in several, the list itself last. A starter pack's list is deleted with delete_starter_pack. The result's deleted names every record removed."
        ) do
     annotations(
       write_annotations(:delete_list, %{
@@ -850,7 +850,7 @@ defmodule AtMcp.MCP.Server do
   tool "remove_from_list",
        write_description(
          :remove_from_list,
-         "Take an account off a list or starter pack this account made. The list item is found by reading the list."
+         "Take an account off a list or starter pack this account made. Its list items are found by reading this account's own list item records, so no record key is needed."
        ) do
     annotations(
       write_annotations(:remove_from_list, %{

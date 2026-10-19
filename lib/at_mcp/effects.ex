@@ -862,8 +862,9 @@ defmodule AtMcp.Effects do
              do: :ok,
              else: invalid_argument("opted_out", "must be true or false")
            ) do
-      list_write(effects, :set_list_opt_out, fn _backend, _session ->
-        {:ok, {:set_list_opt_out, list, opted_out}}
+      list_write(effects, :set_list_opt_out, fn backend, session ->
+        with {:ok, list} <- did_uri(backend, session, list),
+             do: {:ok, {:set_list_opt_out, list, opted_out}}
       end)
     end
   end

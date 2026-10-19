@@ -387,7 +387,9 @@ defmodule AtMcp.ATProto do
     record: {:required, :any}
   }
 
-  @repo_put Map.put(@repo_write, :rkey, {:required, :string})
+  # `swapRecord` is the CID of the record a replacement was built from: the PDS
+  # refuses the write if the record has changed since.
+  @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swapRecord, :string)
 
   @repo_delete %{
     repo: {:required, :string},
@@ -448,16 +450,25 @@ defmodule AtMcp.ATProto do
   @doc """
   Create, replace and delete several records in one repository commit: all of
   them land or none does. `writes` are built by `create_write/3`,
-  `update_write/3` and `delete_write/2`.
+  `update_write/3` and `delete_write/2`; an optional `swapCommit` names the
+  commit the writes were built against.
   """
   def apply_writes(session, params),
     do:
       procedure(
         session,
         "com.atproto.repo.applyWrites",
-        %{repo: {:required, :string}, writes: {:required, :any}},
+        %{repo: {:required, :string}, writes: {:required, :any}, swapCommit: :string},
         params
       )
+
+  @doc """
+  The repository's latest commit. A write built from several reads names it
+  as `swapCommit`, so the PDS refuses the write if the repository changed
+  after the reads began.
+  """
+  def get_latest_commit(session, params),
+    do: query(session, "com.atproto.sync.getLatestCommit", %{did: {:required, :string}}, params)
 
   # The most writes one `applyWrites` takes. The lexicon declares no bound;
   # the reference PDS refuses more than 200 ("Too many writes. Max: 200", in

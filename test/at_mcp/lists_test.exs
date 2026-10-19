@@ -291,16 +291,14 @@ defmodule AtMcp.ListsTest do
     }
 
     defp item(rkey, list, subject),
-      do: %{
-        "uri" => "at://did:plc:self/town.delve.graph.listitem/#{rkey}",
-        "cid" => "bafy#{rkey}",
-        "value" => %{
-          "$type" => "town.delve.graph.listitem",
-          "subject" => subject,
-          "list" => list,
-          "createdAt" => "2026-10-01T00:00:00.000Z"
-        }
-      }
+      do:
+        {"at://did:plc:self/town.delve.graph.listitem/#{rkey}",
+         %{
+           "$type" => "town.delve.graph.listitem",
+           "subject" => subject,
+           "list" => list,
+           "createdAt" => "2026-10-01T00:00:00.000Z"
+         }}
 
     # The account's list items: two putting alice on the list (a duplicate the
     # AppView ignores), bob on it, alice on another list, two on the pack's.
@@ -313,15 +311,21 @@ defmodule AtMcp.ListsTest do
       {"i6", @pack_list, "did:plc:bob"}
     ]
 
-    defp pds(answers \\ %{}) do
-      list_records = %{
-        "com.atproto.repo.listRecords" =>
-          {200,
-           %{records: Enum.map(@items, fn {rkey, list, subject} -> item(rkey, list, subject) end)}},
-        "com.atproto.identity.resolveHandle" => {200, %{did: @alice}}
+    @commit "bafycommit"
+
+    defp pds(answers \\ %{}, records \\ %{}) do
+      items = Map.new(@items, fn {rkey, list, subject} -> item(rkey, list, subject) end)
+
+      defaults = %{
+        "com.atproto.identity.resolveHandle" => {200, %{did: @alice}},
+        "com.atproto.sync.getLatestCommit" => {200, %{cid: @commit, rev: "rev1"}}
       }
 
-      {session, pds} = FakePDS.start(records: @records, answers: Map.merge(list_records, answers))
+      {session, pds} =
+        FakePDS.start(
+          records: @records |> Map.merge(items) |> Map.merge(records),
+          answers: Map.merge(defaults, answers)
+        )
 
       effects =
         start_supervised!(
@@ -335,11 +339,26 @@ defmodule AtMcp.ListsTest do
       %{effects: effects, pds: pds}
     end
 
+    # The CID the fake PDS gives the record at `uri`.
+    defp cid_of(uri),
+      do: "bafy" <> Base.encode32(:crypto.hash(:sha256, uri), case: :lower, padding: false)
+
+    # The one putRecord a call sent: it replaces only the record read, and the
+    # record matches its lexicon.
+    defp put(pds, uri) do
+      assert [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
+      assert body["swapRecord"] == cid_of(uri)
+      nsid = String.replace_prefix(body["collection"], "town.delve.", "app.bsky.")
+      assert Lexicon.problems(body["record"], nsid) == []
+      body["record"]
+    end
+
     # The one applyWrites a call sent: its input matches the lexicon, and so
     # does every record in it.
     defp committed(pds) do
       assert [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
       assert body["repo"] == "did:plc:self"
+      assert body["swapCommit"] in [nil, @commit]
       assert Lexicon.problems(body, "com.atproto.repo.applyWrites") == []
 
       for %{"value" => value, "collection" => collection} <- body["writes"] do
@@ -388,23 +407,16 @@ defmodule AtMcp.ListsTest do
       assert {:ok, %{uri: @mine}} =
                AtMcp.Effects.update_list(effects, @mine, %{name: "Old friends"})
 
-      assert [
-               %{
-                 "$type" => "com.atproto.repo.applyWrites#update",
-                 "rkey" => "l1",
-                 "value" => list
-               }
-             ] =
-               committed(pds)
-
+      list = put(pds, @mine)
       assert list == Map.put(@records[@mine], "name", "Old friends")
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
     end
 
     test "a new description drops the facets that indexed the old one; an empty one removes both" do
       for {description, expected} <- [{"new words", "new words"}, {"", nil}] do
         %{effects: effects, pds: pds} = pds()
         assert {:ok, _} = AtMcp.Effects.update_list(effects, @mine, %{description: description})
-        [%{"value" => list}] = committed(pds)
+        list = put(pds, @mine)
 
         assert list["description"] == expected
         refute Map.has_key?(list, "descriptionFacets")
@@ -424,13 +436,12 @@ defmodule AtMcp.ListsTest do
     end
 
     test "a list too large for one commit is deleted in commits of 200, the list itself last" do
-      many = for n <- 1..250, do: item("m#{n}", @mine, "did:plc:m#{n}")
-
-      %{effects: effects, pds: pds} =
-        pds(%{"com.atproto.repo.listRecords" => {200, %{records: many}}})
+      many = Map.new(1..250, &item("m#{&1}", @mine, "did:plc:m#{&1}"))
+      %{effects: effects, pds: pds} = pds(%{}, many)
 
       assert {:ok, %{deleted: deleted}} = AtMcp.Effects.delete_list(effects, @mine)
-      assert length(deleted) == 251
+      # The three in @items, and these.
+      assert length(deleted) == 254
 
       assert [first, second] =
                for(
@@ -438,7 +449,7 @@ defmodule AtMcp.ListsTest do
                  do: call.body["writes"]
                )
 
-      assert {length(first), length(second)} == {200, 51}
+      assert {length(first), length(second)} == {200, 54}
       assert List.last(deleted(second)) == @mine
     end
 
@@ -546,14 +557,73 @@ defmodule AtMcp.ListsTest do
       assert result.list == list_uri
     end
 
+    test "a starter pack's long name is cut to fit its list's, at a whole character" do
+      %{effects: effects, pds: pds} = pds()
+      name = String.duplicate("日本語の", 12) <> "本棚"
+
+      assert {:ok, %{name: ^name}} = AtMcp.Effects.create_starter_pack(effects, %{name: name})
+
+      # committed/1 checks both records against their lexicons.
+      assert [list, pack] = committed(pds)
+      assert pack["value"]["name"] == name
+      assert byte_size(list["value"]["name"]) <= 64
+      assert String.starts_with?(name, list["value"]["name"])
+      assert String.length(list["value"]["name"]) == 21
+    end
+
+    test "add_to_list refuses a starter pack whose list is in another repository" do
+      foreign = "at://did:plc:self/town.delve.graph.starterpack/foreign"
+
+      %{effects: effects, pds: pds} =
+        pds(%{}, %{
+          foreign => %{
+            "$type" => "town.delve.graph.starterpack",
+            "name" => "Theirs",
+            "list" => "at://did:plc:them/town.delve.graph.list/l",
+            "createdAt" => "2026-10-01T00:00:00.000Z"
+          }
+        })
+
+      assert {:error, {:invalid_argument, "list", message}} =
+               AtMcp.Effects.add_to_list(effects, foreign, @alice)
+
+      assert message =~ "another account's repository"
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+    end
+
+    test "a write built from what it read names it, and is refused when it changed meanwhile" do
+      %{effects: effects, pds: pds} = pds()
+      assert {:ok, _} = AtMcp.Effects.delete_list(effects, @mine)
+
+      assert [%{body: %{"swapCommit" => @commit}}] =
+               FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+
+      swap = {400, %{error: "InvalidSwap", message: "Commit was at bafyother"}}
+
+      %{effects: effects} = pds(%{"com.atproto.repo.applyWrites" => swap})
+
+      assert {:error,
+              %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, "uri", message}}} =
+               result = AtMcp.Effects.delete_list(effects, @mine)
+
+      assert message =~ "#{@mine} changed after it was read, so nothing was written"
+
+      assert {:ok, %{isError: true, structuredContent: %{code: "changed_meanwhile"}}, :state} =
+               AtMcp.MCP.Tools.respond(result, :state)
+
+      %{effects: effects} = pds(%{"com.atproto.repo.putRecord" => swap})
+
+      assert {:error, %AtMcp.Effects.Failure{detail: {:changed_meanwhile, "uri", _}}} =
+               AtMcp.Effects.update_starter_pack(effects, @my_pack, %{name: "Bots"})
+    end
+
     test "update_starter_pack keeps its list, and an empty feeds list removes the feeds" do
       %{effects: effects, pds: pds} = pds()
 
       assert {:ok, _} =
                AtMcp.Effects.update_starter_pack(effects, @my_pack, %{name: "Bots", feeds: []})
 
-      assert [%{"$type" => "com.atproto.repo.applyWrites#update", "value" => pack}] =
-               committed(pds)
+      pack = put(pds, @my_pack)
 
       assert pack == @records[@my_pack] |> Map.put("name", "Bots") |> Map.delete("feeds")
     end
@@ -564,9 +634,10 @@ defmodule AtMcp.ListsTest do
       assert {:ok, %{deleted: deleted, list: @pack_list}} =
                AtMcp.Effects.delete_starter_pack(effects, @my_pack)
 
+      # Items, then the list, then the pack.
       expected =
-        [@my_pack, @pack_list] ++
-          for rkey <- ~w(i5 i6), do: "at://did:plc:self/town.delve.graph.listitem/#{rkey}"
+        for(rkey <- ~w(i5 i6), do: "at://did:plc:self/town.delve.graph.listitem/#{rkey}") ++
+          [@pack_list, @my_pack]
 
       assert deleted == expected
       assert deleted(committed(pds)) == expected
@@ -577,7 +648,6 @@ defmodule AtMcp.ListsTest do
 
     defp pack_view(viewer, purpose \\ "town.delve.graph.defs#referencelist") do
       %{
-        "com.atproto.repo.listRecords" => {200, %{records: []}},
         "town.delve.graph.getStarterPack" =>
           {200,
            %{
@@ -600,16 +670,52 @@ defmodule AtMcp.ListsTest do
       assert record["$type"] == "town.delve.graph.referencelistoptout"
       assert uri == "at://did:plc:self/town.delve.graph.referencelistoptout/#{rkey}"
 
-      %{effects: effects, pds: pds} = pds(pack_view(%{referenceListOptOut: uri}))
+      # Asking again changes nothing, though the AppView has not caught up;
+      # taking it back deletes every opt-out from that list.
+      opt_out = fn rkey ->
+        {"at://did:plc:self/town.delve.graph.referencelistoptout/#{rkey}",
+         %{
+           "$type" => "town.delve.graph.referencelistoptout",
+           "subject" => @their_list,
+           "createdAt" => "2026-10-01T00:00:00.000Z"
+         }}
+      end
 
-      # Asking again changes nothing; taking it back deletes the record.
-      assert {:ok, %{unchanged: true, uri: ^uri}} =
+      [{first, _}, {second, _}] = records = [opt_out.("o1"), opt_out.("o2")]
+
+      elsewhere =
+        {"at://did:plc:self/town.delve.graph.referencelistoptout/o3",
+         %{
+           "$type" => "town.delve.graph.referencelistoptout",
+           "subject" => "at://did:plc:them/town.delve.graph.list/other",
+           "createdAt" => "2026-10-01T00:00:00.000Z"
+         }}
+
+      %{effects: effects, pds: pds} = pds(pack_view(%{}), Map.new([elsewhere | records]))
+
+      assert {:ok, %{unchanged: true, uri: ^first}} =
                AtMcp.Effects.set_list_opt_out(effects, @theirs, true)
 
-      assert {:ok, %{opted_out: false, deleted: [^uri]}} =
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+
+      assert {:ok, %{opted_out: false, deleted: [^first, ^second]}} =
                AtMcp.Effects.set_list_opt_out(effects, @theirs, false)
 
-      assert deleted(committed(pds)) == [uri]
+      assert deleted(committed(pds)) == [first, second]
+    end
+
+    test "set_list_opt_out asks for a pack named with a handle by its DID form" do
+      %{effects: effects, pds: pds} = pds(pack_view(%{}))
+
+      assert {:ok, _} =
+               AtMcp.Effects.set_list_opt_out(
+                 effects,
+                 "at://alice.test/town.delve.graph.starterpack/p",
+                 true
+               )
+
+      assert [%{query: %{"starterPack" => "at://did:plc:alice/town.delve.graph.starterpack/p"}}] =
+               FakePDS.sent(pds, "town.delve.graph.getStarterPack")
     end
 
     test "set_list_opt_out refuses a list that is not a starter pack's" do

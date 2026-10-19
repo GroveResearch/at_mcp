@@ -184,6 +184,22 @@ defmodule AtMcp.MCP.Tools do
     )
   end
 
+  # A write built from what it read, refused by the service because that
+  # changed before the write arrived. Nothing was written; the argument names
+  # what changed.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, path, message}}},
+        state
+      ) do
+    error(
+      state,
+      "changed_meanwhile",
+      "error: #{path}: #{message}. Nothing was counted against the write quota.",
+      %{problems: [%{path: path, message: message}]}
+    )
+  end
+
   def respond({:error, {:write_quota_exhausted, resets_at}}, state) do
     reset = iso8601(resets_at)
 
