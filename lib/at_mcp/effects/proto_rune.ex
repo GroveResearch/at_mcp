@@ -1761,9 +1761,17 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   defp viewer_field({:error, reason}, _key, _field) do
+    with :says_nothing <- viewer_read_failure(reason), do: {:ok, nil}
+  end
+
+  # A read made only for the viewer's state that the service refused (a 4xx:
+  # it does not have the subject, or does not serve the method) says nothing
+  # about that state, and the write it checks goes ahead. Any other failure is
+  # the read's own.
+  defp viewer_read_failure(reason) do
     case failure(reason) do
       %AtMcp.Effects.Failure{kind: :refused, status: status} when status in 400..499 ->
-        {:ok, nil}
+        :says_nothing
 
       failure ->
         {:error, failure}
@@ -3380,7 +3388,7 @@ defmodule AtMcp.Effects.ProtoRune do
   # app disables its reply button on it. The PDS accepts a reply the rule
   # excludes, and the AppView then leaves it out of the thread, so such a reply
   # is refused here, before anything is written. A post the AppView does not
-  # return says nothing either way.
+  # return, or a read it refuses, says nothing either way.
   defp reply_allowed(session, uri) do
     case AtMcp.ATProto.get_posts(session, [uri]) do
       {:ok, response} ->
@@ -3396,7 +3404,7 @@ defmodule AtMcp.Effects.ProtoRune do
         end
 
       {:error, reason} ->
-        {:error, failure(reason)}
+        with :says_nothing <- viewer_read_failure(reason), do: :ok
     end
   end
 
