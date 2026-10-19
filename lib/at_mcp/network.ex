@@ -53,8 +53,7 @@ defmodule AtMcp.Network do
   # Each network is one namespace, the service a new account defaults to, and
   # its AppView authority and the directory its lexicons are vendored under.
   #
-  # `pds.delve.town` is the delve network's PDS, per the deployment in the
-  # `field-station` repository.
+  # `pds.delve.town` is the delve network's PDS, as its deployment publishes it.
   @networks %{
     bluesky: %{
       namespace: "app.bsky",
@@ -251,7 +250,7 @@ defmodule AtMcp.Network do
     hosted = home == URI.parse(default_service()).host
 
     # Preferences live on the PDS for Bluesky and town-hosted identities.
-    # Delvetown's AppView stores them for external members (web clients.ts).
+    # Delvetown's AppView stores them for external members, as its web client does.
     if String.starts_with?(method, namespace() <> ".") and
          not (preferences and (name() == :bluesky or hosted)) do
       %{"atproto-proxy" => appview_service()}

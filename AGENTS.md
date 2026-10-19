@@ -3,7 +3,7 @@
 Read this before changing anything here, then read the README, relevant code
 and tests, and recent history. `decisions.md` records the rulings and
 load-bearing decisions with their evidence. This repository is self-contained;
-no external workshop instructions are needed.
+no outside instructions are needed.
 
 Prefer the stack’s existing mechanisms: declare shapes once and derive their
 uses, classify boundary failures explicitly, and keep uncertainty distinct from

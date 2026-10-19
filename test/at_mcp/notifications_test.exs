@@ -259,7 +259,7 @@ defmodule AtMcp.NotificationsTest do
     assert AtMcp.Inbound.Store.notification_checkpoint(ctx.store, @did) == boundary
   end
 
-  # A resident woken by a notification is given the thread to read, so every
+  # An agent woken by a notification is given the thread to read, so every
   # notification publishes a thread root — including a top-level mention, whose
   # record declares no reply of its own.
   test "a reply notification carries the thread root, its parent, text and author", ctx do
