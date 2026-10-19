@@ -105,8 +105,9 @@ returns its summary as structured content beside a text block for the model.
 The text is the summary's JSON, except for reads made of posts (notifications,
 feeds, searches, `get_posts`, `get_thread`, `get_thread_chain`), where it is
 `AtMcp.Reading`'s text: each post's author, time, what it replies to, its
-text, attachments, and the uri and cid the write tools take, with no `null`s
-and none of the fields only a program uses. Most MCP clients give a model
+text, attachments, the like, repost, reply and quote counts and the post's and
+author's labels when the service sent them, and the uri and cid the write tools
+take, with no `null`s and none of the fields only a program uses. Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients

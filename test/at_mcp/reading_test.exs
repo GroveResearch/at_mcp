@@ -58,6 +58,96 @@ defmodule AtMcp.ReadingTest do
     assert Map.has_key?(item, "web_url") and Map.has_key?(item, "facets")
   end
 
+  test "a post's counts and labels read as one short line each, labels by value",
+       %{post: post} do
+    did = post["author"]["did"]
+
+    post =
+      post
+      |> Map.merge(%{"likeCount" => 12, "repostCount" => 1, "replyCount" => 5, "quoteCount" => 0})
+      |> Map.put("labels", [%{"src" => "did:plc:labeler", "val" => "graphic-media"}])
+      |> put_in(["author", "labels"], [%{"src" => did, "val" => "bot"}])
+
+    page = %{count: 1, items: [Summary.extract(:post, post)], cursor: nil}
+    {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts))
+
+    # A program reads the same values, as the output schema declares them.
+    [item] = data["items"]
+    assert {item["like_count"], item["quote_count"]} == {12, 0}
+    # A label carries only the keys the service sent: no null neg or exp.
+    assert [%{"val" => "bot", "src" => ^did} = label] = item["author_labels"]
+    assert Map.keys(label) |> Enum.sort() == ["src", "val"]
+    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+    schema = Enum.find(tools, &(&1.name == "get_posts")).outputSchema
+    assert AtMcp.Test.Schema.valid?(data, schema)
+    assert schema["properties"]["items"]["items"]["properties"]["author_labels"]
+
+    assert text =~
+             "\n12 likes · 1 repost · 5 replies\n" <>
+               "Labels: graphic-media; author: bot (self)\n" <>
+               "uri: #{post["uri"]}"
+  end
+
+  test "a post nobody engaged with has no counts line; labels that say nothing are left out",
+       %{post: post} do
+    did = post["author"]["did"]
+    zeros = %{"likeCount" => 0, "repostCount" => 0, "replyCount" => 0, "quoteCount" => 0}
+
+    read = fn post ->
+      page = %{count: 1, items: [Summary.extract(:post, post)], cursor: nil}
+      {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts))
+      {text, hd(data["items"])}
+    end
+
+    {text, item} = read.(Map.merge(post, zeros))
+    assert text == elem(read.(Map.drop(post, Map.keys(zeros))), 0)
+    assert {item["like_count"], item["reply_count"]} == {0, 0}
+
+    labels = [
+      # The same value from a labeler and from the author: once, as the author's.
+      %{"src" => "did:plc:labeler", "val" => "bot"},
+      %{"src" => did, "val" => "bot"},
+      %{"src" => "did:plc:labeler", "val" => "spam", "exp" => "2020-01-01T00:00:00Z"},
+      %{"src" => "did:plc:labeler", "val" => "rude", "exp" => "2999-01-01T00:00:00Z"},
+      %{"src" => "did:plc:labeler", "val" => "nudity"},
+      %{"src" => "did:plc:labeler", "val" => "nudity", "neg" => true},
+      %{"src" => did, "val" => "!no-unauthenticated"}
+    ]
+
+    {text, item} = read.(post |> Map.merge(zeros) |> put_in(["author", "labels"], labels))
+    assert text =~ "\nLabels: author: bot (self), rude\nuri: "
+    refute text =~ ~r/spam|nudity|no-unauthenticated|likes/
+    # The structured content keeps every label the service sent.
+    assert length(item["author_labels"]) == length(labels)
+    assert %{"exp" => "2020-01-01T00:00:00Z"} = Enum.at(item["author_labels"], 2)
+  end
+
+  # A response without counts or labels — a placeholder, an older service —
+  # reads exactly as it did before they were read at all.
+  test "a post the service sent without counts or labels reads as before" do
+    post = %{
+      "uri" => "at://did:plc:a/app.bsky.feed.post/1",
+      "cid" => "bafy1",
+      "author" => %{"handle" => "a.test", "did" => "did:plc:a"},
+      "record" => %{"text" => "hello", "createdAt" => "2026-10-01T00:00:00.000Z"}
+    }
+
+    assert AtMcp.Reading.posts(%{
+             "items" => [post |> then(&Summary.extract(:post, &1)) |> json()]
+           }) ==
+             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\nhello\n" <>
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
+
+    # An empty label list is no labels, not a heading with nothing under it.
+    labelled = post |> Map.put("labels", []) |> put_in(["author", "labels"], [])
+
+    refute AtMcp.Reading.posts(%{
+             "items" => [labelled |> then(&Summary.extract(:post, &1)) |> json()]
+           }) =~ "labels"
+  end
+
+  defp json(summary), do: summary |> Jason.encode!() |> Jason.decode!()
+
   test "a reply notification reads as the reply; a like is one line naming the post it is about",
        %{post: post} do
     reply =

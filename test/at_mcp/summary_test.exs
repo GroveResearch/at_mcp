@@ -27,8 +27,16 @@ defmodule AtMcp.SummaryTest do
       "author" => %{
         "handle" => "author.test",
         "did" => "did:plc:author",
-        "displayName" => "café 日本語 🪁"
+        "displayName" => "café 日本語 🪁",
+        "labels" => [
+          %{"src" => "did:plc:author", "val" => "bot", "cts" => "2026-09-01T00:00:00Z"}
+        ]
       },
+      "likeCount" => 12,
+      "repostCount" => 3,
+      "replyCount" => 5,
+      "quoteCount" => 1,
+      "labels" => [%{"src" => "did:plc:labeler", "val" => "graphic-media"}],
       "embed" => %{
         "$type" => "app.bsky.embed.images#view",
         "images" => [
@@ -56,8 +64,14 @@ defmodule AtMcp.SummaryTest do
       "author" => %{
         "handle" => "author.test",
         "did" => "did:plc:author",
-        "displayName" => "café 日本語 🪁"
-      }
+        "displayName" => "café 日本語 🪁",
+        "labels" => []
+      },
+      "likeCount" => 0,
+      "repostCount" => 0,
+      "replyCount" => 0,
+      "quoteCount" => 0,
+      "labels" => []
     },
     profile: %{
       "did" => "did:plc:author",
@@ -67,6 +81,7 @@ defmodule AtMcp.SummaryTest do
       "followersCount" => 3,
       "followsCount" => 2,
       "postsCount" => 1,
+      "labels" => [%{"src" => "did:plc:author", "val" => "bot"}],
       "viewer" => %{"following" => "at://did:plc:viewer/app.bsky.graph.follow/1"}
     },
     generator: %{
@@ -142,6 +157,29 @@ defmodule AtMcp.SummaryTest do
         refute is_nil(value), "#{shape}.#{key} is described but was not read from a full response"
       end
     end
+  end
+
+  # The AppView sends these on every post and profile view. Without them an
+  # agent counts a post's likes by listing every liker, and cannot tell that an
+  # account labels itself a bot.
+  test "a post keeps the service's counts and labels, and the author's labels, as sent" do
+    post = AtMcp.Summary.extract(:post, @responses.post)
+
+    assert {post.like_count, post.repost_count, post.reply_count, post.quote_count} ==
+             {12, 3, 5, 1}
+
+    assert post.labels == [%{val: "graphic-media", src: "did:plc:labeler"}]
+    assert post.author_labels == [%{val: "bot", src: "did:plc:author"}]
+
+    # Zero is a count the service gave; an absent count is one it did not.
+    chain = AtMcp.Summary.extract(:chain_post, @responses.chain_post)
+    assert {chain.like_count, chain.labels, chain.author_labels} == {0, [], []}
+
+    bare = AtMcp.Summary.extract(:post, Map.drop(@responses.post, ["likeCount", "labels"]))
+    assert {bare.like_count, bare.labels} == {nil, nil}
+
+    profile = AtMcp.Summary.extract(:profile, @responses.profile)
+    assert profile.labels == [%{val: "bot", src: "did:plc:author"}]
   end
 
   # An agent that cannot see a post has an image reads every picture on its

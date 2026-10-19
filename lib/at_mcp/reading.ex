@@ -9,7 +9,7 @@ defmodule AtMcp.Reading do
   from empty. A model reading a page of posts wants what a person scrolling a
   client sees: who wrote it, when, what it replies to, what it says, and the
   identifiers it needs to act on it (`reply` takes the uri, `like` and `repost`
-  take the uri and cid). Serialized JSON repeats every key on every post, gives
+  take the uri and cid), with the counts and labels a client shows beside it. Serialized JSON repeats every key on every post, gives
   each post's text twice (`text` and `raw_text`), and spends most of a page on
   DIDs, image URLs, facet arrays and `null`s a model never uses.
 
@@ -17,8 +17,9 @@ defmodule AtMcp.Reading do
   returns that text. It reads the result, never the service, so it cannot say
   anything the structured content does not. What it leaves out is still in the
   structured content: author DIDs, `raw_text`, facets, web URLs, image URLs and
-  blob metadata, the record URIs of likes, reposts and follows (which no tool
-  takes), read notifications' `is_read`, and the read limits of a thread.
+  blob metadata, which labeler applied a label, the record URIs of likes,
+  reposts and follows (which no tool takes), read notifications' `is_read`, and
+  the read limits of a thread.
 
   It only drops what is absent. A post's text is never shortened, every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
@@ -131,7 +132,7 @@ defmodule AtMcp.Reading do
           [
             label <> " " <> lines([who(post), post["created_at"], replying(post)], " · ")
             | body(post)
-          ] ++ [ids(post) | viewer(post)],
+          ] ++ [engagement(post), labelled(post), ids(post) | viewer(post)],
           "\n"
         )
 
@@ -234,6 +235,75 @@ defmodule AtMcp.Reading do
     do: "[quoting #{quote["uri"]}: #{status}]"
 
   defp quoted(_quote), do: nil
+
+  # What the service counts on the post, in the words a client shows under it.
+  # A zero is left out of the text, and a post nobody has engaged with has no
+  # line at all; the structured content keeps every count, zeros included.
+  defp engagement(post) do
+    counts =
+      for {key, one, many} <- [
+            {"like_count", "like", "likes"},
+            {"repost_count", "repost", "reposts"},
+            {"reply_count", "reply", "replies"},
+            {"quote_count", "quote", "quotes"}
+          ],
+          is_integer(post[key]) and post[key] > 0,
+          do: count(post[key], one, many)
+
+    lines(counts, " · ")
+  end
+
+  # Labels by value, each once: "Labels: graphic-media; author: bot (self)".
+  # Who applied a label is in the structured content; the one distinction kept
+  # here is a label the author applied to itself, such as an account saying it
+  # is a bot. Left out of the text, and kept in the structured content: an
+  # expired label, a value a negation removes, and a `!` value, which is an
+  # instruction to clients (such as `!no-unauthenticated`) rather than a
+  # description of the post.
+  defp labelled(post) do
+    author = post["author_did"]
+    on_post = labels(post["labels"], author)
+    on_author = labels(post["author_labels"], author)
+
+    case {on_post, on_author} do
+      {[], []} -> nil
+      {values, []} -> "Labels: " <> Enum.join(values, ", ")
+      {[], values} -> "Labels: author: " <> Enum.join(values, ", ")
+      {own, theirs} -> "Labels: #{Enum.join(own, ", ")}; author: #{Enum.join(theirs, ", ")}"
+    end
+  end
+
+  defp labels(labels, author) when is_list(labels) do
+    now = DateTime.utc_now()
+
+    current =
+      Enum.filter(labels, &(is_map(&1) and is_binary(&1["val"]) and not expired?(&1, now)))
+
+    negated = for %{"neg" => true, "val" => val} <- current, into: MapSet.new(), do: val
+
+    shown =
+      Enum.reject(current, fn %{"val" => val} = label ->
+        label["neg"] == true or val in negated or String.starts_with?(val, "!")
+      end)
+
+    self = for %{"src" => ^author, "val" => val} <- shown, into: MapSet.new(), do: val
+
+    shown
+    |> Enum.map(& &1["val"])
+    |> Enum.uniq()
+    |> Enum.map(&if(&1 in self, do: &1 <> " (self)", else: &1))
+  end
+
+  defp labels(_labels, _author), do: []
+
+  defp expired?(%{"exp" => exp}, now) when is_binary(exp) do
+    case DateTime.from_iso8601(exp) do
+      {:ok, at, _offset} -> DateTime.compare(at, now) != :gt
+      _ -> false
+    end
+  end
+
+  defp expired?(_label, _now), do: false
 
   defp ids(post) do
     lines(

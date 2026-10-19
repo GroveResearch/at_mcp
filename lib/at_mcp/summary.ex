@@ -15,7 +15,8 @@ defmodule AtMcp.Summary do
 
   A field's type is `:string`, `:integer`, `:boolean`, `{:object, fields}` or
   `{:list, fields}` — declared the same way, one level down, so a nested shape
-  is not a second mechanism.
+  is not a second mechanism. `{:list, fields, :omit_null}` is a list whose
+  entries leave out the keys the response did not carry.
 
   Write and action results are built from what the caller supplied rather than
   read out of a response, so they are not declared here.
@@ -61,6 +62,17 @@ defmodule AtMcp.Summary do
     {:nested_uri, :string, [["nested_uri"]], "A further quote; deliberately not expanded"}
   ]
 
+  # A label as the AppView returns it on a post or an account: what it says and
+  # who applied it. A label an account applied to itself has its own DID as src.
+  # A key the service did not send is left out of the label rather than sent as
+  # null: most labels carry neither `neg` nor `exp`.
+  @label [
+    {:val, :string, [["val"]], "The label's value, such as bot or porn"},
+    {:src, :string, [["src"]], "DID of the account or labeler that applied it"},
+    {:neg, :boolean, [["neg"]], "True when this label removes an earlier one"},
+    {:exp, :string, [["exp"]], "When the label expires, as an ISO 8601 timestamp"}
+  ]
+
   # Computed content is declared once for reads, chains and notifications.
   @content [
     {:text, :string, [["perception", "text"]], "Post text with full link destinations"},
@@ -88,7 +100,19 @@ defmodule AtMcp.Summary do
     {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
      "When the author wrote it, as an ISO 8601 timestamp"},
     {:reply_to, :string, [["record", "reply", "parent", "uri"]],
-     "AT URI of the post this one replies to; null on the root"}
+     "AT URI of the post this one replies to; null on the root"},
+    {:like_count, :integer, [["like_count"], ["likeCount"]],
+     "How many likes the service counts on the post"},
+    {:repost_count, :integer, [["repost_count"], ["repostCount"]],
+     "How many reposts the service counts on the post"},
+    {:reply_count, :integer, [["reply_count"], ["replyCount"]],
+     "How many replies the service counts to the post"},
+    {:quote_count, :integer, [["quote_count"], ["quoteCount"]],
+     "How many posts the service counts quoting the post"},
+    {:labels, {:list, @label, :omit_null}, [["labels"]],
+     "Labels on the post, as the service returned them"},
+    {:author_labels, {:list, @label, :omit_null}, [["author", "labels"]],
+     "Labels on the author's account, including any it applied to itself"}
   ]
 
   @shapes %{
@@ -120,7 +144,9 @@ defmodule AtMcp.Summary do
         {:description, :string, [["description"]], "Profile description"},
         {:followers, :integer, [["followers_count"], ["followersCount"]], "Follower count"},
         {:follows, :integer, [["follows_count"], ["followsCount"]], "Following count"},
-        {:posts, :integer, [["posts_count"], ["postsCount"]], "Post count"}
+        {:posts, :integer, [["posts_count"], ["postsCount"]], "Post count"},
+        {:labels, {:list, @label, :omit_null}, [["labels"]],
+         "Labels on the account, including any it applied to itself"}
       ],
       viewer: [:following, :blocking]
     },
@@ -225,6 +251,7 @@ defmodule AtMcp.Summary do
 
   defp matches?(value, {:object, _fields}), do: is_map(value)
   defp matches?(value, {:list, _fields}), do: is_list(value)
+  defp matches?(value, {:list, _fields, :omit_null}), do: is_list(value)
   defp matches?(value, :string), do: is_binary(value)
   defp matches?(value, :integer), do: is_integer(value)
   defp matches?(value, :boolean), do: is_boolean(value)
@@ -240,10 +267,18 @@ defmodule AtMcp.Summary do
     end)
   end
 
+  defp project(values, {:list, fields, :omit_null}) do
+    values
+    |> project({:list, fields})
+    |> Enum.map(fn entry -> Map.reject(entry, fn {_key, value} -> is_nil(value) end) end)
+  end
+
   defp project(value, {:object, fields}),
     do: Map.new(fields, fn {key, type, paths, _doc} -> {key, read(value, paths, type)} end)
 
   defp project(value, _type), do: value
+
+  defp property({:list, fields, :omit_null}, doc), do: property({:list, fields}, doc)
 
   defp property({:list, fields}, doc) do
     %{
