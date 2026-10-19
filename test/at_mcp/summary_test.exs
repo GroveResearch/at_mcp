@@ -168,8 +168,8 @@ defmodule AtMcp.SummaryTest do
     assert {post.like_count, post.repost_count, post.reply_count, post.quote_count} ==
              {12, 3, 5, 1}
 
-    assert post.labels == [%{val: "graphic-media", src: "did:plc:labeler", neg: nil}]
-    assert post.author_labels == [%{val: "bot", src: "did:plc:author", neg: nil}]
+    assert post.labels == [%{val: "graphic-media", src: "did:plc:labeler"}]
+    assert post.author_labels == [%{val: "bot", src: "did:plc:author"}]
 
     # Zero is a count the service gave; an absent count is one it did not.
     chain = AtMcp.Summary.extract(:chain_post, @responses.chain_post)
@@ -179,7 +179,7 @@ defmodule AtMcp.SummaryTest do
     assert {bare.like_count, bare.labels} == {nil, nil}
 
     profile = AtMcp.Summary.extract(:profile, @responses.profile)
-    assert profile.labels == [%{val: "bot", src: "did:plc:author", neg: nil}]
+    assert profile.labels == [%{val: "bot", src: "did:plc:author"}]
   end
 
   # An agent that cannot see a post has an image reads every picture on its
