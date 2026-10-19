@@ -536,6 +536,26 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.7 to 0.2.8
+
+0.2.8 stores data in the same format as 0.2.7 and starts from the same
+environment, so rolling back works as below. Reads show what the app shows,
+the same way through every tool (#116):
+
+- **Profiles read as plain text**, not JSON, in every tool that returns
+  accounts; structured content keeps every field. A profile adds pronouns,
+  website, links, join date, pinned post, verification, a live status (only
+  when the app would show its badge), lists/feeds/starter packs made, whether
+  it runs a labeler, the starter pack it joined through, known followers, and
+  avatar and banner links. Follow and block record URIs are printed for
+  `unfollow` and `unblock`.
+- **Posts** carry who may reply (on a thread's first post) and the author's
+  verification and live badges; `get_thread_chain` elements carry the post's
+  viewer state; quotes carry labels and the relationship with their author.
+- **Notifications** carry the author's display name, labels, badges and
+  relationship, and the starter pack for starterpack-joined; `get_notifications`
+  takes `reasons`, checked against the known values.
+
 ### From 0.2.6 to 0.2.7
 
 0.2.7 stores data in the same format as 0.2.6 and starts from the same
