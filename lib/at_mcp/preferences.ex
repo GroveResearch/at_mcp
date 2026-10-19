@@ -28,7 +28,8 @@ defmodule AtMcp.Preferences do
       content only to an account whose declared age is 18 or over, and not in
       regions that require age assurance; `enabled: true` is refused for an
       account that has declared no such age.
-    * `interests`: `tags`, from the interests the app offers
+    * `interests`: `tags`, each one the app offers or one the account already
+      has (the app's screen keeps stored tags)
       (`interestsPref`).
     * `verification`: `hide_badges` (`verificationPrefs`), whether the app
       hides verification checks. Reads still carry verification.
