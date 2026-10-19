@@ -229,7 +229,10 @@ An account makes curation and moderation lists and starter packs, and puts
 accounts on them or takes them off. None of these counts against the write
 quota: a list's name and description are public, like a profile's, but they
 are not put in front of followers. An edit reads the record first and keeps
-every field it does not change. A starter pack is its list, the list's items
+every field it does not change, and is written only if the record is still
+the one read (`swapRecord`); a write built from several reads names the
+repository's commit from before them (`swapCommit`). A refused swap is
+`changed_meanwhile`: nothing was written. A starter pack is its list, the list's items
 and the pack record, written in one `applyWrites`, and deleted the same way;
 `delete_list` deletes a list's items with it. `remove_from_list` finds the
 list items by reading the account's own `graph.listitem` records, so it
