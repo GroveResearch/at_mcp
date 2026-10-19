@@ -955,25 +955,51 @@ defmodule AtMcp.Effects do
             }}}
 
         _ ->
-          with {:ok, cid} <- subject_cid(uri, cid, view.cid), do: {:ok, {uri, cid}}
+          with {:ok, cid} <- subject_cid(backend, session, uri, cid, view.cid),
+               do: {:ok, {uri, cid}}
       end
     end
   end
 
   # The CID a like or repost records. A caller that leaves it out gets the
-  # subject's current one: a CID is a 59-character string that models copy
-  # wrongly, and the URI already says which record is meant. One given is
-  # checked against the current one and refused when they differ, naming the
-  # current one. It is not replaced: a given CID says which version the caller
-  # read, and AtMcp cannot tell a miscopy from a record changed since it was
-  # read, so attaching the like to another version without being asked would
-  # be a surprise. A subject the AppView has no view of cannot be checked: a
-  # given CID is used as given, and an omitted one cannot be filled in.
-  defp subject_cid(_uri, cid, cid) when is_binary(cid), do: {:ok, cid}
-  defp subject_cid(_uri, nil, current) when is_binary(current), do: {:ok, current}
-  defp subject_cid(_uri, cid, nil) when is_binary(cid), do: {:ok, cid}
-  defp subject_cid(uri, nil, nil), do: {:error, {:subject_cid_unknown, uri}}
-  defp subject_cid(uri, cid, current), do: {:error, {:subject_cid_mismatch, uri, cid, current}}
+  # AppView's CID for the subject: a CID is a 59-character string that models
+  # copy wrongly, and the URI already says which record is meant. One given is
+  # checked against the AppView's, and when they differ, against the record
+  # itself (`getRecord`), since the AppView can lag an update of a feed
+  # generator or a labeler. A given CID the record still has is used; one it
+  # does not have is refused, naming the record's. It is not replaced: a given
+  # CID says which version the caller read, and AtMcp cannot tell a miscopy
+  # from a record changed since it was read, so attaching the like to another
+  # version without being asked would be a surprise. A subject the AppView has
+  # no view of cannot be checked: a given CID is used as given, and an omitted
+  # one cannot be filled in.
+  defp subject_cid(_backend, _session, _uri, cid, cid) when is_binary(cid), do: {:ok, cid}
+
+  defp subject_cid(_backend, _session, _uri, nil, current) when is_binary(current),
+    do: {:ok, current}
+
+  defp subject_cid(_backend, _session, _uri, cid, nil) when is_binary(cid), do: {:ok, cid}
+  defp subject_cid(_backend, _session, uri, nil, nil), do: {:error, {:subject_cid_unknown, uri}}
+
+  defp subject_cid(backend, session, uri, cid, _appview) do
+    case backend.get_record(session, uri) do
+      {:ok, %{cid: ^cid}} ->
+        {:ok, cid}
+
+      {:ok, %{cid: record}} when is_binary(record) ->
+        {:error, {:subject_cid_mismatch, uri, cid, record}}
+
+      {:ok, _no_cid} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "#{cid} is not the AppView's CID for #{uri}, and the record read back carried no CID to check it against. Nothing was sent."
+         )}
+
+      error ->
+        error
+    end
+  end
 
   def unrepost(effects, repost_uri) when is_binary(repost_uri),
     do: undo(effects, :unrepost, repost_uri)

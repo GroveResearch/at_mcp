@@ -1424,7 +1424,7 @@ defmodule AtMcp.MCP.Server do
   tool "like",
        write_description(
          :like,
-         "Like a post, a custom feed or a labeler by AT URI. Leave cid out and the current CID is used; a cid that is not the current one is refused, naming the current one. Anything else is refused: nothing would count the like. One this account has liked already (the AppView names the like and this account's repository holds it) is not liked again: the result names that like, with unchanged true."
+         "Like a post, a custom feed or a labeler by AT URI. Leave cid out and the AppView's CID for it is used. A cid is refused when the AppView has the subject and the cid differs from the record's, naming the record's. Anything else is refused: nothing would count the like. One this account has liked already (the AppView names the like and this account's repository holds it) is not liked again: the result names that like, with unchanged true."
        ) do
     annotations(
       write_annotations(:like, %{readOnlyHint: false, destructiveHint: false, openWorldHint: true})
@@ -1437,7 +1437,7 @@ defmodule AtMcp.MCP.Server do
       description: "AT URI of the post, feed generator or labeler"
     )
 
-    param(:cid, :string, description: "Its CID. Optional: omit it to use the current one")
+    param(:cid, :string, description: "Its CID. Optional: omit it to use the AppView's")
 
     run(fn a, state ->
       e = state.effects
@@ -1480,7 +1480,7 @@ defmodule AtMcp.MCP.Server do
   tool "repost",
        write_description(
          :repost,
-         "Repost a post by AT URI. Leave cid out and the current CID is used; a cid that is not the current one is refused, naming the current one. A post this account has reposted already (the AppView names the repost and this account's repository holds it) is not reposted again: the result names that repost, with unchanged true, and nothing is counted."
+         "Repost a post by AT URI. Leave cid out and the AppView's CID for it is used. A cid is refused when the AppView has the subject and the cid differs from the record's, naming the record's. A post this account has reposted already (the AppView names the repost and this account's repository holds it) is not reposted again: the result names that repost, with unchanged true, and nothing is counted."
        ) do
     annotations(
       write_annotations(:repost, %{
@@ -1492,7 +1492,7 @@ defmodule AtMcp.MCP.Server do
 
     output_schema(AtMcp.MCP.Schemas.record_result())
     param(:uri, :string, required: true, description: "Post AT URI")
-    param(:cid, :string, description: "Post CID. Optional: omit it to use the current one")
+    param(:cid, :string, description: "Post CID. Optional: omit it to use the AppView's")
 
     run(fn a, state ->
       e = state.effects

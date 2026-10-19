@@ -237,20 +237,20 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "subject_cid_unknown",
-      "error: the AppView has no view of #{uri}, so its CID could not be read. Nothing was sent. " <>
+      "error: the AppView has no view of #{uri} (not indexed yet, deleted, or hidden by a block), so its CID could not be read. Nothing was sent. " <>
         "Check the URI, or pass cid if you have it (get_record gives it).",
       %{uri: uri}
     )
   end
 
-  # A like or repost whose given CID is not the subject's current one. The
-  # caller decides which version it meant.
+  # A like or repost whose given CID is neither the AppView's nor the one the
+  # record itself has. The caller decides which version it meant.
   def respond({:error, {:subject_cid_mismatch, uri, given, current}}, state) do
     error(
       state,
       "subject_cid_mismatch",
-      "error: #{given} is not the CID of #{uri}; its current CID is #{current}. Nothing was sent. " <>
-        "Pass cid #{current}, or leave cid out to use the current one.",
+      "error: #{given} is not the CID of #{uri}; the record's CID is #{current}. Nothing was sent. " <>
+        "Pass cid #{current}, or leave cid out to use the AppView's CID for it.",
       %{uri: uri, cid: given, current_cid: current}
     )
   end
