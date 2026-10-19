@@ -27,3 +27,4 @@ at_mcp-*.tar
 /priv/native_lock.so
 # Python release-check bytecode is local build output.
 __pycache__/
+/VERSION

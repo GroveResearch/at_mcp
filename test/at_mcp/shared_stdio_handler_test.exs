@@ -155,6 +155,29 @@ defmodule AtMcp.MCP.SharedStdioTest do
     assert result["_meta"]["io.modelcontextprotocol/serverInfo"]["version"] == version
   end
 
+  # AtMcp.MCP.Server's ExMCP DSL builds a version into the module when it
+  # compiles; the server answers with the running application's instead.
+  test "the account server's initialize and server info report the running release's version" do
+    version = to_string(Application.spec(:at_mcp, :vsn))
+
+    initialize = %{
+      "jsonrpc" => "2.0",
+      "id" => 1,
+      "method" => "initialize",
+      "params" => %{
+        "protocolVersion" => "2025-06-18",
+        "clientInfo" => %{"name" => "test", "version" => "1"},
+        "capabilities" => %{}
+      }
+    }
+
+    assert {:response, %{"result" => result}, _} =
+             ExMCP.Server.Dispatch.dispatch(initialize, AtMcp.MCP.Server, %{})
+
+    assert result["serverInfo"] == %{"name" => "at_mcp", "version" => version}
+    assert AtMcp.MCP.Server.__server_info__() == %{"name" => "at_mcp", "version" => version}
+  end
+
   test "rejects nonloopback, credential-bearing or malformed targets" do
     for url <- [
           "https://example.com/mcp",

@@ -1,16 +1,15 @@
 defmodule AtMcp.MCP.DSL do
   @moduledoc false
 
-  # `ExMCP.Server.DSL` stores its options as written, unevaluated, and calls
-  # `to_string/1` on the version when it expands, so the version must reach it
-  # as a literal. This expands to that `use` with mix.exs's version in place,
-  # read when `AtMcp.MCP.Server` compiles; mix.exs stays the one place it is
-  # written.
+  # `ExMCP.Server.DSL` takes the server's version as a literal and builds it
+  # into `handle_initialize/2` and `__server_info__/0` when the module
+  # compiles. Mix does not recompile when only the release version changes
+  # (`RELEASE_VERSION`), so a version read then could outlive its build.
+  # `__before_compile__/1` below replaces both with `server_info/0`, which reads
+  # the running application's version, the one every other endpoint reports.
   defmacro __using__(_opts) do
-    version = Mix.Project.config()[:version]
-
     quote do
-      use ExMCP.Server.DSL, name: "at_mcp", version: unquote(version)
+      use ExMCP.Server.DSL, name: "at_mcp"
       import ExMCP.Server.DSL, except: [tool: 3]
       import AtMcp.MCP.DSL, only: [tool: 3, write_description: 2, write_annotations: 2]
       Module.register_attribute(__MODULE__, :at_mcp_output_schemas, accumulate: true)
@@ -71,7 +70,20 @@ defmodule AtMcp.MCP.DSL do
       end)
 
     quote do
-      defoverridable handle_list_tools: 2, handle_call_tool: 3
+      defoverridable handle_list_tools: 2,
+                     handle_call_tool: 3,
+                     handle_initialize: 2,
+                     __server_info__: 0
+
+      @impl true
+      def handle_initialize(params, state) do
+        {:ok, result, state} = super(params, state)
+        {:ok, Map.put(result, "serverInfo", __server_info__()), state}
+      end
+
+      @doc false
+      def __server_info__,
+        do: Map.new(server_info(), fn {key, value} -> {to_string(key), value} end)
 
       @impl true
       def handle_list_tools(cursor, state) do
