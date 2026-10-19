@@ -63,6 +63,11 @@ defmodule AtMcp.ATProto do
         parentHeight: :integer
       )
 
+  # The replies a thread read leaves out: those its author hid, and those the
+  # viewer's own settings push down. Below `anchor`, one level at a time.
+  def get_post_thread_other(session, params),
+    do: read(session, "unspecced.getPostThreadOtherV2", params, anchor: {:required, :string})
+
   # proto_rune declares `getAuthorFeed` public-only, so its generated function
   # takes no session, reaches bsky.social rather than the account's own service,
   # and 401s there.
@@ -172,6 +177,46 @@ defmodule AtMcp.ATProto do
   def unmute_actor(session, params),
     do: write(session, "graph.unmuteActor", params, actor: {:required, :string})
 
+  # A thread mute is AppView state, like an account mute: a method named by the
+  # thread's root post, not a record.
+  def mute_thread(session, params),
+    do: write(session, "graph.muteThread", params, root: {:required, :string})
+
+  def unmute_thread(session, params),
+    do: write(session, "graph.unmuteThread", params, root: {:required, :string})
+
+  # --- bookmarks ---
+
+  # Bookmarks are private, kept by the AppView rather than in the repository,
+  # so they move with the namespace like a read does.
+  def create_bookmark(session, params),
+    do:
+      write(session, "bookmark.createBookmark", params,
+        uri: {:required, :string},
+        cid: {:required, :string}
+      )
+
+  def delete_bookmark(session, params),
+    do: write(session, "bookmark.deleteBookmark", params, uri: {:required, :string})
+
+  def get_bookmarks(session, params),
+    do: read(session, "bookmark.getBookmarks", params, @page)
+
+  # --- drafts ---
+
+  # Drafts are private, kept by the AppView like bookmarks, not records in the
+  # repository.
+  def get_drafts(session, params), do: read(session, "draft.getDrafts", params, @page)
+
+  def create_draft(session, params),
+    do: write(session, "draft.createDraft", params, draft: {:required, :any})
+
+  def update_draft(session, params),
+    do: write(session, "draft.updateDraft", params, draft: {:required, :any})
+
+  def delete_draft(session, params),
+    do: write(session, "draft.deleteDraft", params, id: {:required, :string})
+
   # --- graph reads ---
 
   def get_followers(session, params),
@@ -195,7 +240,50 @@ defmodule AtMcp.ATProto do
   def get_mutes(session, params),
     do: read(session, "graph.getMutes", params, @page)
 
+  # --- lists and starter packs ---
+
+  # One list and a page of its members.
+  def get_list(session, params),
+    do: read(session, "graph.getList", params, [list: {:required, :string}] ++ @page)
+
+  def get_starter_pack(session, params),
+    do: read(session, "graph.getStarterPack", params, starterPack: {:required, :string})
+
+  # The starter packs one account made.
+  def get_actor_starter_packs(session, params),
+    do:
+      read(session, "graph.getActorStarterPacks", params, [actor: {:required, :string}] ++ @page)
+
+  # `searchStarterPacks` is the first version of this method; the app calls V2.
+  def search_starter_packs(session, params),
+    do: read(session, "graph.searchStarterPacksV2", params, [q: {:required, :string}] ++ @page)
+
+  # This account's starter packs, each with the list item that puts `actor` in
+  # it, if one does.
+  def get_starter_packs_with_membership(session, params),
+    do:
+      read(
+        session,
+        "graph.getStarterPacksWithMembership",
+        params,
+        [actor: {:required, :string}] ++ @page
+      )
+
   # --- endpoints whose parameters include a list ---
+
+  @doc """
+  The lists one account made. `purposes` (`modlist`, `curatelist`) is repeated
+  once per entry; the service returns both when it is absent.
+  """
+  def get_lists(session, params) when is_map(params),
+    do: repeated_query(session, AtMcp.Network.nsid("graph.getLists"), params)
+
+  @doc """
+  This account's lists, each with the list item that puts `actor` on it, if
+  one does. `purposes` is repeated as in `get_lists/2`.
+  """
+  def get_lists_with_membership(session, params) when is_map(params),
+    do: repeated_query(session, AtMcp.Network.nsid("graph.getListsWithMembership"), params)
 
   @doc """
   Fetch several profiles. `actors` is repeated once per entry.
@@ -344,7 +432,8 @@ defmodule AtMcp.ATProto do
     record: {:required, :any}
   }
 
-  @repo_put Map.put(@repo_write, :rkey, {:required, :string})
+  # `swapRecord` is the CID the record must still have for the write to apply.
+  @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swap_record, :string)
 
   @repo_delete %{
     repo: {:required, :string},
@@ -378,6 +467,66 @@ defmodule AtMcp.ATProto do
   def put_record(session, params),
     do: procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
 
+  @doc """
+  Create, update and delete several records in one commit: all of them land,
+  or none does. `writes` are `{:create | :update, collection, rkey, record}`
+  and `{:delete, collection, rkey}`.
+  """
+  def apply_writes(session, repo, writes, opts \\ []) when is_list(writes) do
+    params = %{repo: repo, writes: Enum.map(writes, &repo_write/1)}
+
+    # `swapCommit`: the repository commit the writes were built over. The
+    # service applies none of them if the repository has moved on since.
+    params =
+      case Keyword.get(opts, :swap_commit) do
+        nil -> params
+        commit -> Map.put(params, :swap_commit, commit)
+      end
+
+    procedure(
+      session,
+      "com.atproto.repo.applyWrites",
+      %{repo: {:required, :string}, writes: {:required, :any}, swap_commit: :string},
+      params
+    )
+  end
+
+  @doc "The repository's current commit: `%{cid, rev}`."
+  def get_latest_commit(session, did),
+    do:
+      query(session, "com.atproto.sync.getLatestCommit", %{did: {:required, :string}}, %{did: did})
+
+  defp repo_write({op, collection, rkey, record}) when op in [:create, :update],
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites##{op}",
+      "collection" => collection,
+      "rkey" => rkey,
+      "value" => record
+    }
+
+  defp repo_write({:delete, collection, rkey}),
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites#delete",
+      "collection" => collection,
+      "rkey" => rkey
+    }
+
+  @tid_alphabet ~c"234567abcdefghijklmnopqrstuvwxyz"
+
+  @doc """
+  A record key in the TID form the protocol uses: microseconds since the
+  epoch and a random clock id, as 13 sortable base32 characters.
+
+  A post written with its gates needs its key before it is written, because
+  each gate's key must be the post's.
+  """
+  def tid(now_us \\ System.os_time(:microsecond), clock \\ :rand.uniform(1024) - 1) do
+    import Bitwise
+    n = (now_us <<< 10 ||| clock) &&& 0x7FFF_FFFF_FFFF_FFFF
+
+    for i <- 12..0//-1, into: "", do: <<Enum.at(@tid_alphabet, n >>> (5 * i) &&& 31)>>
+  end
+
   @doc "Delete one record from a repository."
   def delete_record(session, params),
     do: procedure(session, "com.atproto.repo.deleteRecord", @repo_delete, params)
@@ -385,6 +534,53 @@ defmodule AtMcp.ATProto do
   @doc "Read one record out of a repository."
   def get_record(session, params),
     do: query(session, "com.atproto.repo.getRecord", @repo_get, params)
+
+  @repo_list %{
+    repo: {:required, :string},
+    collection: {:required, :string},
+    limit: :integer,
+    cursor: :string
+  }
+
+  @doc """
+  Read a page of one collection's records out of a repository, as its PDS
+  holds them. A list's members are `graph.listitem` records in the account's
+  own repository, each naming its list; this is how every one of them is
+  found, including any the AppView has not indexed yet.
+  """
+  def list_records(session, params),
+    do: query(session, "com.atproto.repo.listRecords", @repo_list, params)
+
+  # The most writes one `applyWrites` takes. The lexicon declares no bound;
+  # the reference PDS refuses more than 200 ("Too many writes. Max: 200", in
+  # packages/pds/src/api/com/atproto/repo/applyWrites.ts), and a PDS is what
+  # every network's accounts write through.
+  @max_writes 200
+
+  @doc "The most writes one `apply_writes/4` call carries."
+  def max_writes, do: @max_writes
+
+  @tid_alphabet "234567abcdefghijklmnopqrstuvwxyz"
+
+  @doc """
+  `n` new record keys in the protocol's TID form, in increasing order: 13
+  characters of sortable base32 over the time in microseconds and a random
+  clock identifier. A write that names a record before it exists, such as a
+  starter pack naming its list in the same commit, chooses the keys itself.
+  """
+  def tids(n) when is_integer(n) and n >= 0 do
+    import Bitwise
+    now = System.os_time(:microsecond)
+    clock = :rand.uniform(1024) - 1
+
+    for i <- 0..(n - 1)//1 do
+      value = (now + i) <<< 10 ||| clock
+
+      for shift <- 60..0//-5, into: "" do
+        <<:binary.at(@tid_alphabet, value >>> shift &&& 31)>>
+      end
+    end
+  end
 
   @doc """
   Upload a blob and return `{:ok, %{blob: blob_ref}}`.
@@ -423,8 +619,9 @@ defmodule AtMcp.ATProto do
 
   Takes `:text`, and optionally `:facets` (as `AtMcp.RichText` builds them),
   `:langs`, `:reply` (`%{root: strong_ref, parent: strong_ref}`), `:images`
-  (`[%{blob: blob_ref, alt: String.t()}]`), `:quote` (a strong ref) and
-  `:created_at`.
+  (`[%{blob: blob_ref, alt: String.t()}]`), `:link` (a card,
+  `%{url, title, description, thumb_blob}`), `:quote` (a strong ref),
+  `:labels` (self-label values) and `:created_at`.
 
   Three things this does that `ProtoRune.Bsky.post/3` cannot:
 
@@ -450,7 +647,85 @@ defmodule AtMcp.ATProto do
     |> put_present("langs", Keyword.get(fields, :langs))
     |> put_present("reply", reply_refs(Keyword.get(fields, :reply)))
     |> put_present("embed", post_embed(fields))
+    |> put_present("labels", self_labels(Keyword.get(fields, :labels)))
   end
+
+  # A post's labels about itself, the app's content warnings. The union's type
+  # is `com.atproto`'s, the same on every network.
+  defp self_labels(nil), do: nil
+  defp self_labels([]), do: nil
+
+  defp self_labels(values) when is_list(values),
+    do: %{
+      "$type" => "com.atproto.label.defs#selfLabels",
+      "values" => Enum.map(values, &%{"val" => &1})
+    }
+
+  @doc """
+  A `feed.threadgate` for the post at `post_uri`: who may reply (`allow`: nil or `:everyone`
+  for everyone, or the rules `AtMcp.Interactions` reads) and which replies are
+  hidden. `allow` may also be `:keep`, which leaves the record's rule as it is.
+  `current` is the record the repository holds, or nil; every field
+  this does not set is kept, and so is its `createdAt`.
+
+  Returns nil when the gate would say nothing, everyone may reply and nothing
+  is hidden, so the caller deletes the record rather than writing an empty one.
+  """
+  def threadgate_record(post_uri, allow, hidden, current \\ nil) do
+    record =
+      gate(:threadgate, post_uri, current)
+      |> set_rule("allow", allow, fn
+        :everyone -> nil
+        rules -> rules && rules |> Enum.map(&reply_rule/1) |> Enum.uniq()
+      end)
+      |> Map.delete("hiddenReplies")
+      |> put_present("hiddenReplies", if(hidden != [], do: hidden))
+
+    if Map.has_key?(record, "allow") or Map.has_key?(record, "hiddenReplies"), do: record
+  end
+
+  @doc """
+  A `feed.postgate` for the post at `post_uri`: whether it may be quoted
+  (`:allowed`, `:disabled`, or `:keep` to leave the record's rule) and which
+  quotes of it are detached. Like
+  `threadgate_record/4`, it keeps what it does not set and is nil when it
+  would say nothing.
+  """
+  def postgate_record(post_uri, quotes, detached, current \\ nil) do
+    record =
+      gate(:postgate, post_uri, current)
+      |> set_rule("embeddingRules", quotes, fn quotes ->
+        if quotes == :disabled, do: [%{"$type" => AtMcp.Network.type(:disable_rule)}]
+      end)
+      |> Map.delete("detachedEmbeddingUris")
+      |> put_present("detachedEmbeddingUris", if(detached != [], do: detached))
+
+    if Map.has_key?(record, "embeddingRules") or Map.has_key?(record, "detachedEmbeddingUris"),
+      do: record
+  end
+
+  # `:keep` leaves a rule as the record has it: hiding a reply does not touch
+  # who may reply.
+  defp set_rule(record, _key, :keep, _wire), do: record
+
+  defp set_rule(record, key, rule, wire),
+    do: record |> Map.delete(key) |> put_present(key, wire.(rule))
+
+  defp gate(kind, post_uri, current) do
+    current = wire_record(current || %{})
+
+    current
+    |> Map.put("$type", AtMcp.Network.collection(kind))
+    |> Map.put("post", post_uri)
+    |> Map.put("createdAt", Map.get(current, "createdAt") || timestamp(nil))
+  end
+
+  defp reply_rule(:mention), do: %{"$type" => AtMcp.Network.type(:mention_rule)}
+  defp reply_rule(:followers), do: %{"$type" => AtMcp.Network.type(:follower_rule)}
+  defp reply_rule(:following), do: %{"$type" => AtMcp.Network.type(:following_rule)}
+
+  defp reply_rule({:list, uri}),
+    do: %{"$type" => AtMcp.Network.type(:list_rule), "list" => uri}
 
   @doc "Build a `feed.like` record over a strong reference."
   def like_record(fields), do: subject_record(:like, fields)
@@ -480,6 +755,134 @@ defmodule AtMcp.ATProto do
     |> Map.drop(["$type", :"$type"])
     |> Map.put("$type", AtMcp.Network.collection(:profile))
   end
+
+  @doc """
+  Build a `graph.list` record. Takes `:name`, `:purpose` (`:curatelist`,
+  `:modlist` or `:referencelist`, which become this network's tokens), and
+  optionally `:description` and `:avatar` (a blob reference).
+  """
+  def list_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list),
+      "purpose" => AtMcp.Network.type(Keyword.fetch!(fields, :purpose)),
+      "name" => Keyword.fetch!(fields, :name),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+    |> put_present("description", Keyword.get(fields, :description))
+    |> put_present("avatar", Keyword.get(fields, :avatar) && wire_blob(fields[:avatar]))
+  end
+
+  @doc "Build a `graph.listitem` record: the account `:subject` (a DID) on the list at `:list`."
+  def list_item_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list_item),
+      "subject" => Keyword.fetch!(fields, :subject),
+      "list" => Keyword.fetch!(fields, :list),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+  end
+
+  @doc """
+  Build a `graph.starterpack` record: `:name`, the AT URI of its `:list`, and
+  optionally `:description` and `:feeds` (feed generator AT URIs).
+  """
+  def starter_pack_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:starter_pack),
+      "name" => Keyword.fetch!(fields, :name),
+      "list" => Keyword.fetch!(fields, :list),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+    |> put_present("description", Keyword.get(fields, :description))
+    |> put_present("feeds", pack_feeds(Keyword.get(fields, :feeds)))
+  end
+
+  @doc """
+  Build a `graph.referencelistoptout` record: this account asks to be left
+  out of the reference list at `:subject` (a DID-based AT URI).
+  """
+  def list_opt_out_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list_opt_out),
+      "subject" => Keyword.fetch!(fields, :subject),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+  end
+
+  @doc """
+  A record read back from the service with `changes` applied: each is a wire
+  key and its new value, or `nil` to remove the key. Every other field is
+  kept, and `$type` is the collection it is written back to. A new `description` removes
+  `descriptionFacets`, whose byte ranges index the old text.
+  """
+  def edit_record(current, collection, changes)
+      when is_map(current) and is_binary(collection) and is_map(changes) do
+    changes =
+      if Map.has_key?(changes, "description"),
+        do: Map.put_new(changes, "descriptionFacets", nil),
+        else: changes
+
+    Enum.reduce(changes, wire_record(current), fn
+      {key, nil}, record -> Map.delete(record, key)
+      {key, value}, record -> Map.put(record, key, value)
+    end)
+    |> Map.put("$type", collection)
+  end
+
+  @doc "A starter pack's `feeds`: one object per feed generator AT URI."
+  def pack_feeds(nil), do: nil
+  def pack_feeds(uris) when is_list(uris), do: Enum.map(uris, &%{"uri" => &1})
+
+  @doc """
+  The account's `actor.profile` record with `pinnedPost` set to a strong
+  reference, or removed when `pinned` is nil. Every other field of `current`
+  is kept.
+  """
+  def pinned_profile_record(current, pinned) when is_map(current) do
+    current
+    |> wire_record()
+    |> Map.delete("pinnedPost")
+    |> put_present("pinnedPost", pinned && strong_ref(pinned))
+    |> profile_record()
+  end
+
+  @doc """
+  A `draft.defs#draft` whose first post's text is `text`.
+
+  `current` is the draft as the service holds it, or nil for a new one. Every
+  other part of it is kept: later posts in a thread draft, the first post's
+  attachments and labels, its languages and its reply and quote settings.
+  """
+  def draft(text, current \\ nil) when is_binary(text) do
+    current = wire_record(current || %{})
+
+    posts =
+      case Map.get(current, "posts") do
+        [first | rest] when is_map(first) -> [Map.put(first, "text", text) | rest]
+        _ -> [%{"text" => text}]
+      end
+
+    Map.put(current, "posts", posts)
+  end
+
+  @doc """
+  A record read back from the service, in the keys it is written with.
+
+  Responses arrive through proto_rune's XRPC client, which snakelizes every
+  key and turns the known ones into atoms. A record edited and written back
+  goes out with the lexicon's own keys, all strings, so a field this module
+  sets cannot sit beside a stale copy of itself under another spelling. Every
+  lexicon key is camelCase, so camelizing is the inverse. Delete the rename
+  when proto_rune returns response keys as the server sent them.
+  """
+  def wire_record(map) when is_map(map),
+    do:
+      Map.new(map, fn {key, value} ->
+        {key |> to_string() |> ProtoRune.Case.camelize(), wire_record(value)}
+      end)
+
+  def wire_record(list) when is_list(list), do: Enum.map(list, &wire_record/1)
+  def wire_record(other), do: other
 
   defp subject_record(kind, fields) do
     %{
@@ -513,7 +916,10 @@ defmodule AtMcp.ATProto do
   # rather than two keys. Building it here is what keeps that a fact about the
   # record instead of a rule each caller has to remember.
   defp post_embed(fields) do
-    case {images_embed(Keyword.get(fields, :images)), quote_embed(Keyword.get(fields, :quote))} do
+    media =
+      images_embed(Keyword.get(fields, :images)) || external_embed(Keyword.get(fields, :link))
+
+    case {media, quote_embed(Keyword.get(fields, :quote))} do
       {nil, nil} ->
         nil
 
@@ -531,6 +937,26 @@ defmodule AtMcp.ATProto do
         }
     end
   end
+
+  # A link card: the caller's title and description, and an image blob for its
+  # thumbnail when one was uploaded.
+  defp external_embed(nil), do: nil
+
+  defp external_embed(%{url: url} = link) do
+    %{
+      "$type" => AtMcp.Network.type(:embed_external),
+      "external" =>
+        %{
+          "uri" => url,
+          "title" => Map.get(link, :title) || "",
+          "description" => Map.get(link, :description) || ""
+        }
+        |> put_present("thumb", link |> Map.get(:thumb_blob) |> wire_blob_or_nil())
+    }
+  end
+
+  defp wire_blob_or_nil(nil), do: nil
+  defp wire_blob_or_nil(blob), do: wire_blob(blob)
 
   defp images_embed(nil), do: nil
   defp images_embed([]), do: nil
@@ -555,7 +981,8 @@ defmodule AtMcp.ATProto do
   # out as `mimeType`. `$type`, `size` and `ref.$link` have no case to lose.
   # Delete the rename when proto_rune returns response keys as the server sent
   # them (0.6.0 still snakelizes).
-  defp wire_blob(blob) when is_map(blob) do
+  @doc false
+  def wire_blob(blob) when is_map(blob) do
     blob
     |> deep_stringify_keys()
     |> then(fn blob ->
@@ -567,7 +994,7 @@ defmodule AtMcp.ATProto do
     |> Map.put_new("$type", "blob")
   end
 
-  defp wire_blob(blob), do: blob
+  def wire_blob(blob), do: blob
 
   defp aspect_ratio(%{width: width, height: height}),
     do: %{"width" => width, "height" => height}

@@ -4,12 +4,13 @@ An agent's own AT Protocol account, through MCP.
 
 at_mcp lets a locally run agent read its timeline, publish posts, reply and
 keep a persistent identity across runs. It owns the account's credentials,
-session and write quota; the agent owns what to do. Its 43 tools work with
+session and write quota; the agent owns what to do. Its 71 tools work with
 Bluesky and Delvetown.
 
 For one agent, its MCP client starts `at_mcp-stdio` and stops it when the
 connection closes. Several clients can share one account through a
-[shared service](docs/operations.md#run-a-shared-service). Elixir applications
+[shared service](docs/operations.md#run-a-shared-service), which can also serve
+several accounts with [separate notification destinations](docs/operations.md#incoming-activity). Elixir applications
 can [embed the same account implementation](docs/embedding.md).
 
 ## Prepare the account
@@ -35,7 +36,7 @@ A release includes its own runtime: binary users need no Elixir, Git or GitHub
 account. The supported downloads are Linux x86-64 (Ubuntu 22.04, Debian 12 or
 later) and macOS Apple silicon.
 
-The commands below install version 0.2.0 from the releases page. You can also
+The commands below install version 0.2.1 from the releases page. You can also
 [build a release](docs/operations.md#build-a-release) from the public source.
 Existing Kite users should follow
 [Transition from Kite 0.1.2](docs/operations.md#transition-from-kite).
@@ -52,7 +53,7 @@ the leading `v`.
 macOS on Apple silicon:
 
 ```sh
-VERSION=0.2.0
+VERSION=0.2.5
 PLATFORM=macos-arm64
 AT_MCP="$HOME/at_mcp"
 ```
@@ -60,7 +61,7 @@ AT_MCP="$HOME/at_mcp"
 Linux on x86-64:
 
 ```sh
-VERSION=0.2.0
+VERSION=0.2.5
 PLATFORM=linux-x86_64
 AT_MCP="$HOME/at_mcp"
 ```
@@ -225,7 +226,7 @@ approvals enabled. It starts AtMcp itself; there is no service to start first.
 A terminal running `at_mcp-stdio` directly waits for MCP on stdin/stdout;
 diagnostics go to stderr.
 
-Direct stdio gives this client all 42 account tools, including publishing,
+Direct stdio gives this client all 70 account tools, including publishing,
 profile changes and deletion. It has no read-only grant. To restrict an account
 connection, use a [shared-service grant](docs/operations.md#issue-a-connection).
 Host approval controls are separate from AtMcp’s write quota.

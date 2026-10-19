@@ -1,0 +1,180 @@
+{
+  "list": {
+    "uri": "at://did:plc:5ct6j4xn75l5elgltstvuwxz/app.bsky.graph.list/jytcki62f7qii",
+    "cid": "bafyrs45bobjsgyrrkc4t26mafmu2ad46iqjzwtsk4lrqe5ins3x65hdxel",
+    "name": "xxxxxxx",
+    "purpose": "app.bsky.graph.defs#referencelist",
+    "listItemCount": 953,
+    "indexedAt": "2024-09-12T03:39:42.119Z",
+    "labels": [],
+    "creator": {
+      "did": "did:plc:5ct6j4xn75l5elgltstvuwxz",
+      "handle": "27ilh4dauq.example.test",
+      "displayName": "xxxxxxx",
+      "avatar": "https://example.test/xjfdebhsh5rq",
+      "associated": {
+        "chat": {
+          "allowIncoming": "all"
+        },
+        "activitySubscription": {
+          "allowSubscriptions": "followers"
+        }
+      },
+      "labels": [],
+      "createdAt": "2023-08-12T13:31:21.214Z",
+      "status": {
+        "uri": "at://did:plc:5ct6j4xn75l5elgltstvuwxz/app.bsky.actor.status/self",
+        "cid": "bafy647jbpsdpmfioez2lgnqkk5vf2tej56ubsomrs3poa7xee6x7svca2j",
+        "record": {
+          "$type": "app.bsky.actor.status",
+          "createdAt": "2026-04-04T01:34:41.784Z",
+          "durationMinutes": 574,
+          "embed": {
+            "$type": "app.bsky.embed.external",
+            "external": {
+              "$type": "app.bsky.embed.external#external",
+              "description": "xxxxxxxxxxxxxxxxxxx",
+              "thumb": {
+                "$type": "blob",
+                "ref": {
+                  "$link": "bafkkfw2yirhj7vb2oz634oc74edsuhed2tblccrc4jxw3le2j5nly3uh7x"
+                },
+                "mimeType": "image/jpeg",
+                "size": 754
+              },
+              "title": "xxxxxx",
+              "uri": "https://example.test/dffkevotchkf"
+            }
+          },
+          "status": "app.bsky.actor.status#live"
+        },
+        "status": "app.bsky.actor.status#live",
+        "embed": {
+          "external": {
+            "uri": "https://example.test/dffkevotchkf",
+            "title": "xxxxxx",
+            "description": "xxxxxxxxxxxxxxxxxxx",
+            "thumb": "https://example.test/puuqgi5azwla"
+          },
+          "$type": "app.bsky.embed.external#view"
+        },
+        "labels": [],
+        "expiresAt": "2026-04-04T01:39:41.784Z",
+        "isActive": false
+      },
+      "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "indexedAt": "2026-03-12T03:57:25.925Z"
+    },
+    "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  "items": [
+    {
+      "uri": "at://did:plc:5ct6j4xn75l5elgltstvuwxz/app.bsky.graph.listitem/ehk3kmadfgylo",
+      "subject": {
+        "did": "did:plc:ydcqu6kv7nayju4d233jtz23",
+        "handle": "usw2vemico.example.test",
+        "displayName": "xxxxxxxxxxxxxx",
+        "avatar": "https://example.test/u2d3twjqxomz",
+        "associated": {
+          "chat": {
+            "allowIncoming": "following"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2023-07-12T21:02:57.000Z",
+        "verification": {
+          "verifications": [
+            {
+              "issuer": "did:plc:w6wz7ztol26q6ztxsinh7fhf",
+              "issuerDisplayName": "xxxxxxx",
+              "issuerHandle": "h3yhqw2gkh.example.test",
+              "uri": "at://did:plc:w6wz7ztol26q6ztxsinh7fhf/app.bsky.graph.verification/lzjakcj22dpom",
+              "isValid": true,
+              "createdAt": "2026-06-24T01:01:10.355Z"
+            }
+          ],
+          "verifiedStatus": "valid",
+          "trustedVerifierStatus": "none"
+        },
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2026-05-01T07:13:33.846Z"
+      }
+    },
+    {
+      "uri": "at://did:plc:5ct6j4xn75l5elgltstvuwxz/app.bsky.graph.listitem/vzgty2wpoe3ho",
+      "subject": {
+        "did": "did:plc:djqol7p4zvdultdoilhbgycu",
+        "handle": "c2qyrysjgx.example.test",
+        "displayName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "avatar": "https://example.test/5eoscz7cdsgf",
+        "associated": {
+          "chat": {
+            "allowIncoming": "following"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [
+          {
+            "src": "did:plc:djqol7p4zvdultdoilhbgycu",
+            "uri": "at://did:plc:djqol7p4zvdultdoilhbgycu/app.bsky.actor.profile/self",
+            "cid": "bafy6hyvpjqtpx6ux4watik4o5x7phas65m6bnyklax7zumxmxbde5uu3sd",
+            "val": "!no-unauthenticated",
+            "cts": "1970-03-19T06:26:09.000Z"
+          }
+        ],
+        "createdAt": "2023-07-14T02:47:02.313Z",
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2026-12-25T03:15:35.067Z"
+      }
+    },
+    {
+      "uri": "at://did:plc:5ct6j4xn75l5elgltstvuwxz/app.bsky.graph.listitem/pbvuehw4fltrf",
+      "subject": {
+        "did": "did:plc:lhdjqgzqey25y4okkhv4t3zn",
+        "handle": "rcnautrasc.example.test",
+        "displayName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "avatar": "https://example.test/jw4wn775xoln",
+        "associated": {
+          "chat": {
+            "allowIncoming": "following"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [
+          {
+            "src": "did:plc:lhdjqgzqey25y4okkhv4t3zn",
+            "uri": "at://did:plc:lhdjqgzqey25y4okkhv4t3zn/app.bsky.actor.profile/self",
+            "cid": "bafyraroyx432p23dfddh3kdivsmehvh43ff4xveca3upetm3fzvmqtwiaw",
+            "val": "!no-unauthenticated",
+            "cts": "1970-03-19T06:26:09.000Z"
+          }
+        ],
+        "createdAt": "2023-07-14T07:56:02.179Z",
+        "verification": {
+          "verifications": [
+            {
+              "issuer": "did:plc:w6wz7ztol26q6ztxsinh7fhf",
+              "issuerDisplayName": "xxxxxxx",
+              "issuerHandle": "h3yhqw2gkh.example.test",
+              "uri": "at://did:plc:w6wz7ztol26q6ztxsinh7fhf/app.bsky.graph.verification/56lhzd42df2f2",
+              "isValid": true,
+              "createdAt": "2026-08-18T01:39:00.513Z"
+            }
+          ],
+          "verifiedStatus": "valid",
+          "trustedVerifierStatus": "none"
+        },
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2025-05-24T14:16:36.241Z"
+      }
+    }
+  ],
+  "cursor": "xxxxxxxxxxxxx"
+}

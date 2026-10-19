@@ -82,7 +82,8 @@ defmodule AtMcp.Deliver.HTTPBridge do
   # Inbound has two collectors, and either one is enough to attach. Jetstream is
   # Bluesky's; the notification poll goes through the account's own PDS and works
   # on any network, so a network without a firehose runs on the poll alone.
-  defp collecting? do
+  @doc false
+  def collecting? do
     Application.get_env(:at_mcp, :jetstream_enabled, false) or
       Application.get_env(:at_mcp, :notifications_enabled, true)
   end
@@ -98,7 +99,32 @@ defmodule AtMcp.Deliver.HTTPBridge do
   paused.
   """
   def callback(url, opts \\ []) when is_binary(url) do
-    fn event -> post_inbound(url, access_token(), event, opts) end
+    fn event ->
+      case Keyword.fetch(opts, :token_file) do
+        {:ok, path} ->
+          with {:ok, token} <- account_token(path),
+               do: post_inbound(url, token, event, Keyword.delete(opts, :token_file))
+
+        :error ->
+          post_inbound(url, access_token(), event, opts)
+      end
+    end
+  end
+
+  # An account's destination always names its receiver's token, so an empty or
+  # unreadable file is a failed delivery, retried, rather than a request sent
+  # without credentials. Neither the token nor its path enters the reason.
+  defp account_token(path) do
+    case File.read(path) do
+      {:ok, contents} ->
+        case String.trim(contents) do
+          "" -> {:error, :delivery_token_empty}
+          token -> {:ok, token}
+        end
+
+      {:error, reason} ->
+        {:error, {:delivery_token_unreadable, reason}}
+    end
   end
 
   @doc false
@@ -117,6 +143,18 @@ defmodule AtMcp.Deliver.HTTPBridge do
 
   @doc false
   def post_inbound(url, token, event, opts \\ []) when is_map(event) do
+    if valid_token?(token),
+      do: send_inbound(url, token, event, opts),
+      else: {:error, :delivery_token_invalid}
+  end
+
+  # A token is one header value. Anything else (a second line, a control
+  # character) makes the HTTP client refuse the header with an error that
+  # carries the whole value, and the store logs failed delivery reasons, so it
+  # is refused here without the value.
+  defp valid_token?(token), do: is_binary(token) and Regex.match?(~r/\A[\x21-\x7E]*\z/, token)
+
+  defp send_inbound(url, token, event, opts) do
     # Which network this happened on. A host cannot derive it — a DID does not say
     # where it lives — and without it an inhabitant on delve.town is told it is on
     # Bluesky.

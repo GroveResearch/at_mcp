@@ -43,6 +43,76 @@ defmodule AtMcp.MCP.Schemas do
   end
 
   @doc """
+  The `text` parameter of `save_draft`, stated from the limits the account
+  enforces (`AtMcp.Effects.draft_text_limits/0`).
+  """
+  defmacro draft_text do
+    %{graphemes: graphemes, bytes: bytes} = AtMcp.Effects.draft_text_limits()
+
+    Macro.escape(
+      required: true,
+      description:
+        "The draft's text: at most #{graphemes} graphemes and #{bytes} UTF-8 bytes, more than a post holds, so it can be split into posts later. Longer is refused before anything is sent."
+    )
+  end
+
+  @doc """
+  The `reply_rule` parameter: who may reply. Its limit comes from
+  `AtMcp.Interactions`, which reads it, as do the words it lists
+  (`AtMcp.Interactions.reply_rule_words/0`). `default` says what omitting it
+  means.
+  """
+  defmacro reply_rule(default) do
+    %{rules: max} = AtMcp.Interactions.limits()
+
+    Macro.escape(
+      description:
+        "Who may reply. #{default} [\"everyone\"] for everyone, [] for nobody. Otherwise up to #{max} of: " <>
+          ~s["mentioned" (accounts the post mentions), "following" (accounts this account follows), "followers" (accounts that follow this account), and the AT URI of a list (its members; a handle in it is resolved to the DID form the app matches).],
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc "The `quotes` parameter: whether others may quote the post."
+  defmacro quotes(default) do
+    Macro.escape(
+      description: ~s("disabled": nobody may quote it. "allowed": anyone may. #{default}),
+      schema: %{type: "string", enum: ["allowed", "disabled"]}
+    )
+  end
+
+  @doc "The `labels` parameter: a post's self-labels, from `AtMcp.Interactions.self_labels/0`."
+  defmacro self_labels do
+    labels = AtMcp.Interactions.self_labels()
+
+    Macro.escape(
+      description:
+        "Content warnings the post gives itself, any of #{Enum.join(labels, ", ")}. Readers' apps hide or blur it to match.",
+      schema: %{type: "array", items: %{type: "string", enum: labels}}
+    )
+  end
+
+  @doc "The `link` parameter: a link card the caller describes."
+  defmacro link do
+    thumb = image_upload_schema([])
+
+    Macro.escape(
+      description:
+        "A link card: url (http or https), and the title and description the card shows. at_mcp does not fetch the page, so they are yours to give. thumb is an optional image for the card, base64 data or a file path with its MIME type. A post carries a link card or images, not both.",
+      schema: %{
+        type: "object",
+        required: ["url"],
+        properties: %{
+          url: %{type: "string", description: "The page the card links to"},
+          title: %{type: "string", description: "The card's title"},
+          description: %{type: "string", description: "The card's description"},
+          thumb: Map.put(thumb, :description, "The card's image")
+        }
+      }
+    )
+  end
+
+  @doc """
   The required list parameter of a batch read, stated from the batch limit
   the account enforces (`AtMcp.Effects.max_batch/0`).
   """
@@ -53,6 +123,19 @@ defmodule AtMcp.MCP.Schemas do
       required: true,
       description: "#{description}; at most #{max}",
       schema: %{type: "array", minItems: 1, maxItems: max, items: %{type: "string"}}
+    )
+  end
+
+  @doc """
+  The `actors` parameter of `create_starter_pack`, stating how many accounts
+  one commit makes a pack with (`AtMcp.Effects.max_pack_actors/0`).
+  """
+  defmacro pack_actors(description) do
+    max = AtMcp.Effects.max_pack_actors()
+
+    Macro.escape(
+      description: "#{description}; at most #{max}",
+      schema: %{type: "array", maxItems: max, items: %{type: "string"}}
     )
   end
 
@@ -85,7 +168,23 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_page, do: Macro.escape(page(profile_view_schema()))
 
+  defmacro bookmark_page, do: Macro.escape(page(bookmark_schema()))
+
+  defmacro draft_page, do: Macro.escape(page(record(:draft)))
+
+  defmacro draft_result, do: Macro.escape(draft_result_schema())
+
   defmacro generator_page, do: Macro.escape(page(record(:generator)))
+
+  defmacro list_page, do: Macro.escape(list_page_schema())
+
+  defmacro lists_page, do: Macro.escape(page(with_member_item(:list)))
+
+  defmacro starter_pack, do: Macro.escape(object(AtMcp.Summary.properties(:starter_pack)))
+
+  defmacro starter_pack_page, do: Macro.escape(page(with_member_item(:starter_pack)))
+
+  defmacro list_result, do: Macro.escape(list_result_schema())
 
   defmacro notification_page, do: Macro.escape(notification_page_schema())
 
@@ -103,6 +202,19 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro action_result, do: Macro.escape(action_result_schema())
 
+  @doc """
+  One image a tool uploads: base64 `data` or a file `path`, and its MIME type
+  as `mime_type` or as `mimeType`, the AT Protocol blob's own name for it.
+  Either spelling is accepted; the tool builds the blob itself.
+  `alt: true` requires alt text and takes a list, as a post's images do.
+  These are a `param`'s whole options, since the tool DSL reads them literally.
+  """
+  defmacro image_upload(description, opts \\ []) do
+    image = image_upload_schema(opts)
+    schema = if opts[:alt], do: %{type: "array", items: image}, else: image
+    Macro.escape(description: description, schema: schema)
+  end
+
   defmacro identity_status, do: Macro.escape(identity_status_schema())
 
   defmacro post_images, do: Macro.escape(post_images_schema())
@@ -115,6 +227,20 @@ defmodule AtMcp.MCP.Schemas do
     "outcome" => %{
       "type" => "string",
       "description" => "\"unknown\" when a write may or may not have been applied."
+    },
+    "ignored" => %{
+      "type" => "array",
+      "items" => %{"type" => "string"},
+      "description" =>
+        "Paths of arguments this tool does not take, present only when there were some. Nothing was done with them."
+    },
+    "problems" => %{
+      "type" => "array",
+      "items" => %{
+        "type" => "object",
+        "properties" => %{"path" => %{"type" => "string"}, "message" => %{"type" => "string"}}
+      },
+      "description" => "With code invalid_arguments: each argument that failed, and why."
     }
   }
 
@@ -164,6 +290,48 @@ defmodule AtMcp.MCP.Schemas do
         "context" => %{
           "type" => "object",
           "description" => "The depth, parent height and per-node reply cap applied"
+        },
+        "hidden_by_threadgate" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "True when the thread's author hid this post; the app leaves it out of the thread. Replies repeat this flag"
+        },
+        "muted_by_viewer" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "With include_hidden: true when the app leaves this post out because this account muted its author. Replies repeat this flag"
+        },
+        "left_out" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "With include_hidden: true when the app leaves this post out of the thread; hidden_by_threadgate or muted_by_viewer says why when the service says, and a depth above 1 means it may be left out only because a reply above it is. Replies repeat this flag and depth"
+        },
+        "hidden_replies_unread" =>
+          nullable_string(
+            "With include_hidden: why the replies the thread leaves out could not be read. The thread is as read"
+          ),
+        "hidden_replies" => %{
+          "type" => ["array", "null"],
+          "description" =>
+            "With include_hidden: the replies the app leaves out that this read did not return (those it returned are marked left_out in place). Absent otherwise",
+          "items" => %{
+            "type" => "object",
+            "properties" =>
+              Map.merge(post_view_schema()["properties"], %{
+                "depth" => %{
+                  "type" => ["integer", "null"],
+                  "description" => "Levels below the post read: 1 is a direct reply"
+                },
+                "hidden_by_threadgate" => %{
+                  "type" => ["boolean", "null"],
+                  "description" => "True when the thread's author hid this reply"
+                },
+                "muted_by_viewer" => %{
+                  "type" => ["boolean", "null"],
+                  "description" => "True when this account muted the reply's author"
+                }
+              })
+          }
         }
       })
     )
@@ -247,7 +415,11 @@ defmodule AtMcp.MCP.Schemas do
         "items" => %{"type" => "string"},
         "description" => "Handles published as plain text, without a mention facet"
       },
-      "warning" => nullable_string()
+      "warning" => nullable_string(),
+      "threadgate_uri" =>
+        nullable_string("AT URI of the threadgate written with the post: who may reply"),
+      "postgate_uri" =>
+        nullable_string("AT URI of the postgate written with the post: whether it may be quoted")
     })
   end
 
@@ -274,8 +446,164 @@ defmodule AtMcp.MCP.Schemas do
       "description" => nullable_string(),
       "avatar_cid" => nullable_string("CID of the avatar blob this update uploaded"),
       "banner_cid" => nullable_string("CID of the banner blob this update uploaded"),
-      "seen_at" => nullable_string("ISO8601 timestamp")
+      "seen_at" => nullable_string("ISO8601 timestamp"),
+      "subject_uri" =>
+        nullable_string("AT URI of the post this action applied to, e.g. the post pinned"),
+      "replaced_uri" =>
+        nullable_string(
+          "AT URI of the post that was pinned before this action, if any; pin_post takes it to put it back"
+        ),
+      "threadgate_uri" =>
+        nullable_string(
+          "AT URI of the post's threadgate after this action; null when the post has none"
+        ),
+      "postgate_uri" =>
+        nullable_string(
+          "AT URI of the post's postgate after this action; null when the post has none"
+        ),
+      "reply_rule" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "set_post_interactions: who may reply now, in reply_rule's words: [\"everyone\"], [] for nobody, or the rules. Null for a reply, whose thread's first post sets it"
+      },
+      "quotes" =>
+        nullable_string(
+          "set_post_interactions: whether others may quote the post now: allowed or disabled"
+        ),
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" => "True when the post already had these settings, so nothing was written"
+      }
     })
+  end
+
+  # A saved or deleted draft: its id, and the draft as it was saved or as it
+  # was before it was deleted, so a deletion can be undone by saving it again.
+  defp draft_result_schema do
+    object(%{
+      "ok" => %{"type" => ["boolean", "null"]},
+      "action" => nullable_string(),
+      "id" => nullable_string("The draft's id"),
+      "draft" =>
+        record(:draft)
+        |> Map.put("type", ["object", "null"])
+        |> Map.put(
+          "description",
+          "The draft as saved; for delete_draft, as it was before it was deleted"
+        )
+    })
+  end
+
+  # A page of a list's members, with the list itself beside them.
+  defp list_page_schema do
+    schema = page(record(:list_member))
+
+    put_in(schema, ["properties", "list"], %{
+      "type" => ["object", "null"],
+      "description" => "The list these accounts are on",
+      "properties" => AtMcp.Summary.properties(:list)
+    })
+  end
+
+  # A list or starter pack, and, when it was read with `contains`, the list
+  # item that puts that account in it.
+  defp with_member_item(shape) do
+    %{
+      "type" => "object",
+      "properties" =>
+        Map.put(
+          AtMcp.Summary.properties(shape),
+          "member_item",
+          nullable_string(
+            "With contains: AT URI of the list item that puts that account in this; null when it is not. Absent without contains"
+          )
+        )
+    }
+  end
+
+  # What a list or starter pack write did: the record it wrote or deleted, and
+  # the list it applies to.
+  defp list_result_schema do
+    object(%{
+      "ok" => %{"type" => ["boolean", "null"]},
+      "action" => nullable_string(),
+      "uri" =>
+        nullable_string(
+          "AT URI of the record this wrote, or of the one it deleted: the list, list item, starter pack or opt-out"
+        ),
+      "cid" => nullable_string("CID of the record this wrote"),
+      "list" => nullable_string("AT URI of the list this applies to"),
+      "actor" => nullable_string("DID of the account added to or removed from the list"),
+      "name" => nullable_string("The name written, when this set one"),
+      "purpose" => nullable_string("curate or moderation, for a list this made"),
+      "opted_out" => %{
+        "type" => ["boolean", "null"],
+        "description" => "Whether this account is now opted out of the list"
+      },
+      "deleted" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" => "AT URIs of every record this deleted"
+      },
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" => "True when the account already stood as asked, so nothing was written"
+      }
+    })
+  end
+
+  # A bookmarked post, or the placeholder the service sends for one that is
+  # deleted or hidden by a block, with when it was bookmarked.
+  defp bookmark_schema do
+    %{
+      "type" => "object",
+      "properties" =>
+        Map.merge(AtMcp.Summary.properties(:post), %{
+          "not_found" => %{
+            "type" => ["boolean", "null"],
+            "description" =>
+              "True when the service reports the bookmarked post deleted or missing"
+          },
+          "blocked" => %{
+            "type" => ["boolean", "null"],
+            "description" => "True when a block hides the bookmarked post from this account"
+          },
+          "bookmarked_at" =>
+            nullable_string("When this account bookmarked it, as an ISO 8601 timestamp")
+        })
+    }
+  end
+
+  # Atom keys, like the schemas written inline in `AtMcp.MCP.Server`.
+  defp image_upload_schema(opts) do
+    alt = %{type: "string", description: "Alt text describing the image"}
+
+    properties = %{
+      data: %{type: "string", description: "The image bytes, base64-encoded"},
+      path: %{
+        type: "string",
+        description:
+          "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
+      },
+      mime_type: %{
+        type: "string",
+        description: "MIME type, e.g. image/png or image/jpeg. Needed, here or as mimeType."
+      },
+      mimeType: %{
+        type: "string",
+        description: "Instead of mime_type, under the AT Protocol blob's name. Give one."
+      }
+    }
+
+    # Neither is required here: the tool refuses an image with neither as
+    # invalid_image. An `anyOf` requiring one of them was tried, and some
+    # models then left the MIME type out of every call.
+    schema = %{type: "object", properties: properties}
+
+    if opts[:alt],
+      do: schema |> put_in([:properties, :alt], alt) |> Map.put(:required, ["alt"]),
+      else: schema
   end
 
   # The account's login state and its write quota.

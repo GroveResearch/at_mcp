@@ -21,6 +21,38 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "wrong_record_kind", failure.message)
 
+  # A compare-and-swap write the service refused because the record changed
+  # after AtMcp read it. Nothing was written; the message says what changed.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, _}} = failure},
+        state
+      ),
+      do: error(state, "changed_meanwhile", "error: " <> failure.message)
+
+  # A deletion too large for one commit that stopped part way: the commits
+  # that landed deleted `deleted`, and the message says what became of the
+  # next one, in the service's words.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:partially_written, deleted, _}} =
+           failure},
+        state
+      ),
+      do:
+        error(
+          state,
+          "partially_written",
+          "error: " <> failure.message,
+          Map.reject(%{deleted: deleted, http_status: failure.status}, fn {_, v} -> is_nil(v) end)
+        )
+
+  def respond(
+        {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:draft_gone, id}} = failure},
+        state
+      ),
+      do: error(state, "draft_not_found", "error: " <> failure.message, %{id: id})
+
   def respond({:error, :not_connected}, state),
     do:
       error(
@@ -60,7 +92,7 @@ defmodule AtMcp.MCP.Tools do
     account_authentication_failed:
       "The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied. Check the app password and reconnect; retrying the same request will not help.",
     invalid_image:
-      "An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type`, and for a post `alt` text; nothing was sent.",
+      "An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type` (or `mimeType`, not two that differ), and for a post `alt` text; nothing was sent.",
     media_dir_unset:
       "This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Send the image as base64 `data` instead; nothing was sent.",
     invalid_post_text:
@@ -171,6 +203,19 @@ defmodule AtMcp.MCP.Tools do
     )
   end
 
+  # An argument the input schema accepts and AtMcp still cannot act on: a post
+  # in another account's repository, a list URI that is not a list. It is the
+  # same refusal as a schema mismatch, naming the argument, and it is decided
+  # before anything is sent.
+  def respond({:error, {:invalid_argument, path, message}}, state) do
+    error(
+      state,
+      "invalid_arguments",
+      "error: #{path}: #{message}. Nothing was sent and nothing was counted against the write quota.",
+      %{problems: [%{path: path, message: message}]}
+    )
+  end
+
   def respond({:error, {:write_quota_exhausted, resets_at}}, state) do
     reset = iso8601(resets_at)
 
@@ -243,9 +288,10 @@ defmodule AtMcp.MCP.Tools do
   def respond(other, state), do: {:ok, encode(other), state}
 
   @doc """
-  `respond/2` for a read made of posts. The structured content is the same;
-  the text a model reads is `AtMcp.Reading`'s `reading` of it (`:posts`,
-  `:notifications`, `:thread` or `:chain`) instead of the serialized JSON. A
+  `respond/2` for a read made of posts, lists or starter packs. The
+  structured content is the same; the text a model reads is `AtMcp.Reading`'s
+  `reading` of it (`:posts`, `:notifications`, `:thread`, `:chain`, `:list`,
+  `:lists`, `:starter_pack` or `:starter_packs`) instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """
   def respond({:ok, summary}, state, reading) do
@@ -295,6 +341,9 @@ defmodule AtMcp.MCP.Tools do
   end
 
   def optional_actor(_), do: nil
+
+  @doc "An optional argument: omitted, empty and whitespace-only are all absent (nil)."
+  def optional(value), do: if(absent?(value), do: nil, else: value)
 
   @doc "Several handles or DIDs, each read as `actor/1` reads one."
   def actors(actors), do: actors |> List.wrap() |> Enum.map(&actor/1)
@@ -352,6 +401,28 @@ defmodule AtMcp.MCP.Tools do
       else
         AtMcp.Effects.update_profile(effects, updates)
       end
+    end
+  end
+
+  @doc """
+  The fields of a list or starter pack write, from tool arguments: the given
+  `keys`, leaving out any not given, and an `avatar` read into bytes here, as
+  a post's images are, so a bad one refuses the call before anything is sent.
+  """
+  def list_fields(args, keys) when is_map(args) do
+    fields =
+      for key <- keys, key != :avatar, Map.has_key?(args, key), into: %{}, do: {key, args[key]}
+
+    if :avatar in keys do
+      case Map.get(args, :avatar) do
+        image when image in [nil, %{}] ->
+          {:ok, fields}
+
+        image ->
+          with {:ok, image} <- decode_image(image), do: {:ok, Map.put(fields, :avatar, image)}
+      end
+    else
+      {:ok, fields}
     end
   end
 
@@ -454,12 +525,55 @@ defmodule AtMcp.MCP.Tools do
   refused here, before the write quota is charged and before anything is sent.
   """
   def post_options(args) when is_map(args) do
-    with {:ok, images} <- decode_images(Map.get(args, :images)) do
+    with {:ok, images} <- decode_images(Map.get(args, :images)),
+         {:ok, link} <- decode_link(Map.get(args, :link)) do
       {:ok,
        Enum.reject(
-         [langs: Map.get(args, :langs), quote: Map.get(args, :quote), images: images],
+         [
+           langs: Map.get(args, :langs),
+           quote: Map.get(args, :quote),
+           images: images,
+           quotes: Map.get(args, :quotes),
+           labels: Map.get(args, :labels),
+           link: link
+         ],
          fn {_key, value} -> absent?(value) end
-       )}
+       ) ++ reply_rule(Map.get(args, :reply_rule))}
+    end
+  end
+
+  # `[]` is a rule: nobody may reply. Only an omitted rule is absent.
+  defp reply_rule(nil), do: []
+  defp reply_rule(rule), do: [reply_rule: rule]
+
+  # A link card's fields as given, and its thumbnail's bytes. Whether the url
+  # is one is `AtMcp.Interactions.link/1`'s to say.
+  defp decode_link(link) when link in [nil, %{}], do: {:ok, nil}
+
+  defp decode_link(link) when is_map(link) do
+    thumb =
+      case AtMcp.Response.fetch(link, "thumb") do
+        {:ok, image} when image not in [nil, %{}] -> decode_image(image)
+        _ -> {:ok, nil}
+      end
+
+    with {:ok, thumb} <- thumb do
+      {:ok,
+       %{
+         url: field(link, "url"),
+         title: field(link, "title"),
+         description: field(link, "description"),
+         thumb: thumb
+       }}
+    end
+  end
+
+  defp decode_link(other), do: {:ok, other}
+
+  defp field(map, key) do
+    case AtMcp.Response.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> nil
     end
   end
 
@@ -493,12 +607,22 @@ defmodule AtMcp.MCP.Tools do
   # One image's bytes: base64 `data`, or a `path` the server reads itself
   # (`AtMcp.MediaFile`), never both. Either way they leave here as bytes.
   defp decode_image(image) do
-    with {:ok, mime_type} <- string_field(image, "mime_type"),
+    with {:ok, mime_type} <- mime_type(image),
          {:ok, data} <- image_bytes(string_field(image, "data"), string_field(image, "path")) do
       {:ok, %{data: data, mime_type: mime_type}}
     else
       {:error, _} = error -> error
       _ -> {:error, :invalid_image}
+    end
+  end
+
+  # `mime_type`, or `mimeType` as the AT Protocol blob names it. Both is fine
+  # when they agree; two different types is not a choice to make for the caller.
+  defp mime_type(image) do
+    case {string_field(image, "mime_type"), string_field(image, "mimeType")} do
+      {{:ok, a}, {:ok, b}} when a != b -> :error
+      {{:ok, a}, _} -> {:ok, a}
+      {:error, other} -> other
     end
   end
 

@@ -98,15 +98,19 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 43 tools: 42 network verbs, plus
+`AtMcp.MCP.Server` declares 71 tools: 70 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
 The text is the summary's JSON, except for reads made of posts (notifications,
-feeds, searches, `get_posts`, `get_thread`, `get_thread_chain`), where it is
+feeds, searches, bookmarks, `get_posts`, `get_thread`, `get_thread_chain`), where it is
 `AtMcp.Reading`'s text: each post's author, time, what it replies to, its
-text, attachments, and the uri and cid the write tools take, with no `null`s
-and none of the fields only a program uses. Most MCP clients give a model
+text, attachments, the like, repost, reply and quote counts and the post's and
+author's labels when the service sent them, and the uri and cid the write tools
+take, with no `null`s and none of the fields only a program uses. Lists and
+starter packs read the same way (`get_list`, `get_lists`, `get_starter_pack`,
+`get_starter_packs`): a list's name, kind, size and maker, then its accounts,
+each with the list item record that puts it there. Most MCP clients give a model
 `content` and validate `structuredContent` against the output schema; the
 specification's own examples pair readable text with structured results,
 while its text asks for the serialized JSON for older clients
@@ -126,6 +130,7 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_suggested_feeds`, `get_list_feed`, `get_actor_likes` |
 | Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
+| Lists | `create_list`, `update_list`, `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`, `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`, and the reads `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
 | Account | `identity_status` |
 
@@ -172,12 +177,26 @@ tool description that go stale when they move.
 Post and chain summaries preserve `raw_text` exactly, expand link destinations
 in `text`, and expose normalized `facets`. `web_url` is the configured network's
 post permalink; AT URIs remain the canonical tool references. Both carry
-`images` (alt text and available thumbnail/full-size URLs) and one attributed
-`quote`. Image `availability` distinguishes hydrated URLs from raw references;
-no blob URLs are guessed. Quote `status` distinguishes available content,
-not-found, blocked, detached, unhydrated and unsupported records. A further
-quote stays a `nested_uri` rather than recursively expanding. `embed_type`
-identifies other media kinds that this projection does not interpret.
+`images` (alt text and available thumbnail/full-size URLs, a gallery's
+included), a `link` card (destination, title, description, image URL), a
+`video` (alt text, thumbnail and playlist URLs) and one attributed `quote`.
+Image `availability` distinguishes hydrated URLs from raw references; no blob
+URLs are guessed, so a raw record's card image and video URLs are null. Quote
+`status` distinguishes available content, not-found, blocked, detached,
+unhydrated and unsupported records, and an available quote's `kind` says
+whether it is a post (with its author, text, images, link card and video) or
+a feed, list, starter pack or labeler (with its name, description and
+creator). A further quote stays a `nested_uri` rather than recursively
+expanding. `embed_type` identifies the embed's kind, including kinds this
+projection does not interpret.
+
+A feed (timeline, author feed, custom feed, list feed, likes) wraps each post
+with what the app shows above it. `reason` says why the post is there: a
+repost, with who reposted it, when, and the repost record's uri, or a pin.
+`reply_parent` and `reply_root` say whose post a reply answers and whose
+thread it is in, with a status when the feed reports that post deleted or
+blocked. They are null outside feeds, where the service does not send them;
+`reply_to` is the parent's uri everywhere.
 
 These are read projections of what the server already returned, not extra
 requests or image pixels. `get_post_images` is the one read that fetches
@@ -189,21 +208,91 @@ facet URLs and references; when they lack hydrated content they say so.
 
 Summaries also keep the viewer's like, repost, follow and block record URIs so
 an agent can undo without the original receipt; a missing viewer object is
-distinct from an empty one.
+distinct from an empty one. Beside those records they keep the states the
+service reports with no record of the account's behind them: whether the other
+account blocks this one (`blocked_by`), whether this one has muted it
+(`muted`), the list a block or mute comes through, and whether the service lets
+the account reply to or quote a post (`reply_disabled`, `embedding_disabled`) and
+whether it muted the post's thread (`thread_muted`). A post carries its author's as
+`author_viewer`, so a reader of a post sees a block without a second read. A
+state the service did not mention is left out, never reported as `false`.
+Blocked only through a moderation list, the AppView puts the list's own URI in
+`blocking` as well as in `blocking_by_list`; that is not a block record, and
+`unblock` refuses it as the wrong record kind.
 
 `identity_status` corresponds to nothing a person does: a person has no write
 quota to read. It exists because an agent acts faster than a person while the
 account outlives the run. There is no tool for declining to act; an agent that
 ends its turn without calling a write tool has not posted.
 
-Absent from the surface: lists, starter packs, saved and pinned feeds, pinned
-posts, thread gates and reply controls, self-labels, bookmarks,
-video and external link cards, direct messages, reporting, mute words and
+An account makes curation and moderation lists and starter packs, and puts
+accounts on them or takes them off. None of these counts against the write
+quota: a list's name and description are public, like a profile's, but they
+are not put in front of followers. An edit reads the record first and keeps
+every field it does not change, and is written only if the record is still
+the one read (`swapRecord`); a write built from several reads names the
+repository's commit from before them (`swapCommit`). A refused swap is
+`changed_meanwhile`: nothing was written. A starter pack is its list, the list's items
+and the pack record, written in one `applyWrites`, and deleted the same way;
+`delete_list` deletes a list's items with it. `remove_from_list` finds the
+list items by reading the account's own `graph.listitem` records, so it
+needs no record key. `set_list_opt_out` asks to be left out of someone else's
+starter pack. A list or pack in another account's repository, or a uri of
+the wrong kind, is refused before anything is sent, naming the argument.
+
+An account pins one of its posts to its profile (`pin_post`, `unpin_post`),
+mutes a thread by any post in it (`mute_thread`, `unmute_thread`), and keeps
+private bookmarks (`bookmark`, `unbookmark`, `get_bookmarks`). None of these
+counts against the write quota. A pin rewrites the profile record from the one
+it reads, so every other field survives it, and writes only over that record
+(`swapRecord`): a profile changed meanwhile is refused as `changed_meanwhile`,
+with nothing written. A post named by a handle-form address is pinned, muted
+and bookmarked by the DID-form address the service answers, which is the one
+the AppView matches. A tool that takes one of the
+account's own posts refuses another account's before anything is sent, naming
+the argument; a service that does not serve a method answers 501, which is
+reported as `upstream_not_implemented` and not as an unknown outcome.
+
+Drafts (`get_drafts`, `save_draft`, `delete_draft`) are private and publish
+nothing, so they do not count either. A draft's text may be longer than a
+post's (`app.bsky.draft.defs#draftPost`). Saving to an existing draft reads it
+first and replaces only its first post's text, keeping the rest; an id the
+account does not have is refused, because the service would ignore the update
+without saying so. `delete_draft` returns the draft it deleted.
+
+A post can say who may reply to it (`reply_rule`: everyone, nobody, people
+it mentions, people the account follows, its followers, or a list's members)
+and whether it may be quoted (`quotes`). Those are a `feed.threadgate` and a
+`feed.postgate` under the post's record key, and `post` writes them with the
+post in one `applyWrites` commit, so the post never exists without them; it
+counts once. `set_post_interactions` changes them later, as the app's dialog
+does, starting from the current settings: a rule not given is kept, and the
+result states both rules now in force. Who may reply belongs to a thread's
+first post, so `reply` does not take `reply_rule`. A list rule is written with
+the list's DID-form address, which is what the AppView matches; a handle-form
+address is resolved first. `hide_reply` and `detach_quote` are separate tools
+because each is a choice about someone else's post. Each edit reads the
+repository's latest commit, then the gate it changes, keeps the rest, and
+writes over that commit only (`swapCommit`): a repository changed meanwhile is
+refused as `changed_meanwhile` with nothing written. An edit that changes
+nothing writes nothing and says `unchanged`; a gate left saying nothing is
+deleted. A post can carry self-labels (`labels`) and a link card (`link`)
+whose title and description the agent gives: at_mcp does not fetch the page.
+`feed.getPostThread` returns replies the thread's author hid among the others;
+`get_thread` marks those the response's threadgate lists. With
+`include_hidden` it also reads the replies the app leaves out
+(`unspecced.getPostThreadOtherV2`): one the thread read already returned is
+marked where it stands, saying whether its author hid it or the account muted
+its writer, and only the rest are listed after the thread. If that read fails,
+the thread is returned with a line saying why.
+
+Absent from the surface: saved and pinned feeds,
+posting video, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from
 `get_suggested_feeds`, receives every
-notification and discards locally, and reads a video or link-card post as a
-post with no images.
+notification and discards locally, and reads a video by its alt text and a
+link card by its text, without the video or the card's image.
 
 ## The write quota
 

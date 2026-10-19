@@ -5,7 +5,7 @@ defmodule AtMcp.MCP.Server do
   Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
   summaries (never raw session dumps): as structured content, and as text for
   a model, which is the JSON of the summary except for reads made of posts,
-  where it is `AtMcp.Reading`'s text of it.
+  lists and starter packs, where it is `AtMcp.Reading`'s text of it.
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -111,9 +111,21 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.thread())
     param(:uri, :string, required: true, description: "AT URI of the post")
 
+    param(:include_hidden, :boolean,
+      description:
+        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. A reply this read already shows is marked where it stands; the others are listed after the thread. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
+    )
+
     run(fn a, state ->
       e = state.effects
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri)), state, :thread)
+
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri),
+          include_hidden: Map.get(a, :include_hidden) == true
+        ),
+        state,
+        :thread
+      )
     end)
   end
 
@@ -599,13 +611,440 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  # --- lists and starter packs ---
+
+  tool "get_list",
+       "Read one list: its name, purpose, creator and description, and a page of the accounts on it. Each account carries item_uri, the list item record that puts it there." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.list_page())
+    param(:uri, :string, required: true, description: "AT URI of the list record")
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("accounts"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_list(state.effects, Map.fetch!(a, :uri),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :list
+      )
+    end)
+  end
+
+  tool "get_lists",
+       "List the curation and moderation lists an account made. With contains, list this account's own lists instead, each saying whether that account is on it. A starter pack's list is read with get_starter_packs." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.lists_page())
+
+    param(:actor, :string,
+      description: "Handle or DID whose lists to read. Omit for this account's own."
+    )
+
+    param(:purpose, :string,
+      description: "curate or moderation: only lists of that kind. Omit for both.",
+      schema: %{type: "string", enum: ["curate", "moderation"]}
+    )
+
+    param(:contains, :string,
+      description:
+        "Handle or DID. Reads this account's own lists, each with member_item: the list item that puts this account on it, or null."
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("lists"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_lists(state.effects,
+          actor: AtMcp.MCP.Tools.optional_actor(Map.get(a, :actor)),
+          purpose: Map.get(a, :purpose),
+          contains: AtMcp.MCP.Tools.optional_actor(Map.get(a, :contains)),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :lists
+      )
+    end)
+  end
+
+  tool "get_starter_pack",
+       "Read one starter pack: its name, description, creator, the feeds it recommends, a sample of its accounts, and its list, which get_list reads in full." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.starter_pack())
+    param(:uri, :string, required: true, description: "AT URI of the starter pack record")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_starter_pack(state.effects, Map.fetch!(a, :uri)),
+        state,
+        :starter_pack
+      )
+    end)
+  end
+
+  tool "get_starter_packs",
+       "List starter packs by exactly one of: actor, the packs an account made; query, a search; or contains, this account's own packs, each saying whether that account is in it." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.starter_pack_page())
+    param(:actor, :string, description: "Handle or DID whose starter packs to read")
+    param(:query, :string, description: "Search query")
+
+    param(:contains, :string,
+      description:
+        "Handle or DID. Reads this account's own starter packs, each with member_item: the list item that puts this account in it, or null."
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("starter packs"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_starter_packs(state.effects,
+          actor: AtMcp.MCP.Tools.optional_actor(Map.get(a, :actor)),
+          query: Map.get(a, :query),
+          contains: AtMcp.MCP.Tools.optional_actor(Map.get(a, :contains)),
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :starter_packs
+      )
+    end)
+  end
+
+  tool "create_list",
+       write_description(
+         :create_list,
+         "Make a list. A curate list gathers accounts, for a feed of their posts (get_list_feed) or for who may reply; a moderation list is for muting or blocking them together. The name and description are public. The result's uri is the list."
+       ) do
+    annotations(
+      write_annotations(:create_list, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:name, :string, required: true, description: "The list's name, 1 to 64 bytes")
+
+    param(:purpose, :string,
+      required: true,
+      description: "curate or moderation",
+      schema: %{type: "string", enum: ["curate", "moderation"]}
+    )
+
+    param(:description, :string, description: "What the list is for, up to 300 characters")
+
+    param(
+      :avatar,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "The list's picture: base64 data or a file path, and its MIME type (image/png or image/jpeg, at most 1,000,000 bytes)"
+      )
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        with {:ok, fields} <-
+               AtMcp.MCP.Tools.list_fields(a, [:name, :purpose, :description, :avatar]) do
+          AtMcp.Effects.create_list(state.effects, fields)
+        end,
+        state
+      )
+    end)
+  end
+
+  tool "update_list",
+       write_description(
+         :update_list,
+         "Change a list this account made: its name, description or picture. Fields not given are kept; an empty description removes it."
+       ) do
+    annotations(
+      write_annotations(:update_list, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the list")
+    param(:name, :string, description: "New name, 1 to 64 bytes")
+    param(:description, :string, description: "New description, up to 300 characters")
+
+    param(
+      :avatar,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "New picture: base64 data or a file path, and its MIME type (image/png or image/jpeg, at most 1,000,000 bytes)"
+      )
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        with {:ok, changes} <- AtMcp.MCP.Tools.list_fields(a, [:name, :description, :avatar]) do
+          AtMcp.Effects.update_list(state.effects, Map.fetch!(a, :uri), changes)
+        end,
+        state
+      )
+    end)
+  end
+
+  tool "delete_list",
+       write_description(
+         :delete_list,
+         "Delete a list this account made and every list item on it: in one commit, or for a list of more than 199 accounts in several, the list itself last. A starter pack's list is deleted with delete_starter_pack. The result's deleted names every record removed."
+       ) do
+    annotations(
+      write_annotations(:delete_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the list")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_list(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "add_to_list",
+       write_description(
+         :add_to_list,
+         "Put an account on a list or starter pack this account made. The result's uri is the list item; an account already on it is left as it is."
+       ) do
+    annotations(
+      write_annotations(:add_to_list, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+
+    param(:list, :string,
+      required: true,
+      description: "AT URI of the list, or of a starter pack, whose list it then is"
+    )
+
+    param(:actor, :string, required: true, description: "Handle or DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.add_to_list(
+          state.effects,
+          Map.fetch!(a, :list),
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "remove_from_list",
+       write_description(
+         :remove_from_list,
+         "Take an account off a list or starter pack this account made. Its list items are found by reading this account's own list item records, so no record key is needed."
+       ) do
+    annotations(
+      write_annotations(:remove_from_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+
+    param(:list, :string,
+      required: true,
+      description: "AT URI of the list, or of a starter pack, whose list it then is"
+    )
+
+    param(:actor, :string, required: true, description: "Handle or DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.remove_from_list(
+          state.effects,
+          Map.fetch!(a, :list),
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "create_starter_pack",
+       write_description(
+         :create_starter_pack,
+         "Make a starter pack: a named set of accounts and up to 3 feeds that someone new can follow at once. Writes its list, the list's items and the pack in one commit. The result's uri is the pack and list its list."
+       ) do
+    annotations(
+      write_annotations(:create_starter_pack, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:name, :string, required: true, description: "The pack's name, up to 50 characters")
+    param(:description, :string, description: "What the pack is for, up to 300 characters")
+
+    param(
+      :actors,
+      {:array, :string},
+      AtMcp.MCP.Schemas.pack_actors(
+        "Handles or DIDs of the accounts in it. add_to_list adds more later"
+      )
+    )
+
+    param(:feeds, {:array, :string},
+      description: "AT URIs of up to 3 feed generators it recommends",
+      schema: %{type: "array", maxItems: 3, items: %{type: "string"}}
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.create_starter_pack(state.effects, %{
+          name: Map.fetch!(a, :name),
+          description: Map.get(a, :description),
+          actors: AtMcp.MCP.Tools.actors(Map.get(a, :actors, [])),
+          feeds: Map.get(a, :feeds)
+        }),
+        state
+      )
+    end)
+  end
+
+  tool "update_starter_pack",
+       write_description(
+         :update_starter_pack,
+         "Change a starter pack this account made: its name, description or feeds. Fields not given are kept; an empty description or feeds list removes it. Its accounts change with add_to_list and remove_from_list."
+       ) do
+    annotations(
+      write_annotations(:update_starter_pack, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the starter pack")
+    param(:name, :string, description: "New name, up to 50 characters")
+    param(:description, :string, description: "New description, up to 300 characters")
+
+    param(:feeds, {:array, :string},
+      description: "AT URIs of up to 3 feed generators, replacing the ones it has",
+      schema: %{type: "array", maxItems: 3, items: %{type: "string"}}
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        with {:ok, changes} <- AtMcp.MCP.Tools.list_fields(a, [:name, :description, :feeds]) do
+          AtMcp.Effects.update_starter_pack(state.effects, Map.fetch!(a, :uri), changes)
+        end,
+        state
+      )
+    end)
+  end
+
+  tool "delete_starter_pack",
+       write_description(
+         :delete_starter_pack,
+         "Delete a starter pack this account made, with its list and the list's items. The result's deleted names every record removed."
+       ) do
+    annotations(
+      write_annotations(:delete_starter_pack, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the starter pack")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_starter_pack(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "set_list_opt_out",
+       write_description(
+         :set_list_opt_out,
+         "Ask to be left out of someone's starter pack (opted_out true), or take that back (false). The pack then stops showing this account to others. Applies only to a starter pack's list."
+       ) do
+    annotations(
+      write_annotations(:set_list_opt_out, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+
+    param(:list, :string,
+      required: true,
+      description: "AT URI of the starter pack, or of its list"
+    )
+
+    param(:opted_out, :boolean,
+      required: true,
+      description: "true to be left out, false to be shown again"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_list_opt_out(
+          state.effects,
+          Map.fetch!(a, :list),
+          Map.fetch!(a, :opted_out)
+        ),
+        state
+      )
+    end)
+  end
+
   # The post limit is not written into this description. A tool description is
   # evaluated when this module compiles, while the network is an
   # application-environment value read at runtime, so a number here would be
   # frozen at whatever the build machine was configured for and a release pointed
   # at another network would advertise the wrong one. `identity_status` reports
   # the limit, and a refusal names it; both run at call time.
-  tool "post", write_description(:post, "Publish a top-level post as this account.") do
+  tool "post",
+       write_description(
+         :post,
+         "Publish a top-level post as this account. reply_rule and quotes set who may reply and quote; they are written with the post in one commit, so it never exists without them."
+       ) do
     annotations(
       write_annotations(:post, %{readOnlyHint: false, destructiveHint: false, openWorldHint: true})
     )
@@ -628,27 +1067,25 @@ defmodule AtMcp.MCP.Server do
         "AT URI of a post to quote. Its CID is read from the record itself, so only the URI is needed."
     )
 
-    param(:images, {:array, :object},
-      description:
+    param(
+      :images,
+      {:array, :object},
+      AtMcp.MCP.Schemas.image_upload(
         "Images to attach. Each is base64 data or a file path, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
-      schema: %{
-        type: "array",
-        items: %{
-          type: "object",
-          properties: %{
-            data: %{type: "string", description: "The image bytes, base64-encoded"},
-            path: %{
-              type: "string",
-              description:
-                "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-            },
-            mime_type: %{type: "string", description: "MIME type, e.g. image/png"},
-            alt: %{type: "string", description: "Alt text describing the image"}
-          },
-          required: ["mime_type", "alt"]
-        }
-      }
+        alt: true
+      )
     )
+
+    param(:link, :object, AtMcp.MCP.Schemas.link())
+    param(:labels, {:array, :string}, AtMcp.MCP.Schemas.self_labels())
+
+    param(
+      :reply_rule,
+      {:array, :string},
+      AtMcp.MCP.Schemas.reply_rule("Omit for everyone.")
+    )
+
+    param(:quotes, :string, AtMcp.MCP.Schemas.quotes("Omit for anyone."))
 
     run(fn a, state ->
       e = state.effects
@@ -690,27 +1127,18 @@ defmodule AtMcp.MCP.Server do
         "AT URI of a post to quote. Its CID is read from the record itself, so only the URI is needed."
     )
 
-    param(:images, {:array, :object},
-      description:
+    param(
+      :images,
+      {:array, :object},
+      AtMcp.MCP.Schemas.image_upload(
         "Images to attach. Each is base64 data or a file path, its MIME type, and alt text. Alt text is what a reader who cannot see the image gets.",
-      schema: %{
-        type: "array",
-        items: %{
-          type: "object",
-          properties: %{
-            data: %{type: "string", description: "The image bytes, base64-encoded"},
-            path: %{
-              type: "string",
-              description:
-                "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-            },
-            mime_type: %{type: "string", description: "MIME type, e.g. image/png"},
-            alt: %{type: "string", description: "Alt text describing the image"}
-          },
-          required: ["mime_type", "alt"]
-        }
-      }
+        alt: true
+      )
     )
+
+    param(:link, :object, AtMcp.MCP.Schemas.link())
+    param(:labels, {:array, :string}, AtMcp.MCP.Schemas.self_labels())
+    param(:quotes, :string, AtMcp.MCP.Schemas.quotes("Omit for anyone."))
 
     run(fn a, state ->
       e = state.effects
@@ -985,38 +1413,20 @@ defmodule AtMcp.MCP.Server do
     param(:display_name, :string, description: "New display name")
     param(:description, :string, description: "New description")
 
-    param(:avatar, :object,
-      description: "New avatar image: base64 data or a file path, and its MIME type",
-      schema: %{
-        type: "object",
-        properties: %{
-          data: %{type: "string", description: "The image bytes, base64-encoded"},
-          path: %{
-            type: "string",
-            description:
-              "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-          },
-          mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"}
-        },
-        required: ["mime_type"]
-      }
+    param(
+      :avatar,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "New avatar image: base64 data or a file path, and its MIME type"
+      )
     )
 
-    param(:banner, :object,
-      description: "New banner image: base64 data or a file path, and its MIME type",
-      schema: %{
-        type: "object",
-        properties: %{
-          data: %{type: "string", description: "The image bytes, base64-encoded"},
-          path: %{
-            type: "string",
-            description:
-              "Instead of data: an image file the server reads, inside its media directory (AT_MCP_MEDIA_DIR). Off unless that is set."
-          },
-          mime_type: %{type: "string", description: "MIME type, e.g. image/png or image/jpeg"}
-        },
-        required: ["mime_type"]
-      }
+    param(
+      :banner,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "New banner image: base64 data or a file path, and its MIME type"
+      )
     )
 
     run(fn a, state ->
@@ -1041,6 +1451,384 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       e = state.effects
       AtMcp.MCP.Tools.respond(AtMcp.Effects.update_seen(e, Map.get(a, :seen_at)), state)
+    end)
+  end
+
+  # --- who may reply and quote ---
+
+  tool "set_post_interactions",
+       write_description(
+         :set_post_interactions,
+         "Set who may reply to one of this account's posts and whether others may quote it. A rule left out is kept as the post has it, as the app's dialog starts from the current settings; a rule given replaces it. Replies hidden and quotes detached stay as they are. Who may reply belongs to a thread's first post; for a reply, give no reply_rule. The result states both rules now in force (reply_rule, quotes) and names the threadgate and postgate the post has afterwards. When nothing would change, nothing is written and unchanged is true."
+       ) do
+    annotations(
+      write_annotations(:set_post_interactions, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of a post this account wrote")
+
+    param(
+      :reply_rule,
+      {:array, :string},
+      AtMcp.MCP.Schemas.reply_rule("Omit to keep the post's current rule; given, it replaces it.")
+    )
+
+    param(
+      :quotes,
+      :string,
+      AtMcp.MCP.Schemas.quotes("Omit to keep the post's current rule; given, it replaces it.")
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_post_interactions(
+          state.effects,
+          Map.fetch!(a, :uri),
+          Map.get(a, :reply_rule),
+          AtMcp.MCP.Tools.optional(Map.get(a, :quotes))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "hide_reply",
+       write_description(
+         :hide_reply,
+         "Hide a reply in a thread this account started. Readers see it behind a warning, as hidden by the author. The reply stays; unhide_reply shows it again."
+       ) do
+    annotations(
+      write_annotations(:hide_reply, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the reply")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.hide_reply(state.effects, Map.fetch!(a, :uri), true),
+        state
+      )
+    end)
+  end
+
+  tool "unhide_reply",
+       write_description(:unhide_reply, "Show a reply hidden with hide_reply again.") do
+    annotations(
+      write_annotations(:unhide_reply, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the reply")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.hide_reply(state.effects, Map.fetch!(a, :uri), false),
+        state
+      )
+    end)
+  end
+
+  tool "detach_quote",
+       write_description(
+         :detach_quote,
+         "Detach a post that quotes one of this account's posts: readers of the quoting post no longer see this account's post in it. The quoting post stays; reattach_quote undoes this."
+       ) do
+    annotations(
+      write_annotations(:detach_quote, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the post that quotes")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.detach_quote(state.effects, Map.fetch!(a, :uri), true),
+        state
+      )
+    end)
+  end
+
+  tool "reattach_quote",
+       write_description(
+         :reattach_quote,
+         "Undo detach_quote: show this account's post in the post quoting it again."
+       ) do
+    annotations(
+      write_annotations(:reattach_quote, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the post that quotes")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.detach_quote(state.effects, Map.fetch!(a, :uri), false),
+        state
+      )
+    end)
+  end
+
+  # --- pins, thread mutes and bookmarks ---
+
+  tool "pin_post",
+       write_description(
+         :pin_post,
+         "Pin one of this account's posts to the top of its profile, replacing any post pinned before. Writes the profile record and keeps every other field of it. The result's replaced_uri is the post that was pinned before, if any."
+       ) do
+    annotations(
+      write_annotations(:pin_post, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of a post this account wrote")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.pin_post(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "unpin_post",
+       write_description(
+         :unpin_post,
+         "Remove the pinned post from this account's profile. The post itself stays. The result's replaced_uri is the post that was pinned; when nothing was pinned, nothing is written and it is null."
+       ) do
+    annotations(
+      write_annotations(:unpin_post, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.unpin_post(state.effects), state)
+    end)
+  end
+
+  tool "mute_thread",
+       write_description(
+         :mute_thread,
+         "Mute a thread: this account gets no notifications from it. Any post in the thread names it; the result's uri is the thread's first post. Thread mutes are private to the account."
+       ) do
+    annotations(
+      write_annotations(:mute_thread, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of any post in the thread")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.mute_thread(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "unmute_thread",
+       write_description(
+         :unmute_thread,
+         "Unmute a thread muted with mute_thread. Any post in the thread names it."
+       ) do
+    annotations(
+      write_annotations(:unmute_thread, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of any post in the thread")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.unmute_thread(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "bookmark",
+       write_description(
+         :bookmark,
+         "Bookmark a post to read later. Bookmarks are private to this account; get_bookmarks lists them."
+       ) do
+    annotations(
+      write_annotations(:bookmark, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the post")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.bookmark(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "unbookmark",
+       write_description(:unbookmark, "Remove a post from this account's bookmarks.") do
+    annotations(
+      write_annotations(:unbookmark, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the bookmarked post")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.unbookmark(state.effects, Map.fetch!(a, :uri)), state)
+    end)
+  end
+
+  tool "get_bookmarks",
+       "List this account's bookmarked posts. A bookmarked post that was deleted or is hidden by a block keeps its place and says so." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.bookmark_page())
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("bookmarks"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_bookmarks(state.effects,
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state,
+        :bookmarks
+      )
+    end)
+  end
+
+  # --- drafts ---
+
+  tool "get_drafts",
+       "List this account's drafts: posts written and not yet published. Drafts are private. Each item's id is what save_draft and delete_draft take." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.draft_page())
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("drafts"))
+
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_drafts(state.effects,
+          limit: Map.get(a, :limit),
+          cursor: Map.get(a, :cursor)
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "save_draft",
+       write_description(
+         :save_draft,
+         "Save text as a draft to publish later; nothing is published. Without id, creates a new draft and returns its id. With the id of one of this account's drafts, replaces the text of its first post and keeps the rest of the draft; an id this account does not have is refused. After an update the draft is checked to still exist; the result is the draft as sent, and the change may take a moment to show in get_drafts."
+       ) do
+    annotations(
+      write_annotations(:save_draft, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.draft_result())
+
+    param(:text, :string, AtMcp.MCP.Schemas.draft_text())
+
+    param(:id, :string,
+      description: "Id of a draft to replace, from get_drafts or an earlier save_draft"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.save_draft(
+          state.effects,
+          Map.fetch!(a, :text),
+          AtMcp.MCP.Tools.optional(Map.get(a, :id))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "delete_draft",
+       write_description(
+         :delete_draft,
+         "Delete one of this account's drafts. The result carries the draft as it was, so save_draft can recreate it."
+       ) do
+    annotations(
+      write_annotations(:delete_draft, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.draft_result())
+    param(:id, :string, required: true, description: "The draft's id, from get_drafts")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_draft(state.effects, Map.fetch!(a, :id)),
+        state
+      )
     end)
   end
 

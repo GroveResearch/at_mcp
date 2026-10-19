@@ -119,6 +119,16 @@ defmodule AtMcp.Accounts do
   @spec status() :: {:ok, [account_status()]} | {:error, :account_control_unavailable}
   def status, do: call(:status)
 
+  @doc false
+  def delivery_route(did) do
+    # Standalone embedded Store/Deliver users have no application supervisor.
+    # A temporarily missing Accounts child in a running service must instead
+    # hold deliveries until its applied configuration is available again.
+    if is_nil(Process.whereis(__MODULE__)) and is_nil(Process.whereis(AtMcp.Supervisor)),
+      do: :callbacks,
+      else: call({:delivery_route, did})
+  end
+
   @doc "Reconcile the explicitly selected named file; removed accounts stay disconnected."
   def reload, do: call(:reload)
 
@@ -195,6 +205,25 @@ defmodule AtMcp.Accounts do
 
     Enum.each(state.boot_waiters, &GenServer.reply(&1, {:error, :account_control_unavailable}))
     schedule(%{state | operations: %{}, boot_waiters: [], pending: pending}, @dependency_wait_ms)
+  end
+
+  # Consult the same applied configuration that owns reload/disconnect. Keeping
+  # routes here avoids callbacks outliving an account in persistent_term. Reload
+  # cancels affected Store workers before replacing this state.
+  defp handle_request({:delivery_route, did}, _, state) do
+    configured? = Enum.any?(state.configs, fn {_, opts} -> Keyword.has_key?(opts, :delivery) end)
+
+    route =
+      if configured? do
+        case Enum.find(state.configs, fn {_, opts} -> opts[:expected_did] == did end) do
+          {_, opts} -> {:account, opts[:delivery]}
+          nil -> {:account, nil}
+        end
+      else
+        :callbacks
+      end
+
+    {:reply, route, state}
   end
 
   defp handle_request(:status, _, state) do

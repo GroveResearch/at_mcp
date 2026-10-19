@@ -117,6 +117,48 @@ defmodule AtMcp.Effects.Backend do
   @callback get_list_feed(state(), list :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
 
+  # Lists and starter packs. `opts` of a list read also carries `:purposes`,
+  # the list purpose tokens to keep (`"curatelist"`, `"modlist"`), empty for all.
+  @callback get_list(state(), uri :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_lists(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_lists_with_membership(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_starter_pack(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback get_actor_starter_packs(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback search_starter_packs(state(), query :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+  @callback get_starter_packs_with_membership(state(), actor :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read what a list or starter pack write keeps or removes, and build every
+  record it sends, before anything is sent. `request` is one of:
+
+    * `{:create_list, %{name, purpose, description, avatar}}`, `purpose` a
+      token (`:curatelist`, `:modlist`), `avatar` `%{data, mime_type}` or nil
+    * `{:update_list, uri, changes}` and `{:update_starter_pack, uri, changes}`,
+      `changes` holding only the fields that change (`:name`, `:description`,
+      `:avatar`, `:feeds`); `""` and `[]` remove a field
+    * `{:delete_list, uri}` and `{:delete_starter_pack, uri}`
+    * `{:add_to_list, uri, did}` and `{:remove_from_list, uri, did}`, `uri` a
+      list or a starter pack
+    * `{:create_starter_pack, %{name, description, actors, feeds}}`, `actors`
+      DIDs
+    * `{:set_list_opt_out, uri, opted_out}`, `uri` anyone's starter pack or
+      its list
+
+  Every `uri` but the last's is this account's, in DID form. A record the
+  request cannot apply to (no list there, a starter pack's list given to
+  `delete_list`, an account that is not on the list) is
+  `{:invalid_argument, field, message}`. The result is passed to
+  `write_list/2` unchanged.
+  """
+  @callback prepare_list_write(state(), request :: tuple()) :: {:ok, term()} | {:error, reason()}
+  @callback write_list(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
   @doc """
   Build a complete post before its quota reservation and dispatch mark.
 
@@ -155,4 +197,59 @@ defmodule AtMcp.Effects.Backend do
   @callback delete_post(state(), post_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback update_profile(state(), updates :: keyword()) :: {:ok, summary()} | {:error, reason()}
   @callback update_seen(state(), seen_at :: DateTime.t()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read one post before a write that names it: `%{uri, cid, root}`, where
+  `root` is the uri of its thread's first post (its own uri when it is not a
+  reply). Like `resolve_references/2`, it runs before anything is sent, and a
+  post the service will not hand over is `{:referenced_record_unreadable, uri}`.
+  """
+  @callback resolve_post(state(), uri :: String.t()) :: {:ok, map()} | {:error, reason()}
+
+  @doc """
+  Build the profile record that pins the post at `uri`, or that pins nothing
+  when `uri` is nil, keeping every other field. Nothing is sent; the result
+  is passed to `pin/2` unchanged.
+  """
+  @callback prepare_pin(state(), uri :: String.t() | nil) :: {:ok, term()} | {:error, reason()}
+  @callback pin(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  # `mute_thread` and `unmute_thread` take the root uri `resolve_post/2` returned.
+  @callback mute_thread(state(), root :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback unmute_thread(state(), root :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  # `bookmark` takes the strong reference `resolve_post/2` returned.
+  @callback bookmark(state(), ref :: map()) :: {:ok, summary()} | {:error, reason()}
+  @callback unbookmark(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback get_bookmarks(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
+
+  @callback get_drafts(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  The draft with this id as the service holds it, in the keys it is written
+  with, so a save can keep what it does not change. A draft the account does
+  not have is `{:error, {:invalid_argument, "id", message}}`.
+  """
+  @callback find_draft(state(), id :: String.t()) :: {:ok, map()} | {:error, reason()}
+
+  @doc "Create a draft (`id` nil) or replace the one with this id. `draft` is `AtMcp.ATProto.draft/2`'s."
+  @callback save_draft(state(), id :: String.t() | nil, draft :: map()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc "Delete a draft. `draft` is the one `find_draft/2` read, for the result to carry."
+  @callback delete_draft(state(), id :: String.t(), draft :: map()) ::
+              {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Build an edit to a post's gates, reading the records it changes so it keeps
+  what it does not change: `{:interactions, uri, allow, quotes}`,
+  `{:hide_reply, uri, hide?}` or `{:detach_quote, uri, detach?}`. Nothing is
+  sent; an edit that cannot succeed (a post of another account's, a reply that
+  is not one) is `{:error, {:invalid_argument, path, message}}`. The result is
+  passed to `write_gates/2` unchanged.
+  """
+  @callback prepare_gates(state(), edit :: tuple()) :: {:ok, term()} | {:error, reason()}
+  @callback write_gates(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc "The replies a thread read leaves out under `uri`, each saying why."
+  @callback get_hidden_replies(state(), uri :: String.t()) :: {:ok, [map()]} | {:error, reason()}
 end

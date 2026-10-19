@@ -1,6 +1,16 @@
 {
   "about": "The MCP tools and arguments AtMcp has published. test/at_mcp/tool_surface_test.exs holds the rules for changing it.",
   "tools": {
+    "add_to_list": {
+      "arguments": {
+        "actor": "string",
+        "list": "string"
+      },
+      "required": [
+        "actor",
+        "list"
+      ]
+    },
     "block": {
       "arguments": {
         "actor": "string"
@@ -9,7 +19,70 @@
         "actor"
       ]
     },
+    "bookmark": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "create_list": {
+      "arguments": {
+        "avatar": "object",
+        "description": "string",
+        "name": "string",
+        "purpose": "string"
+      },
+      "required": [
+        "name",
+        "purpose"
+      ]
+    },
+    "create_starter_pack": {
+      "arguments": {
+        "actors": "array",
+        "description": "string",
+        "feeds": "array",
+        "name": "string"
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "delete_draft": {
+      "arguments": {
+        "id": "string"
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "delete_list": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "delete_post": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "delete_starter_pack": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "detach_quote": {
       "arguments": {
         "uri": "string"
       },
@@ -46,6 +119,20 @@
       ]
     },
     "get_blocks": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_bookmarks": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
+    "get_drafts": {
       "arguments": {
         "cursor": "string",
         "limit": "integer"
@@ -102,6 +189,16 @@
         "uri"
       ]
     },
+    "get_list": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "get_list_feed": {
       "arguments": {
         "cursor": "string",
@@ -111,6 +208,16 @@
       "required": [
         "list"
       ]
+    },
+    "get_lists": {
+      "arguments": {
+        "actor": "string",
+        "contains": "string",
+        "cursor": "string",
+        "limit": "integer",
+        "purpose": "string"
+      },
+      "required": []
     },
     "get_membership": {
       "arguments": {},
@@ -190,6 +297,24 @@
         "uri"
       ]
     },
+    "get_starter_pack": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "get_starter_packs": {
+      "arguments": {
+        "actor": "string",
+        "contains": "string",
+        "cursor": "string",
+        "limit": "integer",
+        "query": "string"
+      },
+      "required": []
+    },
     "get_suggested_feeds": {
       "arguments": {
         "cursor": "string",
@@ -207,6 +332,7 @@
     },
     "get_thread": {
       "arguments": {
+        "include_hidden": "boolean",
         "uri": "string"
       },
       "required": [
@@ -233,6 +359,14 @@
       "arguments": {},
       "required": []
     },
+    "hide_reply": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "identity_status": {
       "arguments": {},
       "required": []
@@ -255,22 +389,63 @@
         "actor"
       ]
     },
+    "mute_thread": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "pin_post": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "post": {
       "arguments": {
         "images": "array",
+        "labels": "array",
         "langs": "array",
+        "link": "object",
         "quote": "string",
+        "quotes": "string",
+        "reply_rule": "array",
         "text": "string"
       },
       "required": [
         "text"
       ]
     },
+    "reattach_quote": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "remove_from_list": {
+      "arguments": {
+        "actor": "string",
+        "list": "string"
+      },
+      "required": [
+        "actor",
+        "list"
+      ]
+    },
     "reply": {
       "arguments": {
         "images": "array",
+        "labels": "array",
         "langs": "array",
+        "link": "object",
         "quote": "string",
+        "quotes": "string",
         "text": "string",
         "uri": "string"
       },
@@ -287,6 +462,15 @@
       "required": [
         "cid",
         "uri"
+      ]
+    },
+    "save_draft": {
+      "arguments": {
+        "id": "string",
+        "text": "string"
+      },
+      "required": [
+        "text"
       ]
     },
     "search_actors": {
@@ -315,6 +499,26 @@
         "query"
       ]
     },
+    "set_list_opt_out": {
+      "arguments": {
+        "list": "string",
+        "opted_out": "boolean"
+      },
+      "required": [
+        "list",
+        "opted_out"
+      ]
+    },
+    "set_post_interactions": {
+      "arguments": {
+        "quotes": "string",
+        "reply_rule": "array",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "unblock": {
       "arguments": {
         "uri": "string"
@@ -323,7 +527,23 @@
         "uri"
       ]
     },
+    "unbookmark": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "unfollow": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unhide_reply": {
       "arguments": {
         "uri": "string"
       },
@@ -347,8 +567,31 @@
         "actor"
       ]
     },
+    "unmute_thread": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "unpin_post": {
+      "arguments": {},
+      "required": []
+    },
     "unrepost": {
       "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "update_list": {
+      "arguments": {
+        "avatar": "object",
+        "description": "string",
+        "name": "string",
         "uri": "string"
       },
       "required": [
@@ -369,6 +612,17 @@
         "seen_at": "string"
       },
       "required": []
+    },
+    "update_starter_pack": {
+      "arguments": {
+        "description": "string",
+        "feeds": "array",
+        "name": "string",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
     }
   }
 }

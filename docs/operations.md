@@ -330,6 +330,51 @@ AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
 AT_MCP_DELIVERY_TOKEN_FILE=/absolute/private/path/consumer-token
 ```
 
+The environment destination above is a **single consumer for every account**.
+For separate agents on the same machine, save a destination for each account:
+
+```sh
+bin/at_mcp-accounts delivery alice --url http://127.0.0.1:4420/inbound --token-file /private/alice/consumer-token
+bin/at_mcp-accounts delivery bob --url http://127.0.0.1:4421/inbound --token-file /private/bob/consumer-token
+bin/at_mcp-accounts reload
+```
+
+Each token file contains that receiver's bearer token, not a PDS app password
+or an MCP grant. Keep it private and readable by the service user. Tokens are
+read again on each attempt, so token rotation does not require a reload.
+An empty or unreadable token file, or one whose contents are more than one
+header value, fails that attempt and is retried; AtMcp never sends that
+account's activity without its token, and the failure it reports names
+neither the token nor its file.
+The destination and token file are saved in the named account's `delivery`
+field in the existing accounts file; the command never changes its credentials.
+The first destination command explicitly disables delivery for the other saved
+accounts; configure each receiver before reloading. While any account remains
+in this configuration, accounts added later start with delivery disabled too.
+If you remove every account, configure each new destination before reloading
+again: an empty accounts file does not retain the delivery mode. This workflow
+covers the named shared service, not an embedding host's callback registration.
+If editing JSON directly, every account must have
+`"delivery"` set to its destination or `null`; a partial migration is rejected.
+Use `delivery alice --disable` followed by `reload` to hold Alice's incoming
+activity without disconnecting her account or discarding queued events.
+
+When switching from the single consumer, remove `AT_MCP_DELIVERY_URL` and its
+`AT_MCP_DELIVERY_TOKEN` / `AT_MCP_DELIVERY_TOKEN_FILE` from the service environment,
+configure each account, then restart the service. Combining the global URL with
+account destinations is rejected rather than guessing where notifications go.
+Once account destinations are configured, an account without a destination
+holds its events; there is no fallback to another agent or global credentials.
+The existing one-consumer configuration remains supported without changes.
+
+Reloading a changed destination cancels that account's current delivery attempt
+before applying the new route; retained events then go to the new receiver.
+An interrupted HTTP attempt may already have been accepted by the old receiver,
+so changing receivers requires the same deduplication care as other retries.
+Removing an account disconnects it and retains its pending events. A restart
+loads the saved destinations again. One unavailable receiver holds only its
+own account's queue.
+
 The URL belongs to the receiving application (Dwell accepts into its
 resident's work queue). The token is re-read for every delivery, so rotation
 needs no restart.
@@ -490,6 +535,186 @@ each of these under the older release and the newer one and reads them back
 under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
+
+### From 0.2.4 to 0.2.5
+
+0.2.5 stores data in the same format as 0.2.4 and starts from the same
+environment, so rolling back works as below. Existing tools keep their
+arguments; `post` and `get_thread` gain optional ones. New tools bring the app's
+remaining post, list and starter pack actions.
+
+- **Pins, thread mutes and bookmarks** (#98): `pin_post`, `unpin_post`,
+  `mute_thread`, `unmute_thread`, `bookmark`, `unbookmark`, `get_bookmarks`.
+  A post named by a handle-form address is written by the DID form the service
+  answers with, since the AppView matches pins, mutes and bookmarks by it.
+- **Drafts** (#99): `get_drafts`, `save_draft`, `delete_draft`. A saved draft
+  returns the text sent; the service may take a moment to show it.
+- **Who may reply and quote** (#100): `post` takes `reply_rule`, `quotes`,
+  `labels` (self-labels) and `link` (a link card); `set_post_interactions`, `hide_reply` and
+  `detach_quote` change them afterwards, keeping any rule not named.
+  `get_thread` marks replies the app leaves out, and with `include_hidden`
+  reads them.
+- **Lists and starter packs** (#89): `get_list`, `get_lists`,
+  `get_starter_pack`, `get_starter_packs`, `create_list`, `update_list`,
+  `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`,
+  `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`.
+- **Edits don't overwrite a concurrent change.** Every read-modify-write
+  (profile, pins, gates, lists) is sent with `swapRecord` or `swapCommit`; if
+  the account changed in between, the tool answers `changed_meanwhile` and
+  writes nothing. A multi-commit delete that stops partway answers
+  `partially_written` with what was deleted.
+- None of the new writes count against the public write quota except a post.
+
+### From 0.2.3 to 0.2.4
+
+0.2.4 stores data in the same format as 0.2.3 and starts from the same
+environment, so rolling back works as below. No tool or argument changed.
+Reads pass on more of what the service returns; a post without these things
+reads exactly as before, except that multi-line image alt text now reads as
+one line.
+
+- **Why a post is in a feed** (#85). A repost reads "Reposted by Name
+  (@handle) · time" above the post, and a pinned post "Pinned". A reply's
+  header names whose post it answers ("replying to @parent (at://…)"), and
+  "in a thread by @root" when the thread was started by someone else; a
+  deleted or blocked parent says so. Structured content carries `reason`,
+  `reply_parent` and `reply_root`.
+- **Embeds** (#86). Link cards read `[link: Title — description (url)]`, with
+  the description cut to 300 characters in the text; videos read `[video:
+  alt]`; gallery images read like other images; quoted feeds, lists, starter
+  packs and labelers read with their name, creator and description instead of
+  "unsupported". Names, handles and alt text are kept to one line, and
+  whitespace in a link's URL is percent-encoded, so no embed can start a line
+  of its own.
+- **Field coverage** (#84). A test now replays recorded service responses and
+  fails when a field reaches a summary unread and unlisted in
+  `AtMcp.LeftOut`, where each left-out field gives its reason.
+
+### From 0.2.2 to 0.2.3
+
+0.2.3 stores data in the same format as 0.2.2 and starts from the same
+environment, so rolling back works as below. No tool or argument changed.
+Reads now pass on more of what the service returns, so a client reading
+results sees more.
+
+- **Post reads** (#71) carry the service's `like_count`, `repost_count`,
+  `reply_count` and `quote_count`, and the post's and author's `labels`
+  (each `{val, src, neg}`, plus `exp` when set). Profiles carry `labels`. In
+  the readable text, a post gains a counts line only when some count is above
+  zero (for example `12 likes · 5 replies`), and a labels line naming each
+  value once, with `(self)` for a label the author applied to itself.
+  Expired and negated labels, and client directives such as
+  `!no-unauthenticated`, stay in `structuredContent` but are left out of the
+  text. A post with no engagement and no labels reads exactly as in 0.2.2.
+- **Block and mute state** (#72). Profiles, and each post's author (as
+  `author_viewer`), carry `following`, `followed_by`, `blocking`,
+  `blocking_by_list`, `blocked_by`, `muted` and `muted_by_list`. Posts carry
+  `reply_disabled`, `embedding_disabled` and `thread_muted`. A state the
+  service didn't send stays absent, never `false`. The text adds a line only
+  when something is unusual: "They blocked you", "You blocked them", "You
+  muted them", "You cannot reply to this post", "You cannot quote this post",
+  "You muted this thread". A block made through a list puts the list's URI in
+  `blocking`, as the service does; `unblock` refuses it, since only the list
+  can undo it.
+
+### From 0.2.1 to 0.2.2
+
+0.2.2 stores data in the same format as 0.2.1, apart from one optional field,
+and an environment that started 0.2.1 starts 0.2.2 unchanged. No tool or
+argument was removed, and every call that worked on 0.2.1 works on 0.2.2.
+
+**Several agents can share one service (#64).** `at_mcp-accounts delivery NAME
+--url … --token-file …` gives an account its own notification destination,
+saved as an optional `delivery` field on that account in the accounts file.
+Each account's notifications go only to its destination, a destination that is
+down holds only its own account's queue, and queued notifications survive a
+destination change and a restart. `AT_MCP_DELIVERY_URL` still works as before
+for a service with one consumer; combining it with per-account destinations is
+refused at start and on reload.
+
+**Rolling back after saving a destination needs one manual step.** 0.2.1
+refuses an account with any field it does not know, and once one account has
+a destination, 0.2.2 writes `"delivery": null` onto every other account too.
+So before starting 0.2.1 again, keep a copy of the accounts file and remove the
+`delivery` field from every account in it (it is a private JSON file; edit it
+while the service is stopped). A service that never ran `at_mcp-accounts
+delivery` has no such field and rolls back as before.
+
+**A token file is checked before it is used.** An empty token file, a missing
+one, or one holding more than one line now fails the delivery attempt (it is
+retried) with a reason that names neither the token nor the file. In 0.2.1 an
+empty file sent no `Authorization` header, and a token with a second line was
+refused by the HTTP client with an error that included the token, which was
+then logged on every retry. If your logs from 0.2.1 contain a delivery error
+quoting `Bearer`, rotate that token.
+
+**What a client sees differently.**
+
+- A call whose arguments don't match a tool's schema is refused as before, and
+  the refusal now names each failing argument (`path: message`, up to five)
+  and lists them in `structuredContent.problems` (#62).
+- Images (`post`, `reply`, `update_profile` avatar and banner) accept the AT
+  Protocol spelling `mimeType` as well as `mime_type`. Both are plain optional
+  properties in the published schema; an image with neither, or with two
+  different types, is refused as `invalid_image` and nothing is sent (#65).
+- A call carrying arguments the tool does not define still runs, and its result
+  now says which were ignored: a text line, `structuredContent.ignored`, and
+  the same `ignored` in the JSON text (#65). In 0.2.1 they were dropped without
+  a word, so `post` with `embed` published the text and reported success.
+
+### From 0.2.0 to 0.2.1
+
+0.2.1 stores data in the same format as 0.2.0, and an environment that started
+0.2.0 starts 0.2.1 unchanged, so rolling back works as below. No tool, argument
+or setting was removed or made stricter, and every call that worked on 0.2.0
+works on 0.2.1. Two things a client reading tool results sees are different.
+
+**What a client reading results sees differently.**
+
+- Reads made of posts (`get_notifications`, `get_timeline`, `get_author_feed`,
+  `get_posts`, `search_posts`, `get_quotes`, `get_actor_likes`, `get_feed`,
+  `get_list_feed`, `get_thread` and `get_thread_chain`) put readable text in
+  `content`: each post as its author, time, what it replies to, its text, its
+  images by alt text, any quoted post, and the uri and cid the write tools
+  take. In 0.2.0 that text was the result's JSON. `structuredContent` is still
+  the whole result, validated against the tool's output schema, so nothing is
+  lost there; feed and thread posts also gain `display_name`, `created_at` and
+  `reply_to`. A client that parsed the `content` text of these tools as JSON
+  must read `structuredContent` instead. Every other tool's text is still its
+  JSON.
+- In `get_thread`, `replies_omitted` on a post at the read's depth limit, and
+  on each parent, now counts the replies that were not read. 0.2.0 said `0`
+  there even when the post had replies. A parent's count leaves out the one
+  reply the read shows below it. It is `null` when the service gave no count
+  (a missing or blocked post), so a client must accept `null` as unknown, which
+  the output schema already allowed.
+
+**New tools**, all reads, outside the write quota and reachable with a read
+grant:
+
+- `get_post_images` returns a post's pictures as MCP image content, after a
+  text block listing each one with its alt text.
+- `get_suggested_feeds` pages through the custom feeds the service suggests;
+  each item's `uri` is what `get_feed` takes.
+
+**Changed arguments and answers.**
+
+- `search_posts` takes optional `author`, `mentions`, `sort` (`latest` or
+  `top`), `since`, `until` and `lang`. A call with only `query` is unchanged.
+- `update_profile` takes optional `avatar` and `banner`. Fields the call does
+  not mention, an existing avatar or banner included, are kept.
+- `get_relationships` resolves handles in `others` before asking the AppView.
+  0.2.0 answered `not_found` for every handle there, even for accounts that
+  exist.
+
+**New settings**, all optional: `AT_MCP_IMAGE_MAX_BYTES` (2,000,000) and
+`AT_MCP_IMAGE_FETCH_SECONDS` (10) for `get_post_images`, and
+`AT_MCP_MEDIA_DIR` (unset, so off), a directory from which `post`, `reply` and
+`update_profile` may read an image named by `path` instead of base64 `data`.
+See the README's [Settings](../README.md#settings).
+
+**Embedding the Hex package.** `{:at_mcp, "~> 0.2.0"}` selects 0.2.1; nothing
+to change.
 
 ### From 0.1.3 to 0.2.0
 

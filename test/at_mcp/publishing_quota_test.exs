@@ -59,7 +59,38 @@ defmodule AtMcp.PublishingQuotaTest do
     "unmute" => %{"actor" => "alice.example"},
     "delete_post" => %{"uri" => "at://p"},
     "update_profile" => %{"display_name" => "n"},
-    "update_seen" => %{}
+    "update_seen" => %{},
+    "create_list" => %{"name" => "n", "purpose" => "curate"},
+    "update_list" => %{"uri" => "at://did:plc:mock/app.bsky.graph.list/l", "name" => "n"},
+    "delete_list" => %{"uri" => "at://did:plc:mock/app.bsky.graph.list/l"},
+    "add_to_list" => %{"list" => "at://did:plc:mock/app.bsky.graph.list/l", "actor" => "a.test"},
+    "remove_from_list" => %{
+      "list" => "at://did:plc:mock/app.bsky.graph.list/l",
+      "actor" => "a.test"
+    },
+    "create_starter_pack" => %{"name" => "n"},
+    "update_starter_pack" => %{
+      "uri" => "at://did:plc:mock/app.bsky.graph.starterpack/p",
+      "name" => "n"
+    },
+    "delete_starter_pack" => %{"uri" => "at://did:plc:mock/app.bsky.graph.starterpack/p"},
+    "set_list_opt_out" => %{
+      "list" => "at://did:plc:x/app.bsky.graph.starterpack/p",
+      "opted_out" => true
+    },
+    "pin_post" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
+    "unpin_post" => %{},
+    "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unmute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "bookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "save_draft" => %{"text" => "later"},
+    "delete_draft" => %{"id" => "3mockdraft"},
+    "set_post_interactions" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
+    "hide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unhide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "detach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "reattach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"}
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

@@ -1,0 +1,37 @@
+{
+  "lists": [
+    {
+      "uri": "at://did:plc:rqslf6bboiaawijrj4ye43s3/app.bsky.graph.list/gvgurxxdmw57k",
+      "cid": "bafyw6yiyqhnnskuoszd4aiizf3fnpkvexmvnmawto6p5wen5ejzaww6cgz",
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "purpose": "app.bsky.graph.defs#curatelist",
+      "listItemCount": 170,
+      "indexedAt": "2024-12-12T19:36:47.364Z",
+      "labels": [],
+      "creator": {
+        "did": "did:plc:rqslf6bboiaawijrj4ye43s3",
+        "handle": "stqxucfsr2.example.test",
+        "displayName": "xxxxxxxxx",
+        "avatar": "https://example.test/kd65imqs46pb",
+        "associated": {
+          "chat": {
+            "allowIncoming": "all"
+          },
+          "activitySubscription": {
+            "allowSubscriptions": "followers"
+          }
+        },
+        "labels": [],
+        "createdAt": "2023-07-21T02:09:40.037Z",
+        "verification": {
+          "verifications": [],
+          "verifiedStatus": "none",
+          "trustedVerifierStatus": "valid"
+        },
+        "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "indexedAt": "2026-12-17T23:22:28.869Z"
+      },
+      "description": ""
+    }
+  ]
+}

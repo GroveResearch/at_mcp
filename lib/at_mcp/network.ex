@@ -88,7 +88,12 @@ defmodule AtMcp.Network do
     block: "graph.block",
     profile: "actor.profile",
     generator: "feed.generator",
-    list: "graph.list"
+    list: "graph.list",
+    list_item: "graph.listitem",
+    starter_pack: "graph.starterpack",
+    list_opt_out: "graph.referencelistoptout",
+    threadgate: "feed.threadgate",
+    postgate: "feed.postgate"
   }
 
   # The lexicon-defined types AtMcp reads off a record it did not write.
@@ -98,7 +103,27 @@ defmodule AtMcp.Network do
     tag_facet: "richtext.facet#tag",
     embed_record: "embed.record",
     embed_record_with_media: "embed.recordWithMedia",
-    embed_images: "embed.images"
+    embed_images: "embed.images",
+    embed_external: "embed.external",
+    embed_video: "embed.video",
+    embed_gallery: "embed.gallery",
+    generator_view: "feed.defs#generatorView",
+    list_view: "graph.defs#listView",
+    starter_pack_view: "graph.defs#starterPackViewBasic",
+    labeler_view: "labeler.defs#labelerView",
+    reason_repost: "feed.defs#reasonRepost",
+    reason_pin: "feed.defs#reasonPin",
+    post_view: "feed.defs#postView",
+    not_found_post: "feed.defs#notFoundPost",
+    blocked_post: "feed.defs#blockedPost",
+    curatelist: "graph.defs#curatelist",
+    modlist: "graph.defs#modlist",
+    referencelist: "graph.defs#referencelist",
+    mention_rule: "feed.threadgate#mentionRule",
+    follower_rule: "feed.threadgate#followerRule",
+    following_rule: "feed.threadgate#followingRule",
+    list_rule: "feed.threadgate#listRule",
+    disable_rule: "feed.postgate#disableRule"
   }
 
   # Read at compile time so a release carries no runtime dependency on priv/.
@@ -294,8 +319,15 @@ defmodule AtMcp.Network do
 
   @doc """
   A lexicon-defined `$type` AtMcp matches on or writes: `:mention_facet`,
-  `:link_facet`, `:tag_facet`, `:embed_record`, `:embed_record_with_media` or
-  `:embed_images`.
+  `:link_facet`, `:tag_facet`, an embed (`:embed_record`,
+  `:embed_record_with_media`, `:embed_images`, `:embed_external`, `:embed_video`
+  or `:embed_gallery`), the view of a quoted feed, list, starter pack or
+  labeler (`:generator_view`, `:list_view`, `:starter_pack_view`,
+  `:labeler_view`), a feed reason (`:reason_repost`, `:reason_pin`), or a
+  reply's parent or root in a feed (`:post_view`, `:not_found_post`,
+  `:blocked_post`), a list's purpose (`:curatelist`, `:modlist`,
+  `:referencelist`), or a threadgate or postgate rule (`:mention_rule`,
+  `:follower_rule`, `:following_rule`, `:list_rule`, `:disable_rule`).
   """
   @spec type(atom()) :: String.t()
   def type(kind) when is_map_key(@types, kind), do: nsid(Map.fetch!(@types, kind))

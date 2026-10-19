@@ -93,7 +93,10 @@ defmodule AtMcp.MCP.DSL do
           {:ok, schema} ->
             case AtMcp.MCP.Input.validate(arguments, schema) do
               :ok ->
-                result = super(name, arguments, state)
+                result =
+                  super(name, arguments, state)
+                  |> AtMcp.MCP.Input.note_ignored(AtMcp.MCP.Input.ignored(arguments, schema))
+
                 AtMcp.MCP.Output.validate(result, name, unquote(Macro.escape(compiled)))
 
               {:error, response} ->

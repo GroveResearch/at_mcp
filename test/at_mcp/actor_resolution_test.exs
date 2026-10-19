@@ -402,7 +402,16 @@ defmodule AtMcp.ActorResolutionTest do
     {"search_posts",
      %{"query" => "hello", "author" => "@alice.example", "mentions" => "@bob.example"}},
     {"mute", %{"actor" => "@alice.example"}},
-    {"unmute", %{"actor" => "@alice.example"}}
+    {"unmute", %{"actor" => "@alice.example"}},
+    {"get_lists", %{"actor" => "@alice.example"}},
+    {"get_lists", %{"contains" => "@alice.example"}},
+    {"get_starter_packs", %{"actor" => "@alice.example"}},
+    {"get_starter_packs", %{"contains" => "@alice.example"}},
+    {"add_to_list",
+     %{"list" => "at://did:plc:self/town.delve.graph.list/l", "actor" => "@alice.example"}},
+    {"remove_from_list",
+     %{"list" => "at://did:plc:self/town.delve.graph.list/l", "actor" => "@alice.example"}},
+    {"create_starter_pack", %{"name" => "n", "actors" => ["@alice.example"]}}
   ]
 
   test "every tool that takes a handle sends it without the leading @" do
@@ -435,6 +444,6 @@ defmodule AtMcp.ActorResolutionTest do
           do: to_string(tool.name)
 
     assert Enum.sort(takes_handle) ==
-             Enum.sort(["follow", "block" | Enum.map(@handle_tools, &elem(&1, 0))])
+             Enum.sort(["follow", "block" | Enum.uniq(Enum.map(@handle_tools, &elem(&1, 0)))])
   end
 end

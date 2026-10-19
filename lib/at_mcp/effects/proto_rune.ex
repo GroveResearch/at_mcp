@@ -543,6 +543,734 @@ defmodule AtMcp.Effects.ProtoRune do
     |> read(:feed, &feed_item/1)
   end
 
+  # --- lists and starter packs ---
+
+  @impl true
+  def get_list(session, uri, opts) when is_binary(uri) do
+    case AtMcp.ATProto.get_list(session, paging(opts, %{list: uri})) do
+      {:ok, response} -> list_page(response)
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  # A list's members are a page; the list itself rides beside them.
+  defp list_page(response) do
+    with {:ok, page} <- page(response, :items, &list_member/1) do
+      case AtMcp.Response.fetch(response, :list) do
+        {:ok, list} when is_map(list) -> {:ok, Map.put(page, :list, list_view(list))}
+        _ -> {:error, unreadable("a list", response)}
+      end
+    end
+  end
+
+  @impl true
+  def get_lists(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_lists(list_paging(opts, actor))
+    |> read(:lists, &list_view/1)
+  end
+
+  @impl true
+  def get_lists_with_membership(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_lists_with_membership(list_paging(opts, actor))
+    |> read(:lists_with_membership, fn item -> with_membership(item, :list, &list_view/1) end)
+  end
+
+  defp list_paging(opts, actor),
+    do: Map.put(paging(opts, %{actor: actor}), :purposes, Keyword.get(opts, :purposes, []))
+
+  @impl true
+  def get_starter_pack(session, uri) when is_binary(uri) do
+    case AtMcp.ATProto.get_starter_pack(session, %{starterPack: uri}) do
+      {:ok, response} ->
+        case AtMcp.Response.fetch(response, :starter_pack) do
+          {:ok, pack} when is_map(pack) -> {:ok, pack_view(pack)}
+          _ -> {:error, unreadable("a starter pack", response)}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_actor_starter_packs(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_actor_starter_packs(paging(opts, %{actor: actor}))
+    |> read(:starter_packs, &pack_view/1)
+  end
+
+  @impl true
+  def search_starter_packs(session, query, opts) when is_binary(query) do
+    session
+    |> AtMcp.ATProto.search_starter_packs(paging(opts, %{q: query}))
+    |> read(:starter_packs, &pack_view/1)
+  end
+
+  @impl true
+  def get_starter_packs_with_membership(session, actor, opts) when is_binary(actor) do
+    session
+    |> AtMcp.ATProto.get_starter_packs_with_membership(paging(opts, %{actor: actor}))
+    |> read(:starter_packs_with_membership, fn item ->
+      with_membership(item, :starter_pack, &pack_view/1)
+    end)
+  end
+
+  # A list or starter pack read with an account in mind, and the list item
+  # that puts that account in it, if one does.
+  defp with_membership(item, key, view) when is_map(item) do
+    viewed =
+      case AtMcp.Response.fetch(item, key) do
+        {:ok, value} when is_map(value) -> view.(value)
+        _ -> view.(%{})
+      end
+
+    item_uri =
+      AtMcp.Response.dig(item, [:list_item, :uri]) ||
+        AtMcp.Response.dig(item, ["listItem", "uri"])
+
+    Map.put(viewed, :member_item, if(is_binary(item_uri), do: item_uri))
+  end
+
+  defp with_membership(other, _key, _view), do: %{value: to_string_safe(other)}
+
+  @impl true
+  def prepare_list_write(session, {:create_list, fields}) do
+    with {:ok, avatar} <- upload_avatar(session, fields[:avatar]) do
+      [rkey] = AtMcp.ATProto.tids(1)
+
+      record =
+        AtMcp.ATProto.list_record(
+          name: fields.name,
+          purpose: fields.purpose,
+          description: blank_nil(fields[:description]),
+          avatar: avatar
+        )
+
+      prepared(
+        [new_record(:list, rkey, record)],
+        %{
+          action: :create_list,
+          uri: own_uri(session, :list, rkey),
+          name: fields.name,
+          purpose: purpose_name(fields.purpose)
+        }
+      )
+    end
+  end
+
+  def prepare_list_write(session, {:update_list, uri, changes}) do
+    with {:ok, current, cid} <- own_record(session, uri, "uri", "list"),
+         {:ok, avatar} <- upload_avatar(session, changes[:avatar]) do
+      edits =
+        %{}
+        |> edit("name", changes[:name])
+        |> edit("description", changes[:description])
+        |> edit("avatar", avatar && AtMcp.ATProto.wire_blob(avatar))
+
+      replacement(uri, current, cid, edits, %{
+        action: :update_list,
+        uri: uri,
+        name: changes[:name]
+      })
+    end
+  end
+
+  def prepare_list_write(session, {:delete_list, uri}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, current} <- own_value(session, uri, "uri", "list"),
+         :ok <- not_pack_list(current),
+         {:ok, items} <- list_items(session, uri, nil) do
+      # The items go first: a list too large for one commit is left standing
+      # until the last, so what remains of a failed deletion is still a list
+      # that delete_list can be asked about again.
+      prepared(
+        Enum.map(items ++ [uri], &removal/1),
+        %{action: :delete_list, uri: uri, deleted: items ++ [uri]},
+        swap_commit: commit
+      )
+    end
+  end
+
+  def prepare_list_write(session, {:add_to_list, uri, did}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, list} <- target_list(session, uri),
+         {:ok, items} <- list_items(session, list, did) do
+      case items do
+        # Already on it: a second item would be one more record to remove.
+        [item | _] ->
+          prepared([], %{action: :add_to_list, uri: item, list: list, actor: did, unchanged: true})
+
+        [] ->
+          [rkey] = AtMcp.ATProto.tids(1)
+          record = AtMcp.ATProto.list_item_record(subject: did, list: list)
+
+          prepared(
+            [new_record(:list_item, rkey, record)],
+            %{
+              action: :add_to_list,
+              uri: own_uri(session, :list_item, rkey),
+              list: list,
+              actor: did
+            },
+            swap_commit: commit
+          )
+      end
+    end
+  end
+
+  def prepare_list_write(session, {:remove_from_list, uri, did}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, list} <- target_list(session, uri),
+         {:ok, items} <- list_items(session, list, did) do
+      case items do
+        [] ->
+          {:error, {:invalid_argument, "actor", "#{did} is not on the list #{list}"}}
+
+        [first | _] ->
+          prepared(
+            Enum.map(items, &removal/1),
+            %{action: :remove_from_list, uri: first, list: list, actor: did, deleted: items},
+            swap_commit: commit
+          )
+      end
+    end
+  end
+
+  def prepare_list_write(session, {:create_starter_pack, fields}) do
+    dids = fields[:actors] || []
+    [list_rkey, pack_rkey | item_rkeys] = AtMcp.ATProto.tids(2 + length(dids))
+    list = own_uri(session, :list, list_rkey)
+
+    items =
+      Enum.zip_with(dids, item_rkeys, fn did, rkey ->
+        new_record(
+          :list_item,
+          rkey,
+          AtMcp.ATProto.list_item_record(subject: did, list: list)
+        )
+      end)
+
+    pack =
+      AtMcp.ATProto.starter_pack_record(
+        name: fields.name,
+        list: list,
+        description: blank_nil(fields[:description]),
+        feeds: if(fields[:feeds] in [nil, []], do: nil, else: fields[:feeds])
+      )
+
+    # A pack's name may run to 500 bytes and a list's to 64. The list is not
+    # shown apart from its pack, so it takes as much of the name as fits.
+    {_min, list_name_bytes, _graphemes} = AtMcp.Effects.text_limits().list_name
+    list_name = fit_bytes(fields.name, list_name_bytes)
+
+    prepared(
+      [
+        new_record(
+          :list,
+          list_rkey,
+          AtMcp.ATProto.list_record(name: list_name, purpose: :referencelist)
+        )
+        | items
+      ] ++ [new_record(:starter_pack, pack_rkey, pack)],
+      %{
+        action: :create_starter_pack,
+        uri: own_uri(session, :starter_pack, pack_rkey),
+        list: list,
+        name: fields.name
+      }
+    )
+  end
+
+  def prepare_list_write(session, {:update_starter_pack, uri, changes}) do
+    with {:ok, current, cid} <- own_record(session, uri, "uri", "starter pack") do
+      feeds =
+        case changes[:feeds] do
+          nil -> nil
+          [] -> ""
+          uris -> AtMcp.ATProto.pack_feeds(uris)
+        end
+
+      edits =
+        %{}
+        |> edit("name", changes[:name])
+        |> edit("description", changes[:description])
+        |> edit("feeds", feeds)
+
+      replacement(uri, current, cid, edits, %{
+        action: :update_starter_pack,
+        uri: uri,
+        name: changes[:name]
+      })
+    end
+  end
+
+  def prepare_list_write(session, {:delete_starter_pack, uri}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, current} <- own_value(session, uri, "uri", "starter pack") do
+      list = string_value(current, :list)
+
+      # The pack's list and its items are this account's own records unless the
+      # pack names a list somewhere else, which this leaves alone.
+      list_owned? = own_repo_uri?(session, list)
+
+      with {:ok, items} <- if(list_owned?, do: list_items(session, list, nil), else: {:ok, []}) do
+        # Items, then the list, then the pack: a deletion that stops between
+        # commits leaves a pack that still names what is left of it, so
+        # delete_starter_pack can be asked again.
+        deleted = items ++ if(list_owned?, do: [list], else: []) ++ [uri]
+
+        prepared(
+          Enum.map(deleted, &removal/1),
+          %{action: :delete_starter_pack, uri: uri, list: list, deleted: deleted},
+          swap_commit: commit
+        )
+      end
+    end
+  end
+
+  def prepare_list_write(session, {:set_list_opt_out, uri, opted_out}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, list} <- viewed_list(session, uri) do
+      list_uri = string_value(list, :uri)
+      purpose = string_value(list, :purpose)
+      result = %{action: :set_list_opt_out, list: list_uri, opted_out: opted_out}
+
+      if purpose_name(purpose) != "reference" do
+        {:error,
+         {:invalid_argument, "list",
+          "only a starter pack's list can be opted out of; #{list_uri} is a #{purpose_name(purpose)} list"}}
+      else
+        # The opt-outs are this account's own records, read from its PDS: the
+        # AppView's `viewer.referenceListOptOut` can lag a record just written.
+        with {:ok, existing} <-
+               own_records(session, :list_opt_out, &(string_value(&1, :subject) == list_uri)) do
+          swap = [swap_commit: commit]
+
+          case {opted_out, existing} do
+            {true, [first | _]} ->
+              prepared([], Map.merge(result, %{uri: first, unchanged: true}))
+
+            {true, []} ->
+              [rkey] = AtMcp.ATProto.tids(1)
+              record = AtMcp.ATProto.list_opt_out_record(subject: list_uri)
+
+              prepared(
+                [new_record(:list_opt_out, rkey, record)],
+                Map.put(result, :uri, own_uri(session, :list_opt_out, rkey)),
+                swap
+              )
+
+            {false, []} ->
+              prepared([], Map.merge(result, %{uri: nil, unchanged: true}))
+
+            {false, [first | _]} ->
+              prepared(
+                Enum.map(existing, &removal/1),
+                Map.merge(result, %{uri: first, deleted: existing}),
+                swap
+              )
+          end
+        end
+      end
+    end
+  end
+
+  # As many whole graphemes of `text` as fit in `bytes`, or, when not even the
+  # first grapheme fits (a letter under dozens of combining marks), as many
+  # whole codepoints: a name is never cut to nothing, nor inside a character.
+  defp fit_bytes(text, bytes) do
+    case fit(String.graphemes(text), bytes) do
+      "" -> fit(String.codepoints(text), bytes)
+      fitted -> fitted
+    end
+  end
+
+  defp fit(parts, bytes) do
+    Enum.reduce_while(parts, "", fn part, kept ->
+      if byte_size(kept) + byte_size(part) <= bytes,
+        do: {:cont, kept <> part},
+        else: {:halt, kept}
+    end)
+  end
+
+  @impl true
+  def write_list(_session, %{writes: [], put: nil, result: result}),
+    do: {:ok, Map.put(result, :ok, true)}
+
+  # A record rebuilt from the one read, replaced only if it is still that one.
+  def write_list(session, %{put: %{uri: uri, record: record, swap: cid}, result: result}) do
+    {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    params =
+      AtMcp.ATProto.params(%{
+        repo: session.did,
+        collection: collection,
+        rkey: rkey,
+        record: record,
+        swap_record: cid
+      })
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:ok, response} ->
+        {:ok, result |> Map.put(:ok, true) |> Map.put(:cid, string_value(response, :cid))}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The record at #{uri}")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # One commit, or, for a deletion larger than one commit takes, several in
+  # order. The first names the commit the reads began at, and each later one
+  # the commit the one before it made, so a change made meanwhile stops the
+  # rest. Once one has landed, a later failure leaves part of the deletion
+  # done: that is said, with the records the landed commits deleted.
+  def write_list(session, %{writes: writes, result: result} = p) do
+    batches = Enum.chunk_every(writes, AtMcp.ATProto.max_writes())
+
+    batches
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, [], [], p.swap_commit}, fn {batch, index},
+                                                          {:ok, done, gone, commit} ->
+      case AtMcp.ATProto.apply_writes(session, session.did, batch, swap_commit: commit) do
+        {:ok, response} ->
+          {:cont,
+           {:ok, done ++ write_results(response), gone ++ deletions(session, batch),
+            commit_of(response)}}
+
+        {:error, %ProtoRune.XRPC.Error{reason: reason}}
+        when index == 0 and reason in [:invalid_swap, "invalid_swap"] ->
+          {:halt, {:error, changed_meanwhile("The account's repository")}}
+
+        {:error, reason} when index == 0 ->
+          {:halt, {:error, failure(reason)}}
+
+        {:error, reason} ->
+          {:halt, {:error, partially_written(failure(reason), gone, index, length(batches))}}
+      end
+    end)
+    |> case do
+      {:ok, results, _gone, _commit} ->
+        cid = Enum.find_value(results, &(&1.uri == result[:uri] && &1.cid))
+        {:ok, result |> Map.put(:ok, true) |> Map.put(:cid, cid)}
+
+      error ->
+        error
+    end
+  end
+
+  # Part of a deletion landed and the rest did not, or may not have. It is
+  # reported as what it is, with the records already deleted and what the
+  # service said about the commit that did not land; calling again deletes what
+  # is left.
+  defp partially_written(upstream, deleted, landed, total) do
+    rest =
+      if upstream.kind == :indeterminate,
+        do: "Whether the next one landed is unknown",
+        else: "The next one was refused"
+
+    said = if upstream.message, do: " (#{upstream.message})", else: ""
+
+    AtMcp.Effects.Failure.new(:refused,
+      status: upstream.status,
+      message:
+        "#{landed} of #{total} commits landed, deleting #{Enum.join(deleted, ", ")}. " <>
+          "#{rest}#{said}. Call again to delete what is left.",
+      detail: {:partially_written, deleted, upstream}
+    )
+  end
+
+  defp commit_of(response) do
+    case AtMcp.Response.dig(response, [:commit, :cid]) do
+      cid when is_binary(cid) -> cid
+      _ -> nil
+    end
+  end
+
+  defp prepared(writes, result, swap \\ []),
+    do: {:ok, %{writes: writes, put: nil, result: result, swap_commit: swap[:swap_commit]}}
+
+  defp replacement(uri, current, cid, edits, result) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+    record = AtMcp.ATProto.edit_record(current, collection, edits)
+
+    {:ok,
+     %{
+       writes: [],
+       put: %{uri: uri, record: record, swap: cid},
+       result: result,
+       swap_commit: nil
+     }}
+  end
+
+  defp deletions(session, batch) do
+    for {:delete, collection, rkey} <- batch, do: "at://#{session.did}/#{collection}/#{rkey}"
+  end
+
+  defp write_results(response) do
+    case AtMcp.Response.fetch(response, :results) do
+      {:ok, results} when is_list(results) ->
+        for result <- results, is_map(result) do
+          %{uri: string_value(result, :uri), cid: string_value(result, :cid)}
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  # A changed field: `nil` is unchanged, `""` removes it, anything else is the
+  # new value.
+  defp edit(edits, _key, nil), do: edits
+  defp edit(edits, key, ""), do: Map.put(edits, key, nil)
+  defp edit(edits, key, value), do: Map.put(edits, key, value)
+
+  defp own_repo_uri?(session, uri) do
+    case is_binary(uri) && AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {repo, _, _}} -> repo == session.did
+      _ -> false
+    end
+  end
+
+  defp new_record(kind, rkey, record), do: {:create, AtMcp.Network.collection(kind), rkey, record}
+
+  defp removal(uri) do
+    {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+    {:delete, collection, rkey}
+  end
+
+  defp own_uri(session, kind, rkey),
+    do: "at://#{session.did}/#{AtMcp.Network.collection(kind)}/#{rkey}"
+
+  defp blank_nil(""), do: nil
+  defp blank_nil(value), do: value
+
+  # The record at one of this account's URIs, read before it is changed so
+  # every field the change does not name is kept. A record the service will not
+  # hand over is not one to edit: the call names the argument and sends nothing.
+  defp own_value(session, uri, field, what) do
+    with {:ok, value, _cid} <- own_record(session, uri, field, what), do: {:ok, value}
+  end
+
+  # The record at one of this account's URIs and its CID, read before it is
+  # changed so every field the change does not name is kept, and so the change
+  # applies only to the record read. A record the service will not hand over is
+  # not one to edit: the call names the argument and sends nothing.
+  defp own_record(session, uri, field, what) do
+    {:ok, {repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+      {:ok, response} ->
+        case AtMcp.Response.fetch(response, :value) do
+          {:ok, value} when is_map(value) -> {:ok, value, string_value(response, :cid)}
+          _ -> {:error, unreadable("a #{what} record", response)}
+        end
+
+      {:error, reason} ->
+        case failure(reason) do
+          %AtMcp.Effects.Failure{kind: :refused} ->
+            {:error,
+             {:invalid_argument, field, "no #{what} at #{uri} could be read; it may be deleted"}}
+
+          other ->
+            {:error, other}
+        end
+    end
+  end
+
+  # The list a membership change applies to: the list itself, or a starter
+  # pack's list. Either is read, so a list that is gone is refused here. A
+  # pack naming a list in another repository is refused too: the AppView
+  # ignores a list item for a list its author does not own.
+  defp target_list(session, uri) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    if AtMcp.Network.collection?(collection, :starter_pack) do
+      with {:ok, pack} <- own_value(session, uri, "list", "starter pack") do
+        list = string_value(pack, :list)
+
+        cond do
+          not is_binary(list) ->
+            {:error, unreadable("a starter pack record", pack)}
+
+          not own_repo_uri?(session, list) ->
+            {:error,
+             {:invalid_argument, "list",
+              "the starter pack names the list #{list}, which is in another account's repository"}}
+
+          true ->
+            with {:ok, _list} <- own_value(session, list, "list", "list"), do: {:ok, list}
+        end
+      end
+    else
+      with {:ok, _list} <- own_value(session, uri, "list", "list"), do: {:ok, uri}
+    end
+  end
+
+  # A starter pack's list goes with its pack.
+  defp not_pack_list(list) do
+    if purpose_name(string_value(list, :purpose)) == "reference",
+      do:
+        {:error,
+         {:invalid_argument, "uri",
+          "this is a starter pack's list; delete_starter_pack deletes the pack and its list together"}},
+      else: :ok
+  end
+
+  # The list items in this account's repository that put `subject` (any
+  # account, when nil) on `list`.
+  defp list_items(session, list, subject) do
+    own_records(session, :list_item, fn value ->
+      string_value(value, :list) == list and
+        (is_nil(subject) or string_value(value, :subject) == subject)
+    end)
+  end
+
+  # How many pages of one collection a write reads to find the records it
+  # changes: 100 records a page, so 10,000. One past that is refused rather
+  # than read without end.
+  @own_record_pages 100
+
+  # The AT URIs of this account's records of `kind` whose value `keep?` accepts,
+  # read from its PDS, so a record the AppView has not indexed yet is found too.
+  defp own_records(session, kind, keep?),
+    do: own_records(session, kind, keep?, nil, @own_record_pages, [])
+
+  defp own_records(_session, kind, _keep?, _cursor, 0, _found) do
+    {:error,
+     AtMcp.Effects.Failure.new(:refused,
+       message:
+         "This account has more than #{@own_record_pages * 100} #{AtMcp.Network.collection(kind)} records, more than AtMcp reads to find the ones to change. Nothing was sent."
+     )}
+  end
+
+  defp own_records(session, kind, keep?, cursor, pages, found) do
+    params =
+      AtMcp.ATProto.params(%{
+        repo: session.did,
+        collection: AtMcp.Network.collection(kind),
+        limit: 100,
+        cursor: cursor
+      })
+
+    with {:ok, response} <- AtMcp.ATProto.list_records(session, params),
+         {:ok, records} when is_list(records) <- AtMcp.Response.fetch(response, :records) do
+      matching =
+        for record <- records,
+            value = field(record, :value),
+            is_map(value),
+            keep?.(value),
+            uri = string_value(record, :uri),
+            do: uri
+
+      case cursor_of(response) do
+        next when is_binary(next) and records != [] ->
+          own_records(session, kind, keep?, next, pages - 1, found ++ matching)
+
+        _ ->
+          {:ok, found ++ matching}
+      end
+    else
+      {:error, reason} -> {:error, failure(reason)}
+      _ -> {:error, unreadable("a page of records", %{})}
+    end
+  end
+
+  # The view of a list or of a starter pack's list, which says its purpose and
+  # its URI in DID form.
+  defp viewed_list(session, uri) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    {response, key} =
+      if AtMcp.Network.collection?(collection, :starter_pack),
+        do:
+          {AtMcp.ATProto.get_starter_pack(session, %{starterPack: uri}), [:starter_pack, :list]},
+        else: {AtMcp.ATProto.get_list(session, %{list: uri, limit: 1}), [:list]}
+
+    case response do
+      {:ok, body} ->
+        case AtMcp.Response.dig(body, key) do
+          list when is_map(list) -> {:ok, list}
+          _ -> {:error, unreadable("a list", body)}
+        end
+
+      {:error, reason} ->
+        case failure(reason) do
+          %AtMcp.Effects.Failure{kind: :refused} ->
+            {:error,
+             {:invalid_argument, "list", "no starter pack or list at #{uri} could be read"}}
+
+          other ->
+            {:error, other}
+        end
+    end
+  end
+
+  # An avatar is a blob the list record references, uploaded before the record
+  # is built, as a post's images are. A failed upload sends no record.
+  defp upload_avatar(_session, nil), do: {:ok, nil}
+
+  defp upload_avatar(session, image) do
+    case upload_images(session, [image]) do
+      {:ok, [%{blob: blob}]} ->
+        {:ok, blob}
+
+      {:error, reason} ->
+        case failure(reason) do
+          %AtMcp.Effects.Failure{kind: :auth_refused} = refused ->
+            {:error, refused}
+
+          other ->
+            {:error,
+             %{
+               other
+               | kind: :refused,
+                 message:
+                   "The avatar could not be uploaded (#{other.message || "no answer"}). Nothing was written."
+             }}
+        end
+    end
+  end
+
+  # A list's purpose in the words the list tools take: a token's name on any
+  # network, or the value as sent when this version does not know it.
+  defp purpose_name(token) when is_atom(token) and not is_nil(token),
+    do: purpose_name(Atom.to_string(token))
+
+  defp purpose_name(token) when is_binary(token) do
+    case token |> String.split("#") |> List.last() do
+      "curatelist" -> "curate"
+      "modlist" -> "moderation"
+      "referencelist" -> "reference"
+      _ -> token
+    end
+  end
+
+  defp purpose_name(other), do: other
+
+  defp list_view(list) when is_map(list) do
+    summary = AtMcp.Summary.extract(:list, list)
+    %{summary | purpose: purpose_name(summary.purpose)}
+  end
+
+  defp list_view(other), do: %{value: to_string_safe(other)}
+
+  defp list_member(item), do: AtMcp.Summary.extract(:list_member, item)
+
+  defp pack_view(pack), do: AtMcp.Summary.extract(:starter_pack, pack)
+
+  defp string_value(map, key) do
+    case field(map, key) do
+      value when is_binary(value) -> value
+      _ -> nil
+    end
+  end
+
   @doc """
   Publish a post. `opts` carries what a post can hold beyond its text:
   `:reply` (a parent AT URI), `:images`, `:quote` and `:langs`.
@@ -558,7 +1286,9 @@ defmodule AtMcp.Effects.ProtoRune do
     with :ok <- validate_post_languages(opts),
          {rich_text, unresolved} = AtMcp.RichText.build(text, session),
          {:ok, opts} <- resolve_references(session, opts),
-         {:ok, images} <- upload_images(session, Keyword.get(opts, :images)) do
+         {:ok, opts} <- resolve_reply_lists(session, opts),
+         {:ok, images} <- upload_images(session, Keyword.get(opts, :images)),
+         {:ok, link} <- upload_link_thumb(session, Keyword.get(opts, :link)) do
       record =
         AtMcp.ATProto.post_record(
           text: rich_text.text,
@@ -566,10 +1296,21 @@ defmodule AtMcp.Effects.ProtoRune do
           langs: Keyword.get(opts, :langs),
           reply: Keyword.get(opts, :reply_ref),
           images: images,
-          quote: Keyword.get(opts, :quote_ref)
+          link: link,
+          quote: Keyword.get(opts, :quote_ref),
+          labels: Keyword.get(opts, :labels)
         )
 
-      {:ok, %{record: record, unresolved: unresolved, reply: Keyword.get(opts, :reply)}}
+      {rkey, gates} = post_gates(session, record, opts)
+
+      {:ok,
+       %{
+         record: record,
+         unresolved: unresolved,
+         reply: Keyword.get(opts, :reply),
+         rkey: rkey,
+         gates: gates
+       }}
     else
       {:error, {:referenced_record_unreadable, _uri}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
@@ -612,7 +1353,52 @@ defmodule AtMcp.Effects.ProtoRune do
          do: post(session, text, prepared)
   end
 
+  # A post with a reply or quote rule is written with its gates in one
+  # commit: the post never exists without them, so nobody can reply or quote
+  # in between, and a failure leaves neither.
   @impl true
+  def post(session, text, %{record: record, rkey: rkey, gates: [_ | _] = gates} = prepared) do
+    post = AtMcp.Network.collection(:post)
+
+    writes =
+      [{:create, post, rkey, record}] ++
+        Enum.map(gates, fn {kind, gate} ->
+          {:create, AtMcp.Network.collection(kind), rkey, gate}
+        end)
+
+    case AtMcp.ATProto.apply_writes(session, session.did, writes) do
+      {:ok, response} ->
+        # A successful applyWrites committed every write, and `results` is
+        # optional in its output: the post's address is known before sending
+        # (this account's DID and the record key chosen here), so a service
+        # that leaves results out still says what was written. Only the CID
+        # then comes back as nil.
+        written =
+          case field(response, :results) do
+            [first | _] when is_map(first) -> first
+            _ -> %{}
+          end
+
+        summary =
+          written
+          |> summarize_write(text)
+          |> Map.update!(:uri, &(&1 || "at://#{session.did}/#{post}/#{rkey}"))
+          |> Map.merge(
+            Map.new(gates, fn {kind, _} ->
+              {:"#{kind}_uri", "at://#{session.did}/#{AtMcp.Network.collection(kind)}/#{rkey}"}
+            end)
+          )
+
+        summary =
+          if prepared.reply, do: Map.put(summary, :reply_to, prepared.reply), else: summary
+
+        {:ok, mention_warnings(summary, prepared.unresolved)}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
   def post(session, text, %{record: record, unresolved: unresolved, reply: reply}) do
     case create(session, :post, record) do
       {:ok, result} ->
@@ -711,16 +1497,10 @@ defmodule AtMcp.Effects.ProtoRune do
   def update_profile(session, updates) when is_list(updates) do
     safe = Keyword.take(updates, [:display_name, :description])
 
-    with {:ok, current} <- current_profile(session),
+    with {:ok, current, swap} <- current_profile(session),
          {:ok, blobs} <- upload_profile_images(session, updates),
          record = AtMcp.ATProto.profile_record(merge_profile(current, safe), blobs),
-         {:ok, result} <-
-           AtMcp.ATProto.put_record(session, %{
-             repo: session.did,
-             collection: AtMcp.Network.collection(:profile),
-             rkey: "self",
-             record: record
-           }) do
+         {:ok, result} <- put_profile(session, record, swap) do
       {:ok,
        %{
          ok: true,
@@ -733,6 +1513,43 @@ defmodule AtMcp.Effects.ProtoRune do
     else
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # The profile is written only over the record it was built from. Between the
+  # read and this write the app, or another client, may have changed it; a
+  # write over that change would undo it without anyone seeing. `swapRecord`
+  # makes the service refuse instead. With no record read, nothing is swapped:
+  # the lexicon's null swap would also refuse a profile created meanwhile, but
+  # it is "nullable and optional" and not every PDS reads it the same way.
+  defp put_profile(session, record, swap) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(:profile),
+      rkey: "self",
+      record: record
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The profile")}
+
+      other ->
+        other
+    end
+  end
+
+  # A compare-and-swap the service refused: the record changed between the
+  # read and the write, and the write did not happen.
+  defp changed_meanwhile(what) do
+    AtMcp.Effects.Failure.new(:refused,
+      message:
+        "#{what} changed between reading it and writing it, so nothing was written. " <>
+          "Read it again and retry if the change still applies.",
+      detail: {:changed_meanwhile, what}
+    )
   end
 
   # An avatar or banner is a blob the profile record references, so it is
@@ -783,6 +1600,650 @@ defmodule AtMcp.Effects.ProtoRune do
       :ok -> {:ok, %{ok: true, action: :update_seen, seen_at: DateTime.to_iso8601(seen_at)}}
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # --- a post's gates ---
+
+  # The gates a new post is written with, and the record key they share with
+  # it. A post with none is written as before, under a key the PDS picks.
+  defp post_gates(session, record, opts) do
+    quotes = Keyword.get(opts, :quotes)
+
+    if Keyword.has_key?(opts, :reply_rule) or quotes == :disabled do
+      rkey = AtMcp.ATProto.tid()
+      uri = "at://#{session.did}/#{AtMcp.Network.collection(:post)}/#{rkey}"
+      created = %{"createdAt" => record["createdAt"]}
+
+      gates =
+        [
+          if(Keyword.has_key?(opts, :reply_rule),
+            do:
+              {:threadgate,
+               AtMcp.ATProto.threadgate_record(
+                 uri,
+                 Keyword.fetch!(opts, :reply_rule),
+                 [],
+                 created
+               )}
+          ),
+          if(quotes == :disabled,
+            do: {:postgate, AtMcp.ATProto.postgate_record(uri, :disabled, [], created)}
+          )
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      {rkey, gates}
+    else
+      {nil, []}
+    end
+  end
+
+  # A link card's thumbnail is a blob the record references, like an image.
+  defp upload_link_thumb(_session, nil), do: {:ok, nil}
+  defp upload_link_thumb(_session, %{thumb: nil} = link), do: {:ok, link}
+
+  defp upload_link_thumb(session, %{thumb: thumb} = link) do
+    with {:ok, [%{blob: blob}]} <- upload_images(session, [thumb]),
+         do: {:ok, link |> Map.delete(:thumb) |> Map.put(:thumb_blob, blob)}
+  end
+
+  @doc """
+  Read what an edit to a post's gates needs and build the writes, before
+  anything is sent. `edit` is one of:
+
+    * `{:interactions, uri, allow, quotes}`: set who may reply to and quote
+      this account's post at `uri`;
+    * `{:hide_reply, uri, hide?}`: hide or unhide a reply in a thread this
+      account started;
+    * `{:detach_quote, uri, detach?}`: detach or reattach a post quoting one
+      of this account's posts.
+
+  Each reads the gate it changes and keeps everything it does not change.
+  """
+  #
+  # Every edit reads the repository's commit before anything else, and writes
+  # only over it (`swapCommit`): a gate changed meanwhile, by the app or
+  # another client, is never overwritten with what was read before.
+  @impl true
+  def prepare_gates(session, {:interactions, uri, allow, quotes}) do
+    {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+    post = "at://#{session.did}/#{collection}/#{rkey}"
+
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, response} <- read_post(session, uri),
+         :ok <- first_post(response, allow),
+         {:ok, allow} <- resolve_lists(session, allow),
+         {:ok, threadgate} <- own_record(session, :threadgate, rkey),
+         {:ok, postgate} <- own_record(session, :postgate, rkey) do
+      # A reply has no thread of its own to gate: its threadgate is left as is.
+      reply? = reply?(response)
+      allow = if reply?, do: :keep, else: allow
+      hidden = strings(threadgate, :hidden_replies)
+      detached = strings(postgate, :detached_embedding_uris)
+      threadgate_now = AtMcp.ATProto.threadgate_record(post, allow, hidden, threadgate)
+      postgate_now = AtMcp.ATProto.postgate_record(post, quotes, detached, postgate)
+
+      gates([
+        {:threadgate, rkey, threadgate, threadgate_now},
+        {:postgate, rkey, postgate, postgate_now}
+      ])
+      |> with_result(
+        %{
+          action: :set_post_interactions,
+          uri: post,
+          reply_rule: if(not reply?, do: AtMcp.Interactions.reply_rule_words(threadgate_now)),
+          quotes: AtMcp.Interactions.quotes_word(postgate_now)
+        },
+        commit
+      )
+    end
+  end
+
+  def prepare_gates(session, {:hide_reply, uri, hide?}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, response} <- read_post(session, uri),
+         {:ok, root} <- thread_root(response, uri),
+         {:ok, {root_repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(root),
+         :ok <- own(session, root_repo, "the reply's thread was started by #{root_repo}"),
+         {:ok, threadgate} <- own_record(session, :threadgate, rkey),
+         reply = canonical(response, uri),
+         {:ok, hidden} <-
+           AtMcp.Interactions.hidden_replies(strings(threadgate, :hidden_replies), reply, hide?) do
+      post = "at://#{session.did}/#{collection}/#{rkey}"
+
+      gates([
+        {:threadgate, rkey, threadgate,
+         AtMcp.ATProto.threadgate_record(post, :keep, hidden, threadgate)}
+      ])
+      |> with_result(
+        %{
+          action: if(hide?, do: :hide_reply, else: :unhide_reply),
+          uri: reply,
+          subject_uri: post
+        },
+        commit
+      )
+    end
+  end
+
+  def prepare_gates(session, {:detach_quote, uri, detach?}) do
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, response} <- read_post(session, uri),
+         {:ok, quoted} <- quoted_post(response, uri),
+         {:ok, {quoted_repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(quoted),
+         :ok <- own(session, quoted_repo, "it quotes #{quoted}, a post by another account"),
+         {:ok, postgate} <- own_record(session, :postgate, rkey),
+         quoting = canonical(response, uri),
+         {:ok, detached} <-
+           AtMcp.Interactions.detached_quotes(
+             strings(postgate, :detached_embedding_uris),
+             quoting,
+             detach?
+           ) do
+      post = "at://#{session.did}/#{collection}/#{rkey}"
+
+      gates([
+        {:postgate, rkey, postgate,
+         AtMcp.ATProto.postgate_record(post, :keep, detached, postgate)}
+      ])
+      |> with_result(
+        %{
+          action: if(detach?, do: :detach_quote, else: :reattach_quote),
+          uri: quoting,
+          subject_uri: post
+        },
+        commit
+      )
+    end
+  end
+
+  @doc """
+  Write what `prepare_gates/2` built, in one commit over the one it read.
+  Nothing to change writes nothing, and the result says `unchanged`.
+  """
+  @impl true
+  def write_gates(_session, %{writes: [], result: result}),
+    do: {:ok, Map.put(result, :unchanged, true)}
+
+  def write_gates(session, %{writes: writes, result: result, commit: commit}) do
+    case AtMcp.ATProto.apply_writes(session, session.did, writes, swap_commit: commit) do
+      {:ok, _} ->
+        {:ok, Map.put(result, :unchanged, false)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The account's repository")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # The commit an edit is built over. A PDS always serves this; an answer
+  # without a CID is one AtMcp cannot write over safely.
+  defp latest_commit(session) do
+    case AtMcp.ATProto.get_latest_commit(session, session.did) do
+      {:ok, response} ->
+        case field(response, :cid) do
+          cid when is_binary(cid) -> {:ok, cid}
+          _ -> {:error, unreadable("the repository's latest commit", response)}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # A list rule names its list by address, and the AppView lets a reply
+  # through only when that address, in DID form, is a list its author is on.
+  # A list given by a handle-form address is resolved before anything is
+  # written; one whose handle cannot be resolved is refused, naming the entry.
+  defp resolve_reply_lists(session, opts) do
+    case Keyword.fetch(opts, :reply_rule) do
+      {:ok, rules} when is_list(rules) ->
+        with {:ok, rules} <- resolve_lists(session, rules),
+             do: {:ok, Keyword.put(opts, :reply_rule, rules)}
+
+      _ ->
+        {:ok, opts}
+    end
+  end
+
+  defp resolve_lists(session, rules) when is_list(rules) do
+    rules
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {rule, i}, {:ok, acc} ->
+      case did_form_rule(session, rule, i) do
+        {:ok, rule} -> {:cont, {:ok, acc ++ [rule]}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp resolve_lists(_session, rules), do: {:ok, rules}
+
+  defp did_form_rule(_session, {:list, "at://did:" <> _} = rule, _i), do: {:ok, rule}
+
+  defp did_form_rule(session, {:list, uri}, i) do
+    {:ok, {repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    case resolve_actor(session, repo) do
+      {:ok, did} ->
+        {:ok, {:list, "at://#{did}/#{collection}/#{rkey}"}}
+
+      {:error, {:handle_not_resolved, _}} ->
+        invalid(
+          "reply_rule/#{i}",
+          "the handle #{repo} in #{uri} could not be resolved; give the list's AT URI in DID form (at://did:.../#{collection}/#{rkey})"
+        )
+
+      error ->
+        error
+    end
+  end
+
+  defp did_form_rule(_session, rule, _i), do: {:ok, rule}
+
+  # Each gate as it was and as it will be becomes a create, an update, a
+  # delete, or nothing; the result names each gate the post has afterwards.
+  defp gates(changes) do
+    writes =
+      Enum.flat_map(changes, fn {kind, rkey, before, now} ->
+        collection = AtMcp.Network.collection(kind)
+
+        case {before, now} do
+          {nil, nil} ->
+            []
+
+          {nil, now} ->
+            [{:create, collection, rkey, now}]
+
+          {_, nil} ->
+            [{:delete, collection, rkey}]
+
+          {before, now} ->
+            if same_gate?(before, now), do: [], else: [{:update, collection, rkey, now}]
+        end
+      end)
+
+    uris =
+      Map.new(changes, fn {kind, rkey, _before, now} ->
+        {:"#{kind}_uri", if(now, do: gate_uri(now, kind, rkey))}
+      end)
+
+    {writes, uris}
+  end
+
+  # A gate rebuilt from the record read, with nothing set differently, is the
+  # same record: writing it would change nothing but the repository's commit.
+  defp same_gate?(before, now), do: AtMcp.ATProto.wire_record(before) == now
+
+  defp gate_uri(gate, kind, rkey) do
+    {:ok, {repo, _, _}} = AtMcp.ATProto.parse_uri(gate["post"])
+    "at://#{repo}/#{AtMcp.Network.collection(kind)}/#{rkey}"
+  end
+
+  defp with_result({writes, uris}, result, commit),
+    do:
+      {:ok,
+       %{
+         writes: writes,
+         commit: commit,
+         result: Map.merge(%{ok: true}, Map.merge(result, uris))
+       }}
+
+  # The post an edit names, read through the account's service. A post the
+  # service will not hand over is the same refusal a reply's parent gets.
+  defp read_post(session, uri) do
+    with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri) do
+      case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+        {:ok, response} when is_map(response) -> {:ok, response}
+        {:ok, _other} -> {:error, {:referenced_record_unreadable, uri}}
+        {:error, reason} -> reference_error(uri, failure(reason))
+      end
+    end
+  end
+
+  # One of this account's gate records, or nil when the repository has none.
+  defp own_record(session, kind, rkey) do
+    case AtMcp.ATProto.get_record(session, %{
+           repo: session.did,
+           collection: AtMcp.Network.collection(kind),
+           rkey: rkey
+         }) do
+      {:ok, response} ->
+        case AtMcp.Response.fetch(response, :value) do
+          {:ok, value} when is_map(value) -> {:ok, value}
+          _ -> {:ok, nil}
+        end
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found] ->
+        {:ok, nil}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp reply?(response),
+    do: is_binary(AtMcp.Response.dig(response, [:value, :reply, :root, :uri]))
+
+  defp first_post(response, allow) do
+    if reply?(response) and allow not in [nil, :keep],
+      do:
+        invalid(
+          "reply_rule",
+          "applies to a thread's first post; this post is a reply, so who may reply is set on the thread's first post"
+        ),
+      else: :ok
+  end
+
+  defp thread_root(response, uri) do
+    case AtMcp.Response.dig(response, [:value, :reply, :root, :uri]) do
+      root when is_binary(root) -> {:ok, root}
+      _ -> invalid("uri", "#{uri} is not a reply; only replies can be hidden")
+    end
+  end
+
+  # The post a post quotes, alone or beside media.
+  defp quoted_post(response, uri) do
+    embed = AtMcp.Response.dig(response, [:value, :embed])
+
+    quoted =
+      AtMcp.Response.dig(embed, [:record, :record, :uri]) ||
+        AtMcp.Response.dig(embed, [:record, :uri])
+
+    with true <- is_binary(quoted),
+         {:ok, {_repo, collection, _rkey}} <- AtMcp.ATProto.parse_uri(quoted),
+         true <- AtMcp.Network.collection?(collection, :post) do
+      {:ok, quoted}
+    else
+      _ -> invalid("uri", "#{uri} does not quote a post")
+    end
+  end
+
+  defp own(session, repo, why) do
+    if AtMcp.Interactions.own_repo?(session, repo),
+      do: :ok,
+      else: invalid("uri", "names a post of another account's thread or post: #{why}")
+  end
+
+  defp strings(nil, _key), do: []
+
+  defp strings(record, key) do
+    case AtMcp.Response.fetch(record, key) do
+      {:ok, list} when is_list(list) -> Enum.filter(list, &is_binary/1)
+      _ -> []
+    end
+  end
+
+  defp invalid(path, message), do: {:error, {:invalid_argument, path, message}}
+
+  @doc """
+  The replies a thread read leaves out under the post at `uri`: those the
+  thread's author hid and those the account's own settings push down, such as
+  replies by accounts it muted. Each says which.
+  """
+  @impl true
+  def get_hidden_replies(session, uri) do
+    case AtMcp.ATProto.get_post_thread_other(session, %{anchor: uri}) do
+      {:ok, response} ->
+        case field(response, :thread) do
+          items when is_list(items) -> {:ok, Enum.map(items, &hidden_reply/1)}
+          _ -> {:error, unreadable("the replies a thread leaves out", response)}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp hidden_reply(item) when is_map(item) do
+    value = of_type(item, :value, &is_map/1) || %{}
+
+    (of_type(value, :post, &is_map/1) || %{uri: field(item, :uri)})
+    |> post_view()
+    |> Map.merge(%{
+      depth: of_type(item, :depth, &is_integer/1),
+      hidden_by_threadgate: flag(value, [:hidden_by_threadgate, :hiddenByThreadgate]),
+      muted_by_viewer: flag(value, [:muted_by_viewer, :mutedByViewer])
+    })
+  end
+
+  defp hidden_reply(other), do: %{value: to_string_safe(other)}
+
+  # --- pins, thread mutes and bookmarks ---
+
+  @doc """
+  Read the post at `uri`: the strong reference a bookmark or a pin needs, and
+  the root of its thread, which a thread mute names. A post that is not a
+  reply is its own root.
+  """
+  @impl true
+  def resolve_post(session, uri) when is_binary(uri) do
+    with {:ok, ref, response} <- fetch_strong_ref(session, uri) do
+      root = root_of(response)
+      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: ref.uri))}
+    end
+  end
+
+  @doc """
+  Build the profile record that pins `uri`, or unpins when `uri` is nil, from
+  the profile as it stands. The post is read for its CID; the profile is read
+  so every field the pin does not touch is written back unchanged.
+  """
+  @impl true
+  def prepare_pin(session, uri) do
+    with {:ok, ref} <- pin_ref(session, uri),
+         {:ok, current, swap} <- current_profile(session) do
+      previous = AtMcp.Response.dig(current, [:pinned_post, :uri])
+      previous = if is_binary(previous), do: previous
+
+      record =
+        if is_nil(uri) and is_nil(previous),
+          do: nil,
+          else: AtMcp.ATProto.pinned_profile_record(current, ref)
+
+      {:ok, %{record: record, pinned: ref && ref.uri, previous: previous, swap: swap}}
+    else
+      {:error, {:referenced_record_unreadable, _}} = error -> error
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  defp pin_ref(_session, nil), do: {:ok, nil}
+
+  defp pin_ref(session, uri) do
+    with {:ok, ref, _response} <- fetch_strong_ref(session, uri), do: {:ok, ref}
+  end
+
+  # Unpinning a profile that pins nothing writes nothing.
+  @impl true
+  def pin(_session, %{record: nil, previous: nil}),
+    do: {:ok, %{ok: true, action: :unpin_post, uri: nil, subject_uri: nil, replaced_uri: nil}}
+
+  def pin(session, %{record: record, pinned: pinned, previous: previous, swap: swap}) do
+    case put_profile(session, record, swap) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           ok: true,
+           action: if(pinned, do: :pin_post, else: :unpin_post),
+           uri: summarize_record(result).uri,
+           subject_uri: pinned,
+           replaced_uri: previous
+         }}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def mute_thread(session, root) when is_binary(root),
+    do: thread_mute(session, root, :mute_thread, &AtMcp.ATProto.mute_thread/2)
+
+  @impl true
+  def unmute_thread(session, root) when is_binary(root),
+    do: thread_mute(session, root, :unmute_thread, &AtMcp.ATProto.unmute_thread/2)
+
+  defp thread_mute(session, root, action, call) do
+    case call.(session, %{root: root}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: action, uri: root}}
+    end
+  end
+
+  @impl true
+  def bookmark(session, %{uri: uri, cid: cid}) do
+    case AtMcp.ATProto.create_bookmark(session, %{uri: uri, cid: cid}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: :bookmark, uri: uri}}
+    end
+  end
+
+  @impl true
+  def unbookmark(session, uri) when is_binary(uri) do
+    case AtMcp.ATProto.delete_bookmark(session, %{uri: uri}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: :unbookmark, uri: uri}}
+    end
+  end
+
+  @impl true
+  def get_bookmarks(session, opts) do
+    session
+    |> AtMcp.ATProto.get_bookmarks(paging(opts, %{}))
+    |> read(:bookmarks, &bookmark_item/1)
+  end
+
+  # --- drafts ---
+
+  @impl true
+  def get_drafts(session, opts) do
+    session
+    |> AtMcp.ATProto.get_drafts(paging(opts, %{}))
+    |> read(:drafts, &AtMcp.Summary.extract(:draft, &1))
+  end
+
+  # The service has no read of one draft, so finding one is reading pages of
+  # them. Drafts are few — the service may cap how many an account keeps — and
+  # this many pages of the largest page the lexicon allows is far past any
+  # cap seen; a draft beyond them is reported as not found.
+  @draft_page 100
+  @draft_pages 10
+
+  @doc """
+  The draft with this id, as the service holds it, in the keys it is written
+  with. A draft this account does not have is refused, naming `id`: the
+  service would ignore an update to it without saying so.
+  """
+  @impl true
+  def find_draft(session, id) when is_binary(id), do: find_draft(session, id, nil, @draft_pages)
+
+  defp find_draft(_session, id, _cursor, 0), do: no_draft(id)
+
+  defp find_draft(session, id, cursor, pages) do
+    case AtMcp.ATProto.get_drafts(
+           session,
+           AtMcp.ATProto.params(%{limit: @draft_page, cursor: cursor})
+         ) do
+      {:ok, response} ->
+        drafts = field(response, :drafts)
+
+        found =
+          is_list(drafts) &&
+            Enum.find(drafts, &(is_map(&1) and field(&1, :id) == id))
+
+        cond do
+          not is_list(drafts) ->
+            {:error, unreadable("a page of drafts", response)}
+
+          found ->
+            {:ok, AtMcp.ATProto.wire_record(field(found, :draft) || %{})}
+
+          is_binary(cursor_of(response)) ->
+            find_draft(session, id, cursor_of(response), pages - 1)
+
+          true ->
+            no_draft(id)
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp no_draft(id),
+    do: {:error, {:invalid_argument, "id", "this account has no draft with id #{id}"}}
+
+  @impl true
+  def save_draft(session, nil, draft) do
+    case AtMcp.ATProto.create_draft(session, %{draft: draft}) do
+      {:ok, response} when is_map(response) ->
+        case field(response, :id) do
+          id when is_binary(id) -> {:ok, draft_result(:save_draft, id, draft)}
+          _ -> {:error, unreadable("a created draft", response)}
+        end
+
+      {:ok, other} ->
+        {:error, unreadable("a created draft", other)}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  def save_draft(session, id, draft) when is_binary(id) do
+    case AtMcp.ATProto.update_draft(session, %{draft: %{"id" => id, "draft" => draft}}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> saved_draft(session, id, draft)
+    end
+  end
+
+  # `updateDraft` answers success for an id it does not hold and ignores the
+  # update (its lexicon says so), so a draft deleted between the read that
+  # found it and the update would be reported saved when nothing was. The
+  # draft is read again, for whether it still exists only: the service queues
+  # an update and applies it later, so `getDrafts` can still show the text from
+  # before, and the result carries the draft as sent. A draft gone by then is a
+  # refusal; a read that fails says nothing either way, so the update's outcome
+  # is unknown. A deletion still queued is not seen by this check.
+  defp saved_draft(session, id, draft) do
+    case find_draft(session, id) do
+      {:ok, _still_there} ->
+        {:ok, draft_result(:save_draft, id, draft)}
+
+      {:error, {:invalid_argument, "id", _}} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved. " <>
+               "Call save_draft without an id to keep the text as a new draft.",
+           detail: {:draft_gone, id}
+         )}
+
+      {:error, reason} ->
+        {:error, AtMcp.Effects.Failure.new(:indeterminate, detail: {:draft_unconfirmed, reason})}
+    end
+  end
+
+  @impl true
+  def delete_draft(session, id, draft) when is_binary(id) do
+    case AtMcp.ATProto.delete_draft(session, %{id: id}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, draft_result(:delete_draft, id, draft)}
+    end
+  end
+
+  defp draft_result(action, id, draft) do
+    %{
+      ok: true,
+      action: action,
+      id: id,
+      draft: AtMcp.Summary.extract(:draft, %{"id" => id, "draft" => draft})
+    }
   end
 
   # --- the write half ---
@@ -920,7 +2381,7 @@ defmodule AtMcp.Effects.ProtoRune do
          {:ok, response} <-
            AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}),
          {:ok, cid} when is_binary(cid) <- AtMcp.Response.fetch(response, :cid) do
-      {:ok, %{uri: uri, cid: cid}, response}
+      {:ok, %{uri: canonical(response, uri), cid: cid}, response}
     else
       # An answer arrived and carried no CID: the record is unusable as a
       # reference whatever else it is.
@@ -941,6 +2402,19 @@ defmodule AtMcp.Effects.ProtoRune do
     do: {:error, {:referenced_record_unreadable, uri}}
 
   defp reference_error(_uri, %AtMcp.Effects.Failure{} = failure), do: {:error, failure}
+
+  # The address a record is known by everywhere: the DID form the service
+  # answers a read with, whichever form the caller named it in. A handle can
+  # move to another account and back, and the AppView matches pins, thread
+  # mutes, bookmarks and gates by the DID form, so a reference written with a
+  # handle names nothing it will ever show. A service that answers without a
+  # DID-form uri leaves the caller's.
+  defp canonical(response, uri) do
+    case AtMcp.Response.fetch(response, :uri) do
+      {:ok, "at://did:" <> _ = canonical} -> canonical
+      _ -> uri
+    end
+  end
 
   defp root_of(response) do
     with {:ok, value} when is_map(value) <- AtMcp.Response.fetch(response, :value),
@@ -982,8 +2456,10 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   # A profile update starts from the record it is about to replace, so a field
-  # nobody mentioned survives it. A repository with no profile record yet is
-  # not an error: the account simply has no profile, and this writes the first.
+  # nobody mentioned survives it, and writes it back only if it is still that
+  # record: the CID read here is the `swapRecord` of the write (`put_profile/3`).
+  # A repository with no profile record yet is not an error: the account simply
+  # has no profile, and this writes the first; its CID is nil.
   defp current_profile(session) do
     case AtMcp.ATProto.get_record(session, %{
            repo: session.did,
@@ -991,14 +2467,20 @@ defmodule AtMcp.Effects.ProtoRune do
            rkey: "self"
          }) do
       {:ok, response} ->
+        cid =
+          case AtMcp.Response.fetch(response, :cid) do
+            {:ok, cid} when is_binary(cid) -> cid
+            _ -> nil
+          end
+
         case AtMcp.Response.fetch(response, :value) do
-          {:ok, value} when is_map(value) -> {:ok, value}
-          _ -> {:ok, %{}}
+          {:ok, value} when is_map(value) -> {:ok, value, cid}
+          _ -> {:ok, %{}, cid}
         end
 
       {:error, %ProtoRune.XRPC.Error{reason: reason}}
       when reason in [:not_found, :record_not_found] ->
-        {:ok, %{}}
+        {:ok, %{}, nil}
 
       {:error, reason} ->
         {:error, reason}
@@ -1038,6 +2520,10 @@ defmodule AtMcp.Effects.ProtoRune do
         error.reason in @auth_reasons and error.http_status in [400, 401] -> :auth_refused
         error.reason in @auth_reasons -> :auth_refused
         is_integer(error.http_status) and error.http_status in 400..499 -> :refused
+        # 501 Not Implemented: the service does not run this method at all, so
+        # nothing it was asked to do happened. A deployment that does not serve
+        # an endpoint (bookmarks, drafts) answers this way.
+        error.http_status == 501 -> :refused
         true -> :indeterminate
       end
 
@@ -1343,17 +2829,71 @@ defmodule AtMcp.Effects.ProtoRune do
     }
   end
 
+  @doc false
+  # The summarizers by the response they read, for the field-coverage test: it
+  # hands each a recorded response and checks every field either reaches the
+  # summary or is listed in `AtMcp.LeftOut`.
+  def summarize(:feed, response), do: page(response, :feed, &feed_item/1)
+  def summarize(:thread, response), do: {:ok, summarize_thread(response)}
+  def summarize(:profile, response), do: {:ok, summarize_profile(response)}
+  def summarize(:likes, response), do: page(response, :likes, &actor_item/1)
+  def summarize(:feeds, response), do: page(response, :feeds, &summarize_generator/1)
+  def summarize(:list, response), do: list_page(response)
+  def summarize(:lists, response), do: page(response, :lists, &list_view/1)
+
+  def summarize(:starter_pack, response),
+    do: {:ok, pack_view(field(response, :starter_pack))}
+
+  def summarize(:starter_packs, response), do: page(response, :starter_packs, &pack_view/1)
+
   defp summarize_thread(thread) when is_map(thread) do
     node = field(thread, :thread) || thread
 
     node
     |> thread_node(2, 2)
+    |> mark_hidden(hidden_by_threadgate(thread, node))
     |> Map.put(:context, %{depth: 2, parent_height: 2, max_replies_per_node: @thread_max_replies})
   end
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
 
-  defp thread_node(node, parents, depth) when is_map(node) do
+  # `feed.getPostThread` returns the replies the thread's author hid among the
+  # others, unmarked; the app leaves them out because the thread's threadgate
+  # lists them. The response carries that threadgate (beside the thread, and on
+  # the root post's view when the root is the post read), so each reply it
+  # lists is marked where it stands.
+  defp hidden_by_threadgate(thread, node) do
+    [[:threadgate, :record, :hidden_replies], [:post, :threadgate, :record, :hidden_replies]]
+    |> Enum.zip([thread, node])
+    |> Enum.flat_map(fn {path, from} ->
+      case AtMcp.Response.dig(from, path) do
+        list when is_list(list) -> Enum.filter(list, &is_binary/1)
+        _ -> []
+      end
+    end)
+    |> MapSet.new()
+  end
+
+  defp mark_hidden(node, hidden) do
+    if MapSet.size(hidden) == 0, do: node, else: mark_hidden_node(node, hidden)
+  end
+
+  defp mark_hidden_node(node, hidden) when is_map(node) do
+    node =
+      if MapSet.member?(hidden, node[:uri]),
+        do: Map.put(node, :hidden_by_threadgate, true),
+        else: node
+
+    node
+    |> Map.update(:parent, nil, &mark_hidden_node(&1, hidden))
+    |> Map.update(:replies, [], fn replies -> Enum.map(replies, &mark_hidden_node(&1, hidden)) end)
+  end
+
+  defp mark_hidden_node(other, _hidden), do: other
+
+  # `shown_below` is 1 for a parent: one of its replies is the post this read
+  # shows under it.
+  defp thread_node(node, parents, depth, shown_below \\ 0) when is_map(node) do
     post = of_type(node, :post, &is_map/1) || node
     replies = of_type(node, :replies, &is_list/1) || []
     parent = field(node, :parent)
@@ -1363,10 +2903,23 @@ defmodule AtMcp.Effects.ProtoRune do
     |> Map.put(:type, field(node, :"$type"))
     |> Map.put(:not_found, flag(node, [:not_found, :notFound]))
     |> Map.put(:blocked, flag(node, [:blocked]))
-    |> Map.put(:parent, if(parent && parents > 0, do: thread_node(parent, parents - 1, 0)))
+    |> Map.put(:parent, if(parent && parents > 0, do: thread_node(parent, parents - 1, 0, 1)))
     |> Map.put(:parent_omitted, not is_nil(parent) and parents == 0)
     |> Map.put(:replies, Enum.map(visible, &thread_node(&1, 0, depth - 1)))
-    |> Map.put(:replies_omitted, length(replies) - length(visible))
+    |> Map.put(:replies_omitted, replies_omitted(node, post, replies, visible, shown_below))
+  end
+
+  # A post at the read's depth limit, and a parent, come back with no `replies`
+  # at all: the service was not asked for them. Counting the list it sent would
+  # say 0 however many replies the post has, so the count is the post's own
+  # `replyCount` (`reply_count` once decoded), less what this read shows, or
+  # nil when the service gave none.
+  defp replies_omitted(node, post, replies, visible, shown_below) do
+    case {field(node, :replies), field(post, :reply_count) || field(post, :replyCount)} do
+      {nil, count} when is_integer(count) -> max(count - shown_below, 0)
+      {nil, _unknown} -> nil
+      _sent -> length(replies) - length(visible)
+    end
   end
 
   # `false` is a value. Read through a chain of `||` fallbacks it becomes the same
@@ -1395,14 +2948,18 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # A feed item wraps the post with what the feed says about it: why it is
+  # there and who a reply answers (`AtMcp.Post.feed_context/1`).
   defp feed_item(item) when is_map(item) do
-    post =
-      case AtMcp.Response.fetch(item, :post) do
-        {:ok, post} when is_map(post) -> post
-        _ -> item
-      end
+    case AtMcp.Response.fetch(item, :post) do
+      {:ok, post} when is_map(post) ->
+        post
+        |> Map.put("feed_context", AtMcp.Post.feed_context(item))
+        |> post_view()
 
-    post_view(post)
+      _ ->
+        post_view(item)
+    end
   end
 
   defp feed_item(other), do: %{value: to_string_safe(other)}
@@ -1417,6 +2974,32 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   defp actor_item(other), do: %{value: to_string_safe(other)}
+
+  # A bookmark wraps the post it saved, or the placeholder the service sends
+  # when that post is deleted or hidden by a block. The placeholder keeps its
+  # place and says which, as a thread's does.
+  defp bookmark_item(item) when is_map(item) do
+    post = of_type(item, :item, &is_map/1) || %{}
+
+    post
+    |> post_view()
+    |> Map.merge(%{
+      not_found: flag(post, [:not_found, :notFound]),
+      blocked: flag(post, [:blocked]),
+      bookmarked_at: string_field(item, [:created_at, :createdAt])
+    })
+  end
+
+  defp bookmark_item(other), do: %{value: to_string_safe(other)}
+
+  defp string_field(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case field(map, key) do
+        value when is_binary(value) -> value
+        _ -> nil
+      end
+    end)
+  end
 
   defp relationship_item(item), do: AtMcp.Summary.extract(:relationship, item)
 
