@@ -61,6 +61,14 @@ defmodule AtMcp.Summary do
     {:nested_uri, :string, [["nested_uri"]], "A further quote; deliberately not expanded"}
   ]
 
+  # A label as the AppView returns it on a post or an account: what it says and
+  # who applied it. A label an account applied to itself has its own DID as src.
+  @label [
+    {:val, :string, [["val"]], "The label's value, such as bot or porn"},
+    {:src, :string, [["src"]], "DID of the account or labeler that applied it"},
+    {:neg, :boolean, [["neg"]], "True when this label removes an earlier one"}
+  ]
+
   # Computed content is declared once for reads, chains and notifications.
   @content [
     {:text, :string, [["perception", "text"]], "Post text with full link destinations"},
@@ -88,7 +96,18 @@ defmodule AtMcp.Summary do
     {:created_at, :string, [["record", "created_at"], ["record", "createdAt"]],
      "When the author wrote it, as an ISO 8601 timestamp"},
     {:reply_to, :string, [["record", "reply", "parent", "uri"]],
-     "AT URI of the post this one replies to; null on the root"}
+     "AT URI of the post this one replies to; null on the root"},
+    {:like_count, :integer, [["like_count"], ["likeCount"]],
+     "How many likes the service counts on the post"},
+    {:repost_count, :integer, [["repost_count"], ["repostCount"]],
+     "How many reposts the service counts on the post"},
+    {:reply_count, :integer, [["reply_count"], ["replyCount"]],
+     "How many replies the service counts to the post"},
+    {:quote_count, :integer, [["quote_count"], ["quoteCount"]],
+     "How many posts the service counts quoting the post"},
+    {:labels, {:list, @label}, [["labels"]], "Labels on the post, as the service returned them"},
+    {:author_labels, {:list, @label}, [["author", "labels"]],
+     "Labels on the author's account, including any it applied to itself"}
   ]
 
   @shapes %{
@@ -120,7 +139,9 @@ defmodule AtMcp.Summary do
         {:description, :string, [["description"]], "Profile description"},
         {:followers, :integer, [["followers_count"], ["followersCount"]], "Follower count"},
         {:follows, :integer, [["follows_count"], ["followsCount"]], "Following count"},
-        {:posts, :integer, [["posts_count"], ["postsCount"]], "Post count"}
+        {:posts, :integer, [["posts_count"], ["postsCount"]], "Post count"},
+        {:labels, {:list, @label}, [["labels"]],
+         "Labels on the account, including any it applied to itself"}
       ],
       viewer: [:following, :blocking]
     },

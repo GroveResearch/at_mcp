@@ -9,7 +9,7 @@ defmodule AtMcp.Reading do
   from empty. A model reading a page of posts wants what a person scrolling a
   client sees: who wrote it, when, what it replies to, what it says, and the
   identifiers it needs to act on it (`reply` takes the uri, `like` and `repost`
-  take the uri and cid). Serialized JSON repeats every key on every post, gives
+  take the uri and cid), with the counts and labels a client shows beside it. Serialized JSON repeats every key on every post, gives
   each post's text twice (`text` and `raw_text`), and spends most of a page on
   DIDs, image URLs, facet arrays and `null`s a model never uses.
 
@@ -17,8 +17,9 @@ defmodule AtMcp.Reading do
   returns that text. It reads the result, never the service, so it cannot say
   anything the structured content does not. What it leaves out is still in the
   structured content: author DIDs, `raw_text`, facets, web URLs, image URLs and
-  blob metadata, the record URIs of likes, reposts and follows (which no tool
-  takes), read notifications' `is_read`, and the read limits of a thread.
+  blob metadata, which labeler applied a label, the record URIs of likes,
+  reposts and follows (which no tool takes), read notifications' `is_read`, and
+  the read limits of a thread.
 
   It only drops what is absent. A post's text is never shortened, every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
@@ -131,7 +132,7 @@ defmodule AtMcp.Reading do
           [
             label <> " " <> lines([who(post), post["created_at"], replying(post)], " · ")
             | body(post)
-          ] ++ [ids(post) | viewer(post)],
+          ] ++ [engagement(post), labelled(post), ids(post) | viewer(post)],
           "\n"
         )
 
@@ -234,6 +235,51 @@ defmodule AtMcp.Reading do
     do: "[quoting #{quote["uri"]}: #{status}]"
 
   defp quoted(_quote), do: nil
+
+  # What the service counts on the post, in the words a client shows under it.
+  # A count the response did not carry is left out, not read as zero.
+  defp engagement(post) do
+    counts =
+      for {key, one, many} <- [
+            {"like_count", "like", "likes"},
+            {"repost_count", "repost", "reposts"},
+            {"reply_count", "reply", "replies"},
+            {"quote_count", "quote", "quotes"}
+          ],
+          is_integer(post[key]),
+          do: count(post[key], one, many)
+
+    lines(counts, " · ")
+  end
+
+  # Labels by value. Who applied each is in the structured content; the one
+  # distinction kept here is a label the author applied to itself, such as an
+  # account saying it is a bot.
+  defp labelled(post) do
+    author = post["author_did"]
+
+    lines(
+      [
+        labels("Post labels", post["labels"], author),
+        labels("Author labels", post["author_labels"], author)
+      ],
+      ". "
+    )
+  end
+
+  defp labels(heading, labels, author) when is_list(labels) do
+    case for(%{"val" => val} = label when is_binary(val) <- labels, do: label(label, author)) do
+      [] -> nil
+      values -> heading <> ": " <> Enum.join(values, ", ")
+    end
+  end
+
+  defp labels(_heading, _labels, _author), do: nil
+
+  defp label(%{"val" => val} = label, author) do
+    val = if label["neg"] == true, do: "not " <> val, else: val
+    if is_binary(author) and label["src"] == author, do: val <> " (self-applied)", else: val
+  end
 
   defp ids(post) do
     lines(

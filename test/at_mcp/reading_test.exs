@@ -58,6 +58,60 @@ defmodule AtMcp.ReadingTest do
     assert Map.has_key?(item, "web_url") and Map.has_key?(item, "facets")
   end
 
+  test "a post's counts and labels read as one short line each, labels by value",
+       %{post: post} do
+    did = post["author"]["did"]
+
+    post =
+      post
+      |> Map.merge(%{"likeCount" => 12, "repostCount" => 1, "replyCount" => 5, "quoteCount" => 0})
+      |> Map.put("labels", [%{"src" => "did:plc:labeler", "val" => "graphic-media"}])
+      |> put_in(["author", "labels"], [%{"src" => did, "val" => "bot"}])
+
+    page = %{count: 1, items: [Summary.extract(:post, post)], cursor: nil}
+    {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts))
+
+    # A program reads the same values, as the output schema declares them.
+    [item] = data["items"]
+    assert {item["like_count"], item["quote_count"]} == {12, 0}
+    assert [%{"val" => "bot", "src" => ^did}] = item["author_labels"]
+    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+    schema = Enum.find(tools, &(&1.name == "get_posts")).outputSchema
+    assert AtMcp.Test.Schema.valid?(data, schema)
+    assert schema["properties"]["items"]["items"]["properties"]["author_labels"]
+
+    assert text =~
+             "\n12 likes · 1 repost · 5 replies · 0 quotes\n" <>
+               "Post labels: graphic-media. Author labels: bot (self-applied)\n" <>
+               "uri: #{post["uri"]}"
+  end
+
+  # A response without counts or labels — a placeholder, an older service —
+  # reads exactly as it did before they were read at all.
+  test "a post the service sent without counts or labels reads as before" do
+    post = %{
+      "uri" => "at://did:plc:a/app.bsky.feed.post/1",
+      "cid" => "bafy1",
+      "author" => %{"handle" => "a.test", "did" => "did:plc:a"},
+      "record" => %{"text" => "hello", "createdAt" => "2026-10-01T00:00:00.000Z"}
+    }
+
+    assert AtMcp.Reading.posts(%{
+             "items" => [post |> then(&Summary.extract(:post, &1)) |> json()]
+           }) ==
+             "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\nhello\n" <>
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
+
+    # An empty label list is no labels, not a heading with nothing under it.
+    labelled = post |> Map.put("labels", []) |> put_in(["author", "labels"], [])
+
+    refute AtMcp.Reading.posts(%{
+             "items" => [labelled |> then(&Summary.extract(:post, &1)) |> json()]
+           }) =~ "labels"
+  end
+
+  defp json(summary), do: summary |> Jason.encode!() |> Jason.decode!()
+
   test "a reply notification reads as the reply; a like is one line naming the post it is about",
        %{post: post} do
     reply =
