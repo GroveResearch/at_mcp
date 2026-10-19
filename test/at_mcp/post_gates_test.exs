@@ -268,6 +268,21 @@ defmodule AtMcp.PostGatesTest do
                )
 
       assert message =~ "could not be resolved; give the list's AT URI in DID form"
+
+      # Indexes are the caller's, duplicates included, and one list named
+      # both ways is one rule.
+      assert {:error, {:invalid_argument, "reply_rule/2", _}} =
+               AtMcp.Effects.set_post_interactions(
+                 effects,
+                 @mine,
+                 ["mentioned", "mentioned", "at://nobody.example/app.bsky.graph.list/x"],
+                 nil
+               )
+
+      assert {:ok, %{reply_rule: [@list]}} =
+               AtMcp.Effects.set_post_interactions(effects, @mine, [by_handle, @list], nil)
+
+      assert [%{"list" => @list}] = FakePDS.record(pds, @threadgate)["allow"]
     end
 
     test "a gate edit writes only over the commit it read, and refuses when the repository moved" do
@@ -455,8 +470,10 @@ defmodule AtMcp.PostGatesTest do
       %{effects: effects, pds: pds} =
         pds(%{@mine => post("a reply", %{"reply" => reply_to(root)})})
 
-      assert {:error, {:invalid_argument, "reply_rule", _}} =
-               AtMcp.Effects.set_post_interactions(effects, @mine, ["followers"], nil)
+      for rule <- [["followers"], ["everyone"]] do
+        assert {:error, {:invalid_argument, "reply_rule", _}} =
+                 AtMcp.Effects.set_post_interactions(effects, @mine, rule, nil)
+      end
 
       assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
 

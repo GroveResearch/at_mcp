@@ -9,7 +9,8 @@ defmodule AtMcp.Interactions do
   same repository as the post. The app sets both rules in one dialog, so
   `set_post_interactions` sets both, and `post` can write them with the post.
 
-  A reply rule is `nil` (everyone may reply; the argument `["everyone"]`), `[]`
+  A reply rule is `nil` or `:everyone` (everyone may reply; `:everyone` is the
+  argument `["everyone"]` said outright), `[]`
   (nobody may) or a list of `:mention`, `:following`, `:followers` and
   `{:list, uri}`. A quote rule is `:allowed` or `:disabled`.
 
@@ -80,7 +81,8 @@ defmodule AtMcp.Interactions do
   word from `reply_rule_words/0` or the AT URI of a list record.
   """
   def reply_rule(nil), do: {:ok, nil}
-  def reply_rule(["everyone"]), do: {:ok, nil}
+  # Said, not left out: a reply refuses it as it refuses any other rule.
+  def reply_rule(["everyone"]), do: {:ok, :everyone}
 
   def reply_rule(rules) when is_list(rules) do
     rules
@@ -92,10 +94,11 @@ defmodule AtMcp.Interactions do
       end
     end)
     |> case do
+      # Kept in the order given, duplicates too, so an entry resolved later
+      # (a list named by handle) is refused by its own index. The record
+      # builder writes each rule once.
       {:ok, rules} ->
-        rules = Enum.uniq(rules)
-
-        if length(rules) > @max_rules,
+        if length(Enum.uniq(rules)) > @max_rules,
           do: invalid("reply_rule", "at most #{@max_rules} rules"),
           else: {:ok, rules}
 
@@ -202,6 +205,8 @@ defmodule AtMcp.Interactions do
   def post_options(verb, opts) do
     with :ok <- no_reply_rule(verb, Keyword.get(opts, :reply_rule)),
          {:ok, reply_rule} <- reply_rule(Keyword.get(opts, :reply_rule)),
+         # A new post with no gate is open to everyone already.
+         reply_rule = if(reply_rule == :everyone, do: nil, else: reply_rule),
          {:ok, quotes} <- quotes(Keyword.get(opts, :quotes)),
          {:ok, labels} <- labels(Keyword.get(opts, :labels)),
          {:ok, link} <- link(Keyword.get(opts, :link)),

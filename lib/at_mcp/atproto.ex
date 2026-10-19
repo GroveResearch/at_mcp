@@ -572,7 +572,7 @@ defmodule AtMcp.ATProto do
     }
 
   @doc """
-  A `feed.threadgate` for the post at `post_uri`: who may reply (`allow`: nil
+  A `feed.threadgate` for the post at `post_uri`: who may reply (`allow`: nil or `:everyone`
   for everyone, or the rules `AtMcp.Interactions` reads) and which replies are
   hidden. `allow` may also be `:keep`, which leaves the record's rule as it is.
   `current` is the record the repository holds, or nil; every field
@@ -584,7 +584,10 @@ defmodule AtMcp.ATProto do
   def threadgate_record(post_uri, allow, hidden, current \\ nil) do
     record =
       gate(:threadgate, post_uri, current)
-      |> set_rule("allow", allow, fn rules -> rules && Enum.map(rules, &reply_rule/1) end)
+      |> set_rule("allow", allow, fn
+        :everyone -> nil
+        rules -> rules && rules |> Enum.map(&reply_rule/1) |> Enum.uniq()
+      end)
       |> Map.delete("hiddenReplies")
       |> put_present("hiddenReplies", if(hidden != [], do: hidden))
 
