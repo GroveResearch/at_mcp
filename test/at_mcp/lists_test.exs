@@ -339,15 +339,11 @@ defmodule AtMcp.ListsTest do
       %{effects: effects, pds: pds}
     end
 
-    # The CID the fake PDS gives the record at `uri`.
-    defp cid_of(uri),
-      do: "bafy" <> Base.encode32(:crypto.hash(:sha256, uri), case: :lower, padding: false)
-
     # The one putRecord a call sent: it replaces only the record read, and the
     # record matches its lexicon.
     defp put(pds, uri) do
       assert [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
-      assert body["swapRecord"] == cid_of(uri)
+      assert body["swapRecord"] == FakePDS.cid(uri)
       nsid = String.replace_prefix(body["collection"], "town.delve.", "app.bsky.")
       assert Lexicon.problems(body["record"], nsid) == []
       body["record"]
@@ -602,19 +598,74 @@ defmodule AtMcp.ListsTest do
 
       %{effects: effects} = pds(%{"com.atproto.repo.applyWrites" => swap})
 
-      assert {:error,
-              %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, "uri", message}}} =
-               result = AtMcp.Effects.delete_list(effects, @mine)
+      # A commit swap names no record: the repository moved, whatever moved it.
+      for write <- [
+            &AtMcp.Effects.delete_list(&1, @mine),
+            &AtMcp.Effects.add_to_list(&1, @mine, "did:plc:carol")
+          ] do
+        assert {:error,
+                %AtMcp.Effects.Failure{
+                  kind: :refused,
+                  detail: {:changed_meanwhile, "The account's repository"},
+                  message: message
+                }} = result = write.(effects)
 
-      assert message =~ "#{@mine} changed after it was read, so nothing was written"
+        assert message =~ "The account's repository changed between reading it and writing it"
+        assert message =~ "nothing was written"
 
-      assert {:ok, %{isError: true, structuredContent: %{code: "changed_meanwhile"}}, :state} =
-               AtMcp.MCP.Tools.respond(result, :state)
+        assert {:ok, %{isError: true, structuredContent: %{code: "changed_meanwhile"}}, :state} =
+                 AtMcp.MCP.Tools.respond(result, :state)
+      end
 
+      # A record swap names the record.
       %{effects: effects} = pds(%{"com.atproto.repo.putRecord" => swap})
 
-      assert {:error, %AtMcp.Effects.Failure{detail: {:changed_meanwhile, "uri", _}}} =
+      assert {:error, %AtMcp.Effects.Failure{detail: {:changed_meanwhile, what}}} =
                AtMcp.Effects.update_starter_pack(effects, @my_pack, %{name: "Bots"})
+
+      assert what == "The record at #{@my_pack}"
+    end
+
+    test "a deletion that stops between commits says what the landed ones deleted" do
+      many = Map.new(1..250, &item("m#{&1}", @mine, "did:plc:m#{&1}"))
+      boom = {500, %{error: "InternalServerError", message: "disk full"}}
+
+      %{effects: effects, pds: pds} =
+        pds(%{"com.atproto.repo.applyWrites" => [:default, boom]}, many)
+
+      assert {:error,
+              %AtMcp.Effects.Failure{
+                kind: :refused,
+                status: 500,
+                detail: {:partially_written, deleted, _upstream},
+                message: message
+              }} = result = AtMcp.Effects.delete_list(effects, @mine)
+
+      assert length(deleted) == 200
+      refute @mine in deleted
+      assert message =~ "1 of 2 commits landed"
+      assert message =~ "Whether the next one landed is unknown (disk full)"
+
+      # The second commit names the one the first made, so a change in between
+      # stops it.
+      assert [first, second] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      assert first.body["swapCommit"] == @commit
+      assert second.body["swapCommit"] == FakePDS.cid("commit 1")
+
+      assert {:ok, %{isError: true, structuredContent: %{code: "partially_written"} = sc}, :state} =
+               AtMcp.MCP.Tools.respond(result, :state)
+
+      assert sc.deleted == deleted
+    end
+
+    test "a name too long for a list even by its first character is cut at a codepoint" do
+      %{effects: effects, pds: pds} = pds()
+      name = "e" <> String.duplicate("\u0301", 40)
+
+      assert {:ok, _} = AtMcp.Effects.create_starter_pack(effects, %{name: name})
+      assert [list, _pack] = committed(pds)
+
+      assert list["value"]["name"] == "e" <> String.duplicate("\u0301", 31)
     end
 
     test "update_starter_pack keeps its list, and an empty feeds list removes the feeds" do
@@ -759,6 +810,20 @@ defmodule AtMcp.ListsTest do
 
       assert [%{query: %{"starterPack" => "at://did:plc:alice/town.delve.graph.starterpack/p1"}}] =
                FakePDS.sent(pds, "town.delve.graph.getStarterPack")
+    end
+
+    test "a list's feed named with a handle is asked for in DID form" do
+      %{effects: effects, pds: pds} =
+        pds(%{
+          "com.atproto.identity.resolveHandle" => {200, %{did: @alice}},
+          "town.delve.feed.getListFeed" => {200, %{feed: []}}
+        })
+
+      assert {:ok, _} =
+               AtMcp.Effects.get_list_feed(effects, "at://alice.test/town.delve.graph.list/l1")
+
+      assert [%{query: %{"list" => "at://did:plc:alice/town.delve.graph.list/l1"}}] =
+               FakePDS.sent(pds, "town.delve.feed.getListFeed")
     end
 
     test "reads ask this network's methods, with the purpose the service takes" do

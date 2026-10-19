@@ -412,7 +412,8 @@ defmodule AtMcp.Effects do
 
   def get_list_feed(effects, list, opts \\ []) when is_binary(list) do
     paged(effects, opts, fn backend, session, opts ->
-      backend.get_list_feed(session, list, opts)
+      with {:ok, list} <- did_uri(backend, session, list),
+           do: backend.get_list_feed(session, list, opts)
     end)
   end
 
@@ -625,7 +626,7 @@ defmodule AtMcp.Effects do
             backend.get_lists_with_membership(session, contains, page)
 
           true ->
-            invalid_argument(
+            invalid(
               "actor",
               "with contains, the lists read are this account's own, so leave actor out"
             )
@@ -686,7 +687,7 @@ defmodule AtMcp.Effects do
         end)
 
       _ ->
-        invalid_argument(
+        invalid(
           "query",
           "give exactly one of actor, query or contains; this call gave #{given_names(given)}"
         )
@@ -792,7 +793,7 @@ defmodule AtMcp.Effects do
          :ok <-
            if(length(actors) > max,
              do:
-               invalid_argument(
+               invalid(
                  "actors",
                  "a starter pack is made in one commit, which holds at most #{max} accounts; this call gave #{length(actors)}"
                ),
@@ -860,7 +861,7 @@ defmodule AtMcp.Effects do
          :ok <-
            if(is_boolean(opted_out),
              do: :ok,
-             else: invalid_argument("opted_out", "must be true or false")
+             else: invalid("opted_out", "must be true or false")
            ) do
       list_write(effects, :set_list_opt_out, fn backend, session ->
         with {:ok, list} <- did_uri(backend, session, list),
@@ -905,7 +906,7 @@ defmodule AtMcp.Effects do
   defp list_purpose(purpose) do
     case Map.fetch(@list_purposes, purpose) do
       {:ok, token} -> {:ok, token}
-      :error -> invalid_argument("purpose", "must be curate or moderation")
+      :error -> invalid("purpose", "must be curate or moderation")
     end
   end
 
@@ -937,16 +938,16 @@ defmodule AtMcp.Effects do
 
     cond do
       not String.valid?(text) ->
-        invalid_argument(field, "must be valid UTF-8")
+        invalid(field, "must be valid UTF-8")
 
       byte_size(text) < min ->
-        invalid_argument(field, "must not be empty")
+        invalid(field, "must not be empty")
 
       byte_size(text) > bytes ->
-        invalid_argument(field, "may be at most #{bytes} bytes; this is #{byte_size(text)}")
+        invalid(field, "may be at most #{bytes} bytes; this is #{byte_size(text)}")
 
       graphemes && String.length(text) > graphemes ->
-        invalid_argument(
+        invalid(
           field,
           "may be at most #{graphemes} characters; this is #{String.length(text)}"
         )
@@ -956,7 +957,7 @@ defmodule AtMcp.Effects do
     end
   end
 
-  defp text_argument(_other, field, _kind), do: invalid_argument(field, "must be a string")
+  defp text_argument(_other, field, _kind), do: invalid(field, "must be a string")
 
   # `graph.list` takes a PNG or JPEG avatar of at most 1,000,000 bytes.
   @avatar_types ["image/png", "image/jpeg"]
@@ -967,10 +968,10 @@ defmodule AtMcp.Effects do
   defp list_avatar(%{data: data, mime_type: type}) do
     cond do
       type not in @avatar_types ->
-        invalid_argument("avatar", "must be image/png or image/jpeg; this is #{type}")
+        invalid("avatar", "must be image/png or image/jpeg; this is #{type}")
 
       byte_size(data) > @avatar_bytes ->
-        invalid_argument(
+        invalid(
           "avatar",
           "may be at most #{@avatar_bytes} bytes; this is #{byte_size(data)}"
         )
@@ -986,7 +987,7 @@ defmodule AtMcp.Effects do
   defp pack_feeds(feeds) when is_list(feeds) do
     cond do
       length(feeds) > 3 ->
-        invalid_argument("feeds", "a starter pack recommends at most 3 feeds")
+        invalid("feeds", "a starter pack recommends at most 3 feeds")
 
       true ->
         Enum.reduce_while(feeds, :ok, fn feed, :ok ->
@@ -1001,7 +1002,7 @@ defmodule AtMcp.Effects do
   defp some_change(changes, names) do
     if Enum.any?(changes, fn {_key, value} -> not is_nil(value) end),
       do: :ok,
-      else: invalid_argument("name", "give #{names} to change")
+      else: invalid("name", "give #{names} to change")
   end
 
   # A tool argument that names a record: an AT URI whose collection is one of
@@ -1013,13 +1014,13 @@ defmodule AtMcp.Effects do
         if Enum.any?(kinds, &AtMcp.Network.collection?(collection, &1)),
           do: {:ok, parts},
           else:
-            invalid_argument(
+            invalid(
               field,
               "must be the AT URI of #{what}; #{uri} is a #{collection} record"
             )
 
       {:error, _} ->
-        invalid_argument(
+        invalid(
           field,
           "must be an AT URI of the form at://<handle or DID>/<collection>/<rkey>"
         )
@@ -1027,7 +1028,7 @@ defmodule AtMcp.Effects do
   end
 
   defp record_argument(_uri, field, _kinds, what),
-    do: invalid_argument(field, "must be the AT URI of #{what}")
+    do: invalid(field, "must be the AT URI of #{what}")
 
   # A record this account edits: in its own repository, named by its DID or the
   # handle the session holds. Answered as the URI in DID form, which is how
@@ -1035,7 +1036,7 @@ defmodule AtMcp.Effects do
   defp own_record(session, {repo, collection, rkey}, field, what) do
     if own_actor?(session, repo),
       do: {:ok, "at://#{did_of(session)}/#{collection}/#{rkey}"},
-      else: invalid_argument(field, "#{what}; #{repo} is another account")
+      else: invalid(field, "#{what}; #{repo} is another account")
   end
 
   defp own_actor?(session, actor) do
@@ -1052,7 +1053,122 @@ defmodule AtMcp.Effects do
 
   defp present(_value), do: nil
 
-  defp invalid_argument(field, message), do: {:error, {:invalid_argument, field, message}}
+  # --- pins, thread mutes and bookmarks ---
+
+  @doc """
+  Pin one of this account's posts to its profile, replacing any pin it had.
+  The post is read for its CID and the profile for the fields the pin keeps,
+  before anything is sent; a post in another account's repository is refused
+  then too.
+  """
+  def pin_post(effects, uri) when is_binary(uri) do
+    with {:ok, {repo, _rkey}} <- post_uri(uri, "uri") do
+      take_and_write(
+        effects,
+        :pin_post,
+        fn backend, session ->
+          with :ok <- own_repo(session, repo, "uri", "pin_post pins a post this account wrote") do
+            backend.prepare_pin(session, uri)
+          end
+        end,
+        fn prepared -> fn backend, session -> backend.pin(session, prepared) end end
+      )
+    end
+  end
+
+  @doc "Remove the pin from this account's profile. A profile with no pin is left unwritten."
+  def unpin_post(effects) do
+    take_and_write(
+      effects,
+      :unpin_post,
+      fn backend, session -> backend.prepare_pin(session, nil) end,
+      fn prepared -> fn backend, session -> backend.pin(session, prepared) end end
+    )
+  end
+
+  @doc """
+  Mute the thread a post is in. Any post of the thread names it: the post is
+  read for its thread's root before anything is sent, because the service
+  mutes threads by their root.
+  """
+  def mute_thread(effects, uri) when is_binary(uri), do: thread_mute(effects, :mute_thread, uri)
+
+  def unmute_thread(effects, uri) when is_binary(uri),
+    do: thread_mute(effects, :unmute_thread, uri)
+
+  defp thread_mute(effects, verb, uri) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      take_and_write(
+        effects,
+        verb,
+        fn backend, session -> backend.resolve_post(session, uri) end,
+        fn %{root: root} -> fn backend, session -> apply(backend, verb, [session, root]) end end
+      )
+    end
+  end
+
+  @doc "Bookmark a post, privately. The post is read for its CID first."
+  def bookmark(effects, uri) when is_binary(uri) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      take_and_write(
+        effects,
+        :bookmark,
+        fn backend, session -> backend.resolve_post(session, uri) end,
+        fn ref -> fn backend, session -> backend.bookmark(session, ref) end end
+      )
+    end
+  end
+
+  @doc """
+  Remove a bookmark. The service keeps a bookmark under the DID-form address
+  of its post and deletes nothing for any other string, while answering as if
+  it had, so a handle-form address is resolved to its DID first. The post
+  itself is not read: a bookmark of a deleted post must still be removable.
+  """
+  def unbookmark(effects, uri) when is_binary(uri) do
+    with {:ok, {repo, rkey}} <- post_uri(uri, "uri") do
+      {:ok, {_, collection, _}} = AtMcp.ATProto.parse_uri(uri)
+
+      take_and_write(
+        effects,
+        :unbookmark,
+        fn backend, session ->
+          with {:ok, did} <- backend.resolve_actor(session, repo),
+               do: {:ok, "at://#{did}/#{collection}/#{rkey}"}
+        end,
+        fn uri -> fn backend, session -> backend.unbookmark(session, uri) end end
+      )
+    end
+  end
+
+  def get_bookmarks(effects, opts \\ []) do
+    paged(effects, opts, fn backend, session, opts -> backend.get_bookmarks(session, opts) end)
+  end
+
+  # A tool argument that names a post, checked before a session is taken: an
+  # AT URI whose collection is a post on either network. What is wrong is said
+  # about the argument by name, so a caller can fix the call.
+  defp post_uri(uri, field) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {repo, collection, rkey}} ->
+        if AtMcp.Network.collection?(collection, :post),
+          do: {:ok, {repo, rkey}},
+          else: invalid(field, "must be the AT URI of a post; #{uri} is a #{collection} record")
+
+      {:error, _} ->
+        invalid(field, "must be an AT URI of the form at://<handle or DID>/<collection>/<rkey>")
+    end
+  end
+
+  # Whether a record's repository is this account's, by DID or by the handle
+  # the session holds. Checked with the session, before anything is sent.
+  defp own_repo(session, repo, field, what) do
+    if own_actor?(session, repo),
+      do: :ok,
+      else: invalid(field, "#{what}; #{repo} is another account")
+  end
+
+  defp invalid(field, message), do: {:error, {:invalid_argument, field, message}}
 
   @doc """
   How long one account call may take, in milliseconds, from the moment it asks

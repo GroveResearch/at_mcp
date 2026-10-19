@@ -172,6 +172,31 @@ defmodule AtMcp.ATProto do
   def unmute_actor(session, params),
     do: write(session, "graph.unmuteActor", params, actor: {:required, :string})
 
+  # A thread mute is AppView state, like an account mute: a method named by the
+  # thread's root post, not a record.
+  def mute_thread(session, params),
+    do: write(session, "graph.muteThread", params, root: {:required, :string})
+
+  def unmute_thread(session, params),
+    do: write(session, "graph.unmuteThread", params, root: {:required, :string})
+
+  # --- bookmarks ---
+
+  # Bookmarks are private, kept by the AppView rather than in the repository,
+  # so they move with the namespace like a read does.
+  def create_bookmark(session, params),
+    do:
+      write(session, "bookmark.createBookmark", params,
+        uri: {:required, :string},
+        cid: {:required, :string}
+      )
+
+  def delete_bookmark(session, params),
+    do: write(session, "bookmark.deleteBookmark", params, uri: {:required, :string})
+
+  def get_bookmarks(session, params),
+    do: read(session, "bookmark.getBookmarks", params, @page)
+
   # --- graph reads ---
 
   def get_followers(session, params),
@@ -387,9 +412,8 @@ defmodule AtMcp.ATProto do
     record: {:required, :any}
   }
 
-  # `swapRecord` is the CID of the record a replacement was built from: the PDS
-  # refuses the write if the record has changed since.
-  @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swapRecord, :string)
+  # `swapRecord` is the CID the record must still have for the write to apply.
+  @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swap_record, :string)
 
   @repo_delete %{
     repo: {:required, :string},
@@ -448,27 +472,48 @@ defmodule AtMcp.ATProto do
     do: query(session, "com.atproto.repo.listRecords", @repo_list, params)
 
   @doc """
-  Create, replace and delete several records in one repository commit: all of
-  them land or none does. `writes` are built by `create_write/3`,
-  `update_write/3` and `delete_write/2`; an optional `swapCommit` names the
-  commit the writes were built against.
+  Create, update and delete several records in one commit: all of them land,
+  or none does. `writes` are `{:create | :update, collection, rkey, record}`
+  and `{:delete, collection, rkey}`.
   """
-  def apply_writes(session, params),
-    do:
-      procedure(
-        session,
-        "com.atproto.repo.applyWrites",
-        %{repo: {:required, :string}, writes: {:required, :any}, swapCommit: :string},
-        params
-      )
+  def apply_writes(session, repo, writes, opts \\ []) when is_list(writes) do
+    params = %{repo: repo, writes: Enum.map(writes, &repo_write/1)}
 
-  @doc """
-  The repository's latest commit. A write built from several reads names it
-  as `swapCommit`, so the PDS refuses the write if the repository changed
-  after the reads began.
-  """
-  def get_latest_commit(session, params),
-    do: query(session, "com.atproto.sync.getLatestCommit", %{did: {:required, :string}}, params)
+    # `swapCommit`: the repository commit the writes were built over. The
+    # service applies none of them if the repository has moved on since.
+    params =
+      case Keyword.get(opts, :swap_commit) do
+        nil -> params
+        commit -> Map.put(params, :swap_commit, commit)
+      end
+
+    procedure(
+      session,
+      "com.atproto.repo.applyWrites",
+      %{repo: {:required, :string}, writes: {:required, :any}, swap_commit: :string},
+      params
+    )
+  end
+
+  @doc "The repository's current commit: `%{cid, rev}`."
+  def get_latest_commit(session, did),
+    do:
+      query(session, "com.atproto.sync.getLatestCommit", %{did: {:required, :string}}, %{did: did})
+
+  defp repo_write({op, collection, rkey, record}) when op in [:create, :update],
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites##{op}",
+      "collection" => collection,
+      "rkey" => rkey,
+      "value" => record
+    }
+
+  defp repo_write({:delete, collection, rkey}),
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites#delete",
+      "collection" => collection,
+      "rkey" => rkey
+    }
 
   # The most writes one `applyWrites` takes. The lexicon declares no bound;
   # the reference PDS refuses more than 200 ("Too many writes. Max: 200", in
@@ -476,34 +521,8 @@ defmodule AtMcp.ATProto do
   # every network's accounts write through.
   @max_writes 200
 
-  @doc "The most writes one `apply_writes/2` call carries."
+  @doc "The most writes one `apply_writes/4` call carries."
   def max_writes, do: @max_writes
-
-  @doc "One `applyWrites` create of `record` in `kind`'s collection at `rkey`."
-  def create_write(kind, rkey, record),
-    do: %{
-      "$type" => "com.atproto.repo.applyWrites#create",
-      "collection" => AtMcp.Network.collection(kind),
-      "rkey" => rkey,
-      "value" => record
-    }
-
-  @doc "One `applyWrites` replacement of the record at `rkey` in `collection`."
-  def update_write(collection, rkey, record),
-    do: %{
-      "$type" => "com.atproto.repo.applyWrites#update",
-      "collection" => collection,
-      "rkey" => rkey,
-      "value" => record
-    }
-
-  @doc "One `applyWrites` deletion of the record at `rkey` in `collection`."
-  def delete_write(collection, rkey),
-    do: %{
-      "$type" => "com.atproto.repo.applyWrites#delete",
-      "collection" => collection,
-      "rkey" => rkey
-    }
 
   @tid_alphabet "234567abcdefghijklmnopqrstuvwxyz"
 
@@ -698,6 +717,19 @@ defmodule AtMcp.ATProto do
   @doc "A starter pack's `feeds`: one object per feed generator AT URI."
   def pack_feeds(nil), do: nil
   def pack_feeds(uris) when is_list(uris), do: Enum.map(uris, &%{"uri" => &1})
+
+  @doc """
+  The account's `actor.profile` record with `pinnedPost` set to a strong
+  reference, or removed when `pinned` is nil. Every other field of `current`
+  is kept.
+  """
+  def pinned_profile_record(current, pinned) when is_map(current) do
+    current
+    |> wire_record()
+    |> Map.delete("pinnedPost")
+    |> put_present("pinnedPost", pinned && strong_ref(pinned))
+    |> profile_record()
+  end
 
   @doc """
   A record read back from the service, in the keys it is written with.

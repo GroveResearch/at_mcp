@@ -77,7 +77,13 @@ defmodule AtMcp.PublishingQuotaTest do
     "set_list_opt_out" => %{
       "list" => "at://did:plc:x/app.bsky.graph.starterpack/p",
       "opted_out" => true
-    }
+    },
+    "pin_post" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
+    "unpin_post" => %{},
+    "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unmute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "bookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"}
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

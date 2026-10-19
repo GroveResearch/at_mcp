@@ -21,6 +21,32 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "wrong_record_kind", failure.message)
 
+  # A compare-and-swap write the service refused because the record changed
+  # after AtMcp read it. Nothing was written; the message says what changed.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, _}} = failure},
+        state
+      ),
+      do: error(state, "changed_meanwhile", "error: " <> failure.message)
+
+  # A deletion too large for one commit that stopped part way: the commits
+  # that landed deleted `deleted`, and the message says what became of the
+  # next one, in the service's words.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:partially_written, deleted, _}} =
+           failure},
+        state
+      ),
+      do:
+        error(
+          state,
+          "partially_written",
+          "error: " <> failure.message,
+          Map.reject(%{deleted: deleted, http_status: failure.status}, fn {_, v} -> is_nil(v) end)
+        )
+
   def respond({:error, :not_connected}, state),
     do:
       error(
@@ -180,22 +206,6 @@ defmodule AtMcp.MCP.Tools do
       state,
       "invalid_arguments",
       "error: #{path}: #{message}. Nothing was sent and nothing was counted against the write quota.",
-      %{problems: [%{path: path, message: message}]}
-    )
-  end
-
-  # A write built from what it read, refused by the service because that
-  # changed before the write arrived. Nothing was written; the argument names
-  # what changed.
-  def respond(
-        {:error,
-         %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, path, message}}},
-        state
-      ) do
-    error(
-      state,
-      "changed_meanwhile",
-      "error: #{path}: #{message}. Nothing was counted against the write quota.",
       %{problems: [%{path: path, message: message}]}
     )
   end

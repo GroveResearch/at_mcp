@@ -6,11 +6,15 @@ defmodule AtMcp.Test.FakePDS do
   `start/1` takes the records the repository holds, as
   `%{"at://repo/collection/rkey" => value}`, and `answers`, a map from an XRPC
   method to `{status, body}` that replaces the default answer. `getRecord`
-  answers from the records, and 400 `RecordNotFound` for one it does not hold;
-  `listRecords` answers one page of a collection's. Both name a record by its
-  DID-form URI, as a real PDS does.
+  answers from the records, and 400 `RecordNotFound` for one it does not hold.
+  Records are kept under DID-form addresses; `getRecord` named by a handle in
+  `handles` (`%{handle => did}`, the session's own handle included) answers
+  with the DID-form uri, as a real PDS does, and `resolveHandle` resolves them.
+  `listRecords` answers one page of a collection's, by DID-form uri.
   `createRecord`, `putRecord`, `deleteRecord` and `applyWrites` change them, so a
-  test can read back what a write left. Any other method answers `{}`.
+  test can read back what a write left. Any other method answers `{}`. An
+  answer may be a list, taken one per call, `:default` standing for the PDS's
+  own.
   """
   import Plug.Conn
 
@@ -23,6 +27,8 @@ defmodule AtMcp.Test.FakePDS do
            %{
              calls: [],
              records: Keyword.get(opts, :records, %{}),
+             handles:
+               Map.merge(%{"self.example" => "did:plc:self"}, Keyword.get(opts, :handles, %{})),
              answers: Keyword.get(opts, :answers, %{})
            }
          end},
@@ -79,9 +85,9 @@ defmodule AtMcp.Test.FakePDS do
     Agent.update(state, &%{&1 | calls: &1.calls ++ [call]})
 
     {status, answer} =
-      case Agent.get(state, &Map.fetch(&1.answers, method)) do
-        {:ok, answer} -> answer
-        :error -> Agent.get_and_update(state, &answer(method, call, &1))
+      case Agent.get_and_update(state, &given_answer(&1, method)) do
+        :default -> Agent.get_and_update(state, &answer(method, call, &1))
+        answer -> answer
       end
 
     conn
@@ -90,7 +96,8 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   defp answer("com.atproto.repo.getRecord", %{query: q}, state) do
-    uri = "at://#{did(q["repo"])}/#{q["collection"]}/#{q["rkey"]}"
+    repo = Map.get(state.handles, q["repo"], q["repo"])
+    uri = "at://#{repo}/#{q["collection"]}/#{q["rkey"]}"
 
     case Map.fetch(state.records, uri) do
       {:ok, value} ->
@@ -131,27 +138,51 @@ defmodule AtMcp.Test.FakePDS do
         end
       end)
 
-    {{200, %{results: results}}, %{state | records: records}}
+    # Each commit is a new one, named by its place among the applyWrites calls.
+    n = Enum.count(state.calls, &(&1.method == "com.atproto.repo.applyWrites"))
+    commit = %{cid: cid("commit #{n}"), rev: "rev#{n}"}
+    {{200, %{results: results, commit: commit}}, %{state | records: records}}
   end
 
   defp answer("com.atproto.repo.listRecords", %{query: q}, state) do
-    prefix = "at://#{did(q["repo"])}/#{q["collection"]}/"
+    prefix = "at://#{Map.get(state.handles, q["repo"], q["repo"])}/#{q["collection"]}/"
 
-    records =
+    # One page of `limit` (default 50) after the uri `cursor` names.
+    limit = String.to_integer(q["limit"] || "50")
+
+    all =
       for {uri, value} <- Enum.sort(state.records),
           String.starts_with?(uri, prefix),
+          q["cursor"] in [nil, ""] or uri > q["cursor"],
           do: %{uri: uri, cid: cid(uri), value: value}
 
-    {{200, %{records: records}}, state}
+    {page, rest} = Enum.split(all, limit)
+    cursor = if rest != [], do: List.last(page).uri
+
+    {{200, Map.reject(%{records: page, cursor: cursor}, fn {_, v} -> is_nil(v) end)}, state}
+  end
+
+  defp answer("com.atproto.identity.resolveHandle", %{query: %{"handle" => handle}}, state) do
+    case Map.fetch(state.handles, handle) do
+      {:ok, did} -> {{200, %{did: did}}, state}
+      :error -> {{400, %{error: "InvalidRequest", message: "Unable to resolve handle"}}, state}
+    end
   end
 
   defp answer(_method, _call, state), do: {{200, %{}}, state}
 
-  # A real PDS answers with a record's URI in DID form, whichever form the
-  # repository was named in.
-  defp did("self.example"), do: "did:plc:self"
-  defp did(repo), do: repo
+  # A given answer, or a list of them taken one per call (`:default` for the
+  # PDS's own) until the last, which stays.
+  defp given_answer(state, method) do
+    case Map.fetch(state.answers, method) do
+      {:ok, [answer]} -> {answer, state}
+      {:ok, [answer | rest]} -> {answer, put_in(state.answers[method], rest)}
+      {:ok, answer} -> {answer, state}
+      :error -> {:default, state}
+    end
+  end
 
-  defp cid(uri),
+  @doc "The CID the PDS gives the record at `uri`."
+  def cid(uri),
     do: "bafy" <> Base.encode32(:crypto.hash(:sha256, uri), case: :lower, padding: false)
 end

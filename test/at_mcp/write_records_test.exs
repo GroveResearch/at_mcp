@@ -48,7 +48,8 @@ defmodule AtMcp.WriteRecordsTest do
 
     defp response("com.atproto.repo.getRecord", conn) do
       %{
-        uri: "at://#{conn.query_params["repo"]}/#{conn.query_params["collection"]}/x",
+        uri:
+          "at://#{conn.query_params["repo"]}/#{conn.query_params["collection"]}/#{conn.query_params["rkey"]}",
         cid: "bafyreiparent",
         value: %{
           text: "parent",
@@ -592,6 +593,8 @@ defmodule AtMcp.WriteRecordsTest do
       # round trip as `display_name` is a field the lexicon does not define.
       refute Map.has_key?(written.body["record"], "display_name")
       assert written.body["record"]["pinnedPost"] == "at://kept"
+      # Written only over the record it was built from.
+      assert written.body["swapRecord"] == "bafyreiparent"
     end
 
     @tag :tmp_dir

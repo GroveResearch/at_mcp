@@ -197,4 +197,28 @@ defmodule AtMcp.Effects.Backend do
   @callback delete_post(state(), post_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback update_profile(state(), updates :: keyword()) :: {:ok, summary()} | {:error, reason()}
   @callback update_seen(state(), seen_at :: DateTime.t()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read one post before a write that names it: `%{uri, cid, root}`, where
+  `root` is the uri of its thread's first post (its own uri when it is not a
+  reply). Like `resolve_references/2`, it runs before anything is sent, and a
+  post the service will not hand over is `{:referenced_record_unreadable, uri}`.
+  """
+  @callback resolve_post(state(), uri :: String.t()) :: {:ok, map()} | {:error, reason()}
+
+  @doc """
+  Build the profile record that pins the post at `uri`, or that pins nothing
+  when `uri` is nil, keeping every other field. Nothing is sent; the result
+  is passed to `pin/2` unchanged.
+  """
+  @callback prepare_pin(state(), uri :: String.t() | nil) :: {:ok, term()} | {:error, reason()}
+  @callback pin(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
+
+  # `mute_thread` and `unmute_thread` take the root uri `resolve_post/2` returned.
+  @callback mute_thread(state(), root :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback unmute_thread(state(), root :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  # `bookmark` takes the strong reference `resolve_post/2` returned.
+  @callback bookmark(state(), ref :: map()) :: {:ok, summary()} | {:error, reason()}
+  @callback unbookmark(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback get_bookmarks(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}
 end

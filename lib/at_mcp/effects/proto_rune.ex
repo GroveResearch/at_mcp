@@ -649,7 +649,7 @@ defmodule AtMcp.Effects.ProtoRune do
         )
 
       prepared(
-        [AtMcp.ATProto.create_write(:list, rkey, record)],
+        [new_record(:list, rkey, record)],
         %{
           action: :create_list,
           uri: own_uri(session, :list, rkey),
@@ -688,8 +688,7 @@ defmodule AtMcp.Effects.ProtoRune do
       prepared(
         Enum.map(items ++ [uri], &removal/1),
         %{action: :delete_list, uri: uri, deleted: items ++ [uri]},
-        swap_commit: commit,
-        field: "uri"
+        swap_commit: commit
       )
     end
   end
@@ -708,15 +707,14 @@ defmodule AtMcp.Effects.ProtoRune do
           record = AtMcp.ATProto.list_item_record(subject: did, list: list)
 
           prepared(
-            [AtMcp.ATProto.create_write(:list_item, rkey, record)],
+            [new_record(:list_item, rkey, record)],
             %{
               action: :add_to_list,
               uri: own_uri(session, :list_item, rkey),
               list: list,
               actor: did
             },
-            swap_commit: commit,
-            field: "list"
+            swap_commit: commit
           )
       end
     end
@@ -734,8 +732,7 @@ defmodule AtMcp.Effects.ProtoRune do
           prepared(
             Enum.map(items, &removal/1),
             %{action: :remove_from_list, uri: first, list: list, actor: did, deleted: items},
-            swap_commit: commit,
-            field: "list"
+            swap_commit: commit
           )
       end
     end
@@ -748,7 +745,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
     items =
       Enum.zip_with(dids, item_rkeys, fn did, rkey ->
-        AtMcp.ATProto.create_write(
+        new_record(
           :list_item,
           rkey,
           AtMcp.ATProto.list_item_record(subject: did, list: list)
@@ -770,13 +767,13 @@ defmodule AtMcp.Effects.ProtoRune do
 
     prepared(
       [
-        AtMcp.ATProto.create_write(
+        new_record(
           :list,
           list_rkey,
           AtMcp.ATProto.list_record(name: list_name, purpose: :referencelist)
         )
         | items
-      ] ++ [AtMcp.ATProto.create_write(:starter_pack, pack_rkey, pack)],
+      ] ++ [new_record(:starter_pack, pack_rkey, pack)],
       %{
         action: :create_starter_pack,
         uri: own_uri(session, :starter_pack, pack_rkey),
@@ -827,8 +824,7 @@ defmodule AtMcp.Effects.ProtoRune do
         prepared(
           Enum.map(deleted, &removal/1),
           %{action: :delete_starter_pack, uri: uri, list: list, deleted: deleted},
-          swap_commit: commit,
-          field: "uri"
+          swap_commit: commit
         )
       end
     end
@@ -850,7 +846,7 @@ defmodule AtMcp.Effects.ProtoRune do
         # AppView's `viewer.referenceListOptOut` can lag a record just written.
         with {:ok, existing} <-
                own_records(session, :list_opt_out, &(string_value(&1, :subject) == list_uri)) do
-          swap = [swap_commit: commit, field: "list"]
+          swap = [swap_commit: commit]
 
           case {opted_out, existing} do
             {true, [first | _]} ->
@@ -861,7 +857,7 @@ defmodule AtMcp.Effects.ProtoRune do
               record = AtMcp.ATProto.list_opt_out_record(subject: list_uri)
 
               prepared(
-                [AtMcp.ATProto.create_write(:list_opt_out, rkey, record)],
+                [new_record(:list_opt_out, rkey, record)],
                 Map.put(result, :uri, own_uri(session, :list_opt_out, rkey)),
                 swap
               )
@@ -881,13 +877,20 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  # As many whole graphemes of `text` as fit in `bytes`.
+  # As many whole graphemes of `text` as fit in `bytes`, or, when not even the
+  # first grapheme fits (a letter under dozens of combining marks), as many
+  # whole codepoints: a name is never cut to nothing, nor inside a character.
   defp fit_bytes(text, bytes) do
-    text
-    |> String.graphemes()
-    |> Enum.reduce_while("", fn grapheme, kept ->
-      if byte_size(kept) + byte_size(grapheme) <= bytes,
-        do: {:cont, kept <> grapheme},
+    case fit(String.graphemes(text), bytes) do
+      "" -> fit(String.codepoints(text), bytes)
+      fitted -> fitted
+    end
+  end
+
+  defp fit(parts, bytes) do
+    Enum.reduce_while(parts, "", fn part, kept ->
+      if byte_size(kept) + byte_size(part) <= bytes,
+        do: {:cont, kept <> part},
         else: {:halt, kept}
     end)
   end
@@ -897,7 +900,7 @@ defmodule AtMcp.Effects.ProtoRune do
     do: {:ok, Map.put(result, :ok, true)}
 
   # A record rebuilt from the one read, replaced only if it is still that one.
-  def write_list(session, %{put: %{uri: uri, record: record, swap: cid}, result: result} = p) do
+  def write_list(session, %{put: %{uri: uri, record: record, swap: cid}, result: result}) do
     {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
 
     params =
@@ -906,56 +909,53 @@ defmodule AtMcp.Effects.ProtoRune do
         collection: collection,
         rkey: rkey,
         record: record,
-        swapRecord: cid
+        swap_record: cid
       })
 
     case AtMcp.ATProto.put_record(session, params) do
       {:ok, response} ->
         {:ok, result |> Map.put(:ok, true) |> Map.put(:cid, string_value(response, :cid))}
 
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The record at #{uri}")}
+
       {:error, reason} ->
-        {:error, swap_failure(failure(reason), p.field, uri)}
+        {:error, failure(reason)}
     end
   end
 
   # One commit, or, for a deletion larger than one commit takes, several in
-  # order. Once one has landed, a later failure leaves part of the deletion
-  # done, so it is an unknown outcome rather than a refusal, and it says which
-  # records the landed commits deleted. Only the first commit names the commit
-  # the reads began at: each that lands moves it on.
+  # order. The first names the commit the reads began at, and each later one
+  # the commit the one before it made, so a change made meanwhile stops the
+  # rest. Once one has landed, a later failure leaves part of the deletion
+  # done: that is said, with the records the landed commits deleted.
   def write_list(session, %{writes: writes, result: result} = p) do
     batches = Enum.chunk_every(writes, AtMcp.ATProto.max_writes())
 
     batches
     |> Enum.with_index()
-    |> Enum.reduce_while({:ok, [], []}, fn {batch, index}, {:ok, done, gone} ->
-      params =
-        AtMcp.ATProto.params(%{
-          repo: session.did,
-          writes: batch,
-          swapCommit: if(index == 0, do: p.swap_commit)
-        })
-
-      case AtMcp.ATProto.apply_writes(session, params) do
+    |> Enum.reduce_while({:ok, [], [], p.swap_commit}, fn {batch, index},
+                                                          {:ok, done, gone, commit} ->
+      case AtMcp.ATProto.apply_writes(session, session.did, batch, swap_commit: commit) do
         {:ok, response} ->
-          {:cont, {:ok, done ++ write_results(response), gone ++ deletions(session, batch)}}
+          {:cont,
+           {:ok, done ++ write_results(response), gone ++ deletions(session, batch),
+            commit_of(response)}}
+
+        {:error, %ProtoRune.XRPC.Error{reason: reason}}
+        when index == 0 and reason in [:invalid_swap, "invalid_swap"] ->
+          {:halt, {:error, changed_meanwhile("The account's repository")}}
 
         {:error, reason} when index == 0 ->
-          {:halt, {:error, swap_failure(failure(reason), p.field, result[:uri])}}
+          {:halt, {:error, failure(reason)}}
 
         {:error, reason} ->
-          {:halt,
-           {:error,
-            AtMcp.Effects.Failure.new(:indeterminate,
-              message:
-                "#{index} of #{length(batches)} commits landed before the service failed, so part of this was written. " <>
-                  "Deleted: #{Enum.join(gone, ", ")}.",
-              detail: failure(reason)
-            )}}
+          {:halt, {:error, partially_written(failure(reason), gone, index, length(batches))}}
       end
     end)
     |> case do
-      {:ok, results, _gone} ->
+      {:ok, results, _gone, _commit} ->
         cid = Enum.find_value(results, &(&1.uri == result[:uri] && &1.cid))
         {:ok, result |> Map.put(:ok, true) |> Map.put(:cid, cid)}
 
@@ -964,16 +964,36 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # Part of a deletion landed and the rest did not, or may not have. It is
+  # reported as what it is, with the records already deleted and what the
+  # service said about the commit that did not land; calling again deletes what
+  # is left.
+  defp partially_written(upstream, deleted, landed, total) do
+    rest =
+      if upstream.kind == :indeterminate,
+        do: "Whether the next one landed is unknown",
+        else: "The next one was refused"
+
+    said = if upstream.message, do: " (#{upstream.message})", else: ""
+
+    AtMcp.Effects.Failure.new(:refused,
+      status: upstream.status,
+      message:
+        "#{landed} of #{total} commits landed, deleting #{Enum.join(deleted, ", ")}. " <>
+          "#{rest}#{said}. Call again to delete what is left.",
+      detail: {:partially_written, deleted, upstream}
+    )
+  end
+
+  defp commit_of(response) do
+    case AtMcp.Response.dig(response, [:commit, :cid]) do
+      cid when is_binary(cid) -> cid
+      _ -> nil
+    end
+  end
+
   defp prepared(writes, result, swap \\ []),
-    do:
-      {:ok,
-       %{
-         writes: writes,
-         put: nil,
-         result: result,
-         swap_commit: swap[:swap_commit],
-         field: swap[:field]
-       }}
+    do: {:ok, %{writes: writes, put: nil, result: result, swap_commit: swap[:swap_commit]}}
 
   defp replacement(uri, current, cid, edits, result) do
     {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
@@ -984,30 +1004,12 @@ defmodule AtMcp.Effects.ProtoRune do
        writes: [],
        put: %{uri: uri, record: record, swap: cid},
        result: result,
-       swap_commit: nil,
-       field: "uri"
+       swap_commit: nil
      }}
   end
 
-  # The PDS refuses a write whose swap no longer holds: the record, or the
-  # repository, changed after it was read. Nothing was written, so it is a
-  # refusal that says so, named by the argument it is about.
-  defp swap_failure(%AtMcp.Effects.Failure{detail: detail} = failure, field, uri)
-       when detail in [:invalid_swap, "invalid_swap"] do
-    %{
-      failure
-      | kind: :refused,
-        detail:
-          {:changed_meanwhile, field,
-           "#{uri || "the account's records"} changed after it was read, so nothing was written; call again to act on what is there now"}
-    }
-  end
-
-  defp swap_failure(failure, _field, _uri), do: failure
-
   defp deletions(session, batch) do
-    for %{"$type" => "com.atproto.repo.applyWrites#delete"} = write <- batch,
-        do: "at://#{session.did}/#{write["collection"]}/#{write["rkey"]}"
+    for {:delete, collection, rkey} <- batch, do: "at://#{session.did}/#{collection}/#{rkey}"
   end
 
   defp write_results(response) do
@@ -1028,12 +1030,12 @@ defmodule AtMcp.Effects.ProtoRune do
   defp edit(edits, key, ""), do: Map.put(edits, key, nil)
   defp edit(edits, key, value), do: Map.put(edits, key, value)
 
-  # The commit the repository is at, taken before the reads a write is built
-  # from.
+  # The commit an edit is built over. A PDS always serves this; an answer
+  # without a CID is one AtMcp cannot write over safely.
   defp latest_commit(session) do
-    case AtMcp.ATProto.get_latest_commit(session, %{did: session.did}) do
+    case AtMcp.ATProto.get_latest_commit(session, session.did) do
       {:ok, response} ->
-        case string_value(response, :cid) do
+        case field(response, :cid) do
           cid when is_binary(cid) -> {:ok, cid}
           _ -> {:error, unreadable("the repository's latest commit", response)}
         end
@@ -1050,9 +1052,11 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  defp new_record(kind, rkey, record), do: {:create, AtMcp.Network.collection(kind), rkey, record}
+
   defp removal(uri) do
     {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
-    AtMcp.ATProto.delete_write(collection, rkey)
+    {:delete, collection, rkey}
   end
 
   defp own_uri(session, kind, rkey),
@@ -1450,16 +1454,10 @@ defmodule AtMcp.Effects.ProtoRune do
   def update_profile(session, updates) when is_list(updates) do
     safe = Keyword.take(updates, [:display_name, :description])
 
-    with {:ok, current} <- current_profile(session),
+    with {:ok, current, swap} <- current_profile(session),
          {:ok, blobs} <- upload_profile_images(session, updates),
          record = AtMcp.ATProto.profile_record(merge_profile(current, safe), blobs),
-         {:ok, result} <-
-           AtMcp.ATProto.put_record(session, %{
-             repo: session.did,
-             collection: AtMcp.Network.collection(:profile),
-             rkey: "self",
-             record: record
-           }) do
+         {:ok, result} <- put_profile(session, record, swap) do
       {:ok,
        %{
          ok: true,
@@ -1472,6 +1470,43 @@ defmodule AtMcp.Effects.ProtoRune do
     else
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # The profile is written only over the record it was built from. Between the
+  # read and this write the app, or another client, may have changed it; a
+  # write over that change would undo it without anyone seeing. `swapRecord`
+  # makes the service refuse instead. With no record read, nothing is swapped:
+  # the lexicon's null swap would also refuse a profile created meanwhile, but
+  # it is "nullable and optional" and not every PDS reads it the same way.
+  defp put_profile(session, record, swap) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(:profile),
+      rkey: "self",
+      record: record
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error, changed_meanwhile("The profile")}
+
+      other ->
+        other
+    end
+  end
+
+  # A compare-and-swap the service refused: the record changed between the
+  # read and the write, and the write did not happen.
+  defp changed_meanwhile(what) do
+    AtMcp.Effects.Failure.new(:refused,
+      message:
+        "#{what} changed between reading it and writing it, so nothing was written. " <>
+          "Read it again and retry if the change still applies.",
+      detail: {:changed_meanwhile, what}
+    )
   end
 
   # An avatar or banner is a blob the profile record references, so it is
@@ -1522,6 +1557,111 @@ defmodule AtMcp.Effects.ProtoRune do
       :ok -> {:ok, %{ok: true, action: :update_seen, seen_at: DateTime.to_iso8601(seen_at)}}
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # --- pins, thread mutes and bookmarks ---
+
+  @doc """
+  Read the post at `uri`: the strong reference a bookmark or a pin needs, and
+  the root of its thread, which a thread mute names. A post that is not a
+  reply is its own root.
+  """
+  @impl true
+  def resolve_post(session, uri) when is_binary(uri) do
+    with {:ok, ref, response} <- fetch_strong_ref(session, uri) do
+      root = root_of(response)
+      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: ref.uri))}
+    end
+  end
+
+  @doc """
+  Build the profile record that pins `uri`, or unpins when `uri` is nil, from
+  the profile as it stands. The post is read for its CID; the profile is read
+  so every field the pin does not touch is written back unchanged.
+  """
+  @impl true
+  def prepare_pin(session, uri) do
+    with {:ok, ref} <- pin_ref(session, uri),
+         {:ok, current, swap} <- current_profile(session) do
+      previous = AtMcp.Response.dig(current, [:pinned_post, :uri])
+      previous = if is_binary(previous), do: previous
+
+      record =
+        if is_nil(uri) and is_nil(previous),
+          do: nil,
+          else: AtMcp.ATProto.pinned_profile_record(current, ref)
+
+      {:ok, %{record: record, pinned: ref && ref.uri, previous: previous, swap: swap}}
+    else
+      {:error, {:referenced_record_unreadable, _}} = error -> error
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  defp pin_ref(_session, nil), do: {:ok, nil}
+
+  defp pin_ref(session, uri) do
+    with {:ok, ref, _response} <- fetch_strong_ref(session, uri), do: {:ok, ref}
+  end
+
+  # Unpinning a profile that pins nothing writes nothing.
+  @impl true
+  def pin(_session, %{record: nil, previous: nil}),
+    do: {:ok, %{ok: true, action: :unpin_post, uri: nil, subject_uri: nil, replaced_uri: nil}}
+
+  def pin(session, %{record: record, pinned: pinned, previous: previous, swap: swap}) do
+    case put_profile(session, record, swap) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           ok: true,
+           action: if(pinned, do: :pin_post, else: :unpin_post),
+           uri: summarize_record(result).uri,
+           subject_uri: pinned,
+           replaced_uri: previous
+         }}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def mute_thread(session, root) when is_binary(root),
+    do: thread_mute(session, root, :mute_thread, &AtMcp.ATProto.mute_thread/2)
+
+  @impl true
+  def unmute_thread(session, root) when is_binary(root),
+    do: thread_mute(session, root, :unmute_thread, &AtMcp.ATProto.unmute_thread/2)
+
+  defp thread_mute(session, root, action, call) do
+    case call.(session, %{root: root}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: action, uri: root}}
+    end
+  end
+
+  @impl true
+  def bookmark(session, %{uri: uri, cid: cid}) do
+    case AtMcp.ATProto.create_bookmark(session, %{uri: uri, cid: cid}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: :bookmark, uri: uri}}
+    end
+  end
+
+  @impl true
+  def unbookmark(session, uri) when is_binary(uri) do
+    case AtMcp.ATProto.delete_bookmark(session, %{uri: uri}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: :unbookmark, uri: uri}}
+    end
+  end
+
+  @impl true
+  def get_bookmarks(session, opts) do
+    session
+    |> AtMcp.ATProto.get_bookmarks(paging(opts, %{}))
+    |> read(:bookmarks, &bookmark_item/1)
   end
 
   # --- the write half ---
@@ -1659,7 +1799,7 @@ defmodule AtMcp.Effects.ProtoRune do
          {:ok, response} <-
            AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}),
          {:ok, cid} when is_binary(cid) <- AtMcp.Response.fetch(response, :cid) do
-      {:ok, %{uri: uri, cid: cid}, response}
+      {:ok, %{uri: canonical(response, uri), cid: cid}, response}
     else
       # An answer arrived and carried no CID: the record is unusable as a
       # reference whatever else it is.
@@ -1680,6 +1820,19 @@ defmodule AtMcp.Effects.ProtoRune do
     do: {:error, {:referenced_record_unreadable, uri}}
 
   defp reference_error(_uri, %AtMcp.Effects.Failure{} = failure), do: {:error, failure}
+
+  # The address a record is known by everywhere: the DID form the service
+  # answers a read with, whichever form the caller named it in. A handle can
+  # move to another account and back, and the AppView matches pins, thread
+  # mutes, bookmarks and gates by the DID form, so a reference written with a
+  # handle names nothing it will ever show. A service that answers without a
+  # DID-form uri leaves the caller's.
+  defp canonical(response, uri) do
+    case AtMcp.Response.fetch(response, :uri) do
+      {:ok, "at://did:" <> _ = canonical} -> canonical
+      _ -> uri
+    end
+  end
 
   defp root_of(response) do
     with {:ok, value} when is_map(value) <- AtMcp.Response.fetch(response, :value),
@@ -1721,8 +1874,10 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   # A profile update starts from the record it is about to replace, so a field
-  # nobody mentioned survives it. A repository with no profile record yet is
-  # not an error: the account simply has no profile, and this writes the first.
+  # nobody mentioned survives it, and writes it back only if it is still that
+  # record: the CID read here is the `swapRecord` of the write (`put_profile/3`).
+  # A repository with no profile record yet is not an error: the account simply
+  # has no profile, and this writes the first; its CID is nil.
   defp current_profile(session) do
     case AtMcp.ATProto.get_record(session, %{
            repo: session.did,
@@ -1730,14 +1885,20 @@ defmodule AtMcp.Effects.ProtoRune do
            rkey: "self"
          }) do
       {:ok, response} ->
+        cid =
+          case AtMcp.Response.fetch(response, :cid) do
+            {:ok, cid} when is_binary(cid) -> cid
+            _ -> nil
+          end
+
         case AtMcp.Response.fetch(response, :value) do
-          {:ok, value} when is_map(value) -> {:ok, value}
-          _ -> {:ok, %{}}
+          {:ok, value} when is_map(value) -> {:ok, value, cid}
+          _ -> {:ok, %{}, cid}
         end
 
       {:error, %ProtoRune.XRPC.Error{reason: reason}}
       when reason in [:not_found, :record_not_found] ->
-        {:ok, %{}}
+        {:ok, %{}, nil}
 
       {:error, reason} ->
         {:error, reason}
@@ -1777,6 +1938,10 @@ defmodule AtMcp.Effects.ProtoRune do
         error.reason in @auth_reasons and error.http_status in [400, 401] -> :auth_refused
         error.reason in @auth_reasons -> :auth_refused
         is_integer(error.http_status) and error.http_status in 400..499 -> :refused
+        # 501 Not Implemented: the service does not run this method at all, so
+        # nothing it was asked to do happened. A deployment that does not serve
+        # an endpoint (bookmarks, drafts) answers this way.
+        error.http_status == 501 -> :refused
         true -> :indeterminate
       end
 
@@ -2192,6 +2357,32 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   defp actor_item(other), do: %{value: to_string_safe(other)}
+
+  # A bookmark wraps the post it saved, or the placeholder the service sends
+  # when that post is deleted or hidden by a block. The placeholder keeps its
+  # place and says which, as a thread's does.
+  defp bookmark_item(item) when is_map(item) do
+    post = of_type(item, :item, &is_map/1) || %{}
+
+    post
+    |> post_view()
+    |> Map.merge(%{
+      not_found: flag(post, [:not_found, :notFound]),
+      blocked: flag(post, [:blocked]),
+      bookmarked_at: string_field(item, [:created_at, :createdAt])
+    })
+  end
+
+  defp bookmark_item(other), do: %{value: to_string_safe(other)}
+
+  defp string_field(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case field(map, key) do
+        value when is_binary(value) -> value
+        _ -> nil
+      end
+    end)
+  end
 
   defp relationship_item(item), do: AtMcp.Summary.extract(:relationship, item)
 
