@@ -239,7 +239,8 @@ defmodule AtMcp.Reading do
   defp quoted(_quote), do: nil
 
   # What the service counts on the post, in the words a client shows under it.
-  # A count the response did not carry is left out, not read as zero.
+  # A zero is left out of the text, and a post nobody has engaged with has no
+  # line at all; the structured content keeps every count, zeros included.
   defp engagement(post) do
     counts =
       for {key, one, many} <- [
@@ -248,40 +249,63 @@ defmodule AtMcp.Reading do
             {"reply_count", "reply", "replies"},
             {"quote_count", "quote", "quotes"}
           ],
-          is_integer(post[key]),
+          is_integer(post[key]) and post[key] > 0,
           do: count(post[key], one, many)
 
     lines(counts, " · ")
   end
 
-  # Labels by value. Who applied each is in the structured content; the one
-  # distinction kept here is a label the author applied to itself, such as an
-  # account saying it is a bot.
+  # Labels by value, each once: "Labels: graphic-media; author: bot (self)".
+  # Who applied a label is in the structured content; the one distinction kept
+  # here is a label the author applied to itself, such as an account saying it
+  # is a bot. Left out of the text, and kept in the structured content: an
+  # expired label, a value a negation removes, and a `!` value, which is an
+  # instruction to clients (such as `!no-unauthenticated`) rather than a
+  # description of the post.
   defp labelled(post) do
     author = post["author_did"]
+    on_post = labels(post["labels"], author)
+    on_author = labels(post["author_labels"], author)
 
-    lines(
-      [
-        labels("Post labels", post["labels"], author),
-        labels("Author labels", post["author_labels"], author)
-      ],
-      ". "
-    )
-  end
-
-  defp labels(heading, labels, author) when is_list(labels) do
-    case for(%{"val" => val} = label when is_binary(val) <- labels, do: label(label, author)) do
-      [] -> nil
-      values -> heading <> ": " <> Enum.join(values, ", ")
+    case {on_post, on_author} do
+      {[], []} -> nil
+      {values, []} -> "Labels: " <> Enum.join(values, ", ")
+      {[], values} -> "Labels: author: " <> Enum.join(values, ", ")
+      {own, theirs} -> "Labels: #{Enum.join(own, ", ")}; author: #{Enum.join(theirs, ", ")}"
     end
   end
 
-  defp labels(_heading, _labels, _author), do: nil
+  defp labels(labels, author) when is_list(labels) do
+    now = DateTime.utc_now()
 
-  defp label(%{"val" => val} = label, author) do
-    val = if label["neg"] == true, do: "not " <> val, else: val
-    if is_binary(author) and label["src"] == author, do: val <> " (self-applied)", else: val
+    current =
+      Enum.filter(labels, &(is_map(&1) and is_binary(&1["val"]) and not expired?(&1, now)))
+
+    negated = for %{"neg" => true, "val" => val} <- current, into: MapSet.new(), do: val
+
+    shown =
+      Enum.reject(current, fn %{"val" => val} = label ->
+        label["neg"] == true or val in negated or String.starts_with?(val, "!")
+      end)
+
+    self = for %{"src" => ^author, "val" => val} <- shown, into: MapSet.new(), do: val
+
+    shown
+    |> Enum.map(& &1["val"])
+    |> Enum.uniq()
+    |> Enum.map(&if(&1 in self, do: &1 <> " (self)", else: &1))
   end
+
+  defp labels(_labels, _author), do: []
+
+  defp expired?(%{"exp" => exp}, now) when is_binary(exp) do
+    case DateTime.from_iso8601(exp) do
+      {:ok, at, _offset} -> DateTime.compare(at, now) != :gt
+      _ -> false
+    end
+  end
+
+  defp expired?(_label, _now), do: false
 
   # Where the account stands with the author, said only when it is not the
   # ordinary case: a block either way, a mute, or a post the service says the

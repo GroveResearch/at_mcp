@@ -74,16 +74,52 @@ defmodule AtMcp.ReadingTest do
     # A program reads the same values, as the output schema declares them.
     [item] = data["items"]
     assert {item["like_count"], item["quote_count"]} == {12, 0}
-    assert [%{"val" => "bot", "src" => ^did}] = item["author_labels"]
+    # A label carries only the keys the service sent: no null neg or exp.
+    assert [%{"val" => "bot", "src" => ^did} = label] = item["author_labels"]
+    assert Map.keys(label) |> Enum.sort() == ["src", "val"]
     {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
     schema = Enum.find(tools, &(&1.name == "get_posts")).outputSchema
     assert AtMcp.Test.Schema.valid?(data, schema)
     assert schema["properties"]["items"]["items"]["properties"]["author_labels"]
 
     assert text =~
-             "\n12 likes · 1 repost · 5 replies · 0 quotes\n" <>
-               "Post labels: graphic-media. Author labels: bot (self-applied)\n" <>
+             "\n12 likes · 1 repost · 5 replies\n" <>
+               "Labels: graphic-media; author: bot (self)\n" <>
                "uri: #{post["uri"]}"
+  end
+
+  test "a post nobody engaged with has no counts line; labels that say nothing are left out",
+       %{post: post} do
+    did = post["author"]["did"]
+    zeros = %{"likeCount" => 0, "repostCount" => 0, "replyCount" => 0, "quoteCount" => 0}
+
+    read = fn post ->
+      page = %{count: 1, items: [Summary.extract(:post, post)], cursor: nil}
+      {text, data} = read(AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts))
+      {text, hd(data["items"])}
+    end
+
+    {text, item} = read.(Map.merge(post, zeros))
+    assert text == elem(read.(Map.drop(post, Map.keys(zeros))), 0)
+    assert {item["like_count"], item["reply_count"]} == {0, 0}
+
+    labels = [
+      # The same value from a labeler and from the author: once, as the author's.
+      %{"src" => "did:plc:labeler", "val" => "bot"},
+      %{"src" => did, "val" => "bot"},
+      %{"src" => "did:plc:labeler", "val" => "spam", "exp" => "2020-01-01T00:00:00Z"},
+      %{"src" => "did:plc:labeler", "val" => "rude", "exp" => "2999-01-01T00:00:00Z"},
+      %{"src" => "did:plc:labeler", "val" => "nudity"},
+      %{"src" => "did:plc:labeler", "val" => "nudity", "neg" => true},
+      %{"src" => did, "val" => "!no-unauthenticated"}
+    ]
+
+    {text, item} = read.(post |> Map.merge(zeros) |> put_in(["author", "labels"], labels))
+    assert text =~ "\nLabels: author: bot (self), rude\nuri: "
+    refute text =~ ~r/spam|nudity|no-unauthenticated|likes/
+    # The structured content keeps every label the service sent.
+    assert length(item["author_labels"]) == length(labels)
+    assert %{"exp" => "2020-01-01T00:00:00Z"} = Enum.at(item["author_labels"], 2)
   end
 
   # A response without counts or labels — a placeholder, an older service —
