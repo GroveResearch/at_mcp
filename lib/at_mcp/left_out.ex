@@ -26,10 +26,20 @@ defmodule AtMcp.LeftOut do
 
   @entries [
     # Why a post is in a feed, and who a reply answers.
-    {"feed[].reason", {:todo, 76}},
-    {"feed[].reply", {:todo, 76}},
-    {"feed[].opThreadPostIndex", {:todo, 76}},
-    {"feed[].opThreadPostCount", {:todo, 76}},
+    {"feed[].reply.parent",
+     "The parent post's content and counts; `reply_parent` keeps its uri and author, and `get_posts` reads the rest"},
+    {"feed[].reply.root",
+     "The thread root's content and counts; `reply_root` keeps its uri and author, and `get_thread_chain` reads the conversation"},
+    {"feed[].reply.grandparentAuthor",
+     "Who the parent itself answered; the app shows only whose post the reply answers"},
+    {"feed[].reason.cid",
+     "The repost record's CID; `unrepost` takes its uri, which `reason` keeps"},
+    {"feed[].reason.by.createdAt",
+     "When the reposter's account was made; `reason` names who reposted"},
+    {"feed[].opThreadPostIndex",
+     "The post's place in its author's self-thread (the app's 1/3); `reply_to` and `get_thread_chain` place it"},
+    {"feed[].opThreadPostCount",
+     "The length of the author's self-thread (the app's 1/3); `get_thread_chain` reads it"},
 
     # Who may reply.
     {"threadgate", {:todo, 77}},

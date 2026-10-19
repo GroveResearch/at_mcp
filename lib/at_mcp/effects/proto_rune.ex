@@ -1420,14 +1420,18 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # A feed item wraps the post with what the feed says about it: why it is
+  # there and who a reply answers (`AtMcp.Post.feed_context/1`).
   defp feed_item(item) when is_map(item) do
-    post =
-      case AtMcp.Response.fetch(item, :post) do
-        {:ok, post} when is_map(post) -> post
-        _ -> item
-      end
+    case AtMcp.Response.fetch(item, :post) do
+      {:ok, post} when is_map(post) ->
+        post
+        |> Map.put("feed_context", AtMcp.Post.feed_context(item))
+        |> post_view()
 
-    post_view(post)
+      _ ->
+        post_view(item)
+    end
   end
 
   defp feed_item(other), do: %{value: to_string_safe(other)}

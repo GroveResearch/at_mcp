@@ -98,7 +98,12 @@ defmodule AtMcp.Network do
     tag_facet: "richtext.facet#tag",
     embed_record: "embed.record",
     embed_record_with_media: "embed.recordWithMedia",
-    embed_images: "embed.images"
+    embed_images: "embed.images",
+    reason_repost: "feed.defs#reasonRepost",
+    reason_pin: "feed.defs#reasonPin",
+    post_view: "feed.defs#postView",
+    not_found_post: "feed.defs#notFoundPost",
+    blocked_post: "feed.defs#blockedPost"
   }
 
   # Read at compile time so a release carries no runtime dependency on priv/.
@@ -294,8 +299,9 @@ defmodule AtMcp.Network do
 
   @doc """
   A lexicon-defined `$type` AtMcp matches on or writes: `:mention_facet`,
-  `:link_facet`, `:tag_facet`, `:embed_record`, `:embed_record_with_media` or
-  `:embed_images`.
+  `:link_facet`, `:tag_facet`, `:embed_record`, `:embed_record_with_media`,
+  `:embed_images`, `:reason_repost`, `:reason_pin`, or a reply's parent or root
+  in a feed (`:post_view`, `:not_found_post`, `:blocked_post`).
   """
   @spec type(atom()) :: String.t()
   def type(kind) when is_map_key(@types, kind), do: nsid(Map.fetch!(@types, kind))
