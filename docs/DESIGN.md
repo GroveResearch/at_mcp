@@ -386,9 +386,12 @@ the configured network's grapheme and byte limits, and batch reads against
 their own limits (pages 1–50, `get_posts` and `get_profiles` 1–25), before
 anything is reserved or sent. So is the read a reply or a quote needs: a strong
 reference carries a CID the uri does not, so the referenced record is fetched
-first, and a record the service refuses to hand over — deleted, not indexed
-yet, or not a post — is refused as `referenced_record_unreadable` with the uri
-and without touching the write quota. A transport failure or an outage during
+first, and a record the service refuses to hand over is refused as
+`referenced_record_unreadable` with the uri and without touching the write
+quota. The refusal says what the service said: `RecordNotFound` as `cause:
+"not_found"`, any other refusal with the service's error name and message. A
+uri whose collection is not a post is refused as an invalid argument before
+anything is read. A transport failure or an outage during
 that read keeps its own kind instead: it says nothing about the record, and a
 caller told a live post may be deleted stops trying. A write that was actually sent is still never refunded:
 its outcome is unknown, and an unknown outcome that costs nothing is a retry

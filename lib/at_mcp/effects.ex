@@ -858,6 +858,8 @@ defmodule AtMcp.Effects do
 
   defp publish(effects, verb, text, opts) do
     with :ok <- validate_post_text(text),
+         :ok <- post_reference(opts[:reply], "uri"),
+         :ok <- post_reference(opts[:quote], "quote"),
          {:ok, opts} <- AtMcp.Interactions.post_options(verb, opts) do
       # Resolve references and build the complete record before taking a slot
       # or marking dispatch. A deleted parent or a local rich-text/record
@@ -870,6 +872,15 @@ defmodule AtMcp.Effects do
         fn opts -> fn backend, session -> backend.post(session, text, opts) end end
       )
     end
+  end
+
+  # A reply's parent and a quoted record are posts, which the URI's collection
+  # says before anything is read; another record is refused as such here
+  # rather than as a record the service would not hand over.
+  defp post_reference(nil, _field), do: :ok
+
+  defp post_reference(uri, field) do
+    with {:ok, _parts} <- record_argument(uri, field, [:post], "a post"), do: :ok
   end
 
   @doc """

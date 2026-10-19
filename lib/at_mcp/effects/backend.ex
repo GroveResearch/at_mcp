@@ -42,7 +42,11 @@ defmodule AtMcp.Effects.Backend do
   parent that cannot be read costs a quota slot for a write that never
   left the machine, and AtMcp does not refund a write whose outcome is unknown.
   So AtMcp asks for the references first, with a session but no slot taken, and
-  a backend that cannot read one answers `{:error, {:referenced_record_unreadable, uri}}`.
+  a backend that cannot read one answers
+  `{:error, {:referenced_record_unreadable, uri, cause}}`. `cause` is what the
+  service said: `:not_found` (it holds no such record), `{:refused, name,
+  message}` for any other refusal, its error name and message as sent (either
+  may be nil), or `:unusable_answer` (it answered without a CID).
 
   The returned options feed `prepare_post/3`; no post has been sent.
   """
@@ -350,7 +354,8 @@ defmodule AtMcp.Effects.Backend do
   Read one post before a write that names it: `%{uri, cid, root}`, where
   `root` is the uri of its thread's first post (its own uri when it is not a
   reply). Like `resolve_references/2`, it runs before anything is sent, and a
-  post the service will not hand over is `{:referenced_record_unreadable, uri}`.
+  post the service will not hand over is
+  `{:referenced_record_unreadable, uri, cause}`, as for `resolve_references/2`.
   """
   @callback resolve_post(state(), uri :: String.t()) :: {:ok, map()} | {:error, reason()}
 

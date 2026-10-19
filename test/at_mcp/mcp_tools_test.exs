@@ -497,7 +497,7 @@ defmodule AtMcp.MCP.ToolsTest do
         :invalid_post_text,
         :post_text_too_long,
         :write_quota_unavailable,
-        {:referenced_record_unreadable, "at://did:plc:x/app.bsky.feed.post/1"},
+        {:referenced_record_unreadable, "at://did:plc:x/app.bsky.feed.post/1", :not_found},
         {:write_quota_exhausted, 1_788_800_000}
       ]
       |> Enum.map(fn reason ->

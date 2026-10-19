@@ -18,6 +18,7 @@ defmodule AtMcp.ReplyReferenceTest do
   @readable "at://did:plc:other/app.bsky.feed.post/readable"
   @gone "at://did:plc:other/app.bsky.feed.post/gone"
   @broken "at://did:plc:other/app.bsky.feed.post/broken"
+  @no_repo "at://did:plc:nobody/app.bsky.feed.post/norepo"
 
   defmodule PDS do
     @moduledoc false
@@ -49,6 +50,10 @@ defmodule AtMcp.ReplyReferenceTest do
       case conn.query_params["rkey"] do
         "gone" ->
           {400, %{error: "RecordNotFound", message: "Could not locate record"}}
+
+        # The AppView's answer for a repository it does not know.
+        "norepo" ->
+          {400, %{error: "InvalidRequest", message: "Could not find repo: did:plc:nobody"}}
 
         # The service is having a bad day. The record it was asked about may be
         # perfectly fine.
@@ -121,8 +126,14 @@ defmodule AtMcp.ReplyReferenceTest do
     assert result.structuredContent.code == "referenced_record_unreadable"
     assert result.structuredContent.uri == @gone
 
+    # The service said RecordNotFound, so the refusal says that and nothing else.
+    assert result.structuredContent.cause == "not_found"
+
     text = Enum.find(result.content, &(&1.type == "text")).text
     assert text =~ @gone
+    assert text =~ "RecordNotFound"
+    refute text =~ "not indexed"
+    refute text =~ "not a post"
     assert text =~ "write quota"
 
     # The write quota is the claim: a refusal that costs a write is the defect.
@@ -146,6 +157,48 @@ defmodule AtMcp.ReplyReferenceTest do
     assert result[:isError]
     assert result.structuredContent.code == "referenced_record_unreadable"
     assert AtMcp.Effects.quota_status(effects).used == used
+  end
+
+  test "any other refusal passes on the service's error name and message", %{
+    calls: calls,
+    state: state
+  } do
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "reply",
+               %{"uri" => @no_repo, "text" => "hello"},
+               state
+             )
+
+    assert %{
+             code: "referenced_record_unreadable",
+             cause: "refused",
+             service_error: "InvalidRequest"
+           } = result.structuredContent
+
+    text = Enum.find(result.content, &(&1.type == "text")).text
+    assert text =~ "InvalidRequest: Could not find repo: did:plc:nobody"
+    refute text =~ "deleted"
+    assert sent(calls, "com.atproto.repo.createRecord") == []
+  end
+
+  test "a reply or quote naming a record that is not a post is refused before anything is read",
+       %{calls: calls, effects: effects, state: state} do
+    list = "at://did:plc:other/app.bsky.graph.list/l"
+
+    for {tool, arguments, field} <- [
+          {"reply", %{"uri" => list, "text" => "hello"}, "uri"},
+          {"post", %{"text" => "hello", "quote" => list}, "quote"}
+        ] do
+      assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(tool, arguments, state)
+      assert result.structuredContent.code == "invalid_arguments"
+      text = Enum.find(result.content, &(&1.type == "text")).text
+      assert text =~ "#{field}: must be the AT URI of a post"
+      assert text =~ "app.bsky.graph.list"
+    end
+
+    assert Agent.get(calls, & &1) == []
+    assert AtMcp.Effects.quota_status(effects).used == 0
   end
 
   test "a service that failed reading the parent is not reported as a missing record", %{
