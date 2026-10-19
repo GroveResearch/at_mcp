@@ -98,12 +98,12 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 43 tools: 42 network verbs, plus
+`AtMcp.MCP.Server` declares 50 tools: 49 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
 The text is the summary's JSON, except for reads made of posts (notifications,
-feeds, searches, `get_posts`, `get_thread`, `get_thread_chain`), where it is
+feeds, searches, bookmarks, `get_posts`, `get_thread`, `get_thread_chain`), where it is
 `AtMcp.Reading`'s text: each post's author, time, what it replies to, its
 text, attachments, the like, repost, reply and quote counts and the post's and
 author's labels when the service sent them, and the uri and cid the write tools
@@ -221,8 +221,17 @@ quota to read. It exists because an agent acts faster than a person while the
 account outlives the run. There is no tool for declining to act; an agent that
 ends its turn without calling a write tool has not posted.
 
-Absent from the surface: lists, starter packs, saved and pinned feeds, pinned
-posts, thread gates and reply controls, self-labels, bookmarks,
+An account pins one of its posts to its profile (`pin_post`, `unpin_post`),
+mutes a thread by any post in it (`mute_thread`, `unmute_thread`), and keeps
+private bookmarks (`bookmark`, `unbookmark`, `get_bookmarks`). None of these
+counts against the write quota. A pin rewrites the profile record from the one
+it reads, so every other field survives it. A tool that takes one of the
+account's own posts refuses another account's before anything is sent, naming
+the argument; a service that does not serve a method answers 501, which is
+reported as `upstream_not_implemented` and not as an unknown outcome.
+
+Absent from the surface: lists, starter packs, saved and pinned feeds,
+thread gates and reply controls, self-labels,
 posting video or link cards, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from

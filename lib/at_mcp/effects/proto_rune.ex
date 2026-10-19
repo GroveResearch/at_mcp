@@ -785,6 +785,116 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # --- pins, thread mutes and bookmarks ---
+
+  @doc """
+  Read the post at `uri`: the strong reference a bookmark or a pin needs, and
+  the root of its thread, which a thread mute names. A post that is not a
+  reply is its own root.
+  """
+  @impl true
+  def resolve_post(session, uri) when is_binary(uri) do
+    with {:ok, ref, response} <- fetch_strong_ref(session, uri) do
+      root = root_of(response)
+      {:ok, Map.put(ref, :root, if(root, do: root.uri, else: uri))}
+    end
+  end
+
+  @doc """
+  Build the profile record that pins `uri`, or unpins when `uri` is nil, from
+  the profile as it stands. The post is read for its CID; the profile is read
+  so every field the pin does not touch is written back unchanged.
+  """
+  @impl true
+  def prepare_pin(session, uri) do
+    with {:ok, ref} <- pin_ref(session, uri),
+         {:ok, current} <- current_profile(session) do
+      previous = AtMcp.Response.dig(current, [:pinned_post, :uri])
+      previous = if is_binary(previous), do: previous
+
+      record =
+        if is_nil(uri) and is_nil(previous),
+          do: nil,
+          else: AtMcp.ATProto.pinned_profile_record(current, ref)
+
+      {:ok, %{record: record, pinned: uri, previous: previous}}
+    else
+      {:error, {:referenced_record_unreadable, _}} = error -> error
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  defp pin_ref(_session, nil), do: {:ok, nil}
+
+  defp pin_ref(session, uri) do
+    with {:ok, ref, _response} <- fetch_strong_ref(session, uri), do: {:ok, ref}
+  end
+
+  # Unpinning a profile that pins nothing writes nothing.
+  @impl true
+  def pin(_session, %{record: nil, previous: nil}),
+    do: {:ok, %{ok: true, action: :unpin_post, uri: nil, subject_uri: nil, replaced_uri: nil}}
+
+  def pin(session, %{record: record, pinned: pinned, previous: previous}) do
+    case AtMcp.ATProto.put_record(session, %{
+           repo: session.did,
+           collection: AtMcp.Network.collection(:profile),
+           rkey: "self",
+           record: record
+         }) do
+      {:ok, result} ->
+        {:ok,
+         %{
+           ok: true,
+           action: if(pinned, do: :pin_post, else: :unpin_post),
+           uri: summarize_record(result).uri,
+           subject_uri: pinned,
+           replaced_uri: previous
+         }}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def mute_thread(session, root) when is_binary(root),
+    do: thread_mute(session, root, :mute_thread, &AtMcp.ATProto.mute_thread/2)
+
+  @impl true
+  def unmute_thread(session, root) when is_binary(root),
+    do: thread_mute(session, root, :unmute_thread, &AtMcp.ATProto.unmute_thread/2)
+
+  defp thread_mute(session, root, action, call) do
+    case call.(session, %{root: root}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: action, uri: root}}
+    end
+  end
+
+  @impl true
+  def bookmark(session, %{uri: uri, cid: cid}) do
+    case AtMcp.ATProto.create_bookmark(session, %{uri: uri, cid: cid}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: :bookmark, uri: uri}}
+    end
+  end
+
+  @impl true
+  def unbookmark(session, uri) when is_binary(uri) do
+    case AtMcp.ATProto.delete_bookmark(session, %{uri: uri}) do
+      {:error, reason} -> {:error, failure(reason)}
+      _ok -> {:ok, %{ok: true, action: :unbookmark, uri: uri}}
+    end
+  end
+
+  @impl true
+  def get_bookmarks(session, opts) do
+    session
+    |> AtMcp.ATProto.get_bookmarks(paging(opts, %{}))
+    |> read(:bookmarks, &bookmark_item/1)
+  end
+
   # --- the write half ---
 
   # Every record AtMcp creates goes through here, so the collection and the
@@ -1038,6 +1148,10 @@ defmodule AtMcp.Effects.ProtoRune do
         error.reason in @auth_reasons and error.http_status in [400, 401] -> :auth_refused
         error.reason in @auth_reasons -> :auth_refused
         is_integer(error.http_status) and error.http_status in 400..499 -> :refused
+        # 501 Not Implemented: the service does not run this method at all, so
+        # nothing it was asked to do happened. A deployment that does not serve
+        # an endpoint (bookmarks, drafts) answers this way.
+        error.http_status == 501 -> :refused
         true -> :indeterminate
       end
 
@@ -1446,6 +1560,32 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   defp actor_item(other), do: %{value: to_string_safe(other)}
+
+  # A bookmark wraps the post it saved, or the placeholder the service sends
+  # when that post is deleted or hidden by a block. The placeholder keeps its
+  # place and says which, as a thread's does.
+  defp bookmark_item(item) when is_map(item) do
+    post = of_type(item, :item, &is_map/1) || %{}
+
+    post
+    |> post_view()
+    |> Map.merge(%{
+      not_found: flag(post, [:not_found, :notFound]),
+      blocked: flag(post, [:blocked]),
+      bookmarked_at: string_field(item, [:created_at, :createdAt])
+    })
+  end
+
+  defp bookmark_item(other), do: %{value: to_string_safe(other)}
+
+  defp string_field(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case field(map, key) do
+        value when is_binary(value) -> value
+        _ -> nil
+      end
+    end)
+  end
 
   defp relationship_item(item), do: AtMcp.Summary.extract(:relationship, item)
 

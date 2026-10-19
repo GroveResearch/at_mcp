@@ -399,4 +399,62 @@ defmodule AtMcp.Test.MockBackend do
   def update_seen(_state, %DateTime{} = seen_at) do
     {:ok, %{ok: true, action: :update_seen, seen_at: DateTime.to_iso8601(seen_at)}}
   end
+
+  # A post reads as its own thread root, unless the mock's state names one.
+  @impl true
+  def resolve_post(state, uri) do
+    {:ok, %{uri: uri, cid: "bafyPOST", root: Map.get(state, :thread_root, uri)}}
+  end
+
+  @impl true
+  def prepare_pin(state, uri) do
+    {:ok, %{pinned: uri, previous: Map.get(state, :pinned)}}
+  end
+
+  @impl true
+  def pin(_state, %{pinned: nil, previous: nil}),
+    do: {:ok, %{ok: true, action: :unpin_post, uri: nil, subject_uri: nil, replaced_uri: nil}}
+
+  def pin(_state, %{pinned: pinned, previous: previous}) do
+    {:ok,
+     %{
+       ok: true,
+       action: if(pinned, do: :pin_post, else: :unpin_post),
+       uri: "at://did:plc:mock/app.bsky.actor.profile/self",
+       subject_uri: pinned,
+       replaced_uri: previous
+     }}
+  end
+
+  @impl true
+  def mute_thread(_state, root), do: {:ok, %{ok: true, action: :mute_thread, uri: root}}
+
+  @impl true
+  def unmute_thread(_state, root), do: {:ok, %{ok: true, action: :unmute_thread, uri: root}}
+
+  @impl true
+  def bookmark(_state, %{uri: uri}), do: {:ok, %{ok: true, action: :bookmark, uri: uri}}
+
+  @impl true
+  def unbookmark(_state, uri), do: {:ok, %{ok: true, action: :unbookmark, uri: uri}}
+
+  @impl true
+  def get_bookmarks(_state, opts) do
+    page = post_page("a bookmark", opts)
+
+    {:ok,
+     %{
+       page
+       | items:
+           Enum.map(page.items, &Map.put(&1, :bookmarked_at, "2026-10-18T00:00:00.000Z")) ++
+             [
+               %{
+                 uri: "at://did:plc:gone/app.bsky.feed.post/1",
+                 not_found: true,
+                 blocked: false
+               }
+             ],
+         count: 2
+     }}
+  end
 end

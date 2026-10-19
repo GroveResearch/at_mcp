@@ -29,8 +29,16 @@ defmodule AtMcp.Reading do
   """
 
   @doc "A page of posts: timelines, feeds, search results, `get_posts`."
-  def posts(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "post", "posts") <> "." <> next_page(page)
+  def posts(page), do: post_page(page, "post", "posts")
+
+  @doc """
+  This account's bookmarks: each post as a page of posts shows it, or one line
+  for a bookmarked post that is deleted or hidden by a block.
+  """
+  def bookmarks(page), do: post_page(page, "bookmark", "bookmarks")
+
+  defp post_page(%{"items" => items} = page, one, many) when is_list(items) do
+    header = count(length(items), one, many) <> "." <> next_page(page)
 
     blocks =
       items
@@ -40,7 +48,7 @@ defmodule AtMcp.Reading do
     lines([header | blocks], "\n\n")
   end
 
-  def posts(_other), do: nil
+  defp post_page(_other, _one, _many), do: nil
 
   @doc "A page of notifications, newest first as the service sends them."
   def notifications(%{"items" => items} = page) when is_list(items) do

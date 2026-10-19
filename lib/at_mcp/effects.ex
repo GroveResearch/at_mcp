@@ -588,6 +588,111 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  # --- pins, thread mutes and bookmarks ---
+
+  @doc """
+  Pin one of this account's posts to its profile, replacing any pin it had.
+  The post is read for its CID and the profile for the fields the pin keeps,
+  before anything is sent; a post in another account's repository is refused
+  then too.
+  """
+  def pin_post(effects, uri) when is_binary(uri) do
+    with {:ok, {repo, _rkey}} <- post_uri(uri, "uri") do
+      take_and_write(
+        effects,
+        :pin_post,
+        fn backend, session ->
+          with :ok <- own_repo(session, repo, "uri", "pin_post pins a post this account wrote") do
+            backend.prepare_pin(session, uri)
+          end
+        end,
+        fn prepared -> fn backend, session -> backend.pin(session, prepared) end end
+      )
+    end
+  end
+
+  @doc "Remove the pin from this account's profile. A profile with no pin is left unwritten."
+  def unpin_post(effects) do
+    take_and_write(
+      effects,
+      :unpin_post,
+      fn backend, session -> backend.prepare_pin(session, nil) end,
+      fn prepared -> fn backend, session -> backend.pin(session, prepared) end end
+    )
+  end
+
+  @doc """
+  Mute the thread a post is in. Any post of the thread names it: the post is
+  read for its thread's root before anything is sent, because the service
+  mutes threads by their root.
+  """
+  def mute_thread(effects, uri) when is_binary(uri), do: thread_mute(effects, :mute_thread, uri)
+
+  def unmute_thread(effects, uri) when is_binary(uri),
+    do: thread_mute(effects, :unmute_thread, uri)
+
+  defp thread_mute(effects, verb, uri) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      take_and_write(
+        effects,
+        verb,
+        fn backend, session -> backend.resolve_post(session, uri) end,
+        fn %{root: root} -> fn backend, session -> apply(backend, verb, [session, root]) end end
+      )
+    end
+  end
+
+  @doc "Bookmark a post, privately. The post is read for its CID first."
+  def bookmark(effects, uri) when is_binary(uri) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      take_and_write(
+        effects,
+        :bookmark,
+        fn backend, session -> backend.resolve_post(session, uri) end,
+        fn ref -> fn backend, session -> backend.bookmark(session, ref) end end
+      )
+    end
+  end
+
+  def unbookmark(effects, uri) when is_binary(uri) do
+    with {:ok, _} <- post_uri(uri, "uri") do
+      take_and_write(effects, :unbookmark, fn backend, session ->
+        backend.unbookmark(session, uri)
+      end)
+    end
+  end
+
+  def get_bookmarks(effects, opts \\ []) do
+    paged(effects, opts, fn backend, session, opts -> backend.get_bookmarks(session, opts) end)
+  end
+
+  # A tool argument that names a post, checked before a session is taken: an
+  # AT URI whose collection is a post on either network. What is wrong is said
+  # about the argument by name, so a caller can fix the call.
+  defp post_uri(uri, field) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {repo, collection, rkey}} ->
+        if AtMcp.Network.collection?(collection, :post),
+          do: {:ok, {repo, rkey}},
+          else: invalid(field, "must be the AT URI of a post; #{uri} is a #{collection} record")
+
+      {:error, _} ->
+        invalid(field, "must be an AT URI of the form at://<handle or DID>/<collection>/<rkey>")
+    end
+  end
+
+  # Whether a record's repository is this account's, by DID or by the handle
+  # the session holds. Checked with the session, before anything is sent.
+  defp own_repo(session, repo, field, what) do
+    handle = Map.get(session, :handle) || Map.get(session, "handle")
+
+    if repo == did_of(session) or (is_binary(handle) and repo == handle),
+      do: :ok,
+      else: invalid(field, "#{what}; #{repo} is another account")
+  end
+
+  defp invalid(field, message), do: {:error, {:invalid_argument, field, message}}
+
   @doc """
   How long one account call may take, in milliseconds, from the moment it asks
   for the account until it answers. `:call_deadline_ms` in the `:at_mcp`

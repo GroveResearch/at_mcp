@@ -171,6 +171,19 @@ defmodule AtMcp.MCP.Tools do
     )
   end
 
+  # An argument the input schema accepts and AtMcp still cannot act on: a post
+  # in another account's repository, a list URI that is not a list. It is the
+  # same refusal as a schema mismatch, naming the argument, and it is decided
+  # before anything is sent.
+  def respond({:error, {:invalid_argument, path, message}}, state) do
+    error(
+      state,
+      "invalid_arguments",
+      "error: #{path}: #{message}. Nothing was sent and nothing was counted against the write quota.",
+      %{problems: [%{path: path, message: message}]}
+    )
+  end
+
   def respond({:error, {:write_quota_exhausted, resets_at}}, state) do
     reset = iso8601(resets_at)
 
