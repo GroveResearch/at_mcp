@@ -1,5 +1,16 @@
 defmodule AtMcp.MCP.Tools do
-  @moduledoc false
+  @moduledoc """
+  A tool's result, and its refusals, as text and structured content.
+
+  The text of a refusal is built as `AtMcp.Reading`'s is, from
+  `AtMcp.Reading.Text` pieces only: AtMcp's own words are `~L` constants, and
+  every value that came from elsewhere goes through a renderer. What a
+  service said (a refusal's message, which for a custom feed or a labeler is
+  a third party's words passed on by the PDS) is one quoted literal, so it
+  can never read as a line of AtMcp's own. `test/at_mcp/reading_text_test.exs`
+  holds this module to that.
+  """
+  import AtMcp.Reading.Text
 
   def respond({:ok, summary}, state), do: {:ok, encode(summary), state}
 
@@ -11,7 +22,7 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "membership_not_supported",
-          "Membership status is available through the Delvetown backend. This connection does not support it; no request was sent."
+          ~L"Membership status is available through the Delvetown backend. This connection does not support it; no request was sent."
         )
 
   def respond(
@@ -22,7 +33,11 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "invite_codes_not_supported",
-          "error: Invitation codes are delve.town's, and this account is on #{AtMcp.Network.label()}. Nothing was sent."
+          cat([
+            ~L"error: Invitation codes are delve.town's, and this account is on ",
+            ident(AtMcp.Network.label()),
+            ~L". Nothing was sent."
+          ])
         )
 
   # A method this network's deployment is known not to serve
@@ -32,16 +47,26 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "not_served",
-        "error: #{AtMcp.Network.label()} does not serve #{nsid}: #{evidence}. Nothing was sent and nothing was counted against the write quota.",
+        cat([
+          ~L"error: ",
+          ident(AtMcp.Network.label()),
+          ~L" does not serve ",
+          ident(nsid),
+          ~L": ",
+          literal(evidence),
+          ~L". Nothing was sent and nothing was counted against the write quota."
+        ]),
         %{method: nsid}
       )
 
+  # A refusal whose message AtMcp composed elsewhere, from its own words and,
+  # for a partial deletion, the service's: the message is one literal.
   def respond(
         {:error,
          %AtMcp.Effects.Failure{kind: :refused, detail: {:wrong_record_kind, _, _}} = failure},
         state
       ),
-      do: error(state, "wrong_record_kind", failure.message)
+      do: error(state, "wrong_record_kind", composed(failure))
 
   # A compare-and-swap write the service refused because the record changed
   # after AtMcp read it. Nothing was written; the message says what changed.
@@ -50,7 +75,7 @@ defmodule AtMcp.MCP.Tools do
          %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, _}} = failure},
         state
       ),
-      do: error(state, "changed_meanwhile", "error: " <> failure.message)
+      do: error(state, "changed_meanwhile", composed(failure))
 
   # A deletion too large for one commit that stopped part way: the commits
   # that landed deleted `deleted`, and the message says what became of the
@@ -65,7 +90,7 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "partially_written",
-          "error: " <> failure.message,
+          composed(failure),
           Map.reject(%{deleted: deleted, http_status: failure.status}, fn {_, v} -> is_nil(v) end)
         )
 
@@ -73,7 +98,7 @@ defmodule AtMcp.MCP.Tools do
         {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:draft_gone, id}} = failure},
         state
       ),
-      do: error(state, "draft_not_found", "error: " <> failure.message, %{id: id})
+      do: error(state, "draft_not_found", composed(failure), %{id: id})
 
   # A read of a record, list or starter pack the service says does not exist.
   def respond(
@@ -84,7 +109,13 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "not_found",
-          "error: there is no #{what} at #{uri}: it was deleted, taken down, or never existed. Nothing was changed.",
+          cat([
+            ~L"error: there is no ",
+            ident(what),
+            ~L" at ",
+            ident(uri),
+            ~L": it was deleted, taken down, or never existed. Nothing was changed."
+          ]),
           %{uri: uri}
         )
 
@@ -93,7 +124,7 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "not_connected",
-        "error: this account is not connected: it has no credentials. Configure it in at_mcp's accounts file."
+        ~L"error: this account is not connected: it has no credentials. Configure it in at_mcp's accounts file."
       )
 
   # A profile write with links whose outcome is unknown: the new link records
@@ -108,10 +139,13 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "write_outcome_unknown",
-      "error: write outcome unknown; the profile may or may not have been changed. " <>
-        "Its new link records were written: #{Enum.join(created, ", ")}. If the profile was not changed, nothing shows them. " <>
-        "The link records it would stop showing were not deleted: #{Enum.join(removed, ", ")}. " <>
-        "Read the profile record before deciding whether to retry. AtMcp did not retry this uncertain write.",
+      cat([
+        ~L"error: write outcome unknown; the profile may or may not have been changed. Its new link records were written: ",
+        join(Enum.map(created, &ident/1), :comma),
+        ~L". If the profile was not changed, nothing shows them. The link records it would stop showing were not deleted: ",
+        join(Enum.map(removed, &ident/1), :comma),
+        ~L". Read the profile record before deciding whether to retry. AtMcp did not retry this uncertain write."
+      ]),
       %{outcome: "unknown", created: created, not_removed: removed}
     )
   end
@@ -120,7 +154,7 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "write_outcome_unknown",
-      "error: write outcome unknown; the action may have completed. Inspect the account's current records before deciding whether to retry. AtMcp did not retry this uncertain write.",
+      ~L"error: write outcome unknown; the action may have completed. Inspect the account's current records before deciding whether to retry. AtMcp did not retry this uncertain write.",
       %{outcome: "unknown"}
     )
   end
@@ -133,26 +167,30 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "call_deadline_exceeded",
-      "error: AtMcp stopped waiting after #{seconds} seconds: the account's service, or an earlier request on this account, did not answer in time. Nothing was changed. Retrying later may succeed."
+      cat([
+        ~L"error: AtMcp stopped waiting after ",
+        int(seconds),
+        ~L" seconds: the account's service, or an earlier request on this account, did not answer in time. Nothing was changed. Retrying later may succeed."
+      ])
     )
   end
 
   @account_errors %{
     account_disconnected:
-      "This account is disconnected. Reconnect it through at_mcp's account controls; opening another client does not reconnect it.",
+      ~L"This account is disconnected. Reconnect it through at_mcp's account controls; opening another client does not reconnect it.",
     account_identity_changed:
-      "The login identity does not match this connection's expected account. Stop using this connection and repair its account configuration.",
+      ~L"The login identity does not match this connection's expected account. Stop using this connection and repair its account configuration.",
     account_runtime_unavailable:
-      "The account runtime is unavailable. Inspect the account status with at_mcp-accounts. If a write was in progress, inspect the account records before retrying it.",
+      ~L"The account runtime is unavailable. Inspect the account status with at_mcp-accounts. If a write was in progress, inspect the account records before retrying it.",
     account_authentication_failed:
-      "The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied. Check the app password and reconnect; retrying the same request will not help.",
+      ~L"The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied. Check the app password and reconnect; retrying the same request will not help.",
     invalid_image:
-      "An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type` (or `mimeType`, not two that differ), and for a post `alt` text; nothing was sent.",
+      ~L"An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type` (or `mimeType`, not two that differ), and for a post `alt` text; nothing was sent.",
     media_dir_unset:
-      "This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Send the image as base64 `data` instead; nothing was sent.",
+      ~L"This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Send the image as base64 `data` instead; nothing was sent.",
     invalid_post_text:
-      "Post/reply text must be valid UTF-8. Nothing was attempted and nothing was counted against the write quota.",
-    empty_batch: "Supply at least one URI or actor. Nothing was attempted."
+      ~L"Post/reply text must be valid UTF-8. Nothing was attempted and nothing was counted against the write quota.",
+    empty_batch: ~L"Supply at least one URI or actor. Nothing was attempted."
   }
 
   def respond({:error, :batch_too_large}, state),
@@ -160,15 +198,24 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "batch_too_large",
-        "error: Ask for at most #{AtMcp.Effects.max_batch()} URIs or actors in one call. Nothing was attempted; split the list and call again."
+        cat([
+          ~L"error: Ask for at most ",
+          int(AtMcp.Effects.max_batch()),
+          ~L" URIs or actors in one call. Nothing was attempted; split the list and call again."
+        ])
       )
 
   def respond({:error, {:media_path_refused, path}}, state) do
     error(
       state,
       "media_path_refused",
-      "error: #{path} is not a regular file inside the media directory #{AtMcp.MediaFile.dir()}. " <>
-        "A path is relative to that directory, or absolute and inside it. Nothing was sent.",
+      cat([
+        ~L"error: ",
+        literal(path),
+        ~L" is not a regular file inside the media directory ",
+        literal(AtMcp.MediaFile.dir()),
+        ~L". A path is relative to that directory, or absolute and inside it. Nothing was sent."
+      ]),
       %{path: path}
     )
   end
@@ -178,11 +225,16 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "media_too_large",
-        "error: an image file may be at most #{bytes} bytes. Nothing was sent."
+        cat([~L"error: an image file may be at most ", int(bytes), ~L" bytes. Nothing was sent."])
       )
 
   def respond({:error, reason}, state) when is_map_key(@account_errors, reason),
-    do: error(state, Atom.to_string(reason), "error: " <> Map.fetch!(@account_errors, reason))
+    do:
+      error(
+        state,
+        Atom.to_string(reason),
+        cat([~L"error: ", Map.fetch!(@account_errors, reason)])
+      )
 
   # The numbers in this one are the configured network's, not Bluesky's. An
   # agent told "at most 300 graphemes" on a network that takes 100,000 has been
@@ -193,7 +245,13 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "post_text_too_long",
-      "error: Post/reply text must be at most #{graphemes} Unicode graphemes and #{bytes} UTF-8 bytes. Nothing was attempted and nothing was counted against the write quota."
+      cat([
+        ~L"error: Post/reply text must be at most ",
+        int(graphemes),
+        ~L" Unicode graphemes and ",
+        int(bytes),
+        ~L" UTF-8 bytes. Nothing was attempted and nothing was counted against the write quota."
+      ])
     )
   end
 
@@ -204,7 +262,7 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "invalid_before",
-        "error: before must be the AT URI a previous call returned in chain_before. Nothing was read."
+        ~L"error: before must be the AT URI a previous call returned in chain_before. Nothing was read."
       )
 
   def respond({:error, :invalid_search_sort}, state),
@@ -212,7 +270,7 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "invalid_search_sort",
-        "error: sort must be latest or top. Nothing was read."
+        ~L"error: sort must be latest or top. Nothing was read."
       )
 
   def respond({:error, :invalid_search_filter}, state),
@@ -220,7 +278,7 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "invalid_search_filter",
-        "error: author, mentions, since, until and lang must be strings when set. Nothing was read."
+        ~L"error: author, mentions, since, until and lang must be strings when set. Nothing was read."
       )
 
   def respond({:error, :write_quota_unavailable}, state),
@@ -228,7 +286,7 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "write_quota_unavailable",
-        "error: account write quota unavailable; writes remain paused until AtMcp recovers"
+        ~L"error: account write quota unavailable; writes remain paused until AtMcp recovers"
       )
 
   # A like or repost whose CID was left out, of a subject the AppView has no
@@ -237,8 +295,11 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "subject_cid_unknown",
-      "error: the AppView has no view of #{uri} (not indexed yet, deleted, or hidden by a block), so its CID could not be read. Nothing was sent. " <>
-        "Check the URI, or pass cid if you have it (get_record gives it).",
+      cat([
+        ~L"error: the AppView has no view of ",
+        ident(uri),
+        ~L" (not indexed yet, deleted, or hidden by a block), so its CID could not be read. Nothing was sent. Check the URI, or pass cid if you have it (get_record gives it)."
+      ]),
       %{uri: uri}
     )
   end
@@ -249,8 +310,17 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "subject_cid_mismatch",
-      "error: #{given} is not the CID of #{uri}; the record's CID is #{current}. Nothing was sent. " <>
-        "Pass cid #{current}, or leave cid out to use the AppView's CID for it.",
+      cat([
+        ~L"error: ",
+        ident(given),
+        ~L" is not the CID of ",
+        ident(uri),
+        ~L"; the record's CID is ",
+        ident(current),
+        ~L". Nothing was sent. Pass cid ",
+        ident(current),
+        ~L", or leave cid out to use the AppView's CID for it."
+      ]),
       %{uri: uri, cid: given, current_cid: current}
     )
   end
@@ -268,8 +338,13 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "referenced_record_unreadable",
-      "error: the record at #{uri} could not be read, so the reference could not be built: #{why}. " <>
-        "Nothing was written and nothing was counted against the write quota.",
+      cat([
+        ~L"error: the record at ",
+        ident(uri),
+        ~L" could not be read, so the reference could not be built: ",
+        why,
+        ~L". Nothing was written and nothing was counted against the write quota."
+      ]),
       Map.merge(%{uri: uri}, details)
     )
   end
@@ -280,8 +355,11 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "reply_disabled",
-      "error: the thread's reply rule (its threadgate) does not let this account reply to #{uri}; the app disables reply to it too. " <>
-        "Nothing was written and nothing was counted against the write quota.",
+      cat([
+        ~L"error: the thread's reply rule (its threadgate) does not let this account reply to ",
+        ident(uri),
+        ~L"; the app disables reply to it too. Nothing was written and nothing was counted against the write quota."
+      ]),
       %{uri: uri}
     )
   end
@@ -293,8 +371,11 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "handle_not_resolved",
-      "error: Nothing was sent: the account's service could not resolve the handle #{handle}. " <>
-        "Nothing was counted against the write quota.",
+      cat([
+        ~L"error: Nothing was sent: the account's service could not resolve the handle ",
+        ident(handle),
+        ~L". Nothing was counted against the write quota."
+      ]),
       %{handle: handle}
     )
   end
@@ -302,12 +383,19 @@ defmodule AtMcp.MCP.Tools do
   # An argument the input schema accepts and AtMcp still cannot act on: a post
   # in another account's repository, a list URI that is not a list. It is the
   # same refusal as a schema mismatch, naming the argument, and it is decided
-  # before anything is sent.
+  # before anything is sent. The message can hold what the caller gave, so it
+  # is a literal.
   def respond({:error, {:invalid_argument, path, message}}, state) do
     error(
       state,
       "invalid_arguments",
-      "error: #{path}: #{message}. Nothing was sent and nothing was counted against the write quota.",
+      cat([
+        ~L"error: ",
+        ident(path),
+        ~L": ",
+        literal(message),
+        ~L". Nothing was sent and nothing was counted against the write quota."
+      ]),
       %{problems: [%{path: path, message: message}]}
     )
   end
@@ -318,7 +406,7 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "write_quota_exhausted",
-      "error: account write quota exhausted; resets at #{reset}",
+      cat([~L"error: account write quota exhausted; resets at ", time(reset)]),
       %{resets_at: reset}
     )
   end
@@ -334,8 +422,11 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "response_unreadable",
-      "error: #{upstream.message} Nothing was applied and nothing was read. " <>
-        "Retrying will return the same result; report this rather than repeating it.",
+      cat([
+        ~L"error: ",
+        literal(upstream.message),
+        ~L" Nothing was applied and nothing was read. Retrying will return the same result; report this rather than repeating it."
+      ]),
       Map.reject(%{http_status: upstream.status}, fn {_, v} -> is_nil(v) end)
     )
   end
@@ -349,29 +440,28 @@ defmodule AtMcp.MCP.Tools do
       cond do
         status == 501 ->
           {"upstream_not_implemented",
-           "The account's service reports that this operation is not implemented. " <>
-             "Repeating the same request is not expected to help; check which operations the service supports."}
+           ~L"The account's service reports that this operation is not implemented. Repeating the same request is not expected to help; check which operations the service supports."}
 
         status == 429 ->
           {"upstream_rate_limited",
-           "The account's service is rate limiting this client. Wait before retrying."}
+           ~L"The account's service is rate limiting this client. Wait before retrying."}
 
         is_integer(status) and status >= 500 ->
           {"upstream_unavailable",
-           "The account's service is unavailable. The request was not applied; retrying later may succeed."}
+           ~L"The account's service is unavailable. The request was not applied; retrying later may succeed."}
 
         is_integer(status) and status in 400..499 ->
           {"upstream_rejected",
-           "The account's service rejected this request. Check the request before retrying it unchanged."}
+           ~L"The account's service rejected this request. Check the request before retrying it unchanged."}
 
         true ->
-          {"upstream_failed", "The request to the account's service did not complete."}
+          {"upstream_failed", ~L"The request to the account's service did not complete."}
       end
 
     error(
       state,
       code,
-      "error: #{detail} #{guidance}",
+      cat([~L"error: ", detail, ~L" ", guidance]),
       Map.reject(%{http_status: status, upstream_message: upstream.message}, fn {_, v} ->
         is_nil(v)
       end)
@@ -379,7 +469,9 @@ defmodule AtMcp.MCP.Tools do
   end
 
   def respond({:error, reason}, state),
-    do: {:ok, ExMCP.Server.DSL.Result.error("error: #{format_reason(reason)}"), state}
+    do:
+      {:ok, ExMCP.Server.DSL.Result.error(to_text(cat([~L"error: ", reason_text(reason)]))),
+       state}
 
   def respond(other, state), do: {:ok, encode(other), state}
 
@@ -411,17 +503,27 @@ defmodule AtMcp.MCP.Tools do
 
   def respond(result, state, _reading), do: respond(result, state)
 
+  # What a refusal's message says, which AtMcp composed from its own words
+  # and, at times, the service's: one literal.
+  defp composed(%{message: message}), do: cat([~L"error: ", literal(message)])
+
+  # A reason with no shape of its own: an atom is AtMcp's word, anything else
+  # (a schema error, a service's string) a literal.
+  defp reason_text(reason) when is_atom(reason), do: ident(Atom.to_string(reason))
+  defp reason_text(reason), do: literal(format_reason(reason))
+
   defp upstream_detail(%{message: message, status: status})
        when is_binary(message) and message != "" and is_integer(status),
-       do: "the account's service answered #{status}: #{message}."
+       do:
+         cat([~L"the account's service answered ", int(status), ~L": ", literal(message), ~L"."])
 
   defp upstream_detail(%{message: message}) when is_binary(message) and message != "",
-    do: "the account's service answered: #{message}."
+    do: cat([~L"the account's service answered: ", literal(message), ~L"."])
 
   defp upstream_detail(%{status: status}) when is_integer(status),
-    do: "the account's service answered #{status}."
+    do: cat([~L"the account's service answered ", int(status), ~L"."])
 
-  defp upstream_detail(_), do: "the account's service did not answer."
+  defp upstream_detail(_), do: ~L"the account's service did not answer."
 
   @doc """
   A handle or DID as a tool argument names it. Models write handles the way
@@ -478,7 +580,11 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "post_not_found",
-          "error: no post at #{uri} could be read. It may be deleted, not indexed yet, or not a post. No image was fetched.",
+          cat([
+            ~L"error: no post at ",
+            ident(uri),
+            ~L" could be read. It may be deleted, not indexed yet, or not a post. No image was fetched."
+          ]),
           %{uri: uri}
         )
 
@@ -612,26 +718,28 @@ defmodule AtMcp.MCP.Tools do
 
   defp unreadable_cause(:not_found),
     do:
-      {"the service has no record there (RecordNotFound); it was deleted, taken down, never existed, or is not indexed yet (records on another server are read through the AppView)",
+      {~L"the service has no record there (RecordNotFound); it was deleted, taken down, never existed, or is not indexed yet (records on another server are read through the AppView)",
        %{cause: "not_found"}}
 
   defp unreadable_cause(:unusable_answer),
-    do: {"the service answered without the record's CID", %{cause: "unusable_answer"}}
+    do: {~L"the service answered without the record's CID", %{cause: "unusable_answer"}}
 
   defp unreadable_cause({:refused, nil, nil}),
     do:
-      {"the service refused to read it and said nothing more; it may be deleted, not indexed yet, or not what the URI names",
+      {~L"the service refused to read it and said nothing more; it may be deleted, not indexed yet, or not what the URI names",
        %{cause: "refused"}}
 
   defp unreadable_cause({:refused, name, message}) do
-    said = [name, message] |> Enum.reject(&is_nil/1) |> Enum.join(": ")
-
-    {"the service refused to read it (#{said})",
-     Map.reject(%{cause: "refused", service_error: name}, fn {_, v} -> is_nil(v) end)}
+    {cat([
+       ~L"the service refused to read it (",
+       join([ident(name), literal(message)], :colon),
+       ~L")"
+     ]), Map.reject(%{cause: "refused", service_error: name}, fn {_, v} -> is_nil(v) end)}
   end
 
+  # `message` is a piece; `to_text/1` takes nothing else.
   defp error(state, code, message, details \\ %{}) do
-    result = ExMCP.Server.DSL.Result.error(message)
+    result = ExMCP.Server.DSL.Result.error(to_text(message))
     {:ok, Map.put(result, :structuredContent, Map.merge(%{code: code}, details)), state}
   end
 
@@ -797,7 +905,7 @@ defmodule AtMcp.MCP.Tools do
     do: Enum.map_join(errors, "; ", &format_reason/1)
 
   def format_reason(%{__struct__: Peri.Error, path: path, message: message}) when is_list(path),
-    do: "invalid #{Enum.map_join(path, ".", &to_string/1)}: #{message}"
+    do: "invalid " <> Enum.map_join(path, ".", &to_string/1) <> ": " <> message
 
   def format_reason(%{__struct__: Peri.Error, message: message}), do: message
   def format_reason(reason), do: inspect(reason, limit: 20)

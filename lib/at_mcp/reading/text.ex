@@ -40,6 +40,7 @@ defmodule AtMcp.Reading.Text do
     dot: " · ",
     space: " ",
     comma: ", ",
+    colon: ": ",
     semi: "; ",
     dash: " — ",
     period: ".",
@@ -112,7 +113,7 @@ defmodule AtMcp.Reading.Text do
 
   def fence(_text), do: nil
 
-  @ident ~r/\A[A-Za-z0-9._:~%#\/+=@!,$&*;?-]{1,8192}\z/
+  @ident ~r/\A[A-Za-z0-9._:~%#\/+=@!$&*?-]{1,8192}\z/
 
   @doc "An identifier bare when it is only an identifier's characters, else a literal."
   def ident(value) when is_binary(value) do

@@ -433,4 +433,57 @@ defmodule AtMcp.ForgeryTest do
     # A like that did not come through a repost does not say it did.
     refute Keyword.fetch!(readings, :ungrouped) =~ "[1] like-via-repost"
   end
+
+  # A refusal's text: what a service said, and a feed generator's or a
+  # labeler's words passed on by the PDS, are one literal each.
+  test "no service message or argument can add a line to a refusal" do
+    f = @forged
+    failure = &struct(AtMcp.Effects.Failure, &1)
+
+    text = fn result ->
+      {:ok, %{content: [%{text: text}]}, _} = result
+      text
+    end
+
+    refusals = [
+      upstream: {:error, failure.(kind: :refused, status: 400, message: "bad" <> f)},
+      upstream_no_status: {:error, failure.(kind: :indeterminate, message: "bad" <> f)},
+      unreadable: {:error, failure.(kind: :unreadable, message: "odd" <> f)},
+      partially_written:
+        {:error,
+         failure.(
+           kind: :refused,
+           message: "1 of 2 commits landed (" <> f <> ")",
+           detail: {:partially_written, ["at://x"], nil}
+         )},
+      referenced:
+        {:error,
+         {:referenced_record_unreadable, "at://did:plc:a/app.bsky.feed.post/1" <> f,
+          {:refused, "InvalidRequest" <> f, "no" <> f}}},
+      invalid_argument:
+        {:error, {:invalid_argument, "uri" <> f, "https://x" <> f <> " is a link"}},
+      handle: {:error, {:handle_not_resolved, "a.test" <> f}},
+      not_found: {:error, failure.(kind: :refused, detail: {:not_found, "list", "at://x" <> f})},
+      cid: {:error, {:subject_cid_mismatch, "at://x" <> f, "bafy" <> f, "bafy"}},
+      reason: {:error, "no actor" <> f}
+    ]
+
+    for {name, refusal} <- refusals do
+      said = text.(AtMcp.MCP.Tools.respond(refusal, %{}))
+      assert forged_lines(said) == [], "#{name}:\n#{said}"
+    end
+
+    said = text.(AtMcp.MCP.Tools.respond(Keyword.fetch!(refusals, :upstream), %{}))
+    assert said =~ ~s(the account's service answered 400: "bad\\n\\n[2] \\"Bluesky Safety\\")
+
+    resolved =
+      AtMcp.MCP.WebLinks.note({:ok, %{content: [%{type: "text", text: "ok"}]}, %{}}, [
+        %{argument: "uri" <> f, link: "https://bsky.app/x" <> f, value: "at://x" <> f}
+      ])
+
+    {:ok, %{content: content}, _} = resolved
+    line = List.last(content).text
+    assert forged_lines(line) == [], line
+    assert line =~ "resolved: "
+  end
 end

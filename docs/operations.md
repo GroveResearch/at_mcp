@@ -553,7 +553,9 @@ No stored data changes. What a client or a delivery receiver reads changes
   title in double quotes, so nothing an author writes reads as AtMcp's own
   line. An identifier (a handle, DID, AT URI, cursor, label value) that holds
   anything an identifier does not is quoted too, and a web address has
-  brackets, quotes, blanks and non-ASCII bytes percent-encoded. A post's time is the one the app shows (`indexed_at`), with the
+  brackets, quotes, blanks and non-ASCII bytes percent-encoded. A refusal's
+  text quotes what the service said (`answered 400: "…"`), as it does the
+  message of an argument AtMcp refused and the `resolved:` line's link. A post's time is the one the app shows (`indexed_at`), with the
   author's `created_at` beside it as "archived from" when more than a day
   earlier.
 - **New fields**: `indexed_at` on posts and quotes; `viewer.bookmarked`,

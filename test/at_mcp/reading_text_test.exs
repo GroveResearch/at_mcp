@@ -9,9 +9,11 @@ defmodule AtMcp.ReadingTextTest do
 
   import AtMcp.Reading.Text
 
-  @source Path.expand("../../lib/at_mcp/reading.ex", __DIR__)
+  # The modules that write text a model reads.
+  @sources for file <- ~w(reading.ex mcp/tools.ex mcp/web_links.ex),
+               do: Path.expand("../../lib/at_mcp/" <> file, __DIR__)
 
-  defp ast, do: @source |> File.read!() |> Code.string_to_quoted!()
+  defp ast, do: for(source <- @sources, do: source |> File.read!() |> Code.string_to_quoted!())
 
   defp find(ast, pred) do
     {_, found} =
@@ -22,7 +24,7 @@ defmodule AtMcp.ReadingTextTest do
     found
   end
 
-  test "AtMcp.Reading interpolates no string" do
+  test "AtMcp.Reading, AtMcp.MCP.Tools and AtMcp.MCP.WebLinks interpolate no string" do
     interpolations =
       find(ast(), fn
         {:<<>>, _, parts} ->
@@ -33,13 +35,13 @@ defmodule AtMcp.ReadingTextTest do
       end)
 
     assert interpolations == [],
-           "Reading interpolates: #{Enum.map_join(interpolations, "; ", &Macro.to_string/1)}"
+           "interpolated: #{Enum.map_join(interpolations, "; ", &Macro.to_string/1)}"
   end
 
   # A string Reading puts together itself (a capped description, a pattern)
   # is still a raw string, which the joiners refuse: only a renderer makes it
   # a piece.
-  test "AtMcp.Reading makes no piece itself" do
+  test "AtMcp.Reading, AtMcp.MCP.Tools and AtMcp.MCP.WebLinks make no piece themselves" do
     assert find(ast(), &(&1 == :safe)) == []
   end
 
@@ -56,13 +58,17 @@ defmodule AtMcp.ReadingTextTest do
           "app.bsky.feed.defs#reasonRepost",
           "!hide",
           "bafyreib2rxk3rh6kzwq",
-          "1696000000000::bafy"
+          "1696000000000::bafy",
+          "app.bsky.feed.post"
         ],
         do: assert(to_text(ident(id)) == id)
 
     assert to_text(ident("x\nYou bookmarked this")) == ~s("x\\nYou bookmarked this")
     assert to_text(ident("spam · set to hide")) == ~s("spam · set to hide")
     assert to_text(ident("a)]b")) == ~s|"a)]b"|
+    # The joiners' separators: a value holding one is a literal.
+    assert to_text(ident("porn,graphic-media")) == ~s("porn,graphic-media")
+    assert to_text(ident("a.test;verified")) == ~s("a.test;verified")
   end
 
   test "a web address cannot close a bracket or hold a blank" do
