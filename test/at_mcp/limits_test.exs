@@ -64,7 +64,7 @@ defmodule AtMcp.LimitsTest do
           do: {name, tool, schema}
 
     assert Enum.map(batches, &elem(&1, 0)) |> Enum.sort() ==
-             ["get_feed_info", "get_posts", "get_profiles", "get_relationships"]
+             ["get_feed_info", "get_labelers", "get_posts", "get_profiles", "get_relationships"]
 
     for {name, tool, schema} <- batches do
       assert schema.maxItems == max, name
