@@ -599,7 +599,9 @@ defmodule AtMcp.Effects do
   def list_purposes, do: @list_purposes
 
   def get_list(effects, uri, opts \\ []) when is_binary(uri) do
-    paged(effects, opts, fn backend, session, opts -> backend.get_list(session, uri, opts) end)
+    paged(effects, opts, fn backend, session, opts ->
+      with {:ok, uri} <- did_uri(backend, session, uri), do: backend.get_list(session, uri, opts)
+    end)
   end
 
   @doc """
@@ -633,7 +635,36 @@ defmodule AtMcp.Effects do
   end
 
   def get_starter_pack(effects, uri) when is_binary(uri) do
-    with_session(effects, fn backend, session -> backend.get_starter_pack(session, uri) end)
+    with_session(effects, fn backend, session ->
+      with {:ok, uri} <- did_uri(backend, session, uri),
+           do: backend.get_starter_pack(session, uri)
+    end)
+  end
+
+  # A list or starter pack named by an AT URI whose repository is a handle, in
+  # the DID form records and the AppView name it by. The AppView looks a list
+  # up by the URI string it is given, so a handle-form URI of a real list is
+  # "List not found". This account's handle is its DID without a read; any
+  # other handle is resolved, and one that does not resolve is
+  # `{:handle_not_resolved, handle}`. A string that is not an AT URI is left
+  # for the service to refuse.
+  @doc false
+  def did_uri(backend, session, uri) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {"did:" <> _, _collection, _rkey}} ->
+        {:ok, uri}
+
+      {:ok, {repo, collection, rkey}} ->
+        did =
+          if own_actor?(session, repo),
+            do: {:ok, did_of(session)},
+            else: backend.resolve_actor(session, repo)
+
+        with {:ok, did} <- did, do: {:ok, "at://#{did}/#{collection}/#{rkey}"}
+
+      {:error, _} ->
+        {:ok, uri}
+    end
   end
 
   @doc """

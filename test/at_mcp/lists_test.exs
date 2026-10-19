@@ -122,6 +122,39 @@ defmodule AtMcp.ListsTest do
       %{effects: effects, pds: pds}
     end
 
+    test "a list or starter pack named with a handle is asked for in DID form" do
+      %{effects: effects, pds: pds} =
+        pds(%{
+          "com.atproto.identity.resolveHandle" => {200, %{did: @alice}},
+          "town.delve.graph.getList" => {200, %{list: %{uri: "x"}, items: []}},
+          "town.delve.graph.getStarterPack" => {200, %{starterPack: %{uri: "x"}}}
+        })
+
+      assert {:ok, _} =
+               AtMcp.Effects.get_list(effects, "at://alice.test/town.delve.graph.list/l1")
+
+      assert {:ok, _} =
+               AtMcp.Effects.get_starter_pack(
+                 effects,
+                 "at://alice.test/town.delve.graph.starterpack/p1"
+               )
+
+      # This account's own handle needs no resolution.
+      assert {:ok, _} =
+               AtMcp.Effects.get_list(effects, "at://self.example/town.delve.graph.list/l2")
+
+      assert [%{query: %{"handle" => "alice.test"}}, _] =
+               FakePDS.sent(pds, "com.atproto.identity.resolveHandle")
+
+      assert for(%{query: q} <- FakePDS.sent(pds, "town.delve.graph.getList"), do: q["list"]) == [
+               "at://did:plc:alice/town.delve.graph.list/l1",
+               "at://did:plc:self/town.delve.graph.list/l2"
+             ]
+
+      assert [%{query: %{"starterPack" => "at://did:plc:alice/town.delve.graph.starterpack/p1"}}] =
+               FakePDS.sent(pds, "town.delve.graph.getStarterPack")
+    end
+
     test "reads ask this network's methods, with the purpose the service takes" do
       %{effects: effects, pds: pds} =
         pds(%{
