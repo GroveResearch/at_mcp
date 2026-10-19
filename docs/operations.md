@@ -536,6 +536,24 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
+### From 0.2.8 to 0.2.9
+
+0.2.9 stores data in the same format as 0.2.8 and starts from the same
+environment, so rolling back works as below.
+
+- **Preferences and notification settings** (#91, #119): `get_preferences`,
+  `set_preference` (home feed, threads, interaction defaults, adult content,
+  interests, verification badges, discoverability, who may subscribe),
+  `get_notification_settings`, `set_notification_setting`,
+  `subscribe_to_activity`, `get_activity_subscriptions`; `get_notifications`
+  takes `grouped` and `feed`. Preferences are changed as the official client
+  does, every other preference written back unchanged; the result gives the
+  setting before and after. The birth date is never returned or written.
+- **A record written where none was read is guarded.** Profile, live status
+  and declaration writes that found no record send a "must not exist" swap, so
+  a record another client created meanwhile is refused as `changed_meanwhile`
+  instead of overwritten.
+
 ### From 0.2.7 to 0.2.8
 
 0.2.8 stores data in the same format as 0.2.7 and starts from the same
