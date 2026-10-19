@@ -558,6 +558,11 @@ No stored data changes. What a client or a delivery receiver reads changes
   message of an argument AtMcp refused and the `resolved:` line's link. A post's time is the one the app shows (`indexed_at`), with the
   author's `created_at` beside it as "archived from" when more than a day
   earlier.
+- **More escapes in the text a model reads** (#142): inside a quoted name or
+  text, quotation marks that look like `"` (`“ ” „ ‟ ″ ‶ ❝ ❞ 〝 〞 〟 ＂`) are
+  written as `\uXXXX` escapes, and so is each `#` of a `[[ ##` field marker;
+  in a fenced post the marker reads `[[ \#\#`. The control characters FS, GS
+  and RS, which some readers take as line breaks, start a new fenced line.
 - **New fields**: `indexed_at` on posts and quotes; `viewer.bookmarked`,
   `viewer.pinned` and `known_likers` on posts; `muted_reposts` and
   `muted_quotes` on an account's viewer; `created_at` and `subject_post_uri`
