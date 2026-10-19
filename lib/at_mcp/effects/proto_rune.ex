@@ -2279,18 +2279,16 @@ defmodule AtMcp.Effects.ProtoRune do
   # The profile is written only over the record it was built from. Between the
   # read and this write the app, or another client, may have changed it; a
   # write over that change would undo it without anyone seeing. `swapRecord`
-  # makes the service refuse instead. With no record read, nothing is swapped:
-  # the lexicon's null swap would also refuse a profile created meanwhile, but
-  # it is "nullable and optional" and not every PDS reads it the same way.
+  # makes the service refuse instead. With no record read, the swap is null:
+  # the PDS then refuses a profile created meanwhile (`put_record/2`).
   defp put_profile(session, record, swap) do
     params = %{
       repo: session.did,
       collection: AtMcp.Network.collection(:profile),
       rkey: "self",
-      record: record
+      record: record,
+      swap_record: swap
     }
-
-    params = if swap, do: Map.put(params, :swap_record, swap), else: params
 
     case AtMcp.ATProto.put_record(session, params) do
       {:error, %ProtoRune.XRPC.Error{reason: reason}}
@@ -2632,7 +2630,8 @@ defmodule AtMcp.Effects.ProtoRune do
   defp prepare_preference_change(session, kind, changes) do
     with {:ok, changes} <- default_reply_lists(session, changes),
          {:ok, preferences} <- stored_preferences(session),
-         :ok <- adult_content_shown(kind, changes, preferences) do
+         :ok <- adult_content_shown(kind, changes, preferences),
+         :ok <- interests_offered(kind, changes, preferences) do
       before = AtMcp.Preferences.kind_view(preferences, kind)
       updated = AtMcp.Preferences.change(preferences, kind, changes)
       result = setting_result(kind, before, AtMcp.Preferences.kind_view(updated, kind))
@@ -2665,6 +2664,11 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   defp adult_content_shown(_kind, _changes, _preferences), do: :ok
+
+  defp interests_offered("interests", %{tags: tags}, preferences),
+    do: AtMcp.Preferences.interests_offered(preferences, tags)
+
+  defp interests_offered(_kind, _changes, _preferences), do: :ok
 
   defp prepare_declaration(session, kind, collection, changes) do
     with {:ok, current, cid} <- declaration(session, kind) do
@@ -2700,7 +2704,7 @@ defmodule AtMcp.Effects.ProtoRune do
       changed: Enum.map(AtMcp.Preferences.changed(kind, before, now), &to_string/1),
       previous: before,
       now: now,
-      unchanged: before == now
+      unchanged: AtMcp.Preferences.changed(kind, before, now) == []
     }
   end
 
@@ -2709,16 +2713,15 @@ defmodule AtMcp.Effects.ProtoRune do
     do: write_preferences(session, prepared)
 
   # Written only over the record read (`swapRecord`); when there was none,
-  # written new.
+  # only if there still is none (a null swap).
   def write_preference(session, %{record: record, collection: collection, swap: swap} = prepared) do
     params = %{
       repo: session.did,
       collection: AtMcp.Network.collection(collection),
       rkey: "self",
-      record: record
+      record: record,
+      swap_record: swap
     }
-
-    params = if swap, do: Map.put(params, :swap_record, swap), else: params
 
     case AtMcp.ATProto.put_record(session, params) do
       {:ok, _} ->
@@ -2839,15 +2842,34 @@ defmodule AtMcp.Effects.ProtoRune do
           unchanged: current == asked
         }
 
+        unsubscribe? = not posts and not replies
+
         cond do
-          current == asked ->
+          # An unsubscribe is sent even when the profile shows none: a block
+          # hides viewer state, so a subscription may be there unseen, and the
+          # service answers an unsubscribe from nothing by doing nothing.
+          current == asked and not unsubscribe? ->
             {:ok, {:unchanged, result}}
 
           posts and not subscriptions_allowed?(allow, viewer) ->
             invalid(
               "actor",
-              "#{handle || did} lets #{allowed_who(allow)} subscribe to its posts, so the app offers this account no subscription to it"
+              "#{handle || did} lets #{allowed_who(allow)} subscribe to its posts, so the app offers this account no subscription to it" <>
+                block_note(viewer)
             )
+
+          unsubscribe? and current == asked ->
+            {:ok,
+             %{
+               did: did,
+               subscription: %{"post" => false, "reply" => false},
+               result:
+                 Map.put(
+                   result,
+                   :note,
+                   "The profile showed no subscription; the unsubscribe was sent anyway, as a block hides one that may be there."
+                 )
+             }}
 
           true ->
             {:ok,
@@ -2866,6 +2888,18 @@ defmodule AtMcp.Effects.ProtoRune do
     }
 
   defp activity_subscription(_none), do: %{posts: false, replies: false}
+
+  # The AppView leaves follows out of the viewer state across a block, so
+  # "does not follow" may be a block's doing.
+  defp block_note(viewer) do
+    viewer = viewer || %{}
+
+    if present?(field(viewer, :blocking)) or field(viewer, :blocked_by) == true or
+         present?(field(viewer, :blocking_by_list)),
+       do:
+         ". A block between the two accounts may be why: the service does not show follows across one",
+       else: ""
+  end
 
   defp subscriptions_allowed?(allow, viewer) when allow in [nil, "followers"],
     do: present?(field(viewer || %{}, :following))
@@ -2891,8 +2925,8 @@ defmodule AtMcp.Effects.ProtoRune do
   def put_activity_subscription(session, %{did: did, subscription: subscription, result: result}) do
     case AtMcp.ATProto.put_activity_subscription(session, did, subscription) do
       {:ok, %{"subject" => _} = answer} ->
-        now = activity_subscription(answer["activitySubscription"])
-        {:ok, %{result | now: now, unchanged: now == result.previous}}
+        {:ok,
+         %{result | now: activity_subscription(answer["activitySubscription"]), unchanged: false}}
 
       {:ok, _other} ->
         {:ok,
@@ -2970,6 +3004,8 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # Cleared only if it is still the status read, as a new one is written only
   # over it: a status set meanwhile by another client is not deleted unseen.
+  # A delete is never sent with a null swap, which the PDS always refuses
+  # (there is a record to delete); one runs only after a record was read.
   def write_status(session, %{record: nil, swap: swap} = plan) do
     params = %{
       repo: session.did,
@@ -2992,15 +3028,16 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # Written over the status read, or, when there was none, only if there
+  # still is none (a null swap).
   def write_status(session, %{record: record, swap: swap} = plan) do
     params = %{
       repo: session.did,
       collection: AtMcp.Network.collection(:status),
       rkey: "self",
-      record: record
+      record: record,
+      swap_record: swap
     }
-
-    params = if swap, do: Map.put(params, :swap_record, swap), else: params
 
     case AtMcp.ATProto.put_record(session, params) do
       {:ok, _} ->

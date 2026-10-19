@@ -616,7 +616,8 @@ defmodule AtMcp.ATProto do
     record: {:required, :any}
   }
 
-  # `swapRecord` is the CID the record must still have for the write to apply.
+  # `swapRecord` is the CID the record must still have for the write to apply,
+  # or null when there must be none (`put_record/2`).
   @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swap_record, :string)
 
   # `swapRecord` is the CID the record must still have for it to be deleted.
@@ -649,7 +650,13 @@ defmodule AtMcp.ATProto do
   def create_record(session, params),
     do: procedure(session, "com.atproto.repo.createRecord", @repo_write, params)
 
-  @doc "Write a record at a known rkey, creating or replacing it."
+  @doc """
+  Write a record at a known rkey, creating or replacing it. `swap_record` is
+  the CID the record must still have; given as nil, it is sent as null, which
+  the PDS reads as "there must be no record yet" (`swapCid === null` for a
+  create in the reference PDS's actor-store/repo/transactor.ts), so a record
+  created meanwhile is not written over. Left out, nothing is checked.
+  """
   def put_record(session, params),
     do: procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
 

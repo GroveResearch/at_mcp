@@ -198,9 +198,9 @@ defmodule AtMcp.MCP.Schemas do
   defmacro interests do
     Macro.escape(
       description:
-        "interests: the account's interests, replacing those it has. From: " <>
-          Enum.join(AtMcp.Preferences.interests(), ", "),
-      schema: %{type: "array", items: %{type: "string", enum: AtMcp.Preferences.interests()}}
+        "interests: the account's interests, replacing those it has: the ones the app offers (" <>
+          Enum.join(AtMcp.Preferences.interests(), ", ") <> "), or ones the account already has",
+      schema: %{type: "array", items: %{type: "string"}}
     )
   end
 

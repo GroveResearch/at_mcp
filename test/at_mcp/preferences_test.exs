@@ -53,7 +53,7 @@ defmodule AtMcp.PreferencesTest do
 
       for {args, path} <- [
             {%{"kind" => "threads", "sort" => "hotness"}, "sort"},
-            {%{"kind" => "interests", "tags" => ["art", "knitting"]}, "tags/1"},
+            {%{"kind" => "interests", "tags" => ["art", String.duplicate("x", 65)]}, "tags"},
             {%{"kind" => "interaction_defaults", "reply_rule" => ["everyone", "following"]},
              "reply_rule/0"},
             {%{"kind" => "interaction_defaults", "reply_rule" => ["at://x/app.bsky.feed.post/p"]},
@@ -285,8 +285,9 @@ defmodule AtMcp.PreferencesTest do
                  hide_from_recommendations: true
                })
 
+      # No record was read, so it is written only if there still is none.
       assert [%{body: first}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
-      refute Map.has_key?(first, "swapRecord")
+      assert Map.fetch(first, "swapRecord") == {:ok, nil}
 
       assert Lexicon.problems(first["record"], "app.bsky.actor.contentVisibilityDeclaration") ==
                []
@@ -340,6 +341,89 @@ defmodule AtMcp.PreferencesTest do
                })
 
       assert message =~ "nothing was written"
+    end
+
+    test "a declaration, profile or status another client creates between the read and the write is not written over" do
+      declaration = "at://did:plc:self/app.bsky.notification.declaration/self"
+      profile = "at://did:plc:self/app.bsky.actor.profile/self"
+      status = "at://did:plc:self/app.bsky.actor.status/self"
+
+      # The read finds nothing; by the write, each record is there.
+      %{effects: effects, pds: pds} =
+        pds(
+          records: %{
+            declaration => %{"allowSubscriptions" => "none"},
+            profile => %{"displayName" => "theirs"},
+            status => %{"status" => "app.bsky.actor.status#live"}
+          },
+          answers: %{
+            "com.atproto.repo.getRecord" =>
+              {400, %{error: "RecordNotFound", message: "Could not locate record"}}
+          }
+        )
+
+      for {write, what} <- [
+            {fn ->
+               AtMcp.Effects.set_preference(effects, "activity_subscriptions", %{allow: "mutuals"})
+             end, "notification.declaration"},
+            {fn -> AtMcp.Effects.update_profile(effects, display_name: "mine") end, "profile"},
+            {fn ->
+               AtMcp.Effects.set_status(effects, "live",
+                 url: "https://twitch.tv/x",
+                 duration_minutes: 30
+               )
+             end, "status"}
+          ] do
+        assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} = write.(),
+               what
+
+        assert message =~ "nothing was written", what
+      end
+
+      assert FakePDS.record(pds, declaration) == %{"allowSubscriptions" => "none"}
+      assert FakePDS.record(pds, profile) == %{"displayName" => "theirs"}
+      assert FakePDS.record(pds, status) == %{"status" => "app.bsky.actor.status#live"}
+    end
+
+    test "threads changes one setting and keeps the other as the app shows it" do
+      preferences = [
+        %{"$type" => "app.bsky.actor.defs#threadViewPref", "sort" => "newest"},
+        %{"$type" => "app.bsky.actor.defs#threadViewPref", "lab_treeViewEnabled" => true}
+      ]
+
+      %{effects: effects, pds: pds} = pds(preferences: preferences)
+
+      assert {:ok, %{changed: ["tree_view"], now: %{sort: "newest", tree_view: false}}} =
+               AtMcp.Effects.set_preference(effects, "threads", %{tree_view: false})
+
+      assert [
+               %{
+                 "$type" => "app.bsky.actor.defs#threadViewPref",
+                 "sort" => "newest",
+                 "lab_treeViewEnabled" => false
+               }
+             ] = FakePDS.preferences(pds)
+
+      assert {:ok, %{now: %{sort: "newest", tree_view: false}}} =
+               AtMcp.Effects.get_preferences(effects)
+               |> then(fn {:ok, p} -> {:ok, %{now: p.threads}} end)
+    end
+
+    test "interests keep a stored tag the app does not offer, refuse a new one, and the same set in another order is no change" do
+      stored = %{"$type" => "app.bsky.actor.defs#interestsPref", "tags" => ["knitting", "art"]}
+      %{effects: effects, pds: pds} = pds(preferences: [stored])
+
+      assert {:ok, %{unchanged: true}} =
+               AtMcp.Effects.set_preference(effects, "interests", %{tags: ["art", "knitting"]})
+
+      assert {:error, {:invalid_argument, "tags", message}} =
+               AtMcp.Effects.set_preference(effects, "interests", %{tags: ["art", "kites"]})
+
+      assert message =~ "kites"
+      assert FakePDS.sent(pds, "app.bsky.actor.putPreferences") == []
+
+      assert {:ok, %{changed: ["tags"], now: %{tags: ["knitting", "science"]}}} =
+               AtMcp.Effects.set_preference(effects, "interests", %{tags: ["knitting", "science"]})
     end
 
     test "get_preferences reads each kind as the app does, the saved feeds it migrates, and never the birth date" do
@@ -498,15 +582,37 @@ defmodule AtMcp.PreferencesTest do
                FakePDS.sent(pds, "app.bsky.notification.putActivitySubscription")
     end
 
-    test "this account cannot subscribe to itself" do
+    test "this account cannot subscribe to itself, by any name that resolves to it" do
       %{effects: effects, pds: pds} = pds()
 
-      for actor <- ["self.example", "did:plc:self"] do
+      for actor <- ["self.example", "did:plc:self", "also-self.test"] do
         assert {:error, {:invalid_argument, "actor", _}} =
                  AtMcp.Effects.subscribe_to_activity(effects, actor, true, false)
       end
 
-      assert FakePDS.methods(pds) == []
+      refute "app.bsky.notification.putActivitySubscription" in FakePDS.methods(pds)
+    end
+
+    test "an unsubscribe is sent even when the profile shows no subscription, which a block can hide" do
+      %{effects: effects, pds: pds} =
+        pds(
+          answers: %{
+            "app.bsky.actor.getProfile" =>
+              profile(nil, %{blocking: "at://did:plc:self/app.bsky.graph.block/b"})
+          }
+        )
+
+      assert {:ok, %{unchanged: false, note: note}} =
+               AtMcp.Effects.subscribe_to_activity(effects, "did:plc:alice", false, false)
+
+      assert note =~ "block"
+      assert [_] = FakePDS.sent(pds, "app.bsky.notification.putActivitySubscription")
+
+      # Subscribing says a block may be why it is not allowed.
+      assert {:error, {:invalid_argument, "actor", message}} =
+               AtMcp.Effects.subscribe_to_activity(effects, "did:plc:alice", true, false)
+
+      assert message =~ "block"
     end
   end
 
@@ -534,6 +640,28 @@ defmodule AtMcp.PreferencesTest do
     assert text =~ "Lets only mutuals subscribe to its posts"
     assert text =~ "You are subscribed to its posts"
     refute text =~ "and replies"
+  end
+
+  test "a group of subscribed posts is one account posting several times" do
+    group =
+      AtMcp.Summary.extract(:notification_group, %{
+        "kind" => "subscribedPostGroup",
+        "count" => 3,
+        "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
+        "posts" => [
+          %{"uri" => "at://did:plc:alice/app.bsky.feed.post/1"},
+          %{"uri" => "at://did:plc:alice/app.bsky.feed.post/2"},
+          %{"uri" => "at://did:plc:alice/app.bsky.feed.post/3"}
+        ]
+      })
+
+    text =
+      AtMcp.Reading.notifications(
+        Jason.decode!(Jason.encode!(%{items: [group], count: 1, seen_at: nil}))
+      )
+
+    assert text =~ "alice.test posted 3 times (you are subscribed)"
+    refute text =~ "others"
   end
 
   describe "grouped notifications" do
@@ -707,7 +835,7 @@ defmodule AtMcp.PreferencesTest do
         preferences: Keyword.get(opts, :preferences, []),
         notification_preferences: Keyword.get(opts, :notification_preferences, %{}),
         answers: Keyword.get(opts, :answers, %{}),
-        handles: %{"alice.test" => "did:plc:alice"}
+        handles: %{"alice.test" => "did:plc:alice", "also-self.test" => "did:plc:self"}
       )
 
     effects =

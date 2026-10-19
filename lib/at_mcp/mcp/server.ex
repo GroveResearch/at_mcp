@@ -2188,7 +2188,7 @@ defmodule AtMcp.MCP.Server do
   tool "subscribe_to_activity",
        write_description(
          :subscribe_to_activity,
-         "Subscribe to an account's activity, as the bell on its profile does in the app: posts true makes each of its new posts a notification (reason subscribed-post), and replies true its replies too, which needs posts. Both false unsubscribes. Each account says who may subscribe to it (followers, the default; mutuals; or none); a subscription it does not allow is refused before anything is sent. The result names the account and its subscription before (previous) and now; one already as asked is left alone and unchanged is true. get_profile (activity_subscription) and get_activity_subscriptions read it back."
+         "Subscribe to an account's activity, as the bell on its profile does in the app: posts true makes each of its new posts a notification (reason subscribed-post), and replies true its replies too, which needs posts. Both false unsubscribes, and is sent even when no subscription shows, as a block hides one. Each account says who may subscribe to it (followers, the default; mutuals; or none); a subscription it does not allow is refused before anything is sent. The result names the account and its subscription before (previous) and now; one already as asked is left alone and unchanged is true. get_profile (activity_subscription) and get_activity_subscriptions read it back."
        ) do
     annotations(
       write_annotations(:subscribe_to_activity, %{

@@ -1011,8 +1011,11 @@ defmodule AtMcp.Reading do
   defp who_acted(actors, count, kind) do
     names = Enum.map(actors, &(&1["handle"] || &1["did"]))
 
+    # A group of several posts by one account counts its posts, not accounts:
+    # the multiPost groups, and subscribed posts, which the service groups by
+    # their author (`groupingKey` in its notification grouping).
     others =
-      if is_integer(count) and not String.starts_with?(to_string(kind), "multiPost"),
+      if is_integer(count) and not one_actor?(kind),
         do: count - length(names),
         else: 0
 
@@ -1030,7 +1033,6 @@ defmodule AtMcp.Reading do
     "likeViaRepostGroup" => "liked your repost",
     "repostViaRepostGroup" => "reposted your repost",
     "followGroup" => "followed you",
-    "subscribedPostGroup" => "posted (you are subscribed)",
     "generatorLikeGroup" => "liked your feed",
     "replyNotification" => "replied",
     "quoteNotification" => "quoted your post",
@@ -1048,6 +1050,14 @@ defmodule AtMcp.Reading do
     "multiPostLikeViaRepostGroup" => {"liked", "of your reposts"},
     "multiPostRepostViaRepostGroup" => {"reposted", "of your reposts"}
   }
+
+  defp one_actor?(kind),
+    do: String.starts_with?(to_string(kind), "multiPost") or kind == "subscribedPostGroup"
+
+  defp group_verb("subscribedPostGroup", 1), do: "posted (you are subscribed)"
+
+  defp group_verb("subscribedPostGroup", posts),
+    do: "posted #{posts} times (you are subscribed)"
 
   defp group_verb(kind, posts) do
     case Map.fetch(@multi_verbs, kind) do

@@ -1319,6 +1319,13 @@ defmodule AtMcp.Effects do
                    else: :ok
                  ),
                {:ok, did} <- backend.resolve_actor(session, actor),
+               # A handle in another case, or another handle of this account,
+               # resolves to its own DID.
+               :ok <-
+                 if(did == did_of(session),
+                   do: invalid("actor", "an account cannot subscribe to its own posts"),
+                   else: :ok
+                 ),
                do:
                  backend.prepare_activity_subscription(session, did, %{
                    posts: posts,

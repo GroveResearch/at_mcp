@@ -27,7 +27,8 @@ defmodule AtMcp.Test.FakePDS do
   reason, which `notification.getPreferences` answers with the service's
   defaults for the rest and `putPreferencesV2` changes reason by reason;
   `putActivitySubscription` keeps subscriptions (`subscriptions/1`). A `putRecord` whose
-  `swapRecord` is not the record's CID answers 400 `InvalidSwap`. An answer given as a list is taken one per call, the
+  `swapRecord` is not the record's CID, or is null where a record exists,
+  answers 400 `InvalidSwap`. An answer given as a list is taken one per call, the
   last staying; `:default` in it stands for the PDS's own answer.
   """
   import Plug.Conn
@@ -166,8 +167,12 @@ defmodule AtMcp.Test.FakePDS do
   defp answer("com.atproto.repo.putRecord", %{body: b}, state) do
     uri = "at://#{b["repo"]}/#{b["collection"]}/#{b["rkey"]}"
 
-    if is_binary(b["swapRecord"]) and
-         (not Map.has_key?(state.records, uri) or b["swapRecord"] != cid(uri)) do
+    # A null swap says there must be no record yet, as the reference PDS
+    # reads it.
+    if (is_binary(b["swapRecord"]) and
+          (not Map.has_key?(state.records, uri) or b["swapRecord"] != cid(uri))) or
+         (Map.has_key?(b, "swapRecord") and is_nil(b["swapRecord"]) and
+            Map.has_key?(state.records, uri)) do
       {{400, %{error: "InvalidSwap", message: "Record was at another version"}}, state}
     else
       {{200, %{uri: uri, cid: cid(uri)}}, put_in(state.records[uri], b["record"])}

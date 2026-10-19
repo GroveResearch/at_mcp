@@ -206,19 +206,19 @@ defmodule AtMcp.Preferences do
   defp read_field(:reply_rule, rules), do: AtMcp.Interactions.reply_rule(rules)
   defp read_field(:quotes, quotes), do: AtMcp.Interactions.quotes(quotes)
 
+  # Each tag within `interestsPref`'s limits. Whether the app offers it is
+  # checked against the stored tags too (`interests_offered/2`), after the
+  # preferences are read: the app keeps a stored tag it does not offer.
   defp read_field(:tags, tags) when is_list(tags) do
-    case Enum.reject(tags, &(&1 in @interests)) do
-      [] when length(tags) <= @max_interests ->
-        {:ok, Enum.uniq(tags)}
-
-      [] ->
+    cond do
+      length(tags) > @max_interests ->
         invalid("tags", "at most #{@max_interests}")
 
-      [other | _] ->
-        invalid(
-          "tags",
-          "#{inspect(other)} is not an interest the app offers; it offers #{Enum.join(@interests, ", ")}"
-        )
+      bad = Enum.find(tags, &(not tag?(&1))) ->
+        invalid("tags", "#{inspect(bad)} is not an interest: at most 64 characters and 640 bytes")
+
+      true ->
+        {:ok, Enum.uniq(tags)}
     end
   end
 
@@ -227,6 +227,31 @@ defmodule AtMcp.Preferences do
   defp read_field(:allow, allow) when allow in @allow, do: {:ok, allow}
 
   defp read_field(:allow, _allow), do: invalid("allow", "must be #{Enum.join(@allow, ", ")}")
+
+  defp tag?(tag),
+    do:
+      is_binary(tag) and String.valid?(tag) and String.length(tag) <= 64 and
+        byte_size(tag) <= 640
+
+  @doc """
+  Whether each tag is one the app offers or one the account already has: the
+  app's interests screen offers its own list and keeps any stored tag. The
+  first tag that is neither is named.
+  """
+  def interests_offered(preferences, tags) do
+    stored = kind_view(preferences, "interests").tags
+
+    case Enum.find(tags, &(&1 not in @interests and &1 not in stored)) do
+      nil ->
+        :ok
+
+      other ->
+        invalid(
+          "tags",
+          "#{inspect(other)} is not an interest the app offers or one the account has; it offers #{Enum.join(@interests, ", ")}"
+        )
+    end
+  end
 
   # --- reading ---
 
@@ -383,19 +408,23 @@ defmodule AtMcp.Preferences do
     )
   end
 
+  # The app saves both settings at once, from what it shows (the merged
+  # preferences, the sort normalized), over the last thread preference
+  # (`savePrefs` in social-app's useThreadPreferences.ts, then
+  # `setThreadViewPrefs`), so changing one never resets the other.
   def change(preferences, "threads", changes) do
     existing = last_valid(preferences, :thread_view_pref) || %{}
-
-    set =
-      Map.new(changes, fn
-        {:sort, sort} -> {"sort", sort}
-        {:tree_view, tree} -> {"lab_treeViewEnabled", tree}
-      end)
+    shown = kind_view(preferences, "threads")
+    %{sort: sort, tree_view: tree} = Map.merge(shown, changes)
 
     replace(
       preferences,
       &of_type?(&1, :thread_view_pref),
-      existing |> Map.merge(set) |> Map.put("$type", Network.type(:thread_view_pref))
+      Map.merge(existing, %{
+        "$type" => Network.type(:thread_view_pref),
+        "sort" => sort,
+        "lab_treeViewEnabled" => tree
+      })
     )
   end
 
@@ -476,7 +505,14 @@ defmodule AtMcp.Preferences do
   kind's order.
   """
   def changed(kind, before, now),
-    do: for(field <- fields(kind), Map.get(before, field) != Map.get(now, field), do: field)
+    do: for(field <- fields(kind), not same?(field, before[field], now[field]), do: field)
+
+  # Interests are a set: the same tags in another order are no change, and
+  # the app writes nothing for them.
+  defp same?(:tags, before, now) when is_list(before) and is_list(now),
+    do: MapSet.new(before) == MapSet.new(now)
+
+  defp same?(_field, before, now), do: before == now
 
   # --- notification settings ---
 

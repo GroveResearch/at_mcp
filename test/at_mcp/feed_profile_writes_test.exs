@@ -371,7 +371,8 @@ defmodule AtMcp.FeedProfileWritesTest do
 
       assert is_binary(expires)
       [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
-      refute Map.has_key?(body, "swapRecord")
+      # There was no status: written only if there still is none.
+      assert Map.fetch(body, "swapRecord") == {:ok, nil}
       assert Lexicon.problems(body["record"], "app.bsky.actor.status") == []
 
       assert %{

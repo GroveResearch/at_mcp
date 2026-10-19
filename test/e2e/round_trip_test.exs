@@ -424,6 +424,21 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert reason in [:invalid_swap, "invalid_swap"]
       assert record(me, profile_uri(me))["description"] == "second"
 
+      # A null swap, which a write sends when it read no record, is refused
+      # the same way once a record exists: a record another client created
+      # in between is not written over.
+      assert {:error, %ProtoRune.XRPC.Error{reason: reason}} =
+               AtMcp.ATProto.put_record(session, %{
+                 repo: me.did,
+                 collection: "app.bsky.actor.profile",
+                 rkey: "self",
+                 record: %{"$type" => "app.bsky.actor.profile", "description" => "stale"},
+                 swap_record: nil
+               })
+
+      assert reason in [:invalid_swap, "invalid_swap"]
+      assert record(me, profile_uri(me))["description"] == "second"
+
       {:ok, commit} = AtMcp.ATProto.get_latest_commit(session, me.did)
       old_commit = commit[:cid] || commit["cid"]
       assert is_binary(old_commit)
