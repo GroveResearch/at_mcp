@@ -675,6 +675,7 @@ defmodule AtMcp.SummaryTest do
 
     assert profile.joined_via == %{
              uri: "at://did:plc:k/app.bsky.graph.starterpack/p",
+             web_url: "https://bsky.app/start/did:plc:k/p",
              name: "Agents",
              creator: "k.test"
            }
@@ -703,7 +704,11 @@ defmodule AtMcp.SummaryTest do
              nil
 
     assert AtMcp.Summary.extract(:post, @responses.post).reply_lists == [
-             %{uri: "at://did:plc:author/app.bsky.graph.list/friends", name: "Friends"}
+             %{
+               uri: "at://did:plc:author/app.bsky.graph.list/friends",
+               web_url: "https://bsky.app/profile/did:plc:author/lists/friends",
+               name: "Friends"
+             }
            ]
   end
 end

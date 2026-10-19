@@ -450,6 +450,19 @@ defmodule AtMcp.MCP.Schemas do
       "description" =>
         "Paths of arguments this tool does not take, present only when there were some. Nothing was done with them."
     },
+    "resolved" => %{
+      "type" => "array",
+      "items" => %{
+        "type" => "object",
+        "properties" => %{
+          "argument" => %{"type" => "string"},
+          "link" => %{"type" => "string"},
+          "value" => %{"type" => "string"}
+        }
+      },
+      "description" =>
+        "Each web link given in place of an AT URI, handle or DID, and the AT URI or DID it was read as; present only when there were some."
+    },
     "problems" => %{
       "type" => "array",
       "items" => %{
@@ -1004,6 +1017,10 @@ defmodule AtMcp.MCP.Schemas do
         "did" => nullable_string("The labeler's DID"),
         "handle" => nullable_string(),
         "display_name" => nullable_string(),
+        "web_url" =>
+          nullable_string(
+            "Web link of its account's profile, where the app shows the labeler; the AT URI stays what tools take"
+          ),
         "uri" => nullable_string("AT URI of its labeler record; like takes it"),
         "cid" => nullable_string(),
         "like_count" => %{"type" => ["integer", "null"]},

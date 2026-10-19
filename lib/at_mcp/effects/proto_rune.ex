@@ -193,6 +193,7 @@ defmodule AtMcp.Effects.ProtoRune do
       |> Enum.map(fn item ->
         %{
           "uri" => item["post"],
+          "author" => get_in(views, [item["post"], "author", "handle"]),
           "text" => get_in(views, [item["post"], "record", "text"]),
           "viaRepost" => item["viaRepost"],
           "parent" => item["parent"]
@@ -3591,6 +3592,7 @@ defmodule AtMcp.Effects.ProtoRune do
       did: did,
       handle: get_in(view, ["creator", "handle"]),
       display_name: get_in(view, ["creator", "displayName"]),
+      web_url: AtMcp.WebLink.profile(get_in(view, ["creator", "handle"]), did),
       uri: view["uri"],
       cid: view["cid"],
       like_count: view["likeCount"],

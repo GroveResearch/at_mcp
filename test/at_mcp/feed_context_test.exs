@@ -109,6 +109,7 @@ defmodule AtMcp.FeedContextTest do
     assert summary["reply_parent"] == %{
              "status" => "available",
              "uri" => parent["uri"],
+             "web_url" => AtMcp.WebLink.record(parent["uri"], parent["author"]["handle"]),
              "author" => parent["author"]["handle"],
              "author_did" => parent["author"]["did"],
              "display_name" => parent["author"]["displayName"]

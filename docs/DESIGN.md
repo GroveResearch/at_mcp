@@ -231,8 +231,8 @@ whether anything is missing. The caps are module attributes, not numbers in a
 tool description that go stale when they move.
 
 Post and chain summaries preserve `raw_text` exactly, expand link destinations
-in `text`, and expose normalized `facets`. `web_url` is the configured network's
-post permalink; AT URIs remain the canonical tool references. Both carry
+in `text`, and expose normalized `facets`. `web_url` is the post's web link on
+the configured network; AT URIs remain the canonical tool references. Both carry
 `images` (alt text and available thumbnail/full-size URLs, a gallery's
 included), a `link` card (destination, title, description, image URL), a
 `video` (alt text, thumbnail and playlist URLs) and one attributed `quote`.
@@ -245,6 +245,14 @@ a feed, list, starter pack or labeler (with its name, description and
 creator). A further quote stays a `nested_uri` rather than recursively
 expanding. `embed_type` identifies the embed's kind, including kinds this
 projection does not interpret.
+
+Every post, account, list, feed, starter pack and labeler a read shows carries
+`web_url`, the link a person opens and shares, built as the app's share actions
+build it (`AtMcp.WebLink`), and its text reads `link:` beside the uri. The way
+back holds too: wherever a tool takes an AT URI, handle or DID, it takes the web
+link instead (`AtMcp.MCP.WebLinks`), reads it as the record's AT URI or the
+account's DID, its handle resolved, and says so in `resolved`. A link to the
+wrong kind of thing, or to another network, is refused before anything is sent.
 
 A feed (timeline, author feed, custom feed, list feed, likes) wraps each post
 with what the app shows above it. `reason` says why the post is there: a

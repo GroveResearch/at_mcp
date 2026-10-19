@@ -19,14 +19,16 @@ defmodule AtMcp.Reading do
   Each function here takes the structured content exactly as it is sent and
   returns that text. It reads the result, never the service, so it cannot say
   anything the structured content does not. What it leaves out is still in the
-  structured content: author DIDs, `raw_text`, facets, web URLs, image, video and link-card image URLs and
+  structured content: author DIDs, `raw_text`, facets, image, video and link-card image URLs and
   blob metadata, which labeler applied a label, the record URIs of likes,
   reposts and follows (which no tool takes), read notifications' `is_read`, and
   the read limits of a thread.
 
   It only drops what is absent. A post's text is never shortened, every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
-  next page is stated with the argument to pass it as.
+  next page is stated with the argument to pass it as. Beside the uri of each
+  post, account, list, feed, starter pack and labeler is its `link:`, the web
+  link a person opens and shares in the app.
   """
 
   @doc "A page of posts: timelines, feeds, search results, `get_posts`."
@@ -348,7 +350,8 @@ defmodule AtMcp.Reading do
         messages_from(account["messages_from"]),
         subscriptions_from(account["subscriptions_from"]),
         subscribed(account["activity_subscription"]),
-        if(is_binary(account["did"]), do: "did: #{account["did"]}")
+        if(is_binary(account["did"]), do: "did: #{account["did"]}"),
+        web(account)
       ],
       "\n"
     )
@@ -513,7 +516,8 @@ defmodule AtMcp.Reading do
         labelled(%{"labels" => feed["labels"], "author_did" => feed["creator_did"]}),
         if(is_binary(viewer["like"]), do: "You liked this: #{viewer["like"]}"),
         if(is_binary(feed["avatar"]), do: "Avatar: #{escape_uri(feed["avatar"])}"),
-        ids(feed)
+        ids(feed),
+        web(feed)
       ],
       "\n"
     )
@@ -731,6 +735,7 @@ defmodule AtMcp.Reading do
               ],
               " · "
             ),
+            web(labeler),
             case List.wrap(labeler["labels"]) do
               [] ->
                 "Defines no labels of its own."
@@ -868,7 +873,8 @@ defmodule AtMcp.Reading do
           ],
           " · "
         ),
-        "uri: #{list["uri"]}"
+        "uri: #{list["uri"]}",
+        web(list)
       ],
       "\n"
     )
@@ -930,7 +936,8 @@ defmodule AtMcp.Reading do
         labelled(%{"labels" => pack["labels"], "author_did" => pack["creator_did"]}),
         opted_out(viewer),
         if(is_binary(pack["list"]), do: "list: #{pack["list"]} (get_list reads every account)"),
-        "uri: #{pack["uri"]}"
+        "uri: #{pack["uri"]}",
+        web(pack)
       ],
       "\n"
     )
@@ -952,7 +959,8 @@ defmodule AtMcp.Reading do
           ),
         one_line(member["description"]),
         standing(%{"author_viewer" => member["viewer"]}),
-        "item: #{member["item_uri"]}"
+        "item: #{member["item_uri"]}",
+        web(member)
       ],
       "\n"
     )
@@ -1006,7 +1014,14 @@ defmodule AtMcp.Reading do
         lines(
           top ++
             body(post) ++
-            [engagement(post), labelled(post), standing(post), who_can_reply(post), ids(post)] ++
+            [
+              engagement(post),
+              labelled(post),
+              standing(post),
+              who_can_reply(post),
+              ids(post),
+              web(post)
+            ] ++
             viewer(post) ++ [feed_given(post)],
           "\n"
         )
@@ -1060,6 +1075,7 @@ defmodule AtMcp.Reading do
             lines(
               [
                 post["uri"],
+                web(post),
                 if(is_binary(post["text"]), do: inspect(one_line(post["text"]))),
                 if(is_binary(post["via_repost"]), do: "via your repost #{post["via_repost"]}"),
                 if(is_binary(post["parent"]), do: "replying to #{post["parent"]}")
@@ -1095,7 +1111,7 @@ defmodule AtMcp.Reading do
 
       lines(
         [lines([header, replying], " · ") | body(item)] ++
-          [labelled(item), standing(item), ids(item)],
+          [labelled(item), standing(item), ids(item), web(item)],
         "\n"
       )
     else
@@ -1446,7 +1462,7 @@ defmodule AtMcp.Reading do
     about = one_line(quote["description"])
     about = if about not in [nil, ""], do: ": #{about}"
 
-    "[quoting #{String.replace(kind, "_", " ")}#{name}#{by}, #{quote["uri"]}#{about}]"
+    "[quoting #{String.replace(kind, "_", " ")}#{name}#{by}, #{quote["uri"]}#{in_brackets(web(quote))}#{about}]"
   end
 
   defp quoted(%{"status" => "available"} = quote) do
@@ -1482,7 +1498,7 @@ defmodule AtMcp.Reading do
         notes -> " · " <> notes
       end
 
-    "[quoting #{author}, #{quote["uri"]}: #{quote["text"]}#{pictures}#{media}#{notes}]"
+    "[quoting #{author}, #{quote["uri"]}#{in_brackets(web(quote))}: #{quote["text"]}#{pictures}#{media}#{notes}]"
   end
 
   defp quoted(%{"status" => status} = quote) when is_binary(status),
@@ -1619,6 +1635,13 @@ defmodule AtMcp.Reading do
       " · "
     )
   end
+
+  # The web link a person opens and shares, beside the uri tools take.
+  defp web(%{"web_url" => url}) when is_binary(url), do: "link: #{url}"
+  defp web(_item), do: nil
+
+  defp in_brackets(nil), do: ""
+  defp in_brackets(said), do: " (#{said})"
 
   # What a custom feed gave the item, which `feed_feedback` hands back.
   defp feed_given(post) do

@@ -128,17 +128,34 @@ defmodule AtMcp.MCP.Input do
   """
   def note_ignored(result, []), do: result
 
-  def note_ignored({:ok, %{content: content} = response, state}, paths) when is_list(content) do
-    line =
-      "ignored: #{Enum.join(paths, ", ")} (this tool does not take #{if match?([_], paths), do: "it", else: "them"}; nothing was done with #{if match?([_], paths), do: "it", else: "them"})"
+  def note_ignored(result, paths) do
+    them = if match?([_], paths), do: "it", else: "them"
 
+    note(
+      result,
+      :ignored,
+      paths,
+      "ignored: #{Enum.join(paths, ", ")} (this tool does not take #{them}; nothing was done with #{them})"
+    )
+  end
+
+  @doc """
+  A result that also carries `value` under `key` in the structured content
+  (and in its JSON text, which carries the same values), and `line` as a last
+  line of text. The call itself is unchanged.
+  """
+  def note({:ok, %{content: content} = response, state}, key, value, line)
+      when is_list(content) do
     structured = Map.get(response, :structuredContent)
 
     content =
       Enum.map(content, fn
         %{type: "text", text: text} = item when is_map(structured) ->
           if Jason.decode(text) == {:ok, SchemaPolicy.json_compatible(structured)},
-            do: %{item | text: Jason.encode!(Map.put(Jason.decode!(text), "ignored", paths))},
+            do: %{
+              item
+              | text: Jason.encode!(Map.put(Jason.decode!(text), Atom.to_string(key), value))
+            },
             else: item
 
         item ->
@@ -150,19 +167,19 @@ defmodule AtMcp.MCP.Input do
       |> Map.put(:content, content ++ [%{type: "text", text: line}])
       |> then(fn r ->
         if is_map(structured),
-          do: Map.put(r, :structuredContent, put_ignored(structured, paths)),
+          do: Map.put(r, :structuredContent, put_key(structured, key, value)),
           else: r
       end)
 
     {:ok, response, state}
   end
 
-  def note_ignored(result, _paths), do: result
+  def note(result, _key, _value, _line), do: result
 
-  defp put_ignored(map, paths) do
+  defp put_key(map, key, value) do
     if Enum.any?(Map.keys(map), &is_atom/1),
-      do: Map.put(map, :ignored, paths),
-      else: Map.put(map, "ignored", paths)
+      do: Map.put(map, key, value),
+      else: Map.put(map, Atom.to_string(key), value)
   end
 
   # The refusal names each argument that failed and why, so a caller can

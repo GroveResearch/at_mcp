@@ -383,29 +383,8 @@ defmodule AtMcp.Network do
     end)
   end
 
-  @doc "A web permalink for a post on this network; the AT URI stays canonical."
-  def post_url("at://" <> rest) do
-    case String.split(rest, "/") do
-      [repo, collection, rkey] when repo != "" and rkey != "" ->
-        if collection == collection(:post) and
-             (ProtoRune.Atproto.Identity.valid_did?(repo) or
-                ProtoRune.Atproto.Identity.valid_handle?(repo)) and
-             rkey not in [".", ".."] and Regex.match?(~r/\A[A-Za-z0-9._~:-]{1,512}\z/, rkey) and
-             not String.contains?(rest, ["?", "#", " ", "\n"]) do
-          origin = @networks |> Map.fetch!(name()) |> Map.fetch!(:web_origin)
-
-          origin <>
-            "/profile/" <>
-            URI.encode(repo, &URI.char_unreserved?/1) <>
-            "/post/" <> URI.encode(rkey, &URI.char_unreserved?/1)
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  def post_url(_), do: nil
+  @doc "Where this network's app is on the web: the origin of every web link to it."
+  def web_origin, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:web_origin)
 
   @doc "The collections AtMcp's inbound filter subscribes to."
   @spec inbound_collections() :: [String.t()]

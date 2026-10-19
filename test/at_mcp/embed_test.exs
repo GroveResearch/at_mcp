@@ -203,7 +203,8 @@ defmodule AtMcp.EmbedTest do
     assert summary["quote"]["created_at"] == quoted["value"]["createdAt"]
 
     assert text =~
-             "[quoting #{quoted["author"]["displayName"]} (@#{quoted["author"]["handle"]}), #{quoted["uri"]}: "
+             "[quoting #{quoted["author"]["displayName"]} (@#{quoted["author"]["handle"]}), #{quoted["uri"]} " <>
+               "(link: #{AtMcp.WebLink.record(quoted["uri"], quoted["author"]["handle"])}): "
 
     assert text =~ " [link: #{card["title"]} (#{card["uri"]})]]"
 
@@ -256,7 +257,8 @@ defmodule AtMcp.EmbedTest do
              {pack["record"]["name"], pack["record"]["description"], pack["creator"]["handle"]}
 
     assert text =~
-             ~s([quoting starter pack "#{name}" by @#{creator}, #{pack["uri"]}: #{description}])
+             ~s([quoting starter pack "#{name}" by @#{creator}, #{pack["uri"]} ) <>
+               "(link: #{AtMcp.WebLink.record(pack["uri"])}): #{description}]"
 
     refute text =~ "unsupported"
   end
@@ -287,7 +289,7 @@ defmodule AtMcp.EmbedTest do
              summary["quote"]
 
     assert text =~
-             ~s([quoting feed "Herons" by @maker.example.test, at://did:plc:maker/app.bsky.feed.generator/herons: Posts about herons])
+             ~s|[quoting feed "Herons" by @maker.example.test, at://did:plc:maker/app.bsky.feed.generator/herons (link: https://bsky.app/profile/did:plc:maker/feed/herons): Posts about herons]|
 
     {text, summary} =
       read(
@@ -305,7 +307,7 @@ defmodule AtMcp.EmbedTest do
     assert %{"kind" => "list", "name" => "Birders", "description" => nil} = summary["quote"]
 
     assert text =~
-             ~s([quoting list "Birders" by @maker.example.test, at://did:plc:maker/app.bsky.graph.list/birders])
+             ~s|[quoting list "Birders" by @maker.example.test, at://did:plc:maker/app.bsky.graph.list/birders (link: https://bsky.app/profile/did:plc:maker/lists/birders)]|
 
     {text, summary} =
       read(
@@ -321,7 +323,7 @@ defmodule AtMcp.EmbedTest do
     assert %{"kind" => "labeler", "creator" => "maker.example.test"} = summary["quote"]
 
     assert text =~
-             "[quoting labeler by @maker.example.test, at://did:plc:maker/app.bsky.labeler.service/self]"
+             "[quoting labeler by @maker.example.test, at://did:plc:maker/app.bsky.labeler.service/self (link: https://bsky.app/profile/maker.example.test)]"
   end
 
   # A raw record (a notification, a stream event) has the card's text and the
