@@ -69,8 +69,8 @@ defmodule AtMcp.DraftsTest do
       :ok
     end
 
-    defp pds(answers, drafts \\ []) do
-      {session, pds} = FakePDS.start(answers: answers, drafts: drafts)
+    defp pds(answers, drafts \\ [], opts \\ []) do
+      {session, pds} = FakePDS.start([answers: answers, drafts: drafts] ++ opts)
 
       effects =
         start_supervised!(
@@ -129,8 +129,7 @@ defmodule AtMcp.DraftsTest do
       assert {:ok, %{id: "3held", draft: draft}} =
                AtMcp.Effects.save_draft(effects, "first, after", "3held")
 
-      # The draft is read again after the update: the result is what the
-      # service holds, not what was sent.
+      # The draft is read again after the update, to check it still exists.
       assert length(FakePDS.sent(pds, "app.bsky.draft.getDrafts")) == 2
 
       assert [%{text: "first, after", images: [%{alt: "a kite"}]}, %{text: "second"}] =
@@ -146,6 +145,15 @@ defmodule AtMcp.DraftsTest do
              }
 
       assert Lexicon.problems(update.body, "app.bsky.draft.updateDraft") == []
+    end
+
+    # The service queues an update and applies it later, so getDrafts can
+    # still show the old text; the result is the draft as sent.
+    test "a saved draft is reported as sent while the service has not applied it yet" do
+      %{effects: effects} = pds(%{}, [view("3held", @held)], drafts_lag: true)
+
+      assert {:ok, %{id: "3held", draft: %{posts: [%{text: "first, after"} | _]}}} =
+               AtMcp.Effects.save_draft(effects, "first, after", "3held")
     end
 
     # updateDraft ignores an id it does not hold and answers success anyway.

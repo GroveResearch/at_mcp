@@ -1182,7 +1182,7 @@ defmodule AtMcp.MCP.Server do
   tool "save_draft",
        write_description(
          :save_draft,
-         "Save text as a draft to publish later; nothing is published. Without id, creates a new draft and returns its id. With the id of one of this account's drafts, replaces the text of its first post and keeps the rest of the draft; an id this account does not have is refused. The draft is read back after an update, so the result is what the service holds."
+         "Save text as a draft to publish later; nothing is published. Without id, creates a new draft and returns its id. With the id of one of this account's drafts, replaces the text of its first post and keeps the rest of the draft; an id this account does not have is refused. After an update the draft is checked to still exist; the result is the draft as sent, and the change may take a moment to show in get_drafts."
        ) do
     annotations(
       write_annotations(:save_draft, %{
