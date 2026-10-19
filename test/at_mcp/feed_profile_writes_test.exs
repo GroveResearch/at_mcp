@@ -270,6 +270,19 @@ defmodule AtMcp.FeedProfileWritesTest do
       assert Lexicon.problems(record, "app.bsky.feed.like") == []
     end
 
+    test "a repost of a post named with a handle names it in DID form" do
+      %{effects: effects, pds: pds} = pds()
+
+      assert {:ok, %{subject_uri: "at://did:plc:alice/town.delve.feed.post/p"}} =
+               AtMcp.Effects.repost(effects, "at://alice.test/town.delve.feed.post/p", "bafyp")
+
+      assert [%{body: %{"record" => record, "collection" => "town.delve.feed.repost"}}] =
+               FakePDS.sent(pds, "com.atproto.repo.createRecord")
+
+      assert record["subject"] ==
+               %{"uri" => "at://did:plc:alice/town.delve.feed.post/p", "cid" => "bafyp"}
+    end
+
     test "save_feed migrates the first-version preference, keeps every other one, and adds to the old one" do
       v1 = %{
         "$type" => "town.delve.actor.defs#savedFeedsPref",

@@ -873,8 +873,15 @@ defmodule AtMcp.Effects do
     take_and_write(effects, :unlike, fn backend, session -> backend.unlike(session, like_uri) end)
   end
 
+  # A repost, like a like, names its subject by DID: the AppView counts a
+  # repost whose subject is a handle-form AT URI nowhere.
   def repost(effects, uri, cid) when is_binary(uri) and is_binary(cid) do
-    take_and_write(effects, :repost, fn backend, session -> backend.repost(session, uri, cid) end)
+    take_and_write(
+      effects,
+      :repost,
+      fn backend, session -> did_uri(backend, session, uri) end,
+      fn uri -> fn backend, session -> backend.repost(session, uri, cid) end end
+    )
   end
 
   def unrepost(effects, repost_uri) when is_binary(repost_uri) do
