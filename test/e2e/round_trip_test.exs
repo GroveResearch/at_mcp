@@ -534,6 +534,37 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert view["like_count"] == 0 and view["repost_count"] == 0
     end
 
+    test "like by the post's web link: it is read as the post's uri, and the link reads back beside it",
+         %{net: net, me: me, them: them} do
+      post = post!(them, "like me by my link")
+      sync(net)
+
+      # The link the app shares: the author by handle, on this network's web origin.
+      "at://" <> path = post["uri"]
+      [_did, _collection, rkey] = String.split(path, "/")
+      link = "https://bsky.app/profile/#{them.handle}/post/#{rkey}"
+      assert only_post(me, post["uri"])["web_url"] == link
+
+      result = call(me, "like", %{"uri" => link})
+      refute result[:isError], hd(result.content).text
+      like = stringify(result.structuredContent)
+      uri = post["uri"]
+      assert [%{"argument" => "uri", "link" => ^link, "value" => ^uri}] = like["resolved"]
+      assert like["subject_uri"] == uri
+      assert List.last(result.content).text == "resolved: uri #{link} is #{uri}"
+      sync(net)
+
+      # Read back by the link too: the text names the link beside the uri.
+      read = call(me, "get_posts", %{"uris" => [link]})
+      refute read[:isError]
+      text = hd(read.content).text
+      assert text =~ "uri: #{uri}"
+      assert text =~ "\nlink: #{link}"
+      assert text =~ "You liked this: #{like["uri"]}"
+
+      call!(me, "unlike", %{"uri" => like["uri"]})
+    end
+
     test "like and repost without a cid take the post's own; a cid that is not its own is refused, naming it",
          %{net: net, me: me, them: them} do
       post = post!(them, "like me by uri alone")

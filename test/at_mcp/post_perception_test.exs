@@ -1,6 +1,6 @@
 defmodule AtMcp.PostPerceptionTest do
   use ExUnit.Case, async: false
-  alias AtMcp.{Network, Summary}
+  alias AtMcp.{Network, Summary, WebLink}
   @fixture Path.expand("../fixtures/fieldnote-post.json", __DIR__)
 
   setup do
@@ -130,12 +130,14 @@ defmodule AtMcp.PostPerceptionTest do
       Application.put_env(:at_mcp, :network, network)
       uri = "at://#{did}/#{Network.collection(:post)}/abc"
 
-      assert Network.post_url(uri) ==
+      assert WebLink.record(uri) ==
                origin <> "/profile/" <> URI.encode(did, &URI.char_unreserved?/1) <> "/post/abc"
 
-      assert Network.post_url("at://#{did}/#{Network.collection(:like)}/abc") == nil
-      assert Network.post_url(uri <> "?evil") == nil
-      assert Network.post_url("at://#{did}/#{Network.collection(:post)}/..") == nil
+      assert WebLink.record(uri, "alice.test") == origin <> "/profile/alice.test/post/abc"
+      assert WebLink.record(uri, "handle.invalid") == WebLink.record(uri)
+      assert WebLink.record("at://#{did}/#{Network.collection(:like)}/abc") == nil
+      assert WebLink.record(uri <> "?evil") == nil
+      assert WebLink.record("at://#{did}/#{Network.collection(:post)}/..") == nil
     end
   end
 end

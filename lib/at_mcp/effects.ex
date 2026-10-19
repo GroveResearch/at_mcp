@@ -1961,6 +1961,21 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  @doc """
+  The DID of the account a handle or DID names: a DID as given, this
+  account's own handle without a read, any other handle resolved. One that
+  does not resolve is `{:handle_not_resolved, handle}`.
+  """
+  def actor_did(_effects, "did:" <> _ = did), do: {:ok, did}
+
+  def actor_did(effects, handle) when is_binary(handle) do
+    with_session(effects, fn backend, session ->
+      if AtMcp.Interactions.own_repo?(session, handle),
+        do: {:ok, did_of(session)},
+        else: backend.resolve_actor(session, handle)
+    end)
+  end
+
   # A list or starter pack named by an AT URI whose repository is a handle, in
   # the DID form records and the AppView name it by. The AppView looks a list
   # up by the URI string it is given, so a handle-form URI of a real list is

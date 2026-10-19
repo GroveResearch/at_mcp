@@ -93,11 +93,18 @@ defmodule AtMcp.MCP.DSL do
           {:ok, schema} ->
             case AtMcp.MCP.Input.validate(arguments, schema) do
               :ok ->
-                result =
-                  super(name, arguments, state)
-                  |> AtMcp.MCP.Input.note_ignored(AtMcp.MCP.Input.ignored(arguments, schema))
+                case AtMcp.MCP.WebLinks.resolve(name, arguments, state) do
+                  {:ok, resolved_arguments, resolved} ->
+                    result =
+                      super(name, resolved_arguments, state)
+                      |> AtMcp.MCP.Input.note_ignored(AtMcp.MCP.Input.ignored(arguments, schema))
+                      |> AtMcp.MCP.WebLinks.note(resolved)
 
-                AtMcp.MCP.Output.validate(result, name, unquote(Macro.escape(compiled)))
+                    AtMcp.MCP.Output.validate(result, name, unquote(Macro.escape(compiled)))
+
+                  {:error, reason} ->
+                    AtMcp.MCP.Tools.respond({:error, reason}, state)
+                end
 
               {:error, response} ->
                 {:ok, response, state}

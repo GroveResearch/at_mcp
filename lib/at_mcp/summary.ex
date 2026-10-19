@@ -19,6 +19,9 @@ defmodule AtMcp.Summary do
   entries leave out the keys the response did not carry, `{:list, :string}` a
   list of strings, and `{:viewer, relationships}` a nested viewer read by the
   same rules as a shape's own `viewer` (a quoted post's author's, say).
+  `{:web, :profile}` and `{:web, :record}` are a web link built by
+  `AtMcp.WebLink` from the strings at its paths, in order: an account's handle
+  and DID, or a record's AT URI and its author's handle.
 
   A shape's `viewer` relationships are read from the response's `viewer`, or
   from its `viewer_path` where the view nests them: a list member's are on the
@@ -27,6 +30,8 @@ defmodule AtMcp.Summary do
   Write and action results are built from what the caller supplied rather than
   read out of a response, so they are not declared here.
   """
+
+  @link_doc "Web link a person opens and shares in the app; the AT URI stays what tools take"
 
   # What an AppView returns for an image on a post it hydrated. These are URLs
   # it already hosts, not blobs to fetch: reading them is surfacing what the
@@ -152,7 +157,8 @@ defmodule AtMcp.Summary do
      "What an available quote is: post, feed, list, starter_pack or labeler"},
     {:uri, :string, [["uri"]], "Quoted record's AT URI"},
     {:record_type, :string, [["record_type"]], "Quoted record or unavailable view type"},
-    {:web_url, :string, [["web_url"]], "Quoted post's web permalink"},
+    {:web_url, :string, [["web_url"]],
+     "Web link of the quoted record; a labeler's is its account's profile"},
     {:author, :string, [["author"]], "Quoted author's handle"},
     {:author_did, :string, [["author_did"]], "Quoted author's DID"},
     {:display_name, :string, [["display_name"]], "Quoted author's display name"},
@@ -190,8 +196,7 @@ defmodule AtMcp.Summary do
      "Exact author text, without appended observations"},
     {:facets, {:list, @facets}, [["perception", "facets"]],
      "Normalized link, mention and tag destinations"},
-    {:web_url, :string, [["perception", "web_url"]],
-     "Web permalink; the AT URI remains canonical"},
+    {:web_url, :string, [["perception", "web_url"]], @link_doc},
     {:images, {:list, @image_view}, [["perception", "images"]],
      "Image alt text and available URLs, not image pixels; a gallery's images too"},
     {:link, {:object, @link}, [["perception", "link"]], "The post's link card; null when absent"},
@@ -221,6 +226,7 @@ defmodule AtMcp.Summary do
     {:status, :string, [["status"]],
      "available, not_found, blocked, or unsupported for a view this version does not read"},
     {:uri, :string, [["uri"]], "AT URI of the post"},
+    {:web_url, {:web, :record}, [["uri"], ["author"]], @link_doc},
     {:author, :string, [["author"]], "Author handle"},
     {:author_did, :string, [["author_did"]], "Author DID"},
     {:display_name, :string, [["display_name"]], "Author display name"}
@@ -229,6 +235,7 @@ defmodule AtMcp.Summary do
   # A list a thread's gate lets reply (`graph.defs#listViewBasic`).
   @gate_list [
     {:uri, :string, [["uri"]], "AT URI of the list"},
+    {:web_url, {:web, :record}, [["uri"]], @link_doc},
     {:name, :string, [["name"]], "The list's name"}
   ]
 
@@ -286,6 +293,7 @@ defmodule AtMcp.Summary do
   # names it.
   @pack_feed [
     {:uri, :string, [["uri"]], "AT URI of the feed generator; get_feed takes it"},
+    {:web_url, {:web, :record}, [["uri"]], @link_doc},
     {:display_name, :string, [["display_name"], ["displayName"]], "Feed display name"},
     {:creator, :string, [["creator", "handle"]], "Handle of the account that made the feed"}
   ]
@@ -293,6 +301,7 @@ defmodule AtMcp.Summary do
   @pack_member [
     {:did, :string, [["subject", "did"]], "Account DID"},
     {:handle, :string, [["subject", "handle"]], "Account handle"},
+    {:web_url, {:web, :profile}, [["subject", "handle"], ["subject", "did"]], @link_doc},
     {:display_name, :string, [["subject", "display_name"], ["subject", "displayName"]],
      "Display name"}
   ]
@@ -301,6 +310,7 @@ defmodule AtMcp.Summary do
   @account_basic [
     {:did, :string, [["did"]], "Account DID"},
     {:handle, :string, [["handle"]], "Account handle"},
+    {:web_url, {:web, :profile}, [["handle"], ["did"]], @link_doc},
     {:display_name, :string, [["display_name"], ["displayName"]], "Display name"}
   ]
 
@@ -338,6 +348,7 @@ defmodule AtMcp.Summary do
 
   @joined_via [
     {:uri, :string, [["uri"]], "AT URI of the starter pack; get_starter_pack reads it"},
+    {:web_url, {:web, :record}, [["uri"]], @link_doc},
     {:name, :string, [["record", "name"]], "The starter pack's name"},
     {:creator, :string, [["creator", "handle"]], "Handle of the account that made it"}
   ]
@@ -348,6 +359,7 @@ defmodule AtMcp.Summary do
   @group_actor [
     {:did, :string, [["did"]], "Account DID"},
     {:handle, :string, [["handle"]], "Account handle; null when the service sent no view of it"},
+    {:web_url, {:web, :profile}, [["handle"], ["did"]], @link_doc},
     {:display_name, :string, [["displayName"]], "Display name"},
     {:starter_pack, :string, [["starterPack"]],
      "AT URI of the starter pack it followed through, when it did"}
@@ -355,6 +367,7 @@ defmodule AtMcp.Summary do
 
   @group_post [
     {:uri, :string, [["uri"]], "AT URI of the post"},
+    {:web_url, {:web, :record}, [["uri"], ["author"]], @link_doc},
     {:text, :string, [["text"]], "The post's text; null when the service sent no view of it"},
     {:via_repost, :string, [["viaRepost"]],
      "AT URI of this account's repost the action came through, when it did"},
@@ -396,6 +409,7 @@ defmodule AtMcp.Summary do
       fields: [
         {:did, :string, [["did"]], "Account DID"},
         {:handle, :string, [["handle"]], "Account handle"},
+        {:web_url, {:web, :profile}, [["handle"], ["did"]], @link_doc},
         {:display_name, :string, [["display_name"], ["displayName"]], "Display name"},
         {:description, :string, [["description"]], "Profile description"},
         {:avatar, :string, [["avatar"]],
@@ -451,6 +465,7 @@ defmodule AtMcp.Summary do
     generator: %{
       fields: [
         {:uri, :string, [["uri"]], "AT URI of the feed generator record"},
+        {:web_url, {:web, :record}, [["uri"]], @link_doc},
         {:cid, :string, [["cid"]], "CID of the feed generator record"},
         {:did, :string, [["did"]], "DID of the feed generator service"},
         {:display_name, :string, [["display_name"], ["displayName"]], "Feed display name"},
@@ -520,6 +535,7 @@ defmodule AtMcp.Summary do
     list: %{
       fields: [
         {:uri, :string, [["uri"]], "AT URI of the list record"},
+        {:web_url, {:web, :record}, [["uri"]], @link_doc},
         {:cid, :string, [["cid"]], "CID of the list record"},
         {:name, :string, [["name"]], "The list's name"},
         {:purpose, :string, [["purpose"]],
@@ -545,6 +561,7 @@ defmodule AtMcp.Summary do
          "AT URI of the list item record that puts this account on the list"},
         {:did, :string, [["subject", "did"]], "Account DID"},
         {:handle, :string, [["subject", "handle"]], "Account handle"},
+        {:web_url, {:web, :profile}, [["subject", "handle"], ["subject", "did"]], @link_doc},
         {:display_name, :string, [["subject", "display_name"], ["subject", "displayName"]],
          "Display name"},
         {:description, :string, [["subject", "description"]], "Profile description"},
@@ -561,6 +578,7 @@ defmodule AtMcp.Summary do
     starter_pack: %{
       fields: [
         {:uri, :string, [["uri"]], "AT URI of the starter pack record"},
+        {:web_url, {:web, :record}, [["uri"]], @link_doc},
         {:cid, :string, [["cid"]], "CID of the starter pack record"},
         {:name, :string, [["record", "name"]], "The starter pack's name"},
         {:description, :string, [["record", "description"]], "The starter pack's description"},
@@ -723,12 +741,23 @@ defmodule AtMcp.Summary do
   # The first path holding a value of the declared type wins. `false` is such a
   # value: `is_read: false` means unread, and reading it through `||` fallbacks
   # would publish it as null — a record claiming not to know what it knew.
+  defp read(source, paths, {:web, kind}) do
+    case Enum.map(paths, &string(AtMcp.Response.dig(source, &1))) do
+      [handle, did] when kind == :profile -> AtMcp.WebLink.profile(handle, did)
+      [uri] when kind == :record -> AtMcp.WebLink.record(uri)
+      [uri, handle] when kind == :record -> AtMcp.WebLink.record(uri, handle)
+    end
+  end
+
   defp read(source, paths, type) do
     Enum.reduce_while(paths, nil, fn path, absent ->
       value = AtMcp.Response.dig(source, path)
       if matches?(value, type), do: {:halt, project(value, type)}, else: {:cont, absent}
     end)
   end
+
+  defp string(value) when is_binary(value), do: value
+  defp string(_value), do: nil
 
   defp matches?(value, {:object, _fields}), do: is_map(value)
   defp matches?(value, {:list, _fields}), do: is_list(value)
@@ -797,6 +826,7 @@ defmodule AtMcp.Summary do
     }
   end
 
+  defp property({:web, _kind}, doc), do: property(:string, doc)
   defp property(type, doc), do: %{"type" => [json_type(type), "null"], "description" => doc}
 
   defp json_type(:string), do: "string"

@@ -41,7 +41,11 @@ defmodule AtMcp.ReadingTest do
     assert text =~ "<https://delve.town/profile/fieldnote.example.test/post/3kfixtureqo2a>"
 
     assert text =~
-             "[quoting Example Notes · AI (@fieldnote.example.test), #{post["embed"]["record"]["uri"]}:"
+             "[quoting Example Notes · AI (@fieldnote.example.test), #{post["embed"]["record"]["uri"]} " <>
+               "(link: https://delve.town/profile/fieldnote.example.test/post/3kfixtureqo2a):"
+
+    # Beside the uri, the link a person opens and shares.
+    assert text =~ "\nlink: https://delve.town/profile/fieldnote.example.test/post/3kfixturepo2a"
 
     # `reply` takes the uri; `like` and `repost` take the uri and the cid.
     assert text =~ "uri: #{post["uri"]}"
@@ -546,7 +550,8 @@ defmodule AtMcp.ReadingTest do
              Labels: bot (self)
              Followed by Kit (@k.test) and 3 others
              Joined through the starter pack "Agents" by @k.test at://did:plc:k/app.bsky.graph.starterpack/p
-             did: did:plc:a\
+             did: did:plc:a
+             link: https://delve.town/profile/a.test\
              """
 
     assert data["pinned_post"] == "at://did:plc:a/app.bsky.feed.post/1"
@@ -574,7 +579,12 @@ defmodule AtMcp.ReadingTest do
 
     # A page's description is on one line, as the app's account lists show it.
     assert text =~ "\nWrites about kites. And wind.\n"
-    assert String.ends_with?(text, "\n\n[2] @b.test\ndid: did:plc:b")
+
+    assert String.ends_with?(
+             text,
+             "\n\n[2] @b.test\ndid: did:plc:b\nlink: https://delve.town/profile/b.test"
+           )
+
     refute text =~ "null"
   end
 

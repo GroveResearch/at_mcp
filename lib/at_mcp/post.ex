@@ -18,7 +18,7 @@ defmodule AtMcp.Post do
       text: text,
       raw_text: get(record, [:text]),
       facets: facets,
-      web_url: Network.post_url(get(source, [:uri])),
+      web_url: AtMcp.WebLink.record(get(source, [:uri]), get(source, [:author, :handle])),
       images: images(embed),
       link: link(embed),
       video: video(embed),
@@ -193,7 +193,7 @@ defmodule AtMcp.Post do
     base = %{
       status: status,
       uri: uri,
-      web_url: Network.post_url(uri),
+      web_url: quote_link(record_kind(type), uri, view),
       record_type: get(value, [:"$type"]) || type
     }
 
@@ -233,6 +233,13 @@ defmodule AtMcp.Post do
         })
     end
   end
+
+  # The quoted record's link: a post's names its author by handle when the
+  # view has it; a labeler's is its account's profile, where the app shows it.
+  defp quote_link("labeler", _uri, view),
+    do: AtMcp.WebLink.profile(get(view, [:creator, :handle]), get(view, [:creator, :did]))
+
+  defp quote_link(_kind, uri, view), do: AtMcp.WebLink.record(uri, get(view, [:author, :handle]))
 
   # A quoted record that is not a post: the AppView hydrates a feed, list,
   # starter pack or labeler into its own view, and the app shows it as a card.
