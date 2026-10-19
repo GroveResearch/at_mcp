@@ -1076,18 +1076,21 @@ defmodule AtMcp.Effects do
 
   @doc "Mark notifications seen."
   def update_seen(effects, seen_at \\ nil) do
+    # Now is kept to the millisecond: the AppView counts a notification unread
+    # when it was indexed after the seen time, so a time cut to the second
+    # would leave unread whatever arrived earlier in that second.
     seen =
       case seen_at do
         %DateTime{} = dt ->
           dt
 
         nil ->
-          DateTime.utc_now() |> DateTime.truncate(:second)
+          DateTime.utc_now() |> DateTime.truncate(:millisecond)
 
         iso when is_binary(iso) ->
           case DateTime.from_iso8601(iso) do
             {:ok, dt, _} -> dt
-            {:error, _} -> DateTime.utc_now() |> DateTime.truncate(:second)
+            {:error, _} -> DateTime.utc_now() |> DateTime.truncate(:millisecond)
           end
       end
 
