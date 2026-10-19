@@ -10,6 +10,9 @@
 //   stdin "report <id>": the report with this id as the moderation service
 //                        (ozone) recorded it, {"report": {...}} or
 //                        {"report": null}
+//   stdin "label <uri> <cid> <value>": the record is labeled as the
+//                        moderation service (ozone), where the AppView
+//                        reads labels, then {"labeled": true}
 //   stdin "close", or stdin closing: stop every service, answer
 //                        {"closed": true} and exit
 //
@@ -152,7 +155,7 @@ const close = () => {
 const lines = readline.createInterface({ input: process.stdin })
 lines.on('line', async (line) => {
   try {
-    const [command, arg] = line.trim().split(' ')
+    const [command, arg, ...rest] = line.trim().split(' ')
     switch (command) {
       case 'report': {
         const report = await network.ozone.ctx.db.db
@@ -162,6 +165,25 @@ lines.on('line', async (line) => {
           .select(['id', 'subjectDid', 'subjectUri', 'subjectCid', 'comment', 'createdBy', 'meta'])
           .executeTakeFirst()
         say({ report: report ?? null })
+        break
+      }
+      case 'label': {
+        // dev-env does not carry ozone's labels to the AppView, so the label
+        // is written where the AppView reads labels, as ozone's, the way
+        // dev-env's own seed labels a record (seed/basic.ts).
+        const [cid, value] = rest
+        await network.bsky.db.db
+          .insertInto('label')
+          .values({
+            src: network.ozone.ctx.cfg.service.did,
+            uri: arg,
+            cid,
+            val: value,
+            neg: false,
+            cts: new Date().toISOString(),
+          })
+          .execute()
+        say({ labeled: true })
         break
       }
       case 'sync':

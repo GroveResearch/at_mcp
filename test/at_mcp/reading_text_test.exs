@@ -10,7 +10,8 @@ defmodule AtMcp.ReadingTextTest do
   import AtMcp.Reading.Text
 
   # The modules that write text a model reads.
-  @sources for file <- ~w(reading.ex mcp/tools.ex mcp/web_links.ex),
+  @sources for file <-
+                 ~w(reading.ex mcp/tools.ex mcp/web_links.ex moderation_decision.ex moderation_marks.ex),
                do: Path.expand("../../lib/at_mcp/" <> file, __DIR__)
 
   defp ast, do: for(source <- @sources, do: source |> File.read!() |> Code.string_to_quoted!())

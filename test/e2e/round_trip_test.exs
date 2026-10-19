@@ -1312,6 +1312,117 @@ defmodule AtMcp.E2E.RoundTripTest do
       call!(me, "set_preference", %{"kind" => "threads", "sort" => "top"})
     end
 
+    test "reads mark what the app would hide or cover: a muted word, a thread's reply, and a label as the account's own setting for it says",
+         %{net: net, me: me, them: them, moderation: moderation, session: session} do
+      {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
+      text = fn result -> hd(result.content).text end
+
+      # A muted word: the post is marked, and all of it is still there.
+      call!(me, "mute_word", %{"value" => "kumquat"})
+      muted = post!(them, "I love kumquat pie")
+      sync(net)
+
+      read = call(me, "get_posts", %{"uris" => [muted["uri"]]})
+      [post] = read.structuredContent["items"]
+      assert post["raw_text"] == "I love kumquat pie"
+
+      assert %{
+               "causes" => [%{"type" => "muted_word", "effect" => "hide", "words" => ["kumquat"]}]
+             } =
+               post["moderation"]
+
+      assert text.(read) =~ "Hidden by the app: matches your muted word \"kumquat\""
+      assert text.(read) =~ "I love kumquat pie"
+
+      # On the author's own profile the app leaves none of their posts out.
+      feed = call!(me, "get_author_feed", %{"actor" => them.did})["items"]
+      on_profile = Enum.find(feed, &(&1["uri"] == muted["uri"]))
+
+      assert %{"causes" => [%{"type" => "muted_word", "effect" => "cover"}]} =
+               on_profile["moderation"]
+
+      # In a thread, the reply goes under "Show more replies".
+      root = post!(me, "what fruit?")
+      call!(them, "reply", %{"uri" => root["uri"], "text" => "kumquat, always"})
+      call!(them, "reply", %{"uri" => root["uri"], "text" => "pears"})
+      sync(net)
+
+      thread = call(me, "get_thread", %{"uri" => root["uri"]})
+      replies = thread.structuredContent["replies"]
+      moved = Enum.find(replies, &(&1["raw_text"] == "kumquat, always"))
+      kept = Enum.find(replies, &(&1["raw_text"] == "pears"))
+      # A thread covers it, never leaves it out.
+      assert %{"in_thread" => "show_more_replies", "causes" => [%{"effect" => "cover"}]} =
+               moved["moderation"]
+
+      refute Map.has_key?(kept, "moderation")
+      assert text.(thread) =~ ~s(Under "Show more replies" in the app)
+
+      # The account's own posts are never matched.
+      own = post!(me, "kumquat season")
+      sync(net)
+      refute Map.has_key?(only_post(me, own["uri"]), "moderation")
+      call!(me, "unmute_word", %{"value" => "kumquat"})
+      refute Map.has_key?(only_post(me, muted["uri"]), "moderation")
+
+      # A label the network's moderation service applies, read as the
+      # service defines it (spam: blurs content, hidden unless set), then as
+      # the account sets it.
+      labelled = post!(them, "buy now")
+      sync(net)
+      assert :ok = DevNetwork.label(net, labelled["uri"], labelled["cid"], "spam")
+
+      assert %{
+               "causes" => [
+                 %{
+                   "type" => "label",
+                   "label" => "spam",
+                   "label_name" => "Spam",
+                   "labeler" => ^moderation,
+                   "effect" => "hide",
+                   "setting" => "hide"
+                 } = cause
+               ]
+             } = only_post(me, labelled["uri"])["moderation"]
+
+      handle = cause["labeler_handle"]
+      assert is_binary(handle)
+
+      read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
+      assert text.(read) =~ "Hidden by the app: labeled spam (\"Spam\") by #{handle}"
+
+      call!(me, "set_label_visibility", %{
+        "label" => "spam",
+        "visibility" => "warn",
+        "labeler" => moderation
+      })
+
+      assert %{"causes" => [%{"effect" => "cover", "setting" => "warn"}]} =
+               only_post(me, labelled["uri"])["moderation"]
+
+      read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
+      assert text.(read) =~ "Behind a warning in the app: labeled spam (\"Spam\") by #{handle}"
+
+      call!(me, "set_label_visibility", %{
+        "label" => "spam",
+        "visibility" => "show",
+        "labeler" => moderation
+      })
+
+      refute Map.has_key?(only_post(me, labelled["uri"]), "moderation")
+
+      call!(me, "set_label_visibility", %{
+        "label" => "spam",
+        "visibility" => "hide",
+        "labeler" => moderation
+      })
+
+      assert %{"causes" => [%{"effect" => "hide", "setting" => "hide"}]} =
+               only_post(me, labelled["uri"])["moderation"]
+
+      {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before)
+    end
+
     test "subscribe_labeler, set_label_visibility for its label, unsubscribe_labeler: get_labelers and get_preferences follow each",
          %{me: me, them: them, moderation: moderation, session: session} do
       assert [^moderation] = call!(me, "get_preferences", %{})["labelers"]

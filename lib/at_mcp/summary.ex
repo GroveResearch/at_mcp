@@ -107,7 +107,9 @@ defmodule AtMcp.Summary do
     {:val, :string, [["val"]], "The label's value, such as bot or porn"},
     {:src, :string, [["src"]], "DID of the account or labeler that applied it"},
     {:neg, :boolean, [["neg"]], "True when this label removes an earlier one"},
-    {:exp, :string, [["exp"]], "When the label expires, as an ISO 8601 timestamp"}
+    {:exp, :string, [["exp"]], "When the label expires, as an ISO 8601 timestamp"},
+    {:uri, :string, [["uri"]],
+     "What the label is on: the post, or for an account its DID or, for a label on its profile record, that record's AT URI"}
   ]
 
   # The viewing account's relationship, read from a response's `viewer`. Each
@@ -224,13 +226,19 @@ defmodule AtMcp.Summary do
     {:author_verification, {:object, @verification}, [["author_verification"]],
      "Whether the app shows the quoted post's author as verified"},
     {:author_status, {:object, @status}, [["author_status"]],
-     "The quoted post's author's status, such as live"}
+     "The quoted post's author's status, such as live"},
+    {:langs, {:list, :string}, [["langs"]], "The languages the quoted post's author tagged"},
+    {:tags, {:list, :string}, [["tags"]], "The quoted post's tags outside its text"}
   ]
 
   # Computed content is declared once for reads, chains and notifications.
   @content [
     {:text, :string, [["perception", "text"]],
      "Post text with each link's full destination and each mention facet's DID written after its span, as `@handle <did>`; an @word without a facet links nowhere. The author's own `<` and backslash are escaped with a backslash, so an unescaped `<…>` is always such a marker; raw_text is the text exactly"},
+    {:langs, {:list, :string}, [["perception", "langs"]],
+     "The languages the author tagged; the app matches muted words by them"},
+    {:tags, {:list, :string}, [["perception", "tags"]],
+     "Tags the author added outside the text, which the app matches muted words against"},
     {:raw_text, :string, [["perception", "raw_text"]],
      "Exact author text, without appended observations"},
     {:facets, {:list, @facets}, [["perception", "facets"]],

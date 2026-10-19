@@ -555,8 +555,8 @@ defmodule AtMcp.Moderation do
     end)
   end
 
-  # `com.atproto.label.defs#labelValueDefinition`, as the lexicon validates it.
-  defp valid_definition?(%{} = d) do
+  @doc "Whether a label definition is one the lexicon accepts (`com.atproto.label.defs#labelValueDefinition`)."
+  def valid_definition?(%{} = d) do
     string?(d["identifier"], 100, 100) and is_binary(d["severity"]) and is_binary(d["blurs"]) and
       (is_nil(d["defaultSetting"]) or is_binary(d["defaultSetting"])) and
       (is_nil(d["adultOnly"]) or is_boolean(d["adultOnly"])) and is_list(d["locales"]) and
@@ -566,7 +566,7 @@ defmodule AtMcp.Moderation do
       end)
   end
 
-  defp valid_definition?(_definition), do: false
+  def valid_definition?(_definition), do: false
 
   defp string?(value, bytes, graphemes),
     do: is_binary(value) and byte_size(value) <= bytes and String.length(value) <= graphemes

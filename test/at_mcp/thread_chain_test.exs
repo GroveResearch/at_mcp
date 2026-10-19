@@ -37,11 +37,15 @@ defmodule AtMcp.ThreadChainTest do
       query = URI.decode_query(uri.query || "")
       send(Application.fetch_env!(:at_mcp, :thread_chain_test_owner), {:request, uri.path, query})
 
+      # The account's settings, which marking what the app would hide reads.
       body =
-        AtMcp.ThreadChainTest.body(
-          Application.fetch_env!(:at_mcp, :thread_chain_test_shape),
-          query["uri"]
-        )
+        if String.ends_with?(uri.path, ".actor.getPreferences"),
+          do: %{"preferences" => []},
+          else:
+            AtMcp.ThreadChainTest.body(
+              Application.fetch_env!(:at_mcp, :thread_chain_test_shape),
+              query["uri"]
+            )
 
       {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
     end

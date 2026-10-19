@@ -1063,4 +1063,11 @@ defmodule AtMcp.Test.MockBackend do
        }
      ]}
   end
+
+  # No settings and no labelers: nothing a read returns is marked.
+  @impl true
+  def moderation_preferences(_state), do: {:ok, []}
+
+  @impl true
+  def labeler_definitions(_state, _dids), do: {:ok, []}
 end

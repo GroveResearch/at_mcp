@@ -300,9 +300,11 @@ defmodule AtMcp.Effects do
   def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
     with_session(effects, fn backend, session ->
       with {:ok, thread} <- backend.get_thread(session, uri) do
-        if Keyword.get(opts, :include_hidden) == true,
+        if(Keyword.get(opts, :include_hidden) == true,
           do: with_hidden(thread, backend.get_hidden_replies(session, uri)),
           else: {:ok, thread}
+        )
+        |> moderated(backend, session, :thread)
       end
     end)
   end
@@ -380,7 +382,7 @@ defmodule AtMcp.Effects do
   def get_thread_chain(effects, uri, opts \\ []) when is_binary(uri) and is_list(opts) do
     with :ok <- validate_before(Keyword.get(opts, :before)) do
       with_session(effects, fn backend, session ->
-        backend.get_thread_chain(session, uri, opts)
+        session |> backend.get_thread_chain(uri, opts) |> moderated(backend, session, :chain)
       end)
     end
   end
@@ -394,7 +396,7 @@ defmodule AtMcp.Effects do
   def get_timeline(effects, opts \\ []) do
     with {:ok, opts} <- page_options(opts) do
       with_session(effects, fn backend, session ->
-        backend.get_timeline(session, opts)
+        session |> backend.get_timeline(opts) |> moderated(backend, session, :posts)
       end)
     end
   end
@@ -402,21 +404,23 @@ defmodule AtMcp.Effects do
   def get_author_feed(effects, actor, opts \\ []) when is_binary(actor) do
     with {:ok, opts} <- page_options(opts) do
       with_session(effects, fn backend, session ->
-        backend.get_author_feed(session, actor, opts)
+        session
+        |> backend.get_author_feed(actor, opts)
+        |> moderated(backend, session, {:author_feed, actor})
       end)
     end
   end
 
   def get_profile(effects, actor) when is_binary(actor) do
     with_session(effects, fn backend, session ->
-      backend.get_profile(session, actor)
+      session |> backend.get_profile(actor) |> moderated(backend, session, :profile)
     end)
   end
 
   def get_profiles(effects, actors) when is_list(actors) do
     with :ok <- validate_batch(actors) do
       with_session(effects, fn backend, session ->
-        backend.get_profiles(session, actors)
+        session |> backend.get_profiles(actors) |> moderated(backend, session, :profiles)
       end)
     end
   end
@@ -424,7 +428,7 @@ defmodule AtMcp.Effects do
   def get_posts(effects, uris) when is_list(uris) do
     with :ok <- validate_batch(uris) do
       with_session(effects, fn backend, session ->
-        backend.get_posts(session, uris)
+        session |> backend.get_posts(uris) |> moderated(backend, session, :posts)
       end)
     end
   end
@@ -461,7 +465,10 @@ defmodule AtMcp.Effects do
          :ok <- query_or_filter(query, opts) do
       with_session(effects, fn backend, session ->
         with {:ok, opts} <- search_uris(backend, session, opts),
-             do: backend.search_posts(session, query, opts)
+             do:
+               session
+               |> backend.search_posts(query, opts)
+               |> moderated(backend, session, :posts)
       end)
     end
   end
@@ -496,7 +503,7 @@ defmodule AtMcp.Effects do
   def search_actors(effects, query, opts \\ []) when is_binary(query) do
     with {:ok, opts} <- page_options(opts) do
       with_session(effects, fn backend, session ->
-        backend.search_actors(session, query, opts)
+        session |> backend.search_actors(query, opts) |> moderated(backend, session, :profiles)
       end)
     end
   end
@@ -635,12 +642,14 @@ defmodule AtMcp.Effects do
   end
 
   def get_quotes(effects, uri, opts \\ []) when is_binary(uri) do
-    paged(effects, opts, fn backend, session, opts -> backend.get_quotes(session, uri, opts) end)
+    paged(effects, opts, fn backend, session, opts ->
+      session |> backend.get_quotes(uri, opts) |> moderated(backend, session, :posts)
+    end)
   end
 
   def get_actor_likes(effects, actor, opts \\ []) when is_binary(actor) do
     paged(effects, opts, fn backend, session, opts ->
-      backend.get_actor_likes(session, actor, opts)
+      session |> backend.get_actor_likes(actor, opts) |> moderated(backend, session, :posts)
     end)
   end
 
@@ -649,7 +658,7 @@ defmodule AtMcp.Effects do
   def get_feed(effects, feed, opts \\ []) when is_binary(feed) do
     paged(effects, opts, fn backend, session, opts ->
       with {:ok, feed} <- did_uri(backend, session, feed),
-           do: backend.get_feed(session, feed, opts)
+           do: session |> backend.get_feed(feed, opts) |> moderated(backend, session, :posts)
     end)
   end
 
@@ -819,7 +828,7 @@ defmodule AtMcp.Effects do
   def get_list_feed(effects, list, opts \\ []) when is_binary(list) do
     paged(effects, opts, fn backend, session, opts ->
       with {:ok, list} <- did_uri(backend, session, list),
-           do: backend.get_list_feed(session, list, opts)
+           do: session |> backend.get_list_feed(list, opts) |> moderated(backend, session, :posts)
     end)
   end
 
@@ -2476,7 +2485,9 @@ defmodule AtMcp.Effects do
   end
 
   def get_bookmarks(effects, opts \\ []) do
-    paged(effects, opts, fn backend, session, opts -> backend.get_bookmarks(session, opts) end)
+    paged(effects, opts, fn backend, session, opts ->
+      session |> backend.get_bookmarks(opts) |> moderated(backend, session, :posts)
+    end)
   end
 
   # --- a post's gates ---
@@ -3446,6 +3457,11 @@ defmodule AtMcp.Effects do
         :credentials,
         :write_quota
       ])
+
+  # What the app would hide, cover or flag in what a read returns, marked on
+  # it (`AtMcp.ModerationMarks`).
+  defp moderated(result, backend, session, kind),
+    do: AtMcp.ModerationMarks.mark(backend, session, did_of(session), result, kind)
 
   defp did_of(%{did: did}) when is_binary(did), do: did
   defp did_of(%{"did" => did}) when is_binary(did), do: did

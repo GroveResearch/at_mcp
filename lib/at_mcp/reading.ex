@@ -67,7 +67,7 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.map(fn {post, n} -> post(post, numbered(n)) end)
 
-    to_text(join([header | blocks], :blank))
+    to_text(join([header, shown(page["moderation_unread"]) | blocks], :blank))
   end
 
   defp post_page(_other, _one, _many), do: nil
@@ -128,7 +128,8 @@ defmodule AtMcp.Reading do
 
     to_text(
       join(
-        omitted ++
+        [shown(node["moderation_unread"])] ++
+          omitted ++
           above ++
           [post(node, ~L"[this post]")] ++ replies(node, []) ++ hidden(node),
         :blank
@@ -229,7 +230,7 @@ defmodule AtMcp.Reading do
           ]
       end
 
-    to_text(join([header | elements] ++ under, :blank))
+    to_text(join([header, shown(result["moderation_unread"]) | elements] ++ under, :blank))
   end
 
   def chain(_other), do: nil
@@ -309,7 +310,7 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.map(fn {account, n} -> account_card(account, numbered(n), :brief) end)
 
-    to_text(join([header | blocks], :blank))
+    to_text(join([header, shown(page["moderation_unread"]) | blocks], :blank))
   end
 
   def profiles(_other), do: nil
@@ -404,6 +405,8 @@ defmodule AtMcp.Reading do
         ),
         verified_by(account["verification"]),
         labelled(%{"labels" => account["labels"], "author_did" => account["did"]}),
+        AtMcp.ModerationDecision.line(account["moderation"]),
+        shown(account["moderation_unread"]),
         known_followers(account["known_followers"]),
         joined_via(account["joined_via"]),
         messages_from(account["messages_from"]),
@@ -1268,6 +1271,7 @@ defmodule AtMcp.Reading do
               engagement(post),
               known_likers(post["known_likers"]),
               labelled(post),
+              AtMcp.ModerationDecision.line(post["moderation"]),
               standing(post),
               who_can_reply(post),
               ids(post),

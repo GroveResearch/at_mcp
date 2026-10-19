@@ -362,13 +362,13 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro membership, do: Macro.escape(object(AtMcp.Summary.properties(:membership)))
 
-  defmacro profile_view, do: Macro.escape(object(profile_view_schema()["properties"]))
+  defmacro profile_view, do: Macro.escape(unread(object(profile_view_schema()["properties"])))
 
-  defmacro post_page, do: Macro.escape(page(post_view_schema()))
+  defmacro post_page, do: Macro.escape(unread(page(post_view_schema())))
 
-  defmacro profile_page, do: Macro.escape(page(profile_view_schema()))
+  defmacro profile_page, do: Macro.escape(unread(page(profile_view_schema())))
 
-  defmacro bookmark_page, do: Macro.escape(page(bookmark_schema()))
+  defmacro bookmark_page, do: Macro.escape(unread(page(bookmark_schema())))
 
   defmacro draft_page, do: Macro.escape(page(record(:draft)))
 
@@ -400,9 +400,9 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro unread_count, do: Macro.escape(unread_count_schema())
 
-  defmacro thread, do: Macro.escape(thread_schema())
+  defmacro thread, do: Macro.escape(unread(thread_schema()))
 
-  defmacro thread_chain, do: Macro.escape(thread_chain_schema())
+  defmacro thread_chain, do: Macro.escape(unread(thread_chain_schema()))
 
   defmacro write_result, do: Macro.escape(write_result_schema())
 
@@ -476,9 +476,17 @@ defmodule AtMcp.MCP.Schemas do
   # The record shapes come from `AtMcp.Summary`, which is also what the backend
   # reads them with, so a declaration cannot describe a field the tools do not
   # return.
-  defp post_view_schema, do: record(:post)
+  defp post_view_schema, do: moderated(record(:post))
 
-  defp profile_view_schema, do: record(:profile)
+  defp profile_view_schema, do: moderated(record(:profile))
+
+  # What the app would do with a post or an account (`AtMcp.ModerationMarks`),
+  # and, on the read, why that could not be marked.
+  defp moderated(schema),
+    do: put_in(schema, ["properties", "moderation"], AtMcp.ModerationMarks.schema())
+
+  defp unread(schema),
+    do: put_in(schema, ["properties", "moderation_unread"], AtMcp.ModerationMarks.unread_schema())
 
   # Notifications one by one, or with `grouped`, in the groups the app shows.
   defp notification_page_schema do
@@ -585,6 +593,7 @@ defmodule AtMcp.MCP.Schemas do
       "type" => "object",
       "properties" =>
         Map.merge(AtMcp.Summary.properties(:chain_post), %{
+          "moderation" => AtMcp.ModerationMarks.schema(),
           "is_self" => %{
             "type" => ["boolean", "null"],
             "description" => "True when this account wrote the post"
@@ -1238,6 +1247,7 @@ defmodule AtMcp.MCP.Schemas do
       "type" => "object",
       "properties" =>
         Map.merge(AtMcp.Summary.properties(:post), %{
+          "moderation" => AtMcp.ModerationMarks.schema(),
           "not_found" => %{
             "type" => ["boolean", "null"],
             "description" =>

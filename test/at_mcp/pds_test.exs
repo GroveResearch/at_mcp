@@ -33,6 +33,10 @@ defmodule AtMcp.PDSTest do
           "/xrpc/com.atproto.server.refreshSession" ->
             {401, %{error: "ExpiredToken", message: "Refresh token expired"}}
 
+          # The account's settings, read to mark what the app would hide.
+          "/xrpc/app.bsky.actor.getPreferences" ->
+            {200, %{preferences: []}}
+
           "/xrpc/app.bsky.actor.getProfile" ->
             if get_req_header(conn, "authorization") == ["Bearer access-1"] do
               {401, %{error: "ExpiredToken", message: "Access token expired"}}
@@ -87,7 +91,8 @@ defmodule AtMcp.PDSTest do
                "/xrpc/app.bsky.actor.getProfile",
                "/xrpc/com.atproto.server.refreshSession",
                "/xrpc/com.atproto.server.createSession",
-               "/xrpc/app.bsky.actor.getProfile"
+               "/xrpc/app.bsky.actor.getProfile",
+               "/xrpc/app.bsky.actor.getPreferences"
              ]
 
       assert Enum.at(requests, 2).body == ""
