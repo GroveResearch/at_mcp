@@ -8,10 +8,16 @@ defmodule AtMcp.Reading.Text do
   - `literal/1`, `shown/1`, `nonempty/1`: free text someone else wrote (a
     name, a title, a description, a quoted post's text, alt text), as one
     double-quoted literal on one line: `"`, backslash, line breaks, other
-    control characters and bidirectional controls are escaped. `shown/1` and
-    `nonempty/1` first read whitespace runs as one space.
+    control characters (FS, GS and RS among them, which some readers split
+    lines on) and bidirectional controls are escaped, and so is every
+    quotation mark that can look like the closing `"` (`“ ” „ ‟ ″ ‶ ❝ ❞ 〝 〞
+    〟 ＂`), each as `\\uXXXX`, so a name like `Bob” (@bob.test, verified)`
+    cannot seem to end its quote. `shown/1` and `nonempty/1` first read
+    whitespace runs as one space.
   - `fence/1`: a post's own text, every line of it after `> `, which no line
-    AtMcp writes starts with.
+    AtMcp writes starts with. FS, GS and RS start a new fenced line, as `\\R`
+    line breaks do, since some readers (Python's `str.splitlines`) read them as
+    line breaks.
   - `ident/1`: an identifier (a DID, handle, AT URI, CID, NSID, cursor, label
     value, or a word the service chose from a set): bare when every character
     is one an identifier uses and none of AtMcp's own punctuation, otherwise a
@@ -23,6 +29,11 @@ defmodule AtMcp.Reading.Text do
   - `int/1`: an integer.
   - `~L"..."`: AtMcp's own words. An uppercase sigil takes no interpolation,
     so a constant is all it can hold.
+
+  Some agent hosts put each input after a field marker, `[[ ## name ## ]]`
+  (DSPy-style chat adapters), and write the value raw after it, so text
+  holding one could open a field of its own there. A fenced line escapes
+  `[[ ##` as `[[ \\#\\#`, and a literal escapes its `#`s as `\\u0023`.
 
   `cat/1` and `join/2` put pieces together. A raw string given to either is
   refused in the test environment (`:strict_reading` in config/test.exs), so
@@ -81,12 +92,20 @@ defmodule AtMcp.Reading.Text do
   def count(1, {:safe, _} = one, _many), do: cat([int(1), ~L" ", one])
   def count(n, _one, {:safe, _} = many) when is_integer(n), do: cat([int(n), ~L" ", many])
 
+  # U+0085, bidirectional controls, and
+  # quotation marks that can pass for the literal's closing `"`.
+  @escaped ~r/[\x{0085}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{201C}-\x{201F}\x{2033}\x{2036}\x{275D}\x{275E}\x{301D}-\x{301F}\x{FF02}]/u
+
+  # A host's field marker, `[[ ## name ## ]]`, from its opening.
+  @marker ~r/\[\[\s*##/u
+
   @doc "Free text on one line as given, quoted and escaped; nil for none."
   def literal(text) when is_binary(text) do
     {:safe,
      text
      |> Jason.encode!(escape: :javascript_safe)
-     |> String.replace(~r/[\x{0085}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/u, fn c ->
+     |> String.replace(@marker, fn marker -> String.replace(marker, "#", "\\u0023") end)
+     |> String.replace(@escaped, fn c ->
        <<code::utf8>> = c
        "\\u" <> String.pad_leading(Integer.to_string(code, 16), 4, "0")
      end)}
@@ -108,7 +127,11 @@ defmodule AtMcp.Reading.Text do
 
   @doc "A post's text, every line after `> `; nil for none."
   def fence(text) when is_binary(text) and text != "" do
-    {:safe, text |> String.split(~r/\R/u) |> Enum.map(&["> ", &1]) |> Enum.intersperse("\n")}
+    {:safe,
+     text
+     |> String.split(~r/\R|[\x{1C}-\x{1E}]/u)
+     |> Enum.map(&["> ", String.replace(&1, @marker, fn m -> String.replace(m, "#", "\\#") end)])
+     |> Enum.intersperse("\n")}
   end
 
   def fence(_text), do: nil
