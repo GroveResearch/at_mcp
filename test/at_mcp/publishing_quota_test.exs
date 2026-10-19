@@ -59,7 +59,13 @@ defmodule AtMcp.PublishingQuotaTest do
     "unmute" => %{"actor" => "alice.example"},
     "delete_post" => %{"uri" => "at://p"},
     "update_profile" => %{"display_name" => "n"},
-    "update_seen" => %{}
+    "update_seen" => %{},
+    "pin_post" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
+    "unpin_post" => %{},
+    "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unmute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "bookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"}
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

@@ -172,6 +172,31 @@ defmodule AtMcp.ATProto do
   def unmute_actor(session, params),
     do: write(session, "graph.unmuteActor", params, actor: {:required, :string})
 
+  # A thread mute is AppView state, like an account mute: a method named by the
+  # thread's root post, not a record.
+  def mute_thread(session, params),
+    do: write(session, "graph.muteThread", params, root: {:required, :string})
+
+  def unmute_thread(session, params),
+    do: write(session, "graph.unmuteThread", params, root: {:required, :string})
+
+  # --- bookmarks ---
+
+  # Bookmarks are private, kept by the AppView rather than in the repository,
+  # so they move with the namespace like a read does.
+  def create_bookmark(session, params),
+    do:
+      write(session, "bookmark.createBookmark", params,
+        uri: {:required, :string},
+        cid: {:required, :string}
+      )
+
+  def delete_bookmark(session, params),
+    do: write(session, "bookmark.deleteBookmark", params, uri: {:required, :string})
+
+  def get_bookmarks(session, params),
+    do: read(session, "bookmark.getBookmarks", params, @page)
+
   # --- graph reads ---
 
   def get_followers(session, params),
@@ -344,7 +369,8 @@ defmodule AtMcp.ATProto do
     record: {:required, :any}
   }
 
-  @repo_put Map.put(@repo_write, :rkey, {:required, :string})
+  # `swapRecord` is the CID the record must still have for the write to apply.
+  @repo_put @repo_write |> Map.put(:rkey, {:required, :string}) |> Map.put(:swap_record, :string)
 
   @repo_delete %{
     repo: {:required, :string},
@@ -480,6 +506,38 @@ defmodule AtMcp.ATProto do
     |> Map.drop(["$type", :"$type"])
     |> Map.put("$type", AtMcp.Network.collection(:profile))
   end
+
+  @doc """
+  The account's `actor.profile` record with `pinnedPost` set to a strong
+  reference, or removed when `pinned` is nil. Every other field of `current`
+  is kept.
+  """
+  def pinned_profile_record(current, pinned) when is_map(current) do
+    current
+    |> wire_record()
+    |> Map.delete("pinnedPost")
+    |> put_present("pinnedPost", pinned && strong_ref(pinned))
+    |> profile_record()
+  end
+
+  @doc """
+  A record read back from the service, in the keys it is written with.
+
+  Responses arrive through proto_rune's XRPC client, which snakelizes every
+  key and turns the known ones into atoms. A record edited and written back
+  goes out with the lexicon's own keys, all strings, so a field this module
+  sets cannot sit beside a stale copy of itself under another spelling. Every
+  lexicon key is camelCase, so camelizing is the inverse. Delete the rename
+  when proto_rune returns response keys as the server sent them.
+  """
+  def wire_record(map) when is_map(map),
+    do:
+      Map.new(map, fn {key, value} ->
+        {key |> to_string() |> ProtoRune.Case.camelize(), wire_record(value)}
+      end)
+
+  def wire_record(list) when is_list(list), do: Enum.map(list, &wire_record/1)
+  def wire_record(other), do: other
 
   defp subject_record(kind, fields) do
     %{

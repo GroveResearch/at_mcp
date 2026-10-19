@@ -181,6 +181,13 @@ defmodule AtMcp.MCP.ToolsTest do
     {"delete_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"update_profile", %{"display_name" => "AtMcp"}},
     {"update_seen", %{}},
+    {"pin_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"unpin_post", %{}},
+    {"mute_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"unmute_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"bookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"unbookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"get_bookmarks", %{}},
     {"get_membership", %{}},
     {"identity_status", %{}}
   ]
@@ -196,7 +203,8 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_feed" => :posts,
     "get_list_feed" => :posts,
     "get_thread" => :thread,
-    "get_thread_chain" => :chain
+    "get_thread_chain" => :chain,
+    "get_bookmarks" => :bookmarks
   }
 
   test "every tool returns structured content its declared schema accepts" do

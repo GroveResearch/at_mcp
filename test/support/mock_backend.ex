@@ -344,6 +344,7 @@ defmodule AtMcp.Test.MockBackend do
 
   @impl true
   def resolve_actor(_state, "did:" <> _ = did), do: {:ok, did}
+  def resolve_actor(%{handle: handle, did: did}, handle), do: {:ok, did}
   def resolve_actor(_state, handle), do: {:ok, "did:plc:" <> handle}
 
   @impl true
@@ -398,5 +399,76 @@ defmodule AtMcp.Test.MockBackend do
   @impl true
   def update_seen(_state, %DateTime{} = seen_at) do
     {:ok, %{ok: true, action: :update_seen, seen_at: DateTime.to_iso8601(seen_at)}}
+  end
+
+  # A post reads as its own thread root, unless the mock's state names one.
+  # Like a real service, the read answers with the DID-form address.
+  @impl true
+  def resolve_post(state, uri) do
+    uri = did_form(state, uri)
+    {:ok, %{uri: uri, cid: "bafyPOST", root: Map.get(state, :thread_root, uri)}}
+  end
+
+  @impl true
+  def prepare_pin(state, uri) do
+    {:ok, %{pinned: uri && did_form(state, uri), previous: Map.get(state, :pinned)}}
+  end
+
+  defp did_form(state, "at://" <> rest = uri) do
+    case String.split(rest, "/", parts: 2) do
+      [repo, path] ->
+        {:ok, did} = resolve_actor(state, repo)
+        "at://#{did}/#{path}"
+
+      _ ->
+        uri
+    end
+  end
+
+  @impl true
+  def pin(_state, %{pinned: nil, previous: nil}),
+    do: {:ok, %{ok: true, action: :unpin_post, uri: nil, subject_uri: nil, replaced_uri: nil}}
+
+  def pin(_state, %{pinned: pinned, previous: previous}) do
+    {:ok,
+     %{
+       ok: true,
+       action: if(pinned, do: :pin_post, else: :unpin_post),
+       uri: "at://did:plc:mock/app.bsky.actor.profile/self",
+       subject_uri: pinned,
+       replaced_uri: previous
+     }}
+  end
+
+  @impl true
+  def mute_thread(_state, root), do: {:ok, %{ok: true, action: :mute_thread, uri: root}}
+
+  @impl true
+  def unmute_thread(_state, root), do: {:ok, %{ok: true, action: :unmute_thread, uri: root}}
+
+  @impl true
+  def bookmark(_state, %{uri: uri}), do: {:ok, %{ok: true, action: :bookmark, uri: uri}}
+
+  @impl true
+  def unbookmark(_state, uri), do: {:ok, %{ok: true, action: :unbookmark, uri: uri}}
+
+  @impl true
+  def get_bookmarks(_state, opts) do
+    page = post_page("a bookmark", opts)
+
+    {:ok,
+     %{
+       page
+       | items:
+           Enum.map(page.items, &Map.put(&1, :bookmarked_at, "2026-10-18T00:00:00.000Z")) ++
+             [
+               %{
+                 uri: "at://did:plc:gone/app.bsky.feed.post/1",
+                 not_found: true,
+                 blocked: false
+               }
+             ],
+         count: 2
+     }}
   end
 end

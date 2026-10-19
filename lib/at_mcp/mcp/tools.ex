@@ -21,6 +21,15 @@ defmodule AtMcp.MCP.Tools do
       ),
       do: error(state, "wrong_record_kind", failure.message)
 
+  # A compare-and-swap write the service refused because the record changed
+  # after AtMcp read it. Nothing was written; the message says what changed.
+  def respond(
+        {:error,
+         %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, _}} = failure},
+        state
+      ),
+      do: error(state, "changed_meanwhile", "error: " <> failure.message)
+
   def respond({:error, :not_connected}, state),
     do:
       error(
@@ -168,6 +177,19 @@ defmodule AtMcp.MCP.Tools do
       "error: Nothing was sent: the account's service could not resolve the handle #{handle}. " <>
         "Nothing was counted against the write quota.",
       %{handle: handle}
+    )
+  end
+
+  # An argument the input schema accepts and AtMcp still cannot act on: a post
+  # in another account's repository, a list URI that is not a list. It is the
+  # same refusal as a schema mismatch, naming the argument, and it is decided
+  # before anything is sent.
+  def respond({:error, {:invalid_argument, path, message}}, state) do
+    error(
+      state,
+      "invalid_arguments",
+      "error: #{path}: #{message}. Nothing was sent and nothing was counted against the write quota.",
+      %{problems: [%{path: path, message: message}]}
     )
   end
 
