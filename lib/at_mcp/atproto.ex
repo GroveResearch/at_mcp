@@ -429,6 +429,93 @@ defmodule AtMcp.ATProto do
   def get_record(session, params),
     do: query(session, "com.atproto.repo.getRecord", @repo_get, params)
 
+  @repo_list %{
+    repo: {:required, :string},
+    collection: {:required, :string},
+    limit: :integer,
+    cursor: :string
+  }
+
+  @doc """
+  Read a page of one collection's records out of a repository, as its PDS
+  holds them. A list's members are `graph.listitem` records in the account's
+  own repository, each naming its list; this is how every one of them is
+  found, including any the AppView has not indexed yet.
+  """
+  def list_records(session, params),
+    do: query(session, "com.atproto.repo.listRecords", @repo_list, params)
+
+  @doc """
+  Create, replace and delete several records in one repository commit: all of
+  them land or none does. `writes` are built by `create_write/3`,
+  `update_write/3` and `delete_write/2`.
+  """
+  def apply_writes(session, params),
+    do:
+      procedure(
+        session,
+        "com.atproto.repo.applyWrites",
+        %{repo: {:required, :string}, writes: {:required, :any}},
+        params
+      )
+
+  # The most writes one `applyWrites` takes. The lexicon declares no bound;
+  # the reference PDS refuses more than 200 ("Too many writes. Max: 200", in
+  # packages/pds/src/api/com/atproto/repo/applyWrites.ts), and a PDS is what
+  # every network's accounts write through.
+  @max_writes 200
+
+  @doc "The most writes one `apply_writes/2` call carries."
+  def max_writes, do: @max_writes
+
+  @doc "One `applyWrites` create of `record` in `kind`'s collection at `rkey`."
+  def create_write(kind, rkey, record),
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites#create",
+      "collection" => AtMcp.Network.collection(kind),
+      "rkey" => rkey,
+      "value" => record
+    }
+
+  @doc "One `applyWrites` replacement of the record at `rkey` in `collection`."
+  def update_write(collection, rkey, record),
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites#update",
+      "collection" => collection,
+      "rkey" => rkey,
+      "value" => record
+    }
+
+  @doc "One `applyWrites` deletion of the record at `rkey` in `collection`."
+  def delete_write(collection, rkey),
+    do: %{
+      "$type" => "com.atproto.repo.applyWrites#delete",
+      "collection" => collection,
+      "rkey" => rkey
+    }
+
+  @tid_alphabet "234567abcdefghijklmnopqrstuvwxyz"
+
+  @doc """
+  `n` new record keys in the protocol's TID form, in increasing order: 13
+  characters of sortable base32 over the time in microseconds and a random
+  clock identifier. A write that names a record before it exists, such as a
+  starter pack naming its list in the same commit, chooses the keys itself.
+  """
+  def tids(n) when is_integer(n) and n >= 0 do
+    import Bitwise
+    now = System.os_time(:microsecond)
+    clock = :rand.uniform(1024) - 1
+
+    for i <- 0..(n - 1)//1 do
+      value = (now + i) <<< 10 ||| clock
+
+      for shift <- 60..0//-5, into: "" do
+        <<:binary.at(@tid_alphabet, value >>> shift &&& 31)>>
+      end
+    end
+  end
+
   @doc """
   Upload a blob and return `{:ok, %{blob: blob_ref}}`.
 
@@ -524,6 +611,102 @@ defmodule AtMcp.ATProto do
     |> Map.put("$type", AtMcp.Network.collection(:profile))
   end
 
+  @doc """
+  Build a `graph.list` record. Takes `:name`, `:purpose` (`:curatelist`,
+  `:modlist` or `:referencelist`, which become this network's tokens), and
+  optionally `:description` and `:avatar` (a blob reference).
+  """
+  def list_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list),
+      "purpose" => AtMcp.Network.type(Keyword.fetch!(fields, :purpose)),
+      "name" => Keyword.fetch!(fields, :name),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+    |> put_present("description", Keyword.get(fields, :description))
+    |> put_present("avatar", Keyword.get(fields, :avatar) && wire_blob(fields[:avatar]))
+  end
+
+  @doc "Build a `graph.listitem` record: the account `:subject` (a DID) on the list at `:list`."
+  def list_item_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list_item),
+      "subject" => Keyword.fetch!(fields, :subject),
+      "list" => Keyword.fetch!(fields, :list),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+  end
+
+  @doc """
+  Build a `graph.starterpack` record: `:name`, the AT URI of its `:list`, and
+  optionally `:description` and `:feeds` (feed generator AT URIs).
+  """
+  def starter_pack_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:starter_pack),
+      "name" => Keyword.fetch!(fields, :name),
+      "list" => Keyword.fetch!(fields, :list),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+    |> put_present("description", Keyword.get(fields, :description))
+    |> put_present("feeds", pack_feeds(Keyword.get(fields, :feeds)))
+  end
+
+  @doc """
+  Build a `graph.referencelistoptout` record: this account asks to be left
+  out of the reference list at `:subject` (a DID-based AT URI).
+  """
+  def list_opt_out_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:list_opt_out),
+      "subject" => Keyword.fetch!(fields, :subject),
+      "createdAt" => timestamp(Keyword.get(fields, :created_at))
+    }
+  end
+
+  @doc """
+  A record read back from the service with `changes` applied: each is a wire
+  key and its new value, or `nil` to remove the key. Every other field is
+  kept, and `$type` is the collection it is written back to. A new `description` removes
+  `descriptionFacets`, whose byte ranges index the old text.
+  """
+  def edit_record(current, collection, changes)
+      when is_map(current) and is_binary(collection) and is_map(changes) do
+    changes =
+      if Map.has_key?(changes, "description"),
+        do: Map.put_new(changes, "descriptionFacets", nil),
+        else: changes
+
+    Enum.reduce(changes, wire_record(current), fn
+      {key, nil}, record -> Map.delete(record, key)
+      {key, value}, record -> Map.put(record, key, value)
+    end)
+    |> Map.put("$type", collection)
+  end
+
+  @doc "A starter pack's `feeds`: one object per feed generator AT URI."
+  def pack_feeds(nil), do: nil
+  def pack_feeds(uris) when is_list(uris), do: Enum.map(uris, &%{"uri" => &1})
+
+  @doc """
+  A record read back from the service, in the keys it is written with.
+
+  Responses arrive through proto_rune's XRPC client, which snakelizes every
+  key and turns the known ones into atoms. A record edited and written back
+  goes out with the lexicon's own keys, all strings, so a field this module
+  sets cannot sit beside a stale copy of itself under another spelling. Every
+  lexicon key is camelCase, so camelizing is the inverse. Delete the rename
+  when proto_rune returns response keys as the server sent them.
+  """
+  def wire_record(map) when is_map(map),
+    do:
+      Map.new(map, fn {key, value} ->
+        {key |> to_string() |> ProtoRune.Case.camelize(), wire_record(value)}
+      end)
+
+  def wire_record(list) when is_list(list), do: Enum.map(list, &wire_record/1)
+  def wire_record(other), do: other
+
   defp subject_record(kind, fields) do
     %{
       "$type" => AtMcp.Network.collection(kind),
@@ -598,7 +781,8 @@ defmodule AtMcp.ATProto do
   # out as `mimeType`. `$type`, `size` and `ref.$link` have no case to lose.
   # Delete the rename when proto_rune returns response keys as the server sent
   # them (0.6.0 still snakelizes).
-  defp wire_blob(blob) when is_map(blob) do
+  @doc false
+  def wire_blob(blob) when is_map(blob) do
     blob
     |> deep_stringify_keys()
     |> then(fn blob ->
@@ -610,7 +794,7 @@ defmodule AtMcp.ATProto do
     |> Map.put_new("$type", "blob")
   end
 
-  defp wire_blob(blob), do: blob
+  def wire_blob(blob), do: blob
 
   defp aspect_ratio(%{width: width, height: height}),
     do: %{"width" => width, "height" => height}

@@ -635,6 +635,470 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp with_membership(other, _key, _view), do: %{value: to_string_safe(other)}
 
+  @impl true
+  def prepare_list_write(session, {:create_list, fields}) do
+    with {:ok, avatar} <- upload_avatar(session, fields[:avatar]) do
+      [rkey] = AtMcp.ATProto.tids(1)
+
+      record =
+        AtMcp.ATProto.list_record(
+          name: fields.name,
+          purpose: fields.purpose,
+          description: blank_nil(fields[:description]),
+          avatar: avatar
+        )
+
+      prepared(
+        [AtMcp.ATProto.create_write(:list, rkey, record)],
+        %{
+          action: :create_list,
+          uri: own_uri(session, :list, rkey),
+          name: fields.name,
+          purpose: purpose_name(fields.purpose)
+        }
+      )
+    end
+  end
+
+  def prepare_list_write(session, {:update_list, uri, changes}) do
+    with {:ok, current} <- own_value(session, uri, "uri", "list"),
+         {:ok, avatar} <- upload_avatar(session, changes[:avatar]) do
+      edits =
+        %{}
+        |> edit("name", changes[:name])
+        |> edit("description", changes[:description])
+        |> edit("avatar", avatar && AtMcp.ATProto.wire_blob(avatar))
+
+      prepared([replace(uri, current, edits)], %{
+        action: :update_list,
+        uri: uri,
+        name: changes[:name]
+      })
+    end
+  end
+
+  def prepare_list_write(session, {:delete_list, uri}) do
+    with {:ok, current} <- own_value(session, uri, "uri", "list"),
+         :ok <- not_pack_list(current),
+         {:ok, items} <- list_items(session, uri, nil) do
+      # The items go first: a list too large for one commit is left standing
+      # until the last, so what remains of a failed deletion is still a list.
+      prepared(Enum.map(items ++ [uri], &removal/1), %{
+        action: :delete_list,
+        uri: uri,
+        deleted: items ++ [uri]
+      })
+    end
+  end
+
+  def prepare_list_write(session, {:add_to_list, uri, did}) do
+    with {:ok, list} <- target_list(session, uri),
+         {:ok, items} <- list_items(session, list, did) do
+      case items do
+        # Already on it: a second item would be one more record to remove.
+        [item | _] ->
+          prepared([], %{action: :add_to_list, uri: item, list: list, actor: did, unchanged: true})
+
+        [] ->
+          [rkey] = AtMcp.ATProto.tids(1)
+          record = AtMcp.ATProto.list_item_record(subject: did, list: list)
+
+          prepared([AtMcp.ATProto.create_write(:list_item, rkey, record)], %{
+            action: :add_to_list,
+            uri: own_uri(session, :list_item, rkey),
+            list: list,
+            actor: did
+          })
+      end
+    end
+  end
+
+  def prepare_list_write(session, {:remove_from_list, uri, did}) do
+    with {:ok, list} <- target_list(session, uri),
+         {:ok, items} <- list_items(session, list, did) do
+      case items do
+        [] ->
+          {:error, {:invalid_argument, "actor", "#{did} is not on the list #{list}"}}
+
+        [first | _] ->
+          prepared(Enum.map(items, &removal/1), %{
+            action: :remove_from_list,
+            uri: first,
+            list: list,
+            actor: did,
+            deleted: items
+          })
+      end
+    end
+  end
+
+  def prepare_list_write(session, {:create_starter_pack, fields}) do
+    dids = fields[:actors] || []
+    [list_rkey, pack_rkey | item_rkeys] = AtMcp.ATProto.tids(2 + length(dids))
+    list = own_uri(session, :list, list_rkey)
+
+    items =
+      Enum.zip_with(dids, item_rkeys, fn did, rkey ->
+        AtMcp.ATProto.create_write(
+          :list_item,
+          rkey,
+          AtMcp.ATProto.list_item_record(subject: did, list: list)
+        )
+      end)
+
+    pack =
+      AtMcp.ATProto.starter_pack_record(
+        name: fields.name,
+        list: list,
+        description: blank_nil(fields[:description]),
+        feeds: if(fields[:feeds] in [nil, []], do: nil, else: fields[:feeds])
+      )
+
+    prepared(
+      [
+        AtMcp.ATProto.create_write(
+          :list,
+          list_rkey,
+          AtMcp.ATProto.list_record(name: fields.name, purpose: :referencelist)
+        )
+        | items
+      ] ++ [AtMcp.ATProto.create_write(:starter_pack, pack_rkey, pack)],
+      %{
+        action: :create_starter_pack,
+        uri: own_uri(session, :starter_pack, pack_rkey),
+        list: list,
+        name: fields.name
+      }
+    )
+  end
+
+  def prepare_list_write(session, {:update_starter_pack, uri, changes}) do
+    with {:ok, current} <- own_value(session, uri, "uri", "starter pack") do
+      feeds =
+        case changes[:feeds] do
+          nil -> nil
+          [] -> ""
+          uris -> AtMcp.ATProto.pack_feeds(uris)
+        end
+
+      edits =
+        %{}
+        |> edit("name", changes[:name])
+        |> edit("description", changes[:description])
+        |> edit("feeds", feeds)
+
+      prepared([replace(uri, current, edits)], %{
+        action: :update_starter_pack,
+        uri: uri,
+        name: changes[:name]
+      })
+    end
+  end
+
+  def prepare_list_write(session, {:delete_starter_pack, uri}) do
+    with {:ok, current} <- own_value(session, uri, "uri", "starter pack") do
+      list = string_value(current, :list)
+
+      # The pack's list and its items are this account's own records unless the
+      # pack names a list somewhere else, which this leaves alone.
+      list_owned? =
+        case list && AtMcp.ATProto.parse_uri(list) do
+          {:ok, {repo, _, _}} -> repo == session.did
+          _ -> false
+        end
+
+      with {:ok, items} <- if(list_owned?, do: list_items(session, list, nil), else: {:ok, []}) do
+        deleted = [uri] ++ if(list_owned?, do: [list], else: []) ++ items
+
+        prepared(Enum.map(deleted, &removal/1), %{
+          action: :delete_starter_pack,
+          uri: uri,
+          list: list,
+          deleted: deleted
+        })
+      end
+    end
+  end
+
+  def prepare_list_write(session, {:set_list_opt_out, uri, opted_out}) do
+    with {:ok, list} <- viewed_list(session, uri) do
+      list_uri = string_value(list, :uri)
+      purpose = string_value(list, :purpose)
+
+      existing =
+        AtMcp.Response.dig(list, [:viewer, :reference_list_opt_out]) ||
+          AtMcp.Response.dig(list, ["viewer", "referenceListOptOut"])
+
+      existing = if is_binary(existing), do: existing
+      result = %{action: :set_list_opt_out, list: list_uri, opted_out: opted_out}
+
+      cond do
+        purpose_name(purpose) != "reference" ->
+          {:error,
+           {:invalid_argument, "list",
+            "only a starter pack's list can be opted out of; #{list_uri} is a #{purpose_name(purpose)} list"}}
+
+        opted_out and existing ->
+          prepared([], Map.merge(result, %{uri: existing, unchanged: true}))
+
+        opted_out ->
+          [rkey] = AtMcp.ATProto.tids(1)
+          record = AtMcp.ATProto.list_opt_out_record(subject: list_uri)
+
+          prepared(
+            [AtMcp.ATProto.create_write(:list_opt_out, rkey, record)],
+            Map.put(result, :uri, own_uri(session, :list_opt_out, rkey))
+          )
+
+        existing ->
+          prepared([removal(existing)], Map.merge(result, %{uri: existing, deleted: [existing]}))
+
+        true ->
+          prepared([], Map.merge(result, %{uri: nil, unchanged: true}))
+      end
+    end
+  end
+
+  @impl true
+  def write_list(_session, %{writes: [], result: result}), do: {:ok, Map.put(result, :ok, true)}
+
+  # One commit, or, for a deletion larger than one commit takes, several in
+  # order. Once one has landed, a later failure leaves part of the deletion
+  # done, so it is an unknown outcome rather than a refusal.
+  def write_list(session, %{writes: writes, result: result}) do
+    batches = Enum.chunk_every(writes, AtMcp.ATProto.max_writes())
+
+    batches
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {batch, index}, {:ok, done} ->
+      case AtMcp.ATProto.apply_writes(session, %{repo: session.did, writes: batch}) do
+        {:ok, response} ->
+          {:cont, {:ok, done ++ write_results(response)}}
+
+        {:error, reason} when index == 0 ->
+          {:halt, {:error, failure(reason)}}
+
+        {:error, reason} ->
+          {:halt,
+           {:error,
+            AtMcp.Effects.Failure.new(:indeterminate,
+              message:
+                "#{index} of #{length(batches)} commits landed before the service failed, so part of this was written.",
+              detail: failure(reason)
+            )}}
+      end
+    end)
+    |> case do
+      {:ok, results} ->
+        cid = Enum.find_value(results, &(&1.uri == result[:uri] && &1.cid))
+        {:ok, result |> Map.put(:ok, true) |> Map.put(:cid, cid)}
+
+      error ->
+        error
+    end
+  end
+
+  defp prepared(writes, result), do: {:ok, %{writes: writes, result: result}}
+
+  defp write_results(response) do
+    case AtMcp.Response.fetch(response, :results) do
+      {:ok, results} when is_list(results) ->
+        for result <- results, is_map(result) do
+          %{uri: string_value(result, :uri), cid: string_value(result, :cid)}
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  # A changed field: `nil` is unchanged, `""` removes it, anything else is the
+  # new value.
+  defp edit(edits, _key, nil), do: edits
+  defp edit(edits, key, ""), do: Map.put(edits, key, nil)
+  defp edit(edits, key, value), do: Map.put(edits, key, value)
+
+  defp replace(uri, current, edits) do
+    {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    AtMcp.ATProto.update_write(
+      collection,
+      rkey,
+      AtMcp.ATProto.edit_record(current, collection, edits)
+    )
+  end
+
+  defp removal(uri) do
+    {:ok, {_repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+    AtMcp.ATProto.delete_write(collection, rkey)
+  end
+
+  defp own_uri(session, kind, rkey),
+    do: "at://#{session.did}/#{AtMcp.Network.collection(kind)}/#{rkey}"
+
+  defp blank_nil(""), do: nil
+  defp blank_nil(value), do: value
+
+  # The record at one of this account's URIs, read before it is changed so
+  # every field the change does not name is kept. A record the service will not
+  # hand over is not one to edit: the call names the argument and sends nothing.
+  defp own_value(session, uri, field, what) do
+    {:ok, {repo, collection, rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    case AtMcp.ATProto.get_record(session, %{repo: repo, collection: collection, rkey: rkey}) do
+      {:ok, response} ->
+        case AtMcp.Response.fetch(response, :value) do
+          {:ok, value} when is_map(value) -> {:ok, value}
+          _ -> {:error, unreadable("a #{what} record", response)}
+        end
+
+      {:error, reason} ->
+        case failure(reason) do
+          %AtMcp.Effects.Failure{kind: :refused} ->
+            {:error,
+             {:invalid_argument, field, "no #{what} at #{uri} could be read; it may be deleted"}}
+
+          other ->
+            {:error, other}
+        end
+    end
+  end
+
+  # The list a membership change applies to: the list itself, or a starter
+  # pack's list. Either is read, so a list that is gone is refused here.
+  defp target_list(session, uri) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    if AtMcp.Network.collection?(collection, :starter_pack) do
+      with {:ok, pack} <- own_value(session, uri, "list", "starter pack") do
+        case string_value(pack, :list) do
+          list when is_binary(list) -> {:ok, list}
+          _ -> {:error, unreadable("a starter pack record", pack)}
+        end
+      end
+    else
+      with {:ok, _list} <- own_value(session, uri, "list", "list"), do: {:ok, uri}
+    end
+  end
+
+  # A starter pack's list goes with its pack.
+  defp not_pack_list(list) do
+    if purpose_name(string_value(list, :purpose)) == "reference",
+      do:
+        {:error,
+         {:invalid_argument, "uri",
+          "this is a starter pack's list; delete_starter_pack deletes the pack and its list together"}},
+      else: :ok
+  end
+
+  # How many pages of list items a write reads to find a list's members: 100
+  # items a page, so 10,000 list items across every list of the account. One
+  # past that is refused rather than read without end.
+  @list_item_pages 100
+
+  # The list items in this account's repository that put `subject` (any
+  # account, when nil) on `list`, read from the PDS, so an item the AppView
+  # has not indexed yet is found too.
+  defp list_items(session, list, subject),
+    do: list_items(session, list, subject, nil, @list_item_pages, [])
+
+  defp list_items(_session, _list, _subject, _cursor, 0, _found) do
+    {:error,
+     AtMcp.Effects.Failure.new(:refused,
+       message:
+         "This account has more than #{@list_item_pages * 100} list items, more than AtMcp reads to find a list's members. Nothing was sent."
+     )}
+  end
+
+  defp list_items(session, list, subject, cursor, pages, found) do
+    params =
+      AtMcp.ATProto.params(%{
+        repo: session.did,
+        collection: AtMcp.Network.collection(:list_item),
+        limit: 100,
+        cursor: cursor
+      })
+
+    with {:ok, response} <- AtMcp.ATProto.list_records(session, params),
+         {:ok, records} when is_list(records) <- AtMcp.Response.fetch(response, :records) do
+      matching =
+        for record <- records,
+            value = field(record, :value),
+            is_map(value),
+            string_value(value, :list) == list,
+            is_nil(subject) or string_value(value, :subject) == subject,
+            uri = string_value(record, :uri),
+            do: uri
+
+      case cursor_of(response) do
+        next when is_binary(next) and records != [] ->
+          list_items(session, list, subject, next, pages - 1, found ++ matching)
+
+        _ ->
+          {:ok, found ++ matching}
+      end
+    else
+      {:error, reason} -> {:error, failure(reason)}
+      _ -> {:error, unreadable("a page of list items", %{})}
+    end
+  end
+
+  # The view of a list or of a starter pack's list, which says its purpose and
+  # this account's opt-out from it.
+  defp viewed_list(session, uri) do
+    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(uri)
+
+    {response, key} =
+      if AtMcp.Network.collection?(collection, :starter_pack),
+        do:
+          {AtMcp.ATProto.get_starter_pack(session, %{starterPack: uri}), [:starter_pack, :list]},
+        else: {AtMcp.ATProto.get_list(session, %{list: uri, limit: 1}), [:list]}
+
+    case response do
+      {:ok, body} ->
+        case AtMcp.Response.dig(body, key) do
+          list when is_map(list) -> {:ok, list}
+          _ -> {:error, unreadable("a list", body)}
+        end
+
+      {:error, reason} ->
+        case failure(reason) do
+          %AtMcp.Effects.Failure{kind: :refused} ->
+            {:error,
+             {:invalid_argument, "list", "no starter pack or list at #{uri} could be read"}}
+
+          other ->
+            {:error, other}
+        end
+    end
+  end
+
+  # An avatar is a blob the list record references, uploaded before the record
+  # is built, as a post's images are. A failed upload sends no record.
+  defp upload_avatar(_session, nil), do: {:ok, nil}
+
+  defp upload_avatar(session, image) do
+    case upload_images(session, [image]) do
+      {:ok, [%{blob: blob}]} ->
+        {:ok, blob}
+
+      {:error, reason} ->
+        case failure(reason) do
+          %AtMcp.Effects.Failure{kind: :auth_refused} = refused ->
+            {:error, refused}
+
+          other ->
+            {:error,
+             %{
+               other
+               | kind: :refused,
+                 message:
+                   "The avatar could not be uploaded (#{other.message || "no answer"}). Nothing was written."
+             }}
+        end
+    end
+  end
+
   # A list's purpose in the words the list tools take: a token's name on any
   # network, or the value as sent when this version does not know it.
   defp purpose_name(token) when is_atom(token) and not is_nil(token),
@@ -661,6 +1125,13 @@ defmodule AtMcp.Effects.ProtoRune do
   defp list_member(item), do: AtMcp.Summary.extract(:list_member, item)
 
   defp pack_view(pack), do: AtMcp.Summary.extract(:starter_pack, pack)
+
+  defp string_value(map, key) do
+    case field(map, key) do
+      value when is_binary(value) -> value
+      _ -> nil
+    end
+  end
 
   @doc """
   Publish a post. `opts` carries what a post can hold beyond its text:

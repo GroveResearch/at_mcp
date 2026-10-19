@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 47 tools: 46 network verbs, plus
+`AtMcp.MCP.Server` declares 56 tools: 55 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -130,7 +130,7 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_suggested_feeds`, `get_list_feed`, `get_actor_likes` |
 | Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
-| Lists | `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
+| Lists | `create_list`, `update_list`, `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`, `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`, and the reads `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
 | Account | `identity_status` |
 
@@ -225,9 +225,20 @@ quota to read. It exists because an agent acts faster than a person while the
 account outlives the run. There is no tool for declining to act; an agent that
 ends its turn without calling a write tool has not posted.
 
-Absent from the surface: making and editing lists and starter packs, saved
-and pinned feeds, pinned posts, thread gates and reply controls, self-labels,
-bookmarks,
+An account makes curation and moderation lists and starter packs, and puts
+accounts on them or takes them off. None of these counts against the write
+quota: a list's name and description are public, like a profile's, but they
+are not put in front of followers. An edit reads the record first and keeps
+every field it does not change. A starter pack is its list, the list's items
+and the pack record, written in one `applyWrites`, and deleted the same way;
+`delete_list` deletes a list's items with it. `remove_from_list` finds the
+list items by reading the account's own `graph.listitem` records, so it
+needs no record key. `set_list_opt_out` asks to be left out of someone else's
+starter pack. A list or pack in another account's repository, or a uri of
+the wrong kind, is refused before anything is sent, naming the argument.
+
+Absent from the surface: saved and pinned feeds, pinned
+posts, thread gates and reply controls, self-labels, bookmarks,
 posting video or link cards, direct messages, reporting, mute words and
 content preferences, and server-side notification filters. An agent therefore
 reads a custom feed from a generator URI it was given or from

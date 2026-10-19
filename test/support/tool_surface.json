@@ -1,6 +1,16 @@
 {
   "about": "The MCP tools and arguments AtMcp has published. test/at_mcp/tool_surface_test.exs holds the rules for changing it.",
   "tools": {
+    "add_to_list": {
+      "arguments": {
+        "actor": "string",
+        "list": "string"
+      },
+      "required": [
+        "actor",
+        "list"
+      ]
+    },
     "block": {
       "arguments": {
         "actor": "string"
@@ -9,7 +19,46 @@
         "actor"
       ]
     },
+    "create_list": {
+      "arguments": {
+        "avatar": "object",
+        "description": "string",
+        "name": "string",
+        "purpose": "string"
+      },
+      "required": [
+        "name",
+        "purpose"
+      ]
+    },
+    "create_starter_pack": {
+      "arguments": {
+        "actors": "array",
+        "description": "string",
+        "feeds": "array",
+        "name": "string"
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "delete_list": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "delete_post": {
+      "arguments": {
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
+    "delete_starter_pack": {
       "arguments": {
         "uri": "string"
       },
@@ -304,6 +353,16 @@
         "text"
       ]
     },
+    "remove_from_list": {
+      "arguments": {
+        "actor": "string",
+        "list": "string"
+      },
+      "required": [
+        "actor",
+        "list"
+      ]
+    },
     "reply": {
       "arguments": {
         "images": "array",
@@ -353,6 +412,16 @@
         "query"
       ]
     },
+    "set_list_opt_out": {
+      "arguments": {
+        "list": "string",
+        "opted_out": "boolean"
+      },
+      "required": [
+        "list",
+        "opted_out"
+      ]
+    },
     "unblock": {
       "arguments": {
         "uri": "string"
@@ -393,6 +462,17 @@
         "uri"
       ]
     },
+    "update_list": {
+      "arguments": {
+        "avatar": "object",
+        "description": "string",
+        "name": "string",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
+    },
     "update_profile": {
       "arguments": {
         "avatar": "object",
@@ -407,6 +487,17 @@
         "seen_at": "string"
       },
       "required": []
+    },
+    "update_starter_pack": {
+      "arguments": {
+        "description": "string",
+        "feeds": "array",
+        "name": "string",
+        "uri": "string"
+      },
+      "required": [
+        "uri"
+      ]
     }
   }
 }

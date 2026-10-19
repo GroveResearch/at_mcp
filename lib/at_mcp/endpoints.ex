@@ -38,7 +38,6 @@ defmodule AtMcp.Endpoints do
   """
 
   @posts 88
-  @lists 89
   @moderation 90
   @preferences 91
   @dms 92
@@ -121,9 +120,9 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.graph.getList", {:tool, "get_list"}},
     {"app.bsky.graph.getLists", {:tool, "get_lists"}},
     {"app.bsky.graph.getListsWithMembership", {:tool, "get_lists"}},
-    {"app.bsky.graph.list", {:todo, @lists}},
-    {"app.bsky.graph.listitem", {:todo, @lists}},
-    {"app.bsky.graph.referencelistoptout", {:todo, @lists}},
+    {"app.bsky.graph.list", {:tool, "create_list"}},
+    {"app.bsky.graph.listitem", {:tool, "add_to_list"}},
+    {"app.bsky.graph.referencelistoptout", {:tool, "set_list_opt_out"}},
     {"app.bsky.graph.getStarterPack", {:tool, "get_starter_pack"}},
     {"app.bsky.graph.getStarterPacks",
      {:left_out,
@@ -134,7 +133,7 @@ defmodule AtMcp.Endpoints do
      {:left_out,
       "The first version of `graph.searchStarterPacksV2`, which `get_starter_packs` calls"}},
     {"app.bsky.graph.searchStarterPacksV2", {:tool, "get_starter_packs"}},
-    {"app.bsky.graph.starterpack", {:todo, @lists}},
+    {"app.bsky.graph.starterpack", {:tool, "create_starter_pack"}},
     {"app.bsky.unspecced.getSuggestedStarterPacks", {:todo, @feeds}},
     {"app.bsky.unspecced.getOnboardingSuggestedStarterPacks", {:todo, @feeds}},
 
@@ -228,11 +227,9 @@ defmodule AtMcp.Endpoints do
     {"com.atproto.repo.putRecord", {:tool, "update_profile"}},
     {"com.atproto.repo.deleteRecord", {:tool, "delete_post"}},
     {"com.atproto.repo.uploadBlob", {:tool, "post"}},
-    {"com.atproto.repo.applyWrites", {:todo, @posts}},
+    {"com.atproto.repo.applyWrites", {:tool, "create_starter_pack"}},
     {"com.atproto.repo.getRecord", {:todo, 70}},
-    {"com.atproto.repo.listRecords",
-     {:left_out,
-      "Lists a repository's raw records; the app reads views, and `get_record` (#70) reads one record"}},
+    {"com.atproto.repo.listRecords", {:tool, "remove_from_list"}},
     {"com.atproto.repo.describeRepo",
      {:left_out, "Describes a repository's collections, for tools that inspect repositories"}},
     {"com.atproto.repo.importRepo",

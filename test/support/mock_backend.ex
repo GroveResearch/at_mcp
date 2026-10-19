@@ -302,6 +302,41 @@ defmodule AtMcp.Test.MockBackend do
      }}
   end
 
+  # This mock reads nothing: the request it is handed is what it writes, and
+  # `test/at_mcp/lists_test.exs` checks the records against a fake PDS.
+  @impl true
+  def prepare_list_write(_state, request), do: {:ok, request}
+
+  @impl true
+  def write_list(_state, request) do
+    {action, fields} =
+      case request do
+        {:create_list, f} ->
+          {:create_list, %{uri: @mock_list, name: f.name}}
+
+        {:create_starter_pack, f} ->
+          {:create_starter_pack, %{uri: @mock_pack, list: @mock_list, name: f.name}}
+
+        {:add_to_list, list, did} ->
+          {:add_to_list,
+           %{uri: "at://did:plc:mock/app.bsky.graph.listitem/i1", list: list, actor: did}}
+
+        {:remove_from_list, list, did} ->
+          {:remove_from_list, %{list: list, actor: did}}
+
+        {:set_list_opt_out, list, opted_out} ->
+          {:set_list_opt_out, %{list: list, opted_out: opted_out}}
+
+        {verb, uri} ->
+          {verb, %{uri: uri, deleted: [uri]}}
+
+        {verb, uri, changes} ->
+          {verb, %{uri: uri, name: changes[:name]}}
+      end
+
+    {:ok, Map.merge(%{ok: true, action: action, request: inspect(request)}, fields)}
+  end
+
   defp mock_list(uri) do
     %{
       uri: uri,

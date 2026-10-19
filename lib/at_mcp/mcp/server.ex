@@ -707,6 +707,317 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "create_list",
+       write_description(
+         :create_list,
+         "Make a list. A curate list gathers accounts, for a feed of their posts (get_list_feed) or for who may reply; a moderation list is for muting or blocking them together. The name and description are public. The result's uri is the list."
+       ) do
+    annotations(
+      write_annotations(:create_list, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:name, :string, required: true, description: "The list's name, 1 to 64 bytes")
+
+    param(:purpose, :string,
+      required: true,
+      description: "curate or moderation",
+      schema: %{type: "string", enum: ["curate", "moderation"]}
+    )
+
+    param(:description, :string, description: "What the list is for, up to 300 characters")
+
+    param(
+      :avatar,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "The list's picture: base64 data or a file path, and its MIME type (image/png or image/jpeg, at most 1,000,000 bytes)"
+      )
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        with {:ok, fields} <-
+               AtMcp.MCP.Tools.list_fields(a, [:name, :purpose, :description, :avatar]) do
+          AtMcp.Effects.create_list(state.effects, fields)
+        end,
+        state
+      )
+    end)
+  end
+
+  tool "update_list",
+       write_description(
+         :update_list,
+         "Change a list this account made: its name, description or picture. Fields not given are kept; an empty description removes it."
+       ) do
+    annotations(
+      write_annotations(:update_list, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the list")
+    param(:name, :string, description: "New name, 1 to 64 bytes")
+    param(:description, :string, description: "New description, up to 300 characters")
+
+    param(
+      :avatar,
+      :object,
+      AtMcp.MCP.Schemas.image_upload(
+        "New picture: base64 data or a file path, and its MIME type (image/png or image/jpeg, at most 1,000,000 bytes)"
+      )
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        with {:ok, changes} <- AtMcp.MCP.Tools.list_fields(a, [:name, :description, :avatar]) do
+          AtMcp.Effects.update_list(state.effects, Map.fetch!(a, :uri), changes)
+        end,
+        state
+      )
+    end)
+  end
+
+  tool "delete_list",
+       write_description(
+         :delete_list,
+         "Delete a list this account made and every list item on it, in one commit. A starter pack's list is deleted with delete_starter_pack. The result's deleted names every record removed."
+       ) do
+    annotations(
+      write_annotations(:delete_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the list")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_list(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "add_to_list",
+       write_description(
+         :add_to_list,
+         "Put an account on a list or starter pack this account made. The result's uri is the list item; an account already on it is left as it is."
+       ) do
+    annotations(
+      write_annotations(:add_to_list, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+
+    param(:list, :string,
+      required: true,
+      description: "AT URI of the list, or of a starter pack, whose list it then is"
+    )
+
+    param(:actor, :string, required: true, description: "Handle or DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.add_to_list(
+          state.effects,
+          Map.fetch!(a, :list),
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "remove_from_list",
+       write_description(
+         :remove_from_list,
+         "Take an account off a list or starter pack this account made. The list item is found by reading the list."
+       ) do
+    annotations(
+      write_annotations(:remove_from_list, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+
+    param(:list, :string,
+      required: true,
+      description: "AT URI of the list, or of a starter pack, whose list it then is"
+    )
+
+    param(:actor, :string, required: true, description: "Handle or DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.remove_from_list(
+          state.effects,
+          Map.fetch!(a, :list),
+          AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "create_starter_pack",
+       write_description(
+         :create_starter_pack,
+         "Make a starter pack: a named set of accounts and up to 3 feeds that someone new can follow at once. Writes its list, the list's items and the pack in one commit. The result's uri is the pack and list its list."
+       ) do
+    annotations(
+      write_annotations(:create_starter_pack, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:name, :string, required: true, description: "The pack's name, up to 50 characters")
+    param(:description, :string, description: "What the pack is for, up to 300 characters")
+
+    param(:actors, {:array, :string},
+      description: "Handles or DIDs of the accounts in it. add_to_list adds more later."
+    )
+
+    param(:feeds, {:array, :string},
+      description: "AT URIs of up to 3 feed generators it recommends",
+      schema: %{type: "array", maxItems: 3, items: %{type: "string"}}
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.create_starter_pack(state.effects, %{
+          name: Map.fetch!(a, :name),
+          description: Map.get(a, :description),
+          actors: AtMcp.MCP.Tools.actors(Map.get(a, :actors, [])),
+          feeds: Map.get(a, :feeds)
+        }),
+        state
+      )
+    end)
+  end
+
+  tool "update_starter_pack",
+       write_description(
+         :update_starter_pack,
+         "Change a starter pack this account made: its name, description or feeds. Fields not given are kept; an empty description or feeds list removes it. Its accounts change with add_to_list and remove_from_list."
+       ) do
+    annotations(
+      write_annotations(:update_starter_pack, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the starter pack")
+    param(:name, :string, description: "New name, up to 50 characters")
+    param(:description, :string, description: "New description, up to 300 characters")
+
+    param(:feeds, {:array, :string},
+      description: "AT URIs of up to 3 feed generators, replacing the ones it has",
+      schema: %{type: "array", maxItems: 3, items: %{type: "string"}}
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        with {:ok, changes} <- AtMcp.MCP.Tools.list_fields(a, [:name, :description, :feeds]) do
+          AtMcp.Effects.update_starter_pack(state.effects, Map.fetch!(a, :uri), changes)
+        end,
+        state
+      )
+    end)
+  end
+
+  tool "delete_starter_pack",
+       write_description(
+         :delete_starter_pack,
+         "Delete a starter pack this account made, with its list and the list's items. The result's deleted names every record removed."
+       ) do
+    annotations(
+      write_annotations(:delete_starter_pack, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+    param(:uri, :string, required: true, description: "AT URI of the starter pack")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_starter_pack(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "set_list_opt_out",
+       write_description(
+         :set_list_opt_out,
+         "Ask to be left out of someone's starter pack (opted_out true), or take that back (false). The pack then stops showing this account to others. Applies only to a starter pack's list."
+       ) do
+    annotations(
+      write_annotations(:set_list_opt_out, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.list_result())
+
+    param(:list, :string,
+      required: true,
+      description: "AT URI of the starter pack, or of its list"
+    )
+
+    param(:opted_out, :boolean,
+      required: true,
+      description: "true to be left out, false to be shown again"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_list_opt_out(
+          state.effects,
+          Map.fetch!(a, :list),
+          Map.fetch!(a, :opted_out)
+        ),
+        state
+      )
+    end)
+  end
+
   # The post limit is not written into this description. A tool description is
   # evaluated when this module compiles, while the network is an
   # application-environment value read at runtime, so a number here would be

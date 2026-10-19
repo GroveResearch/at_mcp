@@ -14,3 +14,8 @@ this notice. They apply independently of at_mcp’s own MIT license.
 Upstream AT Protocol lexicons: <https://github.com/bluesky-social/atproto>.
 These declarations are retained as source in both the package and release;
 `AtMcp.Network` derives the network’s post and image limits from them.
+
+The files under `test/fixtures/lexicons/` are copied without changes from
+`bluesky-social/atproto` commit `9f66a7e54b030700c03eda0bdbf35ffe756f4cd8`, as
+recorded in the README beside them. They are test fixtures, not part of the
+package or release, and the same upstream terms apply to them.

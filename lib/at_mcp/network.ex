@@ -88,7 +88,10 @@ defmodule AtMcp.Network do
     block: "graph.block",
     profile: "actor.profile",
     generator: "feed.generator",
-    list: "graph.list"
+    list: "graph.list",
+    list_item: "graph.listitem",
+    starter_pack: "graph.starterpack",
+    list_opt_out: "graph.referencelistoptout"
   }
 
   # The lexicon-defined types AtMcp reads off a record it did not write.

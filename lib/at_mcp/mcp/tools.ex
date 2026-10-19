@@ -369,6 +369,28 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
+  @doc """
+  The fields of a list or starter pack write, from tool arguments: the given
+  `keys`, leaving out any not given, and an `avatar` read into bytes here, as
+  a post's images are, so a bad one refuses the call before anything is sent.
+  """
+  def list_fields(args, keys) when is_map(args) do
+    fields =
+      for key <- keys, key != :avatar, Map.has_key?(args, key), into: %{}, do: {key, args[key]}
+
+    if :avatar in keys do
+      case Map.get(args, :avatar) do
+        image when image in [nil, %{}] ->
+          {:ok, fields}
+
+        image ->
+          with {:ok, image} <- decode_image(image), do: {:ok, Map.put(fields, :avatar, image)}
+      end
+    else
+      {:ok, fields}
+    end
+  end
+
   # An avatar or banner is read here, before anything is sent, like a post's
   # images: a bad one refuses the whole update.
   defp profile_image(updates, key, args) do
