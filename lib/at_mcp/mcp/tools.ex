@@ -588,7 +588,7 @@ defmodule AtMcp.MCP.Tools do
 
   defp unreadable_cause(:not_found),
     do:
-      {"the service has no record there (RecordNotFound); it was deleted, taken down, or never existed",
+      {"the service has no record there (RecordNotFound); it was deleted, taken down, never existed, or is not indexed yet (records on another server are read through the AppView)",
        %{cause: "not_found"}}
 
   defp unreadable_cause(:unusable_answer),

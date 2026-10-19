@@ -858,8 +858,8 @@ defmodule AtMcp.Effects do
 
   defp publish(effects, verb, text, opts) do
     with :ok <- validate_post_text(text),
-         :ok <- post_reference(opts[:reply], "uri"),
-         :ok <- post_reference(opts[:quote], "quote"),
+         :ok <- reference(opts[:reply], &post_uri(&1, "uri")),
+         :ok <- reference(opts[:quote], &quotable(&1)),
          {:ok, opts} <- AtMcp.Interactions.post_options(verb, opts) do
       # Resolve references and build the complete record before taking a slot
       # or marking dispatch. A deleted parent or a local rich-text/record
@@ -874,14 +874,25 @@ defmodule AtMcp.Effects do
     end
   end
 
-  # A reply's parent and a quoted record are posts, which the URI's collection
-  # says before anything is read; another record is refused as such here
-  # rather than as a record the service would not hand over.
-  defp post_reference(nil, _field), do: :ok
+  # A reply's parent is a post, and a quote is a post or a record the app
+  # shows as a quoted card (`embed.record`): a feed, a list, a starter pack or
+  # a labeler. The URI's collection says which before anything is read, so
+  # another record is refused as such here rather than as a record the service
+  # would not hand over.
+  defp reference(nil, _check), do: :ok
 
-  defp post_reference(uri, field) do
-    with {:ok, _parts} <- record_argument(uri, field, [:post], "a post"), do: :ok
+  defp reference(uri, check) do
+    with {:ok, _parts} <- check.(uri), do: :ok
   end
+
+  defp quotable(uri),
+    do:
+      record_argument(
+        uri,
+        "quote",
+        [:post, :generator, :list, :starter_pack, :labeler],
+        "a post, a feed generator, a list, a starter pack or a labeler"
+      )
 
   @doc """
   Check text against the configured network's post record limits.

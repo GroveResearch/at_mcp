@@ -132,7 +132,6 @@ defmodule AtMcp.ReplyReferenceTest do
     text = Enum.find(result.content, &(&1.type == "text")).text
     assert text =~ @gone
     assert text =~ "RecordNotFound"
-    refute text =~ "not indexed"
     refute text =~ "not a post"
     assert text =~ "write quota"
 
@@ -182,23 +181,44 @@ defmodule AtMcp.ReplyReferenceTest do
     assert sent(calls, "com.atproto.repo.createRecord") == []
   end
 
-  test "a reply or quote naming a record that is not a post is refused before anything is read",
+  test "a reply to a record that is not a post, or a quote of one the app does not show as a card, is refused before anything is read",
        %{calls: calls, effects: effects, state: state} do
     list = "at://did:plc:other/app.bsky.graph.list/l"
+    like = "at://did:plc:other/app.bsky.feed.like/k"
 
-    for {tool, arguments, field} <- [
-          {"reply", %{"uri" => list, "text" => "hello"}, "uri"},
-          {"post", %{"text" => "hello", "quote" => list}, "quote"}
+    for {tool, arguments, expected} <- [
+          {"reply", %{"uri" => list, "text" => "hello"}, "uri: must be the AT URI of a post"},
+          {"post", %{"text" => "hello", "quote" => like},
+           "quote: must be the AT URI of a post, a feed generator, a list"}
         ] do
       assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(tool, arguments, state)
       assert result.structuredContent.code == "invalid_arguments"
-      text = Enum.find(result.content, &(&1.type == "text")).text
-      assert text =~ "#{field}: must be the AT URI of a post"
-      assert text =~ "app.bsky.graph.list"
+      assert Enum.find(result.content, &(&1.type == "text")).text =~ expected
     end
 
     assert Agent.get(calls, & &1) == []
     assert AtMcp.Effects.quota_status(effects).used == 0
+  end
+
+  # The app renders `embed.record` for a feed, a list, a starter pack or a
+  # labeler as a card, so a quote of one is a quote like any other.
+  test "a quote of a list is written as a record embed", %{calls: calls, state: state} do
+    list = "at://did:plc:other/app.bsky.graph.list/l"
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "post",
+               %{"text" => "this list", "quote" => list},
+               state
+             )
+
+    refute result[:isError]
+    [write] = sent(calls, "com.atproto.repo.createRecord")
+
+    assert write.body["record"]["embed"]["record"] == %{
+             "uri" => list,
+             "cid" => "bafyreiparent"
+           }
   end
 
   test "a service that failed reading the parent is not reported as a missing record", %{
