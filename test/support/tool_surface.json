@@ -112,6 +112,13 @@
         "actor"
       ]
     },
+    "get_activity_subscriptions": {
+      "arguments": {
+        "cursor": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
     "get_actor_feeds": {
       "arguments": {
         "actor": "string",
@@ -266,6 +273,10 @@
       },
       "required": []
     },
+    "get_notification_settings": {
+      "arguments": {},
+      "required": []
+    },
     "get_notifications": {
       "arguments": {
         "cursor": "string",
@@ -289,6 +300,10 @@
       "required": [
         "uris"
       ]
+    },
+    "get_preferences": {
+      "arguments": {},
+      "required": []
     },
     "get_profile": {
       "arguments": {
@@ -605,6 +620,17 @@
         "opted_out"
       ]
     },
+    "set_notification_setting": {
+      "arguments": {
+        "include": "string",
+        "list": "boolean",
+        "push": "boolean",
+        "reason": "string"
+      },
+      "required": [
+        "reason"
+      ]
+    },
     "set_post_interactions": {
       "arguments": {
         "quotes": "string",
@@ -613,6 +639,27 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "set_preference": {
+      "arguments": {
+        "allow": "string",
+        "enabled": "boolean",
+        "hide_badges": "boolean",
+        "hide_from_recommendations": "boolean",
+        "hide_quotes": "boolean",
+        "hide_replies": "boolean",
+        "hide_reposts": "boolean",
+        "kind": "string",
+        "quotes": "string",
+        "reply_rule": "array",
+        "saved_feed_samples": "boolean",
+        "sort": "string",
+        "tags": "array",
+        "tree_view": "boolean"
+      },
+      "required": [
+        "kind"
       ]
     },
     "set_status": {
@@ -625,6 +672,18 @@
       },
       "required": [
         "kind"
+      ]
+    },
+    "subscribe_to_activity": {
+      "arguments": {
+        "actor": "string",
+        "posts": "boolean",
+        "replies": "boolean"
+      },
+      "required": [
+        "actor",
+        "posts",
+        "replies"
       ]
     },
     "unblock": {

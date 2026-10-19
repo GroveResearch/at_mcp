@@ -236,6 +236,12 @@ defmodule AtMcp.MCP.ToolsTest do
      }},
     {"save_draft", %{"text" => "later"}},
     {"delete_draft", %{"id" => "3mockdraft"}},
+    {"get_preferences", %{}},
+    {"set_preference", %{"kind" => "threads", "sort" => "oldest"}},
+    {"get_notification_settings", %{}},
+    {"set_notification_setting", %{"reason" => "like", "include" => "follows"}},
+    {"subscribe_to_activity", %{"actor" => "alice.test", "posts" => true, "replies" => true}},
+    {"get_activity_subscriptions", %{}},
     {"get_membership", %{}},
     {"identity_status", %{}}
   ]
@@ -274,7 +280,10 @@ defmodule AtMcp.MCP.ToolsTest do
     "search_feeds" => :feeds,
     "get_suggested_starter_packs" => :starter_packs,
     "get_trends" => :trends,
-    "get_invite_codes" => :invite_codes
+    "get_invite_codes" => :invite_codes,
+    "get_preferences" => :preferences,
+    "get_notification_settings" => :notification_settings,
+    "get_activity_subscriptions" => :profiles
   }
 
   test "every tool returns structured content its declared schema accepts" do

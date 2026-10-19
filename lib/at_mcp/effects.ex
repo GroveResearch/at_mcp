@@ -1187,6 +1187,114 @@ defmodule AtMcp.Effects do
     end
   end
 
+  # --- settings: preferences, notification settings, activity subscriptions ---
+
+  @doc """
+  The account's settings as the app shows them (`AtMcp.Preferences`): each
+  preference kind, the saved feeds, whether to hide the account's posts from
+  recommendations, and who may subscribe to its posts.
+  """
+  def get_preferences(effects),
+    do: with_session(effects, fn backend, session -> backend.get_preferences(session) end)
+
+  @doc """
+  Change one kind of setting (`AtMcp.Preferences.kinds/0`): the fields given
+  in `fields` (a map, `nil` for one not given) and nothing else. The request
+  is read before a session is taken. The preferences, or the declaration
+  record, are read first, so a setting already as asked is left alone
+  (`unchanged`) and the result names the fields that changed with their
+  values before and after. A list in `reply_rule` named by a handle is
+  written in its DID form.
+  """
+  def set_preference(effects, kind, fields) when is_map(fields) do
+    with {:ok, kind, changes} <- AtMcp.Preferences.request(kind, fields) do
+      take_and_write(
+        effects,
+        :set_preference,
+        fn backend, session -> backend.prepare_preference(session, {kind, changes}) end,
+        fn prepared -> fn backend, session -> backend.write_preference(session, prepared) end end
+      )
+    end
+  end
+
+  @doc "The account's notification settings, one per reason (`AtMcp.Preferences`)."
+  def get_notification_settings(effects),
+    do:
+      with_session(effects, fn backend, session -> backend.get_notification_settings(session) end)
+
+  @doc """
+  Change the notification setting of one reason: `include` (`all` or
+  `follows`, for the reasons that take it), `list` and `push`, each left as it
+  is when nil. The settings are read first, so one already as asked is left
+  alone.
+  """
+  def set_notification_setting(effects, reason, opts) when is_list(opts) do
+    with {:ok, reason, changes} <- AtMcp.Preferences.notification_request(reason, opts) do
+      take_and_write(
+        effects,
+        :set_notification_setting,
+        fn backend, session ->
+          backend.prepare_notification_setting(session, {reason, changes})
+        end,
+        fn prepared ->
+          fn backend, session -> backend.write_notification_setting(session, prepared) end
+        end
+      )
+    end
+  end
+
+  @doc """
+  Subscribe to an account's posts (`posts`), and to its replies too
+  (`replies`), as the app's bell on a profile does; both false unsubscribes.
+  The account is read first: one whose own setting does not let this account
+  subscribe is refused, as the app offers no bell for it, and a subscription
+  already as asked is left alone.
+  """
+  def subscribe_to_activity(effects, actor, posts, replies) when is_binary(actor) do
+    with :ok <- boolean_argument(posts, "posts"),
+         :ok <- boolean_argument(replies, "replies"),
+         :ok <-
+           if(replies and not posts,
+             do:
+               invalid(
+                 "replies",
+                 "the app subscribes to replies only with posts; give posts true as well"
+               ),
+             else: :ok
+           ) do
+      take_and_write(
+        effects,
+        :subscribe_to_activity,
+        fn backend, session ->
+          with :ok <-
+                 if(own_actor?(session, actor),
+                   do: invalid("actor", "an account cannot subscribe to its own posts"),
+                   else: :ok
+                 ),
+               {:ok, did} <- backend.resolve_actor(session, actor),
+               do:
+                 backend.prepare_activity_subscription(session, did, %{
+                   posts: posts,
+                   replies: replies
+                 })
+        end,
+        fn prepared ->
+          fn backend, session -> backend.put_activity_subscription(session, prepared) end
+        end
+      )
+    end
+  end
+
+  defp boolean_argument(value, _field) when is_boolean(value), do: :ok
+  defp boolean_argument(_value, field), do: invalid(field, "must be true or false")
+
+  @doc "The accounts this account is subscribed to, with what it gets of each."
+  def get_activity_subscriptions(effects, opts \\ []) do
+    paged(effects, opts, fn backend, session, page ->
+      backend.get_activity_subscriptions(session, page)
+    end)
+  end
+
   # The AppView counts a live status as lasting at least 5 minutes and at
   # most 4 hours, whatever the record says (`status` in
   # packages/bsky/src/views/index.ts), so a duration outside that is refused

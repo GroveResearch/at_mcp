@@ -85,7 +85,7 @@ defmodule AtMcp.LeftOut do
     {"trends[].actors[].avatar", "An avatar picture; get_profile reads its URL"},
     {"pinnedPost.cid", "The pinned post's CID; get_posts with `pinned_post` reads it"},
     {"**.associated",
-     "What an account has made, whether it runs a labeler, and who may message it: a profile reads these (`lists`, `feeds`, `starter_packs`, `labeler`, `messages_from`), and get_profile reads them for an account met elsewhere. Who may add it to a group chat (`chat.allowGroupInvites`) is not read: at_mcp has no direct messages (#92). Who may subscribe to its posts waits on the notification settings (#91), and a third-party messaging button is not read"},
+     "What an account has made, whether it runs a labeler, who may message it and who may subscribe to its posts: a profile reads these (`lists`, `feeds`, `starter_packs`, `labeler`, `messages_from`, `subscriptions_from`), and get_profile reads them for an account met elsewhere. Who may add it to a group chat (`chat.allowGroupInvites`) is not read: at_mcp has no direct messages (#92). A third-party messaging button is not read"},
     {"**.verification",
      "Whether the app shows an account as verified: a profile (`verification`, with who verified it) and a post's or quote's author (`author_verification`) read it, and get_profile reads it for an account met elsewhere"},
     {"**.status.*",

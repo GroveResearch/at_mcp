@@ -338,6 +338,8 @@ defmodule AtMcp.Reading do
         known_followers(account["known_followers"]),
         joined_via(account["joined_via"]),
         messages_from(account["messages_from"]),
+        subscriptions_from(account["subscriptions_from"]),
+        subscribed(account["activity_subscription"]),
         if(is_binary(account["did"]), do: "did: #{account["did"]}")
       ],
       "\n"
@@ -443,6 +445,18 @@ defmodule AtMcp.Reading do
   defp messages_from("none"), do: "Takes no messages"
   defp messages_from(other) when is_binary(other), do: "Takes messages from: #{other}"
   defp messages_from(_none), do: nil
+
+  # Who may subscribe to the account's posts; followers, which no
+  # declaration also means, goes without saying.
+  defp subscriptions_from("mutuals"), do: "Lets only mutuals subscribe to its posts"
+  defp subscriptions_from("none"), do: "Lets no one subscribe to its posts"
+  defp subscriptions_from(_followers), do: nil
+
+  defp subscribed(%{"posts" => true, "replies" => true}),
+    do: "You are subscribed to its posts and replies"
+
+  defp subscribed(%{"posts" => true}), do: "You are subscribed to its posts"
+  defp subscribed(_none), do: nil
 
   @doc """
   A page of custom feeds: suggested, searched, an account's, or read by uri.
@@ -585,6 +599,98 @@ defmodule AtMcp.Reading do
   end
 
   def invite_codes(_other), do: nil
+
+  @doc """
+  The account's settings, one line per kind, as `get_preferences` returns
+  them.
+  """
+  def preferences(%{} = p) do
+    home = p["home_feed"] || %{}
+    threads = p["threads"] || %{}
+    defaults = p["interaction_defaults"] || %{}
+    adult = p["adult_content"] || %{}
+
+    lines(
+      [
+        "Settings. set_preference changes each kind; save_feed and unsave_feed the saved feeds.",
+        "home_feed (the Following feed, as the app shows it): " <>
+          on_off([
+            {"hide_replies", home["hide_replies"]},
+            {"hide_reposts", home["hide_reposts"]},
+            {"hide_quotes", home["hide_quotes"]},
+            {"saved_feed_samples", home["saved_feed_samples"]}
+          ]),
+        "threads: sort #{threads["sort"]}, " <> on_off([{"tree_view", threads["tree_view"]}]),
+        "interaction_defaults (each new post in the app starts with): reply_rule " <>
+          Jason.encode!(defaults["reply_rule"]) <> ", quotes #{defaults["quotes"]}",
+        "adult_content: " <>
+          on_off([{"enabled", adult["enabled"]}]) <>
+          "; birth date " <>
+          cond do
+            adult["declared_over_18"] == true -> "set, 18 or over"
+            adult["birth_date_set"] == true -> "set, under 18"
+            true -> "not set"
+          end,
+        "interests: " <>
+          case List.wrap(get_in(p, ["interests", "tags"])) do
+            [] -> "none"
+            tags -> Enum.join(tags, ", ")
+          end,
+        "verification: " <> on_off([{"hide_badges", get_in(p, ["verification", "hide_badges"])}]),
+        "discoverable: " <>
+          on_off([
+            {"hide_from_recommendations",
+             get_in(p, ["discoverable", "hide_from_recommendations"])}
+          ]),
+        "activity_subscriptions: allow #{get_in(p, ["activity_subscriptions", "allow"])}",
+        case List.wrap(p["saved_feeds"]) do
+          [] ->
+            "Saved feeds: none"
+
+          feeds ->
+            "Saved feeds:\n" <>
+              Enum.map_join(feeds, "\n", fn feed ->
+                "- " <>
+                  lines(
+                    [feed["value"], feed["type"], if(feed["pinned"] == true, do: "pinned")],
+                    " · "
+                  )
+              end)
+        end
+      ],
+      "\n"
+    )
+  end
+
+  def preferences(_other), do: nil
+
+  defp on_off(settings),
+    do:
+      Enum.map_join(settings, ", ", fn {name, on} ->
+        "#{name} #{if on == true, do: "on", else: "off"}"
+      end)
+
+  @doc "The account's notification settings, one line per reason."
+  def notification_settings(%{"settings" => settings}) when is_list(settings) do
+    lines(
+      [
+        "Notification settings. set_notification_setting changes one reason's."
+        | Enum.map(settings, fn setting ->
+            "#{setting["reason"]}: " <>
+              lines(
+                [
+                  if(is_binary(setting["include"]), do: "from #{setting["include"]}"),
+                  on_off([{"list", setting["list"]}, {"push", setting["push"]}])
+                ],
+                ", "
+              )
+          end)
+      ],
+      "\n"
+    )
+  end
+
+  def notification_settings(_other), do: nil
 
   defp invite_code(%{} = code, label) do
     uses = List.wrap(code["uses"])

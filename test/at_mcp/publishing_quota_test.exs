@@ -104,7 +104,10 @@ defmodule AtMcp.PublishingQuotaTest do
       "feed" => "at://did:plc:x/app.bsky.feed.generator/f",
       "uri" => "at://did:plc:x/app.bsky.feed.post/1",
       "kind" => "show_less"
-    }
+    },
+    "set_preference" => %{"kind" => "home_feed", "hide_reposts" => true},
+    "set_notification_setting" => %{"reason" => "like", "push" => false},
+    "subscribe_to_activity" => %{"actor" => "alice.example", "posts" => true, "replies" => false}
   }
 
   test "every mutating tool's description and annotation say what the quota does to it" do

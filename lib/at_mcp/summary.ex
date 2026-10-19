@@ -342,6 +342,11 @@ defmodule AtMcp.Summary do
     {:creator, :string, [["creator", "handle"]], "Handle of the account that made it"}
   ]
 
+  @activity_subscription [
+    {:posts, :boolean, [["post"]], "True when each new post of the account is a notification"},
+    {:replies, :boolean, [["reply"]], "True when its replies are too"}
+  ]
+
   @known_followers [
     {:count, :integer, [["count"]], "How many such accounts the service counts"},
     {:followers, {:list, @account_basic}, [["followers"]], "Some of them, as the service chose"}
@@ -406,6 +411,15 @@ defmodule AtMcp.Summary do
         {:messages_from, :string,
          [["associated", "chat", "allow_incoming"], ["associated", "chat", "allowIncoming"]],
          "Who the account lets message it: all, following or none"},
+        {:subscriptions_from, :string,
+         [
+           ["associated", "activity_subscription", "allow_subscriptions"],
+           ["associated", "activitySubscription", "allowSubscriptions"]
+         ],
+         "Who the account lets subscribe to its posts: followers, mutuals or none; null when it has not said, which is followers"},
+        {:activity_subscription, {:object, @activity_subscription},
+         [["viewer", "activity_subscription"], ["viewer", "activitySubscription"]],
+         "What the viewing account is subscribed to of this account's posts; null when nothing. subscribe_to_activity sets it"},
         {:joined_via, {:object, @joined_via},
          [["joined_via_starter_pack"], ["joinedViaStarterPack"]],
          "The starter pack the account joined through; null when none"},

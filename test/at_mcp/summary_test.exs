@@ -131,6 +131,7 @@ defmodule AtMcp.SummaryTest do
       "labels" => [%{"src" => "did:plc:author", "val" => "bot"}],
       "viewer" => %{
         "following" => "at://did:plc:viewer/app.bsky.graph.follow/1",
+        "activitySubscription" => %{"post" => true, "reply" => false},
         "knownFollowers" => %{
           "count" => 3,
           "followers" => [%{"did" => "did:plc:k", "handle" => "k.test", "displayName" => "K"}]
@@ -165,7 +166,8 @@ defmodule AtMcp.SummaryTest do
         "feedgens" => 1,
         "starterPacks" => 1,
         "labeler" => false,
-        "chat" => %{"allowIncoming" => "following"}
+        "chat" => %{"allowIncoming" => "following"},
+        "activitySubscription" => %{"allowSubscriptions" => "mutuals"}
       },
       "joinedViaStarterPack" => %{
         "uri" => "at://did:plc:k/app.bsky.graph.starterpack/p",

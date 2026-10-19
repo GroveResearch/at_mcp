@@ -22,7 +22,11 @@ defmodule AtMcp.Test.FakePDS do
   and answered `{}`, as the lexicon says. With `drafts_lag: true` an update is
   accepted and not applied yet, as a service that queues it does. Any other
   method answers `{}`. `preferences` is the account's preferences, which
-  `getPreferences` answers and `putPreferences` replaces. A `putRecord` whose
+  `getPreferences` answers and `putPreferences` replaces.
+  `notification_preferences` is the account's notification settings by
+  reason, which `notification.getPreferences` answers with the service's
+  defaults for the rest and `putPreferencesV2` changes reason by reason;
+  `putActivitySubscription` keeps subscriptions (`subscriptions/1`). A `putRecord` whose
   `swapRecord` is not the record's CID answers 400 `InvalidSwap`. An answer given as a list is taken one per call, the
   last staying; `:default` in it stands for the PDS's own answer.
   """
@@ -42,6 +46,8 @@ defmodule AtMcp.Test.FakePDS do
              answers: Keyword.get(opts, :answers, %{}),
              drafts: Keyword.get(opts, :drafts, []),
              preferences: Keyword.get(opts, :preferences, []),
+             notification_preferences: Keyword.get(opts, :notification_preferences, %{}),
+             subscriptions: %{},
              drafts_lag: Keyword.get(opts, :drafts_lag, false)
            }
          end},
@@ -252,6 +258,33 @@ defmodule AtMcp.Test.FakePDS do
       String.ends_with?(method, ".actor.putPreferences") ->
         {{200, %{}}, %{state | preferences: call.body["preferences"]}}
 
+      String.ends_with?(method, ".notification.getPreferences") ->
+        {{200, %{preferences: notification_preferences(state)}}, state}
+
+      String.ends_with?(method, ".notification.putPreferencesV2") ->
+        state = %{
+          state
+          | notification_preferences: Map.merge(state.notification_preferences, call.body)
+        }
+
+        {{200, %{preferences: notification_preferences(state)}}, state}
+
+      String.ends_with?(method, ".notification.putActivitySubscription") ->
+        %{"subject" => subject, "activitySubscription" => subscription} = call.body
+        enabled? = subscription["post"] == true or subscription["reply"] == true
+
+        subscriptions =
+          if enabled?,
+            do: Map.put(state.subscriptions, subject, subscription),
+            else: Map.delete(state.subscriptions, subject)
+
+        answer =
+          if enabled?,
+            do: %{subject: subject, activitySubscription: subscription},
+            else: %{subject: subject}
+
+        {{200, answer}, %{state | subscriptions: subscriptions}}
+
       true ->
         other(method, call, state)
     end
@@ -282,6 +315,28 @@ defmodule AtMcp.Test.FakePDS do
     do: {{200, %{}}, %{state | drafts: Enum.reject(state.drafts, &(&1.id == id))}}
 
   defp draft(_op, _call, state), do: {{200, %{}}, state}
+
+  # Every reason's setting, the service's defaults where none was set, as the
+  # AppView answers (`ensurePreferences` in its notification/util.ts).
+  defp notification_preferences(state) do
+    filterable = %{"include" => "all", "list" => true, "push" => true}
+    plain = %{"list" => true, "push" => true}
+
+    defaults =
+      Map.merge(
+        Map.new(
+          ~w(follow like likeViaRepost mention quote reply repost repostViaRepost),
+          &{&1, filterable}
+        ),
+        Map.new(~w(starterpackJoined subscribedPost unverified verified), &{&1, plain})
+      )
+      |> Map.put("chat", %{"include" => "all", "push" => true})
+
+    Map.merge(defaults, state.notification_preferences)
+  end
+
+  @doc "The accounts subscribed to, by DID, with what the subscription asks for."
+  def subscriptions(state), do: Agent.get(state, & &1.subscriptions)
 
   @doc "The repository's current commit CID: a digest of every record it holds."
   def commit(%{records: records}),

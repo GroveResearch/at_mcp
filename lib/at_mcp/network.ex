@@ -106,7 +106,9 @@ defmodule AtMcp.Network do
     postgate: "feed.postgate",
     labeler: "labeler.service",
     status: "actor.status",
-    link: "actor.link"
+    link: "actor.link",
+    content_visibility: "actor.contentVisibilityDeclaration",
+    notification_declaration: "notification.declaration"
   }
 
   # The lexicon-defined types AtMcp reads off a record it did not write.
@@ -140,6 +142,14 @@ defmodule AtMcp.Network do
     status_live: "actor.status#live",
     saved_feeds: "actor.defs#savedFeedsPref",
     saved_feeds_v2: "actor.defs#savedFeedsPrefV2",
+    adult_content_pref: "actor.defs#adultContentPref",
+    feed_view_pref: "actor.defs#feedViewPref",
+    thread_view_pref: "actor.defs#threadViewPref",
+    interests_pref: "actor.defs#interestsPref",
+    post_interaction_settings_pref: "actor.defs#postInteractionSettingsPref",
+    verification_prefs: "actor.defs#verificationPrefs",
+    personal_details_pref: "actor.defs#personalDetailsPref",
+    declared_age_pref: "actor.defs#declaredAgePref",
     request_more: "feed.defs#requestMore",
     request_less: "feed.defs#requestLess"
   }
@@ -369,7 +379,10 @@ defmodule AtMcp.Network do
   `:referencelist`), or a threadgate or postgate rule (`:mention_rule`,
   `:follower_rule`, `:following_rule`, `:list_rule`, `:disable_rule`), the live
   status token (`:status_live`), a saved-feeds preference (`:saved_feeds`,
-  `:saved_feeds_v2`), or a feed feedback event (`:request_more`,
+  `:saved_feeds_v2`), another preference `AtMcp.Preferences` reads or writes
+  (`:adult_content_pref`, `:feed_view_pref`, `:thread_view_pref`,
+  `:interests_pref`, `:post_interaction_settings_pref`, `:verification_prefs`,
+  `:personal_details_pref`, `:declared_age_pref`), or a feed feedback event (`:request_more`,
   `:request_less`).
   """
   @spec type(atom()) :: String.t()

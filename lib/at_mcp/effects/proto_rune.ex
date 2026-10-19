@@ -2262,8 +2262,13 @@ defmodule AtMcp.Effects.ProtoRune do
   """
   @impl true
   def prepare_saved_feed(session, {verb, uri, pinned}) do
+    with {:ok, preferences} <- stored_preferences(session),
+         do: {:ok, saved_feeds(preferences, verb, uri, pinned)}
+  end
+
+  defp stored_preferences(session) do
     case AtMcp.ATProto.preferences_as_stored(session) do
-      {:ok, preferences} -> {:ok, saved_feeds(preferences, verb, uri, pinned)}
+      {:ok, preferences} -> {:ok, preferences}
       {:error, :unreadable_preferences} -> {:error, unreadable("the account's preferences", %{})}
       {:error, reason} -> {:error, failure(reason)}
     end
@@ -2441,6 +2446,367 @@ defmodule AtMcp.Effects.ProtoRune do
       {:ok, _} -> {:ok, result}
       {:error, reason} -> {:error, failure(reason)}
     end
+  end
+
+  # --- settings: preferences, declarations, notification settings ---
+
+  @impl true
+  def get_preferences(session) do
+    with {:ok, preferences} <- stored_preferences(session),
+         {:ok, discoverable, _cid} <- declaration(session, "discoverable"),
+         {:ok, subscriptions, _cid} <- declaration(session, "activity_subscriptions") do
+      {:ok,
+       preferences
+       |> AtMcp.Preferences.view()
+       |> Map.merge(%{
+         saved_feeds: saved_feed_view(preferences),
+         discoverable: AtMcp.Preferences.record_view("discoverable", discoverable),
+         activity_subscriptions:
+           AtMcp.Preferences.record_view("activity_subscriptions", subscriptions)
+       })}
+    end
+  end
+
+  # The saved feeds as the app shows them: the second version's, or, for an
+  # account that has none yet, the first version's as the app migrates them.
+  defp saved_feed_view(preferences) do
+    items =
+      case preferences |> Enum.reverse() |> Enum.find(&saved_v2?/1) do
+        nil -> migrated(preferences)
+        current -> current["items"]
+      end
+
+    for %{} = item <- items,
+        do: %{type: item["type"], value: item["value"], pinned: item["pinned"] == true}
+  end
+
+  # One of the account's declaration records, as stored, and its CID; nil and
+  # nil when the account has none.
+  defp declaration(session, kind) do
+    {collection, _field} = AtMcp.Preferences.record(kind)
+
+    case AtMcp.ATProto.get_record_as_stored(session, %{
+           repo: session.did,
+           collection: AtMcp.Network.collection(collection),
+           rkey: "self"
+         }) do
+      {:ok, %{"value" => value} = response} when is_map(value) ->
+        {:ok, value, response["cid"]}
+
+      {:ok, response} ->
+        {:error, unreadable("the account's #{collection} record", response)}
+
+      {:error, :unreadable_record} ->
+        {:error, unreadable("the account's #{collection} record", %{})}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found] ->
+        {:ok, nil, nil}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @doc """
+  Read what a `set_preference` request changes and build the change. A
+  preference kind is changed in the preferences as stored
+  (`AtMcp.Preferences.change/3`) and written back whole, which the result's
+  note says; a record kind is written over the record read, with
+  `swapRecord`. Either way the result names the fields that changed, with the
+  kind's values before and after.
+  """
+  @impl true
+  def prepare_preference(session, {kind, changes}) do
+    case AtMcp.Preferences.record(kind) do
+      nil -> prepare_preference_change(session, kind, changes)
+      {collection, _field} -> prepare_declaration(session, kind, collection, changes)
+    end
+  end
+
+  defp prepare_preference_change(session, kind, changes) do
+    with {:ok, changes} <- default_reply_lists(session, changes),
+         {:ok, preferences} <- stored_preferences(session),
+         :ok <- adult_content_shown(kind, changes, preferences) do
+      before = AtMcp.Preferences.kind_view(preferences, kind)
+      updated = AtMcp.Preferences.change(preferences, kind, changes)
+      result = setting_result(kind, before, AtMcp.Preferences.kind_view(updated, kind))
+
+      if result.unchanged,
+        do: {:ok, {:unchanged, result}},
+        else: {:ok, %{preferences: updated, result: Map.put(result, :note, @no_swap)}}
+    end
+  end
+
+  defp default_reply_lists(session, %{reply_rule: rules} = changes) when is_list(rules) do
+    with {:ok, rules} <- resolve_lists(session, rules),
+         do: {:ok, %{changes | reply_rule: rules}}
+  end
+
+  defp default_reply_lists(_session, changes), do: {:ok, changes}
+
+  # The app turns adult content on only for an account whose declared age is
+  # 18 or over (`adultContentDisabled` in social-app's src/ageAssurance/util.ts
+  # at 485405a: an account with no declared age counts as under 18), so the
+  # setting would show nowhere for any other.
+  defp adult_content_shown("adult_content", %{enabled: true}, preferences) do
+    if AtMcp.Preferences.declared_over_18(preferences),
+      do: :ok,
+      else:
+        invalid(
+          "enabled",
+          "the app shows adult content only to an account whose declared age is 18 or over, and this account declares no such age. Its birth date is set in the app's account settings; at_mcp does not set one"
+        )
+  end
+
+  defp adult_content_shown(_kind, _changes, _preferences), do: :ok
+
+  defp prepare_declaration(session, kind, collection, changes) do
+    with {:ok, current, cid} <- declaration(session, kind) do
+      record = AtMcp.Preferences.record_value(kind, current, changes)
+
+      result =
+        setting_result(
+          kind,
+          AtMcp.Preferences.record_view(kind, current),
+          AtMcp.Preferences.record_view(kind, record)
+        )
+
+      uri = own_uri(session, collection, "self")
+
+      if result.unchanged,
+        do: {:ok, {:unchanged, Map.put(result, :uri, if(current, do: uri))}},
+        else:
+          {:ok,
+           %{
+             record: record,
+             collection: collection,
+             swap: cid,
+             result: Map.put(result, :uri, uri)
+           }}
+    end
+  end
+
+  defp setting_result(kind, before, now) do
+    %{
+      ok: true,
+      action: :set_preference,
+      kind: kind,
+      changed: Enum.map(AtMcp.Preferences.changed(kind, before, now), &to_string/1),
+      previous: before,
+      now: now,
+      unchanged: before == now
+    }
+  end
+
+  @impl true
+  def write_preference(session, %{preferences: _} = prepared),
+    do: write_preferences(session, prepared)
+
+  # Written only over the record read (`swapRecord`); when there was none,
+  # written new.
+  def write_preference(session, %{record: record, collection: collection, swap: swap} = prepared) do
+    params = %{
+      repo: session.did,
+      collection: AtMcp.Network.collection(collection),
+      rkey: "self",
+      record: record
+    }
+
+    params = if swap, do: Map.put(params, :swap_record, swap), else: params
+
+    case AtMcp.ATProto.put_record(session, params) do
+      {:ok, _} ->
+        {:ok, prepared.result}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:invalid_swap, "invalid_swap"] ->
+        {:error,
+         changed_meanwhile("The account's #{AtMcp.Network.collection(collection)} record")}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_notification_settings(session) do
+    with {:ok, settings} <- notification_settings(session),
+         do: {:ok, %{settings: AtMcp.Preferences.notification_view(settings)}}
+  end
+
+  defp notification_settings(session) do
+    case AtMcp.ATProto.notification_preferences(session) do
+      {:ok, %{"preferences" => settings}} when is_map(settings) -> {:ok, settings}
+      {:ok, %{} = other} -> {:error, unreadable("the notification settings", other)}
+      {:ok, :unreadable} -> {:error, unreadable("the notification settings", %{})}
+      {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def prepare_notification_setting(session, {reason, changes}) do
+    with {:ok, settings} <- notification_settings(session) do
+      before = AtMcp.Preferences.notification_setting(settings, reason)
+      now = Map.merge(before, changes)
+      result = notification_result(reason, before, now)
+
+      if result.unchanged,
+        do: {:ok, {:unchanged, result}},
+        else:
+          {:ok,
+           %{
+             input: AtMcp.Preferences.notification_input(reason, now),
+             reason: reason,
+             result: result
+           }}
+    end
+  end
+
+  # The service answers with every setting as it now is, so the result says
+  # what it keeps rather than what was asked.
+  @impl true
+  def write_notification_setting(session, %{input: input, reason: reason, result: result}) do
+    case AtMcp.ATProto.put_notification_preferences(session, input) do
+      {:ok, %{"preferences" => settings}} when is_map(settings) ->
+        {:ok,
+         notification_result(
+           reason,
+           result.previous,
+           AtMcp.Preferences.notification_setting(settings, reason)
+         )}
+
+      {:ok, _other} ->
+        {:ok,
+         Map.put(
+           result,
+           :note,
+           "The service accepted the change but its answer could not be read, so now is what was sent, not what the service says it keeps."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp notification_result(reason, before, now) do
+    %{
+      ok: true,
+      action: :set_notification_setting,
+      reason: reason,
+      changed: for(key <- [:include, :list, :push], before[key] != now[key], do: to_string(key)),
+      previous: before,
+      now: now,
+      unchanged: before == now
+    }
+  end
+
+  # --- activity subscriptions ---
+
+  @doc """
+  Read the account `did` for the subscription this account has to its
+  activity and for who it lets subscribe, and build the change. The app shows
+  the bell on a profile only when the account's `notification.declaration`
+  lets this account subscribe (`subscriptionsAllowed` in social-app's
+  src/screens/Profile/Header/ProfileHeaderStandard.tsx at 485405a): no
+  declaration or `followers` when this account follows it, `mutuals` when
+  they follow each other, `none` never. Unsubscribing is always offered.
+  """
+  @impl true
+  def prepare_activity_subscription(session, did, %{posts: posts, replies: replies} = asked) do
+    case AtMcp.ATProto.get_profile(session, %{actor: did}) do
+      {:ok, profile} ->
+        viewer = field(profile, :viewer)
+        current = activity_subscription(field(viewer || %{}, :activity_subscription))
+
+        allow =
+          AtMcp.Response.dig(profile, [:associated, :activity_subscription, :allow_subscriptions])
+
+        handle = string_value(profile, :handle)
+
+        result = %{
+          ok: true,
+          action: :subscribe_to_activity,
+          actor: did,
+          handle: handle,
+          previous: current,
+          now: asked,
+          unchanged: current == asked
+        }
+
+        cond do
+          current == asked ->
+            {:ok, {:unchanged, result}}
+
+          posts and not subscriptions_allowed?(allow, viewer) ->
+            invalid(
+              "actor",
+              "#{handle || did} lets #{allowed_who(allow)} subscribe to its posts, so the app offers this account no subscription to it"
+            )
+
+          true ->
+            {:ok,
+             %{did: did, subscription: %{"post" => posts, "reply" => replies}, result: result}}
+        end
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp activity_subscription(%{} = subscription),
+    do: %{
+      posts: field(subscription, :post) == true,
+      replies: field(subscription, :reply) == true
+    }
+
+  defp activity_subscription(_none), do: %{posts: false, replies: false}
+
+  defp subscriptions_allowed?(allow, viewer) when allow in [nil, "followers"],
+    do: present?(field(viewer || %{}, :following))
+
+  defp subscriptions_allowed?("mutuals", viewer),
+    do:
+      present?(field(viewer || %{}, :following)) and present?(field(viewer || %{}, :followed_by))
+
+  defp subscriptions_allowed?(_none, _viewer), do: false
+
+  defp present?(value), do: is_binary(value) and value != ""
+
+  defp allowed_who(allow) when allow in [nil, "followers"],
+    do: "only accounts that follow it, and this account does not,"
+
+  defp allowed_who("mutuals"),
+    do: "only accounts it follows back, and the two do not follow each other,"
+
+  defp allowed_who("none"), do: "no one"
+  defp allowed_who(other), do: "only #{other}"
+
+  @impl true
+  def put_activity_subscription(session, %{did: did, subscription: subscription, result: result}) do
+    case AtMcp.ATProto.put_activity_subscription(session, did, subscription) do
+      {:ok, %{"subject" => _} = answer} ->
+        now = activity_subscription(answer["activitySubscription"])
+        {:ok, %{result | now: now, unchanged: now == result.previous}}
+
+      {:ok, _other} ->
+        {:ok,
+         Map.put(
+           result,
+           :note,
+           "The service accepted the change but its answer could not be read, so now is what was sent, not what the service says it keeps."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  @impl true
+  def get_activity_subscriptions(session, opts) do
+    session
+    |> AtMcp.ATProto.list_activity_subscriptions(paging(opts, %{}))
+    |> read(:subscriptions, &summarize_profile/1)
   end
 
   # --- live status ---

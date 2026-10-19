@@ -167,6 +167,64 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`set_preference`'s `kind`, from `AtMcp.Preferences.kinds/0`."
+  defmacro preference_kind do
+    Macro.escape(
+      required: true,
+      description: "Which setting: " <> Enum.join(AtMcp.Preferences.kinds(), ", "),
+      schema: %{type: "string", enum: AtMcp.Preferences.kinds()}
+    )
+  end
+
+  @doc "`set_preference`'s `sort`: the thread sorts the app offers."
+  defmacro thread_sort do
+    Macro.escape(
+      description:
+        "threads: how replies are sorted: #{Enum.join(AtMcp.Preferences.thread_sorts(), ", ")}",
+      schema: %{type: "string", enum: AtMcp.Preferences.thread_sorts()}
+    )
+  end
+
+  @doc "`set_preference`'s `tags`: the interests the app offers."
+  defmacro interests do
+    Macro.escape(
+      description:
+        "interests: the account's interests, replacing those it has. From: " <>
+          Enum.join(AtMcp.Preferences.interests(), ", "),
+      schema: %{type: "array", items: %{type: "string", enum: AtMcp.Preferences.interests()}}
+    )
+  end
+
+  @doc "`set_preference`'s `allow`: who may subscribe to this account's posts."
+  defmacro subscription_allow do
+    Macro.escape(
+      description:
+        "activity_subscriptions: who may subscribe to this account's posts: followers (accounts that follow it), mutuals (accounts it follows that follow it) or none",
+      schema: %{type: "string", enum: AtMcp.Preferences.allow_values()}
+    )
+  end
+
+  @doc "`set_notification_setting`'s `reason`, from `AtMcp.Preferences.notification_reasons/0`."
+  defmacro notification_setting_reason do
+    Macro.escape(
+      required: true,
+      description:
+        "What the notifications are for: " <>
+          Enum.join(AtMcp.Preferences.notification_reasons(), ", "),
+      schema: %{type: "string", enum: AtMcp.Preferences.notification_reasons()}
+    )
+  end
+
+  @doc "`set_notification_setting`'s `include`."
+  defmacro notification_include do
+    Macro.escape(
+      description:
+        "From whom: all, or follows (only accounts this account follows). Only " <>
+          Enum.join(AtMcp.Preferences.filterable_reasons(), ", ") <> " take it",
+      schema: %{type: "string", enum: AtMcp.Preferences.includes()}
+    )
+  end
+
   @doc "The `labels` parameter: a post's self-labels, from `AtMcp.Interactions.self_labels/0`."
   defmacro self_labels do
     labels = AtMcp.Interactions.self_labels()
@@ -295,6 +353,10 @@ defmodule AtMcp.MCP.Schemas do
   defmacro record_result, do: Macro.escape(record_result_schema())
 
   defmacro action_result, do: Macro.escape(action_result_schema())
+
+  defmacro preferences, do: Macro.escape(preferences_schema())
+
+  defmacro notification_settings, do: Macro.escape(notification_settings_schema())
 
   @doc """
   One image a tool uploads: base64 `data` or a file `path`, and its MIME type
@@ -576,7 +638,7 @@ defmodule AtMcp.MCP.Schemas do
       "unchanged" => %{
         "type" => ["boolean", "null"],
         "description" =>
-          "True when nothing would change, so nothing was written: the post already had these settings, the feed was already saved as asked, there was no status to clear, or the record to undo was not there"
+          "True when nothing would change, so nothing was written: the post already had these settings, the feed was already saved as asked, the setting or subscription was already as asked, there was no status to clear, or the record to undo was not there"
       },
       "deleted" => %{
         "type" => ["array", "null"],
@@ -626,7 +688,7 @@ defmodule AtMcp.MCP.Schemas do
       },
       "note" =>
         nullable_string(
-          "save_feed and unsave_feed: what the write could not guard against; an undo of a record that is not there: that nothing was deleted"
+          "save_feed, unsave_feed and set_preference: what the write could not guard against; an undo of a record that is not there: that nothing was deleted; set_notification_setting and subscribe_to_activity: that the service's answer could not be read"
         ),
       "status" => nullable_string("set_status: live, or clear"),
       "duration_minutes" => %{
@@ -645,9 +707,136 @@ defmodule AtMcp.MCP.Schemas do
           "created_at" => nullable_string()
         }
       },
-      "kind" => nullable_string("feed_feedback: show_more or show_less")
+      "kind" =>
+        nullable_string(
+          "feed_feedback: show_more or show_less; set_preference: the kind of setting it changed"
+        ),
+      "changed" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" =>
+          "set_preference and set_notification_setting: the fields whose value changed; empty when unchanged"
+      },
+      "previous" => %{
+        "type" => ["object", "null"],
+        "description" =>
+          "set_preference, set_notification_setting and subscribe_to_activity: every field of the setting or subscription before this call, which the same tool takes to put it back"
+      },
+      "now" => %{
+        "type" => ["object", "null"],
+        "description" =>
+          "set_preference, set_notification_setting and subscribe_to_activity: every field of the setting or subscription after this call; for set_notification_setting and subscribe_to_activity, as the service answered"
+      },
+      "reason" => nullable_string("set_notification_setting: the reason whose setting changed"),
+      "handle" => nullable_string("subscribe_to_activity: the account's handle")
     })
   end
+
+  # The account's settings as the app shows them (`AtMcp.Preferences`).
+  defp preferences_schema do
+    object(%{
+      "home_feed" =>
+        settings(
+          "The Following feed's settings. The app applies them when it shows the Following feed and lists; get_timeline returns the timeline as the service serves it",
+          %{
+            "hide_replies" => boolean("Hide replies"),
+            "hide_reposts" => boolean("Hide reposts"),
+            "hide_quotes" => boolean("Hide quote posts"),
+            "saved_feed_samples" =>
+              boolean("Show samples of the saved feeds in the Following feed (an experiment)")
+          }
+        ),
+      "threads" =>
+        settings("How the app shows a thread", %{
+          "sort" => nullable_string("How replies are sorted: top, oldest or newest"),
+          "tree_view" => boolean("Show replies as a tree")
+        }),
+      "interaction_defaults" =>
+        settings(
+          "Who may reply to and quote a new post: the app's composer starts each new post with these; post does not read them",
+          %{
+            "reply_rule" => %{
+              "type" => ["array", "null"],
+              "items" => %{"type" => "string"},
+              "description" => "In the words post's reply_rule takes"
+            },
+            "quotes" => nullable_string("allowed or disabled")
+          }
+        ),
+      "adult_content" =>
+        settings("Whether the app shows adult content", %{
+          "enabled" => boolean("Adult content is on"),
+          "birth_date_set" =>
+            boolean("The account has a birth date; the date itself is not read out"),
+          "declared_over_18" =>
+            boolean(
+              "The birth date makes the account 18 or over; the app shows adult content to no other"
+            )
+        }),
+      "interests" =>
+        settings("The account's interests", %{
+          "tags" => %{"type" => ["array", "null"], "items" => %{"type" => "string"}}
+        }),
+      "verification" =>
+        settings("Verification checks", %{
+          "hide_badges" =>
+            boolean("The app hides verification checks; reads still carry verification")
+        }),
+      "discoverable" =>
+        settings("The account's content visibility declaration", %{
+          "hide_from_recommendations" =>
+            boolean("The account asks apps to keep its posts out of algorithmic recommendations")
+        }),
+      "activity_subscriptions" =>
+        settings("The account's notification declaration", %{
+          "allow" =>
+            nullable_string(
+              "Who may subscribe to this account's posts: followers, mutuals or none"
+            )
+        }),
+      "saved_feeds" => %{
+        "type" => ["array", "null"],
+        "description" =>
+          "The saved feeds, pinned first, as the app shows them; save_feed and unsave_feed change them",
+        "items" => %{
+          "type" => "object",
+          "properties" => %{
+            "type" => nullable_string("feed, list or timeline"),
+            "value" =>
+              nullable_string("The feed's or list's AT URI, or following for the Following feed"),
+            "pinned" => boolean("Pinned as a home screen tab")
+          }
+        }
+      }
+    })
+  end
+
+  # Each reason's notification setting.
+  defp notification_settings_schema do
+    object(%{
+      "settings" => %{
+        "type" => ["array", "null"],
+        "description" => "One setting per reason, in the app's order",
+        "items" => %{
+          "type" => "object",
+          "properties" => %{
+            "reason" => nullable_string("What the notification is for"),
+            "include" =>
+              nullable_string(
+                "From whom: all, or follows (accounts this account follows); null for a reason without it"
+              ),
+            "list" => boolean("The app lists them in the account's notifications"),
+            "push" => boolean("They are pushed to phones signed in to the account")
+          }
+        }
+      }
+    })
+  end
+
+  defp settings(description, properties),
+    do: %{"type" => ["object", "null"], "description" => description, "properties" => properties}
+
+  defp boolean(description), do: %{"type" => ["boolean", "null"], "description" => description}
 
   # A saved or deleted draft: its id, and the draft as it was saved or as it
   # was before it was deleted, so a deletion can be undone by saving it again.
