@@ -29,6 +29,17 @@ defmodule AtMcp.Network do
   than falling back, because a typo that kept talking to Bluesky would stay
   invisible until an agent posted to the wrong network.
 
+  A network's AppView can be replaced for a network that is not its public
+  deployment, such as the one `@atproto/dev-env` runs on localhost for the
+  end-to-end suite (docs/operations.md, "End-to-end round trips"):
+
+      config :at_mcp, appview: [service: "did:plc:...#bsky_appview", url: "http://localhost:2584/xrpc"]
+
+  `service` is the `atproto-proxy` value the home PDS forwards AppView calls
+  to, and `url` the AppView that direct reads go to. It is application
+  configuration, not an operator setting: nothing in config/runtime.exs reads
+  it.
+
   ## Where the limits come from
 
   The five schema differences between the namespaces include one that AtMcp
@@ -230,10 +241,20 @@ defmodule AtMcp.Network do
   end
 
   @doc "The service authority the home PDS forwards authenticated AppView calls to."
-  def appview_service, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:appview)
+  def appview_service, do: appview(:service, :appview)
 
   @doc "The trusted AppView endpoint paired with this network's service authority."
-  def appview_url, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:appview_url)
+  def appview_url, do: appview(:url, :appview_url)
+
+  # The AppView a network's own deployment names, unless `config :at_mcp,
+  # appview: [service: ..., url: ...]` names another. Only the end-to-end
+  # suite sets it, to reach the AppView of a network running on localhost.
+  defp appview(key, field) do
+    case Keyword.fetch(Application.get_env(:at_mcp, :appview, []), key) do
+      {:ok, value} when is_binary(value) -> value
+      :error -> @networks |> Map.fetch!(name()) |> Map.fetch!(field)
+    end
+  end
 
   @doc false
   def direct_read?(method, session) do

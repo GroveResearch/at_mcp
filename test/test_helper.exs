@@ -2,4 +2,9 @@
 # written as real tests so that finishing one is something the suite says rather
 # than something a person judges, and excluded here so an unbuilt goal does not
 # block work on the others. Run them with `mix test --only goal`.
-ExUnit.start(exclude: [:goal])
+#
+# `:e2e` marks the round trips against a local reference network
+# (test/e2e/), which needs Node, Postgres, Redis and a built atproto
+# checkout. Run them with scripts/e2e.sh (docs/operations.md, "End-to-end
+# round trips").
+ExUnit.start(exclude: [:goal, :e2e])

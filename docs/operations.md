@@ -977,6 +977,63 @@ and the `release` and `macos` jobs of `check.yml` run them.
 
 Dependencies use released Hex packages; package builds do not read local dependency path overrides.
 
+### End-to-end round trips
+
+The fake PDS in the tests answers as AtMcp's authors believe a service
+answers. `test/e2e` checks that belief against upstream's own reference PDS and
+AppView, from `@atproto/dev-env`, running on this machine at the atproto commit
+the vendored lexicons come from. No account on any real network is involved,
+and nothing leaves localhost. One command builds what it needs, starts the
+network, runs the suite and stops everything:
+
+```sh
+scripts/e2e.sh                # or scripts/e2e.sh test/e2e/round_trip_test.exs:LINE
+```
+
+It needs git, Node 22.19 or later and pnpm 11.11.0. The first run fetches and
+builds atproto under `_build/e2e` (`AT_MCP_E2E_DIR` moves it), which takes a
+minute or two; after that a run takes about ten seconds. Without
+`DB_POSTGRES_URL` and `REDIS_HOST` it starts a private Postgres and Redis
+(`initdb`, `pg_ctl`, `redis-server` on PATH) in a scratch directory and removes
+them afterwards. The tests are tagged `:e2e` and excluded from `mix check`;
+`.github/workflows/e2e.yml` runs them on request.
+
+`AtMcp.Test.DevNetwork` runs `test/support/dev_network.mjs`, which starts the
+network with two accounts and a feed generator, and points AtMcp at its
+AppView through `config :at_mcp, appview: [service: ..., url: ...]`
+(`AtMcp.Network`), the one setting that exists for this. Each write tool is
+written, read back through the read tools as the AppView serves it, undone,
+and read again; between a write and a read the suite waits until the AppView
+has indexed everything the PDS sequenced, rather than sleeping.
+
+| Write tools | Read back with |
+| --- | --- |
+| `post` (reply and quote rules, images), `set_post_interactions`, `delete_post` | `get_thread` viewer, `get_record` on the gates, `get_post_images`, `get_posts` |
+| `reply`, `hide_reply`, `unhide_reply` | `get_thread` |
+| `detach_quote`, `reattach_quote` | `get_posts` (the quote's status) |
+| `like`, `unlike`, `repost`, `unrepost` (by a handle-form uri) | `get_posts` viewer and counts, `get_likes`, `get_reposted_by` |
+| `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute` | `get_relationships`, `get_followers`, `get_blocks`, `get_mutes` |
+| `mute_thread`, `unmute_thread`, `bookmark`, `unbookmark` | `get_posts` viewer, `get_bookmarks` |
+| `update_seen` | `get_unread_count` |
+| `pin_post`, `unpin_post`, `set_status` | `get_record` (`get_profile` shows neither) |
+| `update_profile` (fields, avatar, links) | `get_profile`, `get_record` |
+| `create_list`, `add_to_list`, `update_list`, `remove_from_list`, `delete_list` | `get_list`, `get_lists` |
+| `create_starter_pack`, `set_list_opt_out`, `update_starter_pack`, `delete_starter_pack` | `get_starter_pack`, `get_list` |
+| `save_feed`, `unsave_feed` | the account's preferences, read from the PDS (no read tool shows them) |
+| `save_draft`, `delete_draft` | `get_drafts` |
+
+What it cannot do locally:
+
+- `feed_feedback` reaches only its refusal: dev-env's feed generator does not
+  accept interactions or serve `sendInteractions`, and nothing reads feedback
+  back.
+- A compare-and-swap that loses a race cannot be provoked through a tool, so
+  the suite writes over a stale record and a stale commit directly and checks
+  the reference PDS refuses both with the `InvalidSwap` AtMcp recognizes.
+- dev-env is Bluesky's AppView, so only the `app.bsky` namespace runs here; the
+  delve.town-only reads (`get_membership`, `get_invite_codes`) and that
+  network's own AppView are not covered.
+
 ### Check a live account
 
 Fixtures prove mechanics; only a live service shows the contract it serves.
