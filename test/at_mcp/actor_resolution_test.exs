@@ -418,7 +418,8 @@ defmodule AtMcp.ActorResolutionTest do
      %{"list" => "at://did:plc:self/town.delve.graph.list/l", "actor" => "@alice.example"}},
     {"remove_from_list",
      %{"list" => "at://did:plc:self/town.delve.graph.list/l", "actor" => "@alice.example"}},
-    {"create_starter_pack", %{"name" => "n", "actors" => ["@alice.example"]}}
+    {"create_starter_pack", %{"name" => "n", "actors" => ["@alice.example"]}},
+    {"subscribe_to_activity", %{"actor" => "@alice.example", "posts" => true, "replies" => false}}
   ]
 
   test "every tool that takes a handle sends it without the leading @" do

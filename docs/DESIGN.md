@@ -140,7 +140,8 @@ counting an account's publishing reads the same classification AtMcp enforces.
 | Reacting | `like` (a post, a feed or a labeler), `unlike`, `repost`, `unrepost`, `feed_feedback`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
 | Lists | `create_list`, `update_list`, `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`, `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`, and the reads `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
-| Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
+| Notifications | `get_notifications` (one at a time, or `grouped` as the app shows them), `get_unread_count`, `update_seen`, `subscribe_to_activity`, and the reads `get_activity_subscriptions`, `get_notification_settings` |
+| Settings | `set_preference`, `set_notification_setting`, and the read `get_preferences` |
 | Account | `identity_status` |
 
 `search_posts` calls `feed.searchPostsV2`, the version the app calls. It takes
@@ -183,7 +184,23 @@ the app's own library does, keeping every other preference byte for byte (the
 preferences are read and written as raw JSON, not through the XRPC client's
 key renaming). `actor.putPreferences` has no compare-and-swap, so a change
 another client makes between the read and the write is lost; the description
-and the result say so. `set_status` writes or deletes the `actor.status` record over the
+and the result say so. `set_preference` changes one kind of the account's settings
+(`AtMcp.Preferences`) the same way: the preference the app's library reads
+(the last valid one of its type) is changed, every other of that type
+dropped, and every other preference kept as stored; the two that are records
+(`actor.contentVisibilityDeclaration`, `notification.declaration`) are
+written over the version read (`swapRecord`). A setting already as asked
+writes nothing, and the result names what changed with the setting before
+and after, which the same tool takes to undo it. Settings the app ignores
+(`hideRepliesByUnfollowed`) or keeps about itself (its nudges, beta opt-in,
+live-event banners) are left out, the birth date is never written or read
+out, and adult content is turned on only for an account whose declared age
+the app would show it to. `set_notification_setting` sends one reason's
+setting with `notification.putPreferencesV2` and reports what the service
+answered it keeps; chat's settings belong to the chat service.
+`subscribe_to_activity` reads the account first and refuses a subscription
+its `notification.declaration` does not allow, as the app offers no bell for
+it. `set_status` writes or deletes the `actor.status` record over the
 one read and refuses a duration outside the 5 to 240 minutes the AppView
 shows. `feed_feedback` reads the feed first and sends `feed.sendInteractions`
 to the feed generator's own service (`atproto-proxy: <did>#bsky_fg`), as the
@@ -325,7 +342,7 @@ its writer, and only the rest are listed after the thread. If that read fails,
 the thread is returned with a line saying why.
 
 Absent from the surface: posting video, direct messages, reporting, mute
-words and content preferences. `get_notifications` takes the service's own
+words and content label preferences. `get_notifications` takes the service's own
 filter by reason (`reasons`). An agent reads a video by its alt text and a
 link card by its text, without the video or the card's image.
 

@@ -114,6 +114,111 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  @doc """
+  A page of notification groups, each hydrated from the response's related
+  views: who acted (handle and display name from their profile views) and the
+  posts acted on (their text from their post views). The service names at
+  most the first ten of each in a group; `count` is how many it holds.
+  """
+  @impl true
+  def get_grouped_notifications(session, opts) do
+    params =
+      opts
+      |> Keyword.take([:feed, :limit, :cursor])
+      |> Map.new()
+      |> AtMcp.ATProto.params()
+
+    case AtMcp.ATProto.grouped_notifications(session, params) do
+      {:ok, %{"groups" => groups} = response} when is_list(groups) ->
+        views = related_views(response["relatedViews"])
+
+        {:ok,
+         %{
+           count: length(groups),
+           items: for(%{} = group <- groups, do: notification_group(group, views)),
+           cursor: response["cursor"],
+           seen_at: response["seenAt"]
+         }}
+
+      {:ok, other} ->
+        {:error, unreadable("grouped notifications", if(is_map(other), do: other, else: %{}))}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # The related views by what names them: a profile by DID, anything else by
+  # its uri.
+  defp related_views(views) when is_list(views) do
+    Map.new(
+      for %{} = view <- views, key = view["did"] || view["uri"], is_binary(key), do: {key, view}
+    )
+  end
+
+  defp related_views(_views), do: %{}
+
+  defp notification_group(group, views) do
+    kind = if is_map(group["kind"]), do: group["kind"], else: %{}
+    items = for %{} = item <- List.wrap(kind["items"]), do: item
+
+    actors =
+      ([%{"actor" => kind["actor"], "starterPack" => kind["starterPack"]}] ++ items)
+      |> Enum.filter(&is_binary(&1["actor"]))
+      |> Enum.uniq_by(& &1["actor"])
+      |> Enum.map(fn item ->
+        view = Map.get(views, item["actor"], %{})
+
+        %{
+          "did" => item["actor"],
+          "handle" => view["handle"],
+          "displayName" => view["displayName"],
+          "starterPack" => if(is_map_key(item, "post"), do: nil, else: item["starterPack"])
+        }
+      end)
+
+    # A reply, quote or mention names no actor: its post's author acted.
+    actors =
+      with [] <- actors,
+           %{"did" => did} = author when is_binary(did) <-
+             get_in(views, [kind["post"], "author"]) do
+        [%{"did" => did, "handle" => author["handle"], "displayName" => author["displayName"]}]
+      else
+        _ -> actors
+      end
+
+    posts =
+      ([%{"post" => kind["post"], "viaRepost" => kind["viaRepost"]}] ++ items)
+      |> Enum.filter(&is_binary(&1["post"]))
+      |> Enum.map(fn item ->
+        %{
+          "uri" => item["post"],
+          "text" => get_in(views, [item["post"], "record", "text"]),
+          "viaRepost" => item["viaRepost"],
+          "parent" => item["parent"]
+        }
+      end)
+
+    AtMcp.Summary.extract(:notification_group, %{
+      "id" => group["id"],
+      "kind" => kind_name(kind["$type"]),
+      "count" => group["count"],
+      "isRead" => group["isRead"],
+      "indexedAt" => group["indexedAt"],
+      "actors" => actors,
+      "posts" => posts,
+      "parent" => if(is_binary(kind["post"]), do: kind["parent"]),
+      "starterPack" =>
+        kind["starterPack"] ||
+          Enum.find_value(items, &if(is_binary(&1["starterPack"]), do: &1["starterPack"])),
+      "generator" => kind["generator"]
+    })
+  end
+
+  # `...notification.getGroupedNotifications#likeGroup` is `likeGroup`.
+  defp kind_name(type) when is_binary(type), do: type |> String.split("#") |> List.last()
+  defp kind_name(_type), do: nil
+
   @impl true
   def get_unread_count(session) do
     case AtMcp.ATProto.get_unread_count(session, %{}) do

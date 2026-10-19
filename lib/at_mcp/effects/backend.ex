@@ -70,6 +70,13 @@ defmodule AtMcp.Effects.Backend do
   @callback list_notifications(state(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
   @callback get_unread_count(state()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  A page of notification groups (`notification.getGroupedNotifications`),
+  each hydrated from the response's related views. `opts` carries `:feed`.
+  """
+  @callback get_grouped_notifications(state(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
   @callback get_thread(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_thread_chain(state(), uri :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}

@@ -342,6 +342,25 @@ defmodule AtMcp.Summary do
     {:creator, :string, [["creator", "handle"]], "Handle of the account that made it"}
   ]
 
+  # Who acted in a notification group, and what it acted on, as
+  # `AtMcp.Effects.ProtoRune` hydrates them from the response's
+  # `relatedViews`.
+  @group_actor [
+    {:did, :string, [["did"]], "Account DID"},
+    {:handle, :string, [["handle"]], "Account handle; null when the service sent no view of it"},
+    {:display_name, :string, [["displayName"]], "Display name"},
+    {:starter_pack, :string, [["starterPack"]],
+     "AT URI of the starter pack it followed through, when it did"}
+  ]
+
+  @group_post [
+    {:uri, :string, [["uri"]], "AT URI of the post"},
+    {:text, :string, [["text"]], "The post's text; null when the service sent no view of it"},
+    {:via_repost, :string, [["viaRepost"]],
+     "AT URI of this account's repost the action came through, when it did"},
+    {:parent, :string, [["parent"]], "AT URI of the post it replies to, when it is a reply"}
+  ]
+
   @activity_subscription [
     {:posts, :boolean, [["post"]], "True when each new post of the account is a notification"},
     {:replies, :boolean, [["reply"]], "True when its replies are too"}
@@ -630,6 +649,29 @@ defmodule AtMcp.Summary do
           ] ++ @author_badges,
       viewer: [],
       author_viewer: @actor_viewer
+    },
+    # A group of notifications as the app's Notifications screen shows it
+    # (`notification.getGroupedNotifications#group`), hydrated.
+    notification_group: %{
+      fields: [
+        {:id, :string, [["id"]], "The group's id"},
+        {:kind, :string, [["kind"]],
+         "What happened, in the service's word: likeGroup, multiPostLikeGroup, repostGroup, followGroup, replyNotification, mentionNotification and so on"},
+        {:count, :integer, [["count"]],
+         "How many notifications the group holds; actors and posts name at most the first ten"},
+        {:is_read, :boolean, [["isRead"]], "Whether the account has seen it"},
+        {:indexed_at, :string, [["indexedAt"]],
+         "When the service indexed its newest notification, as an ISO 8601 timestamp"},
+        {:actors, {:list, @group_actor}, [["actors"]], "Who acted, newest first"},
+        {:posts, {:list, @group_post}, [["posts"]],
+         "The posts acted on, or written: this account's posts that were liked or reposted, or a reply, quote, mention or subscribed post itself"},
+        {:parent, :string, [["parent"]],
+         "AT URI of the post a reply, quote or mention answers, when it does"},
+        {:starter_pack, :string, [["starterPack"]],
+         "AT URI of the starter pack the notification is about, when there is one"},
+        {:generator, :string, [["generator"]], "AT URI of the feed that was liked"}
+      ],
+      viewer: []
     }
   }
 

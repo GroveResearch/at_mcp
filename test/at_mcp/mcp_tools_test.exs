@@ -379,7 +379,14 @@ defmodule AtMcp.MCP.ToolsTest do
     # stand to each other, in both directions.
     assert Map.has_key?(items.("get_relationships"), "followed_by")
 
-    assert Map.has_key?(items.("get_notifications"), "reason")
+    # Notifications one at a time, or the groups the app shows.
+    assert [one, group] =
+             Enum.find(tools, &(&1.name == "get_notifications")).outputSchema["properties"][
+               "items"
+             ]["items"]["anyOf"]
+
+    assert Map.has_key?(one["properties"], "reason")
+    assert Map.has_key?(group["properties"], "actors")
 
     # A list's page is its members, and the list rides beside them; lists and
     # starter packs are neither posts nor profiles.

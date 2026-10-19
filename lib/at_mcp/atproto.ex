@@ -160,6 +160,25 @@ defmodule AtMcp.ATProto do
         "activitySubscription" => subscription
       })
 
+  @doc """
+  The account's notifications grouped as the app's Notifications screen
+  shows them (`notification.getGroupedNotifications`): `feed` is the screen's
+  tab. Read from the raw body: a group's kind is a union told apart by its
+  `$type`, and its related views are too.
+  """
+  def grouped_notifications(session, params) do
+    query =
+      Query.new(Network.nsid("notification.getGroupedNotifications"),
+        from: %{feed: :string, limit: :integer, cursor: :string},
+        base_url: base_url(session),
+        response: :binary
+      )
+
+    with {:ok, query} <- Query.add_params(query, params),
+         {:ok, %{body: body}} <- execute(session, query, "GET"),
+         do: decode_raw(body)
+  end
+
   @doc "The accounts this account is subscribed to, a page at a time."
   def list_activity_subscriptions(session, params),
     do: read(session, "notification.listActivitySubscriptions", params, @page)

@@ -510,7 +510,172 @@ defmodule AtMcp.PreferencesTest do
     end
   end
 
+  test "the text a model reads names each notification setting and a profile's subscription" do
+    settings =
+      AtMcp.Preferences.notification_view(%{
+        "like" => %{"include" => "follows", "list" => true, "push" => false}
+      })
+
+    text =
+      AtMcp.Reading.notification_settings(Jason.decode!(Jason.encode!(%{settings: settings})))
+
+    assert text =~ "like: from follows, list on, push off"
+    assert text =~ "verified: list on, push on"
+
+    profile =
+      AtMcp.Summary.extract(:profile, %{
+        "did" => "did:plc:alice",
+        "handle" => "alice.test",
+        "associated" => %{"activitySubscription" => %{"allowSubscriptions" => "mutuals"}},
+        "viewer" => %{"activitySubscription" => %{"post" => true, "reply" => false}}
+      })
+
+    text = AtMcp.Reading.profile(Jason.decode!(Jason.encode!(profile)))
+    assert text =~ "Lets only mutuals subscribe to its posts"
+    assert text =~ "You are subscribed to its posts"
+    refute text =~ "and replies"
+  end
+
+  describe "grouped notifications" do
+    @grouped %{
+      "groups" => [
+        %{
+          "id" => "g1",
+          "isRead" => false,
+          "indexedAt" => "2026-10-18T00:00:00.000Z",
+          "count" => 3,
+          "kind" => %{
+            "$type" => "app.bsky.notification.getGroupedNotifications#likeGroup",
+            "post" => "at://did:plc:self/app.bsky.feed.post/p",
+            "items" => [%{"actor" => "did:plc:alice"}, %{"actor" => "did:plc:bob"}]
+          }
+        },
+        %{
+          "id" => "g2",
+          "isRead" => true,
+          "indexedAt" => "2026-10-17T00:00:00.000Z",
+          "count" => 1,
+          "kind" => %{
+            "$type" => "app.bsky.notification.getGroupedNotifications#replyNotification",
+            "post" => "at://did:plc:alice/app.bsky.feed.post/r",
+            "parent" => "at://did:plc:self/app.bsky.feed.post/p"
+          }
+        }
+      ],
+      "seenAt" => "2026-10-16T00:00:00.000Z",
+      "cursor" => "next",
+      "relatedViews" => [
+        %{
+          "$type" => "app.bsky.actor.defs#profileViewBasic",
+          "did" => "did:plc:alice",
+          "handle" => "alice.test"
+        },
+        %{
+          "$type" => "app.bsky.feed.defs#postView",
+          "uri" => "at://did:plc:self/app.bsky.feed.post/p",
+          "record" => %{"text" => "a kite"}
+        },
+        %{
+          "$type" => "app.bsky.feed.defs#postView",
+          "uri" => "at://did:plc:alice/app.bsky.feed.post/r",
+          "author" => %{"did" => "did:plc:alice", "handle" => "alice.test"},
+          "record" => %{"text" => "nice kite"}
+        }
+      ]
+    }
+
+    test "get_notifications grouped reads a tab of the app's Notifications screen, each group hydrated from the related views" do
+      %{effects: effects, pds: pds} =
+        pds(answers: %{"app.bsky.notification.getGroupedNotifications" => {200, @grouped}})
+
+      state = %{effects: effects}
+
+      result =
+        call(state, "get_notifications", %{
+          "grouped" => true,
+          "feed" => "conversations",
+          "limit" => 5
+        })
+
+      refute result[:isError], inspect(result)
+
+      assert [%{query: %{"feed" => "conversations", "limit" => "5"}}] =
+               FakePDS.sent(pds, "app.bsky.notification.getGroupedNotifications")
+
+      assert %{
+               "count" => 2,
+               "cursor" => "next",
+               "seen_at" => "2026-10-16T00:00:00.000Z",
+               "items" => [like, reply]
+             } = result.structuredContent
+
+      assert %{
+               "kind" => "likeGroup",
+               "count" => 3,
+               "is_read" => false,
+               "actors" => [
+                 %{"did" => "did:plc:alice", "handle" => "alice.test"},
+                 %{"did" => "did:plc:bob", "handle" => nil}
+               ],
+               "posts" => [
+                 %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "text" => "a kite"}
+               ]
+             } = like
+
+      # A reply names no actor; its post's author is who acted.
+      assert %{
+               "kind" => "replyNotification",
+               "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
+               "parent" => "at://did:plc:self/app.bsky.feed.post/p",
+               "posts" => [%{"text" => "nice kite"}]
+             } = reply
+
+      {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
+      schema = Enum.find(tools, &(&1.name == "get_notifications")).outputSchema
+
+      assert AtMcp.Test.Schema.valid?(
+               Jason.decode!(Jason.encode!(result.structuredContent)),
+               schema
+             )
+
+      text = hd(result.content).text
+      assert text =~ "2 notification groups."
+      assert text =~ "alice.test, did:plc:bob and 1 other liked your post"
+      assert text =~ ~s(at://did:plc:self/app.bsky.feed.post/p · "a kite")
+      assert text =~ "alice.test replied"
+      assert text =~ "replying to at://did:plc:self/app.bsky.feed.post/p"
+    end
+
+    test "reasons is the ungrouped read's and feed the grouped one's; nothing is sent for either" do
+      %{effects: effects, pds: pds} = pds()
+      state = %{effects: effects}
+
+      refused(
+        call(state, "get_notifications", %{"grouped" => true, "reasons" => ["like"]}),
+        "reasons"
+      )
+
+      refused(call(state, "get_notifications", %{"feed" => "followers"}), "feed")
+      assert FakePDS.methods(pds) == []
+    end
+  end
+
   describe "on delve.town" do
+    test "grouped notifications, which the town does not serve, are refused before anything is sent" do
+      Application.put_env(:at_mcp, :network, :delve)
+      on_exit(fn -> Application.delete_env(:at_mcp, :network) end)
+      %{effects: effects, pds: pds} = pds()
+
+      result = call(%{effects: effects}, "get_notifications", %{"grouped" => true})
+
+      assert %{code: "not_served", method: "town.delve.notification.getGroupedNotifications"} =
+               result.structuredContent
+
+      assert FakePDS.methods(pds) == []
+    end
+  end
+
+  describe "on delve.town, settings" do
     setup do
       Application.put_env(:at_mcp, :network, :delve)
       on_exit(fn -> Application.delete_env(:at_mcp, :network) end)

@@ -703,6 +703,28 @@ defmodule AtMcp.Test.MockBackend do
     do: {:ok, %{ok: true, action: verb, uri: uri, pinned: pinned, unchanged: false}}
 
   @impl true
+  def get_grouped_notifications(_state, opts) do
+    {:ok,
+     %{
+       count: 1,
+       items: [
+         AtMcp.Summary.extract(:notification_group, %{
+           "id" => "g1",
+           "kind" => "likeGroup",
+           "count" => 3,
+           "isRead" => false,
+           "indexedAt" => "2026-10-18T00:00:00.000Z",
+           "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
+           "posts" => [%{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "text" => "hello"}]
+         })
+       ],
+       cursor: nil,
+       seen_at: nil,
+       feed: Keyword.get(opts, :feed)
+     }}
+  end
+
+  @impl true
   def get_preferences(_state) do
     {:ok,
      []

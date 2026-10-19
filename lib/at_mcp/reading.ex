@@ -53,7 +53,15 @@ defmodule AtMcp.Reading do
 
   @doc "A page of notifications, newest first as the service sends them."
   def notifications(%{"items" => items} = page) when is_list(items) do
-    header = count(length(items), "notification", "notifications") <> "." <> next_page(page)
+    header =
+      if Map.has_key?(page, "seen_at") do
+        count(length(items), "notification group", "notification groups") <>
+          "." <>
+          if(is_binary(page["seen_at"]), do: " Seen up to #{page["seen_at"]}.", else: "") <>
+          next_page(page)
+      else
+        count(length(items), "notification", "notifications") <> "." <> next_page(page)
+      end
 
     blocks =
       items
@@ -908,6 +916,56 @@ defmodule AtMcp.Reading do
   defp where(%{"uri" => uri}) when is_binary(uri), do: "The post #{uri}"
   defp where(_post), do: "A post"
 
+  # A group of notifications, as the app's Notifications screen shows it: who
+  # acted and what they did, then each post it is about with its uri, which
+  # the write tools take.
+  defp notification(%{"kind" => kind, "actors" => actors} = group, label)
+       when is_binary(kind) or is_list(actors) do
+    actors = List.wrap(actors)
+    posts = List.wrap(group["posts"])
+    count = group["count"]
+
+    header =
+      label <>
+        " " <>
+        lines(
+          [
+            lines(
+              [
+                who_acted(actors, count, kind),
+                group_verb(kind, if(is_integer(count), do: count, else: length(posts)))
+              ],
+              " "
+            ),
+            group["indexed_at"],
+            if(group["is_read"] == false, do: "unread")
+          ],
+          " · "
+        )
+
+    lines(
+      [header] ++
+        Enum.map(posts, fn post ->
+          "  " <>
+            lines(
+              [
+                post["uri"],
+                if(is_binary(post["text"]), do: inspect(one_line(post["text"]))),
+                if(is_binary(post["via_repost"]), do: "via your repost #{post["via_repost"]}"),
+                if(is_binary(post["parent"]), do: "replying to #{post["parent"]}")
+              ],
+              " · "
+            )
+        end) ++
+        [
+          if(is_binary(group["parent"]), do: "  replying to #{group["parent"]}"),
+          if(is_binary(group["starter_pack"]), do: "  starter pack: #{group["starter_pack"]}"),
+          if(is_binary(group["generator"]), do: "  feed: #{group["generator"]}")
+        ],
+      "\n"
+    )
+  end
+
   defp notification(%{} = item, label) do
     header =
       label <>
@@ -944,6 +1002,57 @@ defmodule AtMcp.Reading do
         ],
         " · "
       )
+    end
+  end
+
+  # "alice.test, bob.test and 3 others": the accounts the group names, and
+  # how many more it holds. A group whose kind is about several posts by one
+  # account counts posts, not accounts.
+  defp who_acted(actors, count, kind) do
+    names = Enum.map(actors, &(&1["handle"] || &1["did"]))
+
+    others =
+      if is_integer(count) and not String.starts_with?(to_string(kind), "multiPost"),
+        do: count - length(names),
+        else: 0
+
+    case {names, others} do
+      {[], _} -> nil
+      {names, n} when n > 0 -> Enum.join(names, ", ") <> " and #{count(n, "other", "others")}"
+      {[one], _} -> one
+      {names, _} -> Enum.join(Enum.drop(names, -1), ", ") <> " and " <> List.last(names)
+    end
+  end
+
+  @group_verbs %{
+    "likeGroup" => "liked your post",
+    "repostGroup" => "reposted your post",
+    "likeViaRepostGroup" => "liked your repost",
+    "repostViaRepostGroup" => "reposted your repost",
+    "followGroup" => "followed you",
+    "subscribedPostGroup" => "posted (you are subscribed)",
+    "generatorLikeGroup" => "liked your feed",
+    "replyNotification" => "replied",
+    "quoteNotification" => "quoted your post",
+    "mentionNotification" => "mentioned you",
+    "followBackNotification" => "followed you back",
+    "verifiedNotification" => "verified your account",
+    "unverifiedNotification" => "removed your account's verification",
+    "starterPackJoinedNotification" => "joined through your starter pack",
+    "contactMatchNotification" => "joined: a contact of yours"
+  }
+
+  @multi_verbs %{
+    "multiPostLikeGroup" => {"liked", "of your posts"},
+    "multiPostRepostGroup" => {"reposted", "of your posts"},
+    "multiPostLikeViaRepostGroup" => {"liked", "of your reposts"},
+    "multiPostRepostViaRepostGroup" => {"reposted", "of your reposts"}
+  }
+
+  defp group_verb(kind, posts) do
+    case Map.fetch(@multi_verbs, kind) do
+      {:ok, {verb, what}} -> "#{verb} #{posts} #{what}"
+      :error -> Map.get(@group_verbs, kind, kind)
     end
   end
 

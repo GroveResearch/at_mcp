@@ -30,15 +30,23 @@ defmodule AtMcp.MCP.Server do
     {:ok, %{effects: effects, scope: Keyword.get(args, :scope)}}
   end
 
-  tool "get_notifications", "Read recent notifications on this network for this account." do
+  tool "get_notifications",
+       "Read recent notifications on this network for this account. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, and feed picks the screen's tab." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.notification_page())
 
-    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notifications"))
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notifications, or groups"))
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
     param(:reasons, {:array, :string}, AtMcp.MCP.Schemas.notification_reasons())
+
+    param(:grouped, :boolean,
+      description:
+        "Read the groups the app's Notifications screen shows instead of one notification at a time. Not with reasons"
+    )
+
+    param(:feed, :string, AtMcp.MCP.Schemas.notification_feed())
 
     run(fn a, state ->
       e = state.effects
@@ -47,7 +55,9 @@ defmodule AtMcp.MCP.Server do
         AtMcp.Effects.list_notifications(e,
           limit: Map.get(a, :limit),
           cursor: Map.get(a, :cursor),
-          reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons))
+          reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
+          grouped: Map.get(a, :grouped),
+          feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
         ),
         state,
         :notifications

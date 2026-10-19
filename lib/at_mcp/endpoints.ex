@@ -39,7 +39,6 @@ defmodule AtMcp.Endpoints do
 
   @posts 88
   @moderation 90
-  @preferences 91
   @dms 92
   @video 96
 
@@ -162,7 +161,7 @@ defmodule AtMcp.Endpoints do
     {"app.bsky.notification.listNotifications", {:tool, "get_notifications"}},
     {"app.bsky.notification.getUnreadCount", {:tool, "get_unread_count"}},
     {"app.bsky.notification.updateSeen", {:tool, "update_seen"}},
-    {"app.bsky.notification.getGroupedNotifications", {:todo, @preferences}},
+    {"app.bsky.notification.getGroupedNotifications", {:tool, "get_notifications"}},
     {"app.bsky.notification.getPreferences", {:tool, "get_notification_settings"}},
     {"app.bsky.notification.putPreferencesV2", {:tool, "set_notification_setting"}},
     {"app.bsky.notification.putPreferences",

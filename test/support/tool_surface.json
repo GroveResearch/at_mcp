@@ -280,6 +280,8 @@
     "get_notifications": {
       "arguments": {
         "cursor": "string",
+        "feed": "string",
+        "grouped": "boolean",
         "limit": "integer",
         "reasons": "array"
       },

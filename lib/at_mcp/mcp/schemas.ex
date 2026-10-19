@@ -167,6 +167,15 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`get_notifications`' `feed`: the tabs of the app's Notifications screen."
+  defmacro notification_feed do
+    Macro.escape(
+      description:
+        "With grouped: which tab of the app's Notifications screen: all (the default), people-i-follow, followers, conversations (replies) or activity",
+      schema: %{type: "string", enum: AtMcp.Effects.notification_feeds()}
+    )
+  end
+
   @doc "`set_preference`'s `kind`, from `AtMcp.Preferences.kinds/0`."
   defmacro preference_kind do
     Macro.escape(
@@ -407,7 +416,17 @@ defmodule AtMcp.MCP.Schemas do
 
   defp profile_view_schema, do: record(:profile)
 
-  defp notification_page_schema, do: page(record(:notification))
+  # Notifications one by one, or with `grouped`, in the groups the app shows.
+  defp notification_page_schema do
+    %{"anyOf" => [record(:notification), record(:notification_group)]}
+    |> page()
+    |> put_in(
+      ["properties", "seen_at"],
+      nullable_string(
+        "grouped: when the account last marked its notifications seen, as an ISO 8601 timestamp"
+      )
+    )
+  end
 
   defp relationship_page_schema, do: page(record(:relationship))
 

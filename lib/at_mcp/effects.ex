@@ -224,13 +224,60 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  @doc """
+  Recent notifications. With `grouped: true`, grouped as the app's
+  Notifications screen shows them (`notification.getGroupedNotifications`),
+  from one of its tabs (`feed`, `"all"` when nil); `reasons` is the ungrouped
+  read's alone, and `feed` the grouped one's.
+  """
   def list_notifications(effects, opts \\ []) do
-    with {:ok, opts} <- page_options(opts) do
-      with_session(effects, fn backend, session ->
-        backend.list_notifications(session, opts)
-      end)
+    {grouped, opts} = Keyword.pop(opts, :grouped)
+    {feed, opts} = Keyword.pop(opts, :feed)
+
+    if grouped == true do
+      with :ok <- served("notification.getGroupedNotifications"),
+           :ok <-
+             only_with(
+               opts[:reasons],
+               false,
+               "reasons",
+               "the grouped notifications filter by feed, not by reason"
+             ),
+           :ok <- grouped_feed(feed),
+           {:ok, opts} <- page_options(Keyword.delete(opts, :reasons)) do
+        with_session(effects, fn backend, session ->
+          backend.get_grouped_notifications(session, Keyword.put(opts, :feed, feed || "all"))
+        end)
+      end
+    else
+      with :ok <-
+             only_with(
+               feed,
+               false,
+               "feed",
+               "feed reads the grouped notifications; give grouped true"
+             ),
+           {:ok, opts} <- page_options(opts) do
+        with_session(effects, fn backend, session ->
+          backend.list_notifications(session, opts)
+        end)
+      end
     end
   end
+
+  # The tabs of the app's Notifications screen (`getGroupedNotifications`'
+  # known feeds, each a tab in social-app's src/screens/Notifications at
+  # 485405a).
+  @notification_feeds ["all", "people-i-follow", "followers", "conversations", "activity"]
+
+  @doc "The feeds the grouped notifications read: the tabs of the app's Notifications screen."
+  def notification_feeds, do: @notification_feeds
+
+  defp grouped_feed(nil), do: :ok
+  defp grouped_feed(feed) when feed in @notification_feeds, do: :ok
+
+  defp grouped_feed(_feed),
+    do: invalid("feed", "must be #{Enum.join(@notification_feeds, ", ")}")
 
   def get_notifications(effects, opts \\ []), do: list_notifications(effects, opts)
 

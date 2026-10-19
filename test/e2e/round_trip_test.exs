@@ -859,16 +859,25 @@ defmodule AtMcp.E2E.RoundTripTest do
   describe "preferences and drafts" do
     test "save_feed and unsave_feed: the saved feed is in the account's preferences, then not",
          %{me: me, feed: feed, session: session} do
-      # No read tool shows saved feeds, so the preferences are read from the
-      # PDS directly.
+      # get_preferences reads the saved feeds as the app shows them, and the
+      # PDS holds them as written.
       saved = fn ->
         {:ok, preferences} = AtMcp.ATProto.preferences_as_stored(session)
 
-        for %{"$type" => "app.bsky.actor.defs#savedFeedsPrefV2", "items" => items} <-
-              preferences,
-            item <- items,
-            item["value"] == feed,
-            do: item
+        stored =
+          for %{"$type" => "app.bsky.actor.defs#savedFeedsPrefV2", "items" => items} <-
+                preferences,
+              item <- items,
+              item["value"] == feed,
+              do: Map.take(item, ["type", "value", "pinned"])
+
+        read =
+          for item <- call!(me, "get_preferences", %{})["saved_feeds"],
+              item["value"] == feed,
+              do: item
+
+        assert read == stored
+        stored
       end
 
       assert saved.() == []
@@ -893,7 +902,12 @@ defmodule AtMcp.E2E.RoundTripTest do
          %{me: me, session: session} do
       # A preference AtMcp has no tool for, which every change must keep.
       {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
-      kept = %{"$type" => "app.bsky.actor.defs#hiddenPostsPref", "items" => ["at://#{me.did}/app.bsky.feed.post/3kkeep"]}
+
+      kept = %{
+        "$type" => "app.bsky.actor.defs#hiddenPostsPref",
+        "items" => ["at://#{me.did}/app.bsky.feed.post/3kkeep"]
+      }
+
       {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before ++ [kept])
 
       list = call!(me, "create_list", %{"name" => "repliers", "purpose" => "curate"})["uri"]
@@ -1037,6 +1051,37 @@ defmodule AtMcp.E2E.RoundTripTest do
       call!(me, "set_notification_setting", %{"reason" => "starterpack_joined", "list" => true})
       assert setting.("like") == initial
       assert setting.("starterpack_joined")["list"] == true
+    end
+
+    test "get_notifications grouped: another account's like reads as a likeGroup naming it and the post, and is gone after the unlike",
+         %{net: net, me: me, them: them} do
+      post = post!(me, "group my likes")
+      sync(net)
+      like = call!(them, "like", %{"uri" => post["uri"], "cid" => post["cid"]})
+      sync(net)
+
+      group = fn ->
+        call!(me, "get_notifications", %{"grouped" => true})["items"]
+        |> Enum.find(
+          &(&1["kind"] == "likeGroup" and
+              Enum.any?(&1["posts"], fn p -> p["uri"] == post["uri"] end))
+        )
+      end
+
+      assert %{
+               "count" => 1,
+               "actors" => [%{"did" => did, "handle" => handle}],
+               "posts" => [%{"text" => "group my likes"}]
+             } = group.()
+
+      assert {did, handle} == {them.did, them.handle}
+
+      call!(them, "unlike", %{"uri" => like["uri"]})
+      sync(net)
+      assert group.() == nil
+
+      call!(me, "delete_post", %{"uri" => post["uri"]})
+      sync(net)
     end
 
     test "subscribe_to_activity by handle: refused until this account follows, then get_profile and get_activity_subscriptions read it back, then the unsubscribe",
