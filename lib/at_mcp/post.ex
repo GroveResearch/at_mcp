@@ -30,16 +30,24 @@ defmodule AtMcp.Post do
   @doc """
   What a feed says about a post beside the post itself
   (`app.bsky.feed.defs#feedViewPost`): why it is in the feed, and who the reply
-  answers. The app shows both above the post. Each is nil when the feed did not
-  say: a post read anywhere but a feed has neither.
+  answers, which the app shows above the post; and the context and request id
+  a custom feed gave the item, which feedback on it hands back. Each is nil
+  when the feed did not say: a post read anywhere but a feed has none.
   """
   def feed_context(item) do
     %{
       reason: reason(get(item, [:reason])),
       reply_parent: reply_post(get(item, [:reply, :parent])),
-      reply_root: reply_post(get(item, [:reply, :root]))
+      reply_root: reply_post(get(item, [:reply, :root])),
+      # What a custom feed's generator said about the item when it served it,
+      # which feedback on the item hands back (`feed_feedback`).
+      feed_context: string(either(item, [:feed_context], [:feedContext])),
+      req_id: string(either(item, [:req_id], [:reqId]))
     }
   end
+
+  defp string(value) when is_binary(value), do: value
+  defp string(_value), do: nil
 
   defp reason(reason) when is_map(reason) do
     type = get(reason, [:"$type"])

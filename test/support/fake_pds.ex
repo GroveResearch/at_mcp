@@ -21,7 +21,9 @@ defmodule AtMcp.Test.FakePDS do
   `deleteDraft` change them, and an update to an id it does not hold is ignored
   and answered `{}`, as the lexicon says. With `drafts_lag: true` an update is
   accepted and not applied yet, as a service that queues it does. Any other
-  method answers `{}`. An answer given as a list is taken one per call, the
+  method answers `{}`. `preferences` is the account's preferences, which
+  `getPreferences` answers and `putPreferences` replaces. A `putRecord` whose
+  `swapRecord` is not the record's CID answers 400 `InvalidSwap`. An answer given as a list is taken one per call, the
   last staying; `:default` in it stands for the PDS's own answer.
   """
   import Plug.Conn
@@ -39,6 +41,7 @@ defmodule AtMcp.Test.FakePDS do
                Map.merge(%{"self.example" => "did:plc:self"}, Keyword.get(opts, :handles, %{})),
              answers: Keyword.get(opts, :answers, %{}),
              drafts: Keyword.get(opts, :drafts, []),
+             preferences: Keyword.get(opts, :preferences, []),
              drafts_lag: Keyword.get(opts, :drafts_lag, false)
            }
          end},
@@ -68,11 +71,15 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   @doc """
-  Every request with this method, oldest first: `%{method, query, raw, body}`.
-  `query` keeps one value of a repeated key; `raw` is the query string as sent.
+  Every request with this method, oldest first: `%{method, query, raw, body,
+  proxy}`. `query` keeps one value of a repeated key; `raw` is the query
+  string as sent; `proxy` is the `atproto-proxy` header, if any.
   """
   def sent(state, method),
     do: state |> Agent.get(& &1.calls) |> Enum.filter(&(&1.method == method))
+
+  @doc "The account's preferences, as the PDS now holds them."
+  def preferences(state), do: Agent.get(state, & &1.preferences)
 
   @doc "Every method called, in order."
   def methods(state), do: state |> Agent.get(& &1.calls) |> Enum.map(& &1.method)
@@ -94,7 +101,15 @@ defmodule AtMcp.Test.FakePDS do
       end
 
     "/xrpc/" <> method = conn.request_path
-    call = %{method: method, query: conn.query_params, raw: conn.query_string, body: body}
+
+    call = %{
+      method: method,
+      query: conn.query_params,
+      raw: conn.query_string,
+      body: body,
+      proxy: conn |> get_req_header("atproto-proxy") |> List.first()
+    }
+
     Agent.update(state, &%{&1 | calls: &1.calls ++ [call]})
 
     {status, answer} =
@@ -140,9 +155,17 @@ defmodule AtMcp.Test.FakePDS do
     {{200, %{uri: uri, cid: cid(uri)}}, put_in(state.records[uri], b["record"])}
   end
 
+  # A `swapRecord` names the version the write must replace; the PDS refuses
+  # one that is not the record's current CID.
   defp answer("com.atproto.repo.putRecord", %{body: b}, state) do
     uri = "at://#{b["repo"]}/#{b["collection"]}/#{b["rkey"]}"
-    {{200, %{uri: uri, cid: cid(uri)}}, put_in(state.records[uri], b["record"])}
+
+    if is_binary(b["swapRecord"]) and
+         (not Map.has_key?(state.records, uri) or b["swapRecord"] != cid(uri)) do
+      {{400, %{error: "InvalidSwap", message: "Record was at another version"}}, state}
+    else
+      {{200, %{uri: uri, cid: cid(uri)}}, put_in(state.records[uri], b["record"])}
+    end
   end
 
   defp answer("com.atproto.repo.deleteRecord", %{body: b}, state) do
@@ -222,6 +245,19 @@ defmodule AtMcp.Test.FakePDS do
   end
 
   defp answer(method, call, state) do
+    cond do
+      String.ends_with?(method, ".actor.getPreferences") ->
+        {{200, %{preferences: state.preferences}}, state}
+
+      String.ends_with?(method, ".actor.putPreferences") ->
+        {{200, %{}}, %{state | preferences: call.body["preferences"]}}
+
+      true ->
+        other(method, call, state)
+    end
+  end
+
+  defp other(method, call, state) do
     case String.split(method, ".draft.") do
       [_namespace, op] -> draft(op, call, state)
       _ -> {{200, %{}}, state}

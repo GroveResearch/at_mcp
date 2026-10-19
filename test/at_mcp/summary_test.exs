@@ -246,7 +246,9 @@ defmodule AtMcp.SummaryTest do
                 "reply" => %{
                   "parent" => @responses.post,
                   "root" => @responses.post
-                }
+                },
+                "feedContext" => "t-kites",
+                "reqId" => "req-1"
               })
           })
         else

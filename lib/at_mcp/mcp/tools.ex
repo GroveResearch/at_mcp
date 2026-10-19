@@ -417,15 +417,47 @@ defmodule AtMcp.MCP.Tools do
       |> maybe_kw(:display_name, Map.get(args, :display_name) || Map.get(args, "display_name"))
       |> maybe_kw(:description, Map.get(args, :description) || Map.get(args, "description"))
 
+    # Pronouns and a website given empty are removed, so "" is kept for them.
+    updates =
+      Enum.reduce([:pronouns, :website], updates, fn key, updates ->
+        case Map.get(args, key, Map.get(args, Atom.to_string(key))) do
+          value when is_binary(value) -> Keyword.put(updates, key, String.trim(value))
+          _ -> updates
+        end
+      end)
+
+    updates =
+      case Map.get(args, :links, Map.get(args, "links")) do
+        links when is_list(links) ->
+          Keyword.put(updates, :links, Enum.map(links, &profile_link/1))
+
+        _ ->
+          updates
+      end
+
     with {:ok, updates} <- profile_image(updates, :avatar, args),
          {:ok, updates} <- profile_image(updates, :banner, args) do
       if updates == [] do
-        {:error, "provide display_name, description, avatar and/or banner"}
+        {:error,
+         "provide display_name, description, avatar, banner, pronouns, website and/or links"}
       else
         AtMcp.Effects.update_profile(effects, updates)
       end
     end
   end
+
+  # One profile link as `AtMcp.Effects.update_profile/2` takes it. Anything
+  # that is not `{url, title}` is passed on for it to refuse by name.
+  defp profile_link(%{} = link) do
+    title = field(link, "title")
+
+    %{
+      url: field(link, "url"),
+      title: if(is_binary(title) and String.trim(title) != "", do: String.trim(title))
+    }
+  end
+
+  defp profile_link(other), do: other
 
   @doc """
   The fields of a list or starter pack write, from tool arguments: the given

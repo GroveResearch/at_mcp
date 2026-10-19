@@ -204,7 +204,12 @@ defmodule AtMcp.MCP.ToolsTest do
     {"mute", %{"actor" => "alice.test"}},
     {"unmute", %{"actor" => "alice.test"}},
     {"delete_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"update_profile", %{"display_name" => "AtMcp"}},
+    {"update_profile",
+     %{
+       "display_name" => "AtMcp",
+       "pronouns" => "it/its",
+       "links" => [%{"url" => "https://example.com", "title" => "Home"}]
+     }},
     {"update_seen", %{}},
     {"pin_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
     {"unpin_post", %{}},
@@ -219,6 +224,16 @@ defmodule AtMcp.MCP.ToolsTest do
     {"unhide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/reply"}},
     {"detach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/quote"}},
     {"reattach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/quote"}},
+    {"save_feed", %{"uri" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
+    {"unsave_feed", %{"uri" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
+    {"set_status",
+     %{"kind" => "live", "url" => "https://twitch.tv/mock", "duration_minutes" => 30}},
+    {"feed_feedback",
+     %{
+       "feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot",
+       "uri" => "at://did:plc:mock/app.bsky.feed.post/1",
+       "kind" => "show_more"
+     }},
     {"save_draft", %{"text" => "later"}},
     {"delete_draft", %{"id" => "3mockdraft"}},
     {"get_membership", %{}},

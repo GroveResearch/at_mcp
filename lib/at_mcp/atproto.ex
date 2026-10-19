@@ -88,6 +88,60 @@ defmodule AtMcp.ATProto do
   def get_unspecced_suggested_feeds(session, params),
     do: read(session, "unspecced.getSuggestedFeeds", params, limit: :integer)
 
+  @doc """
+  The account's preferences exactly as stored: a list of preference objects,
+  every key as the service sent it. Preferences are one document that a
+  change replaces whole (`put_preferences_as_stored/2`), so the ones a change
+  does not touch must go back byte for byte; proto_rune's XRPC client would
+  rename their keys to snake_case and back. Read from the raw body.
+  """
+  def preferences_as_stored(session) do
+    query =
+      Query.new(Network.nsid("actor.getPreferences"),
+        base_url: base_url(session),
+        response: :binary
+      )
+
+    with {:ok, %{body: body}} <- execute(session, query, "GET") do
+      case Jason.decode(body) do
+        {:ok, %{"preferences" => preferences}} when is_list(preferences) -> {:ok, preferences}
+        _ -> {:error, :unreadable_preferences}
+      end
+    end
+  end
+
+  @doc """
+  Replace the account's preferences with `preferences`, sent as given: the
+  body is encoded here rather than by proto_rune, which camelizes every key it
+  sends. `actor.putPreferences` has no compare-and-swap.
+  """
+  def put_preferences_as_stored(session, preferences) when is_list(preferences) do
+    proc =
+      Network.nsid("actor.putPreferences")
+      |> Procedure.new(base_url: base_url(session))
+      |> Procedure.put_raw_body(Jason.encode!(%{"preferences" => preferences}))
+      |> Procedure.put_header("content-type", "application/json")
+
+    execute(session, proc, "POST")
+  end
+
+  @doc """
+  Tell a feed generator how its feed's items landed (`feed.sendInteractions`).
+  The interactions go to the feed generator's own service, `service_did`,
+  through the account's PDS (`atproto-proxy: <did>#bsky_fg`), as the app
+  sends them; the AppView does not take them.
+  """
+  def send_interactions(session, service_did, params) when is_binary(service_did) do
+    proc =
+      Procedure.new(Network.nsid("feed.sendInteractions"),
+        from: %{feed: :string, interactions: {:required, :any}},
+        base_url: base_url(session)
+      )
+
+    with {:ok, proc} <- Procedure.put_body(proc, params),
+         do: execute(session, proc, "POST", %{"atproto-proxy" => service_did <> "#bsky_fg"})
+  end
+
   # One feed generator, with whether its service is online and valid.
   def get_feed_generator(session, params),
     do: read(session, "feed.getFeedGenerator", params, feed: {:required, :string})
@@ -435,7 +489,9 @@ defmodule AtMcp.ATProto do
          do: execute(session, proc, "POST")
   end
 
-  defp execute(session, request, http_method) do
+  # `route` replaces where the PDS forwards the call, for the one method whose
+  # service is not the AppView (`send_interactions/3`).
+  defp execute(session, request, http_method, route \\ %{}) do
     url = Path.join(request.base_url, request.method)
 
     with {:ok, headers, session} <- Session.authorization_headers(session, http_method, url) do
@@ -443,6 +499,7 @@ defmodule AtMcp.ATProto do
         request.headers
         |> Map.merge(headers)
         |> Map.merge(Network.request_headers(request.method, session))
+        |> Map.merge(route)
 
       Client.execute(%{request | headers: headers}, session: session)
     end
@@ -796,6 +853,31 @@ defmodule AtMcp.ATProto do
 
   @doc "Build a `graph.follow` record. The subject of a follow is a bare DID."
   def follow_record(fields), do: did_subject_record(:follow, fields)
+
+  @doc """
+  Build an `actor.status` record saying the account is live at `:url` for
+  `:minutes`, with the link card's `:title` and `:description` (empty when not
+  given, as a post's link card).
+  """
+  def status_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:status),
+      "status" => AtMcp.Network.type(:status_live),
+      "embed" => external_embed(Map.take(fields, [:url, :title, :description])),
+      "durationMinutes" => Map.fetch!(fields, :minutes),
+      "createdAt" => timestamp(Map.get(fields, :created_at))
+    }
+  end
+
+  @doc "Build an `actor.link` record: a link the profile shows, `:url` with an optional `:title`."
+  def link_record(fields) do
+    %{
+      "$type" => AtMcp.Network.collection(:link),
+      "url" => Map.fetch!(fields, :url),
+      "createdAt" => timestamp(Map.get(fields, :created_at))
+    }
+    |> put_present("title", Map.get(fields, :title))
+  end
 
   @doc "Build a `graph.block` record. The subject of a block is a bare DID."
   def block_record(fields), do: did_subject_record(:block, fields)

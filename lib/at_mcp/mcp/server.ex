@@ -1392,14 +1392,23 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "like", write_description(:like, "Like a post by AT URI and CID.") do
+  tool "like",
+       write_description(
+         :like,
+         "Like a post, a custom feed or a labeler by AT URI and CID. get_posts, get_feed_info and get_record give the CID. Anything else is refused: nothing would count the like."
+       ) do
     annotations(
       write_annotations(:like, %{readOnlyHint: false, destructiveHint: false, openWorldHint: true})
     )
 
     output_schema(AtMcp.MCP.Schemas.record_result())
-    param(:uri, :string, required: true, description: "Post AT URI")
-    param(:cid, :string, required: true, description: "Post CID")
+
+    param(:uri, :string,
+      required: true,
+      description: "AT URI of the post, feed generator or labeler"
+    )
+
+    param(:cid, :string, required: true, description: "Its CID")
 
     run(fn a, state ->
       e = state.effects
@@ -1639,7 +1648,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_profile",
        write_description(
          :update_profile,
-         "Update display name, description, avatar and/or banner. Fields not given are kept."
+         "Update display name, description, avatar, banner, pronouns, website and/or the links the profile shows. Fields not given are kept; an empty pronouns or website removes it. The profile record is read first and written only over that version. get_record with at://<this account>/app.bsky.actor.profile/self reads it back."
        ) do
     annotations(
       write_annotations(:update_profile, %{
@@ -1668,6 +1677,14 @@ defmodule AtMcp.MCP.Server do
         "New banner image: base64 data or a file path, and its MIME type"
       )
     )
+
+    param(:pronouns, :string, AtMcp.MCP.Schemas.pronouns())
+
+    param(:website, :string,
+      description: "An https:// URL the profile shows as its website. Empty removes it."
+    )
+
+    param(:links, {:array, :object}, AtMcp.MCP.Schemas.profile_links())
 
     run(fn a, state ->
       e = state.effects
@@ -1830,6 +1847,148 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.detach_quote(state.effects, Map.fetch!(a, :uri), false),
+        state
+      )
+    end)
+  end
+
+  # --- saved feeds, live status and feed feedback ---
+
+  tool "save_feed",
+       write_description(
+         :save_feed,
+         "Save a custom feed or a list to this account's feeds, pinned (a tab on its home screen) or not. A feed already saved is pinned or unpinned as asked; one already as asked is left alone and unchanged is true. Saved feeds are a preference: the preferences are read and written back whole, every other one kept, and the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+       ) do
+    annotations(
+      write_annotations(:save_feed, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the feed generator or list")
+
+    param(:pinned, :boolean,
+      description: "true to pin it as a home screen tab. Defaults to false."
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.save_feed(state.effects, Map.fetch!(a, :uri), Map.get(a, :pinned) == true),
+        state
+      )
+    end)
+  end
+
+  tool "unsave_feed",
+       write_description(
+         :unsave_feed,
+         "Remove a custom feed or a list from this account's saved feeds. Preferences are written back whole, as for save_feed."
+       ) do
+    annotations(
+      write_annotations(:unsave_feed, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:uri, :string, required: true, description: "AT URI of the feed generator or list")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.unsave_feed(state.effects, Map.fetch!(a, :uri)),
+        state
+      )
+    end)
+  end
+
+  tool "set_status",
+       write_description(
+         :set_status,
+         "Say this account is live, streaming at a URL, for a while (kind live), or end it (kind clear). Others see a Live badge on its avatar until it expires. The app shows the badge only for links to streaming sites it recognizes, such as twitch.tv, youtube.com and stream.place; another link is written and shown nowhere as live. The result's replaced is the status it replaced, which set_status takes to put it back."
+       ) do
+    annotations(
+      write_annotations(:set_status, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+
+    param(:kind, :string,
+      required: true,
+      description: "live or clear",
+      schema: %{type: "string", enum: ["live", "clear"]}
+    )
+
+    param(:url, :string, description: "With live: where to watch, an http or https URL")
+    param(:duration_minutes, :integer, AtMcp.MCP.Schemas.status_minutes())
+    param(:title, :string, description: "With live: the link card's title")
+    param(:description, :string, description: "With live: the link card's description")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.set_status(state.effects, Map.fetch!(a, :kind),
+          url: Map.get(a, :url),
+          duration_minutes: Map.get(a, :duration_minutes),
+          title: AtMcp.MCP.Tools.optional(Map.get(a, :title)),
+          description: AtMcp.MCP.Tools.optional(Map.get(a, :description))
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "feed_feedback",
+       write_description(
+         :feed_feedback,
+         "Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. It goes to the feed's own service, not to the account's followers. Only a feed that takes feedback (get_feed_info: takes feedback) accepts it; another is refused before anything is sent."
+       ) do
+    annotations(
+      write_annotations(:feed_feedback, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.action_result())
+    param(:feed, :string, required: true, description: "AT URI of the feed generator")
+    param(:uri, :string, required: true, description: "AT URI of the post the feed showed")
+
+    param(:kind, :string,
+      required: true,
+      description: "show_more or show_less",
+      schema: %{type: "string", enum: ["show_more", "show_less"]}
+    )
+
+    param(:feed_context, :string,
+      description: "The post's feed_context from get_feed, when the feed gave one"
+    )
+
+    param(:req_id, :string,
+      description: "The post's req_id from get_feed, when the feed gave one"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.feed_feedback(
+          state.effects,
+          Map.fetch!(a, :feed),
+          Map.fetch!(a, :uri),
+          Map.fetch!(a, :kind),
+          feed_context: AtMcp.MCP.Tools.optional(Map.get(a, :feed_context)),
+          req_id: AtMcp.MCP.Tools.optional(Map.get(a, :req_id))
+        ),
         state
       )
     end)

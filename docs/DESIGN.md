@@ -98,7 +98,7 @@ and whether the account has capacity left.
 
 ## The MCP tool surface
 
-`AtMcp.MCP.Server` declares 78 tools: 77 network verbs, plus
+`AtMcp.MCP.Server` declares 82 tools: 81 network verbs, plus
 `identity_status`. Handlers call `AtMcp.Effects` and never reimplement account
 policy. Every tool declares an output schema derived from `AtMcp.Summary` and
 returns its summary as structured content beside a text block for the model.
@@ -126,10 +126,10 @@ counting an account's publishing reads the same classification AtMcp enforces.
 
 | Category | Tools |
 | --- | --- |
-| Writing | `post`, `reply`, `delete_post`, `update_profile` |
+| Writing | `post`, `reply`, `delete_post`, `update_profile`, `set_status` |
 | Reading | `get_timeline`, `get_author_feed`, `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`, `get_profile`, `get_profiles`, `search_posts`, `search_actors`, `get_feed`, `get_list_feed`, `get_actor_likes`, `get_record` |
-| Discovery | `get_suggested_feeds`, `get_feed_info`, `get_actor_feeds`, `search_feeds`, `get_suggested_starter_packs`, `get_trends`, `get_invite_codes` (delve.town) |
-| Reacting | `like`, `unlike`, `repost`, `unrepost`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
+| Discovery | `save_feed`, `unsave_feed`, and the reads `get_suggested_feeds`, `get_feed_info`, `get_actor_feeds`, `search_feeds`, `get_suggested_starter_packs`, `get_trends`, `get_invite_codes` (delve.town) |
+| Reacting | `like` (a post, a feed or a labeler), `unlike`, `repost`, `unrepost`, `feed_feedback`, and the reads `get_likes`, `get_reposted_by`, `get_quotes` |
 | Graph | `follow`, `unfollow`, `block`, `unblock`, `mute`, `unmute`, and the reads `get_followers`, `get_follows`, `get_known_followers`, `get_relationships`, `get_blocks`, `get_mutes`, `get_suggested_follows` |
 | Lists | `create_list`, `update_list`, `delete_list`, `add_to_list`, `remove_from_list`, `create_starter_pack`, `update_starter_pack`, `delete_starter_pack`, `set_list_opt_out`, and the reads `get_list`, `get_lists`, `get_starter_pack`, `get_starter_packs` |
 | Notifications | `get_notifications`, `get_unread_count`, `update_seen` |
@@ -157,7 +157,25 @@ about its language carries no `langs` at all rather than a default `["en"]`.
 `update_profile` takes `avatar` and `banner` in the same shape, without alt
 text. Each is uploaded as a blob and set on the profile record, which is read
 first so the fields the call does not mention are kept; the result carries each
-uploaded blob's CID.
+uploaded blob's CID. It also takes `pronouns`, `website` (https only, the only
+kind the AppView shows) and `links`, the links the profile shows in order.
+Links are `actor.link` records that the profile names by strong reference, as
+the app writes them: a link given as the profile already shows it keeps its
+record, a new one is written first so the profile can name its CID, the
+profile is written over the version read (`swapRecord`), and the records it no
+longer names are deleted after. A profile the service refuses as changed
+meanwhile leaves no new record behind.
+
+`save_feed` and `unsave_feed` edit the `savedFeedsPrefV2` preference the way
+the app's own library does, keeping every other preference byte for byte (the
+preferences are read and written as raw JSON, not through the XRPC client's
+key renaming). `actor.putPreferences` has no compare-and-swap, so a change
+another client makes between the read and the write is lost; the description
+and the result say so. `set_status` writes the `actor.status` record over the
+one read and refuses a duration outside the 5 to 240 minutes the AppView
+shows. `feed_feedback` reads the feed first and sends `feed.sendInteractions`
+to the feed generator's own service (`atproto-proxy: <did>#bsky_fg`), as the
+app does, only when the feed takes feedback.
 
 An image `path` is read by the server, so a model need not copy the bytes as
 base64, which it can get wrong partway through. It is off unless
@@ -294,11 +312,9 @@ marked where it stands, saying whether its author hid it or the account muted
 its writer, and only the rest are listed after the thread. If that read fails,
 the thread is returned with a line saying why.
 
-Absent from the surface: saved and pinned feeds,
-posting video, direct messages, reporting, mute words and
-content preferences, and server-side notification filters. An agent therefore
-finds a custom feed with `get_suggested_feeds`, `search_feeds` or
-`get_actor_feeds` rather than from a saved list, receives every
+Absent from the surface: posting video, direct messages, reporting, mute
+words and content preferences, and server-side notification filters. An agent
+therefore receives every
 notification and discards locally, and reads a video by its alt text and a
 link card by its text, without the video or the card's image.
 
