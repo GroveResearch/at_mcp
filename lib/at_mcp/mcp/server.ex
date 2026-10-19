@@ -1400,7 +1400,7 @@ defmodule AtMcp.MCP.Server do
   tool "like",
        write_description(
          :like,
-         "Like a post, a custom feed or a labeler by AT URI and CID. get_posts, get_feed_info and get_record give the CID. Anything else is refused: nothing would count the like. One this account has liked already is not liked again: the result names the like it has, with unchanged true."
+         "Like a post, a custom feed or a labeler by AT URI and CID. get_posts, get_feed_info and get_record give the CID. Anything else is refused: nothing would count the like. One this account has liked already (the AppView names the like and this account's repository holds it) is not liked again: the result names that like, with unchanged true."
        ) do
     annotations(
       write_annotations(:like, %{readOnlyHint: false, destructiveHint: false, openWorldHint: true})
@@ -1428,7 +1428,7 @@ defmodule AtMcp.MCP.Server do
   tool "unlike",
        write_description(
          :unlike,
-         "Remove a like by the like record AT URI, and this account's other likes of the same subject with it; deleted lists every one."
+         "Remove a like by the like record AT URI. When the AppView names another like of this account's for the same subject, that one is deleted too; deleted lists what was deleted."
        ) do
     annotations(
       write_annotations(:unlike, %{
@@ -1456,7 +1456,7 @@ defmodule AtMcp.MCP.Server do
   tool "repost",
        write_description(
          :repost,
-         "Repost by AT URI and CID. A post this account has reposted already is not reposted again: the result names the repost it has, with unchanged true, and nothing is counted."
+         "Repost by AT URI and CID. A post this account has reposted already (the AppView names the repost and this account's repository holds it) is not reposted again: the result names that repost, with unchanged true, and nothing is counted."
        ) do
     annotations(
       write_annotations(:repost, %{
@@ -1483,7 +1483,7 @@ defmodule AtMcp.MCP.Server do
   tool "unrepost",
        write_description(
          :unrepost,
-         "Remove a repost by the repost record AT URI, and this account's other reposts of the same post with it; deleted lists every one."
+         "Remove a repost by the repost record AT URI. When the AppView names another repost of this account's of the same post, that one is deleted too; deleted lists what was deleted."
        ) do
     annotations(
       write_annotations(:unrepost, %{
@@ -1511,7 +1511,7 @@ defmodule AtMcp.MCP.Server do
   tool "follow",
        write_description(
          :follow,
-         "Follow an actor by handle or DID. One this account follows already is not followed again: the result names the follow it has, with unchanged true."
+         "Follow an actor by handle or DID. One this account follows already (the AppView names the follow and this account's repository holds it) is not followed again: the result names that follow, with unchanged true."
        ) do
     annotations(
       write_annotations(:follow, %{
@@ -1537,7 +1537,7 @@ defmodule AtMcp.MCP.Server do
   tool "unfollow",
        write_description(
          :unfollow,
-         "Unfollow by the follow record AT URI, deleting this account's other follows of the same account with it; deleted lists every one."
+         "Unfollow by the follow record AT URI. When the AppView names another follow of this account's of the same account, that one is deleted too; deleted lists what was deleted."
        ) do
     annotations(
       write_annotations(:unfollow, %{
@@ -1565,7 +1565,7 @@ defmodule AtMcp.MCP.Server do
   tool "block",
        write_description(
          :block,
-         "Block an actor by handle or DID. One this account blocks already is not blocked again: the result names the block it has, with unchanged true."
+         "Block an actor by handle or DID. One this account blocks already (the AppView names the block and this account's repository holds it) is not blocked again: the result names that block, with unchanged true."
        ) do
     annotations(
       write_annotations(:block, %{readOnlyHint: false, destructiveHint: true, openWorldHint: true})
@@ -1587,7 +1587,7 @@ defmodule AtMcp.MCP.Server do
   tool "unblock",
        write_description(
          :unblock,
-         "Unblock by the block record AT URI, deleting this account's other blocks of the same account with it; deleted lists every one."
+         "Unblock by the block record AT URI. When the AppView names another block of this account's of the same account, that one is deleted too; deleted lists what was deleted."
        ) do
     annotations(
       write_annotations(:unblock, %{

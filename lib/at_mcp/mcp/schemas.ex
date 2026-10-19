@@ -517,7 +517,7 @@ defmodule AtMcp.MCP.Schemas do
       "unchanged" => %{
         "type" => ["boolean", "null"],
         "description" =>
-          "True when this account already had this like, repost, follow or block, so nothing was written; uri is that record"
+          "True when this account already had this like, repost, follow or block (named by the AppView and found in this account's repository with this subject), so nothing was written; uri is that record"
       }
     })
   end
@@ -567,7 +567,7 @@ defmodule AtMcp.MCP.Schemas do
         "type" => ["array", "null"],
         "items" => %{"type" => "string"},
         "description" =>
-          "unlike, unrepost, unfollow and unblock: AT URIs of every record deleted, the one named and this account's others of its kind for the same subject"
+          "unlike, unrepost, unfollow and unblock: AT URIs of every record deleted: the one named, and the record the AppView names for the same subject when that is another one"
       },
       "pronouns" => nullable_string("update_profile: the pronouns written; empty when removed"),
       "website" => nullable_string("update_profile: the website written; empty when removed"),
@@ -611,7 +611,7 @@ defmodule AtMcp.MCP.Schemas do
       },
       "note" =>
         nullable_string(
-          "save_feed and unsave_feed: what the write could not guard against; an undo: which records it did not read"
+          "save_feed and unsave_feed: what the write could not guard against; an undo of a record that is not there: that nothing was deleted"
         ),
       "status" => nullable_string("set_status: live, or clear"),
       "duration_minutes" => %{

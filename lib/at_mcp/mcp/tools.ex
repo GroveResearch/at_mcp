@@ -84,7 +84,7 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "not_found",
-          "error: there is no #{what} at #{uri}: it was deleted, or never existed. Nothing was changed.",
+          "error: there is no #{what} at #{uri}: it was deleted, taken down, or never existed. Nothing was changed.",
           %{uri: uri}
         )
 

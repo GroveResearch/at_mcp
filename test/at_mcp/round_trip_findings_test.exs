@@ -50,24 +50,40 @@ defmodule AtMcp.RoundTripFindingsTest do
 
   describe "like, repost, follow and block are written once (#110)" do
     test "a post already liked or reposted answers the record it has, and nothing is sent or counted" do
-      viewer = %{
-        "like" => "at://#{@me}/app.bsky.feed.like/l1",
-        "repost" => "at://#{@me}/app.bsky.feed.repost/r1"
-      }
+      like = "at://#{@me}/app.bsky.feed.like/l1"
+      repost = "at://#{@me}/app.bsky.feed.repost/r1"
 
       %{effects: effects, pds: pds} =
-        pds(%{}, %{
-          "app.bsky.feed.getPosts" => {200, %{posts: [%{uri: @post, viewer: viewer}]}}
+        pds(%{like => like(@post), repost => like(@post)}, %{
+          "app.bsky.feed.getPosts" =>
+            {200, %{posts: [%{uri: @post, viewer: %{like: like, repost: repost}}]}}
         })
 
-      assert {:ok, %{uri: "at://did:plc:self/app.bsky.feed.like/l1", unchanged: true}} =
+      assert {:ok, %{uri: ^like, unchanged: true}} =
                AtMcp.Effects.like(effects, @post, "bafysubject")
 
-      assert {:ok, %{uri: "at://did:plc:self/app.bsky.feed.repost/r1", unchanged: true}} =
+      assert {:ok, %{uri: ^repost, unchanged: true}} =
                AtMcp.Effects.repost(effects, @post, "bafysubject")
 
       assert writes(pds) == []
       assert AtMcp.Effects.quota_status(effects).used == 0
+    end
+
+    test "a like the AppView still names but the repository no longer holds, or holds for another subject, is written again" do
+      gone = "at://#{@me}/app.bsky.feed.like/gone"
+      other = "at://#{@me}/app.bsky.feed.like/other"
+
+      for {named, records} <- [{gone, %{}}, {other, %{other => like(@other_post)}}] do
+        %{effects: effects, pds: pds} =
+          pds(records, %{
+            "app.bsky.feed.getPosts" => {200, %{posts: [%{uri: @post, viewer: %{like: named}}]}}
+          })
+
+        assert {:ok, result} = AtMcp.Effects.like(effects, @post, "bafysubject")
+        refute result[:unchanged]
+        refute result.uri == named
+        assert writes(pds) == ["com.atproto.repo.createRecord"]
+      end
     end
 
     test "a post not liked yet is liked" do
@@ -80,61 +96,85 @@ defmodule AtMcp.RoundTripFindingsTest do
     end
 
     test "an account already followed or blocked answers the record it has, and nothing is sent" do
-      viewer = %{
-        "following" => "at://#{@me}/app.bsky.graph.follow/f1",
-        "blocking" => "at://#{@me}/app.bsky.graph.block/b1"
-      }
+      follow = "at://#{@me}/app.bsky.graph.follow/f1"
+      block = "at://#{@me}/app.bsky.graph.block/b1"
 
       %{effects: effects, pds: pds} =
-        pds(%{}, %{
-          "app.bsky.actor.getProfile" => {200, %{did: "did:plc:other", viewer: viewer}}
-        })
+        pds(
+          %{follow => %{"subject" => "did:plc:other"}, block => %{"subject" => "did:plc:other"}},
+          %{
+            "app.bsky.actor.getProfile" =>
+              {200, %{did: "did:plc:other", viewer: %{following: follow, blocking: block}}}
+          }
+        )
 
-      assert {:ok, %{uri: "at://did:plc:self/app.bsky.graph.follow/f1", unchanged: true}} =
+      assert {:ok, %{uri: ^follow, unchanged: true}} =
                AtMcp.Effects.follow(effects, "did:plc:other")
 
-      assert {:ok, %{uri: "at://did:plc:self/app.bsky.graph.block/b1", unchanged: true}} =
+      assert {:ok, %{uri: ^block, unchanged: true}} =
                AtMcp.Effects.block(effects, "did:plc:other")
 
       assert writes(pds) == []
     end
 
-    test "unlike deletes every like of the same subject, in one commit, and names each" do
-      first = "at://#{@me}/app.bsky.feed.like/a"
-      second = "at://#{@me}/app.bsky.feed.like/b"
+    test "unlike deletes the like named and the one the AppView names for the same subject, in one commit" do
+      named = "at://#{@me}/app.bsky.feed.like/a"
+      viewed = "at://#{@me}/app.bsky.feed.like/b"
       elsewhere = "at://#{@me}/app.bsky.feed.like/c"
 
       %{pds: pds, state: state} =
-        pds(%{first => like(@post), second => like(@post), elsewhere => like(@other_post)})
-
-      result = call(state, "unlike", %{"uri" => second})
-      refute result[:isError], inspect(result)
-      assert %{"deleted" => [^second, ^first]} = result.structuredContent
-      assert writes(pds) == ["com.atproto.repo.applyWrites"]
-      assert FakePDS.record(pds, first) == nil
-      assert FakePDS.record(pds, second) == nil
-      assert FakePDS.record(pds, elsewhere)
-    end
-
-    test "unfollow deletes every follow of the same account" do
-      first = "at://#{@me}/app.bsky.graph.follow/a"
-      second = "at://#{@me}/app.bsky.graph.follow/b"
-
-      %{effects: effects, pds: pds} =
-        pds(%{
-          first => %{"subject" => "did:plc:other"},
-          second => %{"subject" => "did:plc:other"}
+        pds(%{named => like(@post), viewed => like(@post), elsewhere => like(@other_post)}, %{
+          "app.bsky.feed.getPosts" => {200, %{posts: [%{uri: @post, viewer: %{like: viewed}}]}}
         })
 
-      assert {:ok, %{deleted: [^first, ^second]}} = AtMcp.Effects.unfollow(effects, first)
-      assert FakePDS.record(pds, second) == nil
+      result = call(state, "unlike", %{"uri" => named})
+      refute result[:isError], inspect(result)
+      assert %{"deleted" => [^named, ^viewed]} = result.structuredContent
+      assert writes(pds) == ["com.atproto.repo.applyWrites"]
+      assert FakePDS.record(pds, named) == nil
+      assert FakePDS.record(pds, viewed) == nil
+      assert FakePDS.record(pds, elsewhere)
+      # Nothing else of the collection is read.
+      assert FakePDS.sent(pds, "com.atproto.repo.listRecords") == []
     end
 
-    test "an undo of a record that is not there deletes nothing and says so" do
+    test "unfollow of the follow the AppView names deletes that one alone" do
+      follow = "at://#{@me}/app.bsky.graph.follow/a"
+
+      %{effects: effects, pds: pds} =
+        pds(%{follow => %{"subject" => "did:plc:other"}}, %{
+          "app.bsky.actor.getProfile" =>
+            {200, %{did: "did:plc:other", viewer: %{following: follow}}}
+        })
+
+      assert {:ok, %{deleted: [^follow]}} = AtMcp.Effects.unfollow(effects, follow)
+      assert writes(pds) == ["com.atproto.repo.deleteRecord"]
+    end
+
+    test "a record gone between the read and the commit: nothing was applied, and the result says so" do
+      named = "at://#{@me}/app.bsky.feed.like/a"
+      viewed = "at://#{@me}/app.bsky.feed.like/b"
+
+      %{state: state} =
+        pds(%{named => like(@post), viewed => like(@post)}, %{
+          "app.bsky.feed.getPosts" => {200, %{posts: [%{uri: @post, viewer: %{like: viewed}}]}},
+          "com.atproto.repo.applyWrites" =>
+            {400, %{error: "RecordNotFound", message: "Could not find record"}}
+        })
+
+      result = call(state, "unlike", %{"uri" => named})
+      assert result.isError
+      assert hd(result.content).text =~ "nothing was applied"
+    end
+
+    test "an undo of a record that is not there deletes nothing and says it tells nothing about others" do
       %{effects: effects, pds: pds} = pds()
       gone = "at://#{@me}/app.bsky.feed.like/gone"
 
-      assert {:ok, %{deleted: [], unchanged: true}} = AtMcp.Effects.unlike(effects, gone)
+      assert {:ok, %{deleted: [], unchanged: true, note: note}} =
+               AtMcp.Effects.unlike(effects, gone)
+
+      assert note =~ "says nothing about other records of the same subject"
       assert writes(pds) == []
     end
   end
@@ -161,7 +201,7 @@ defmodule AtMcp.RoundTripFindingsTest do
         result = call(state, name, args)
         assert result.isError
         assert %{code: "not_found", uri: ^uri} = result.structuredContent
-        assert hd(result.content).text =~ "deleted, or never existed"
+        assert hd(result.content).text =~ "deleted, taken down, or never existed"
       end
     end
 
@@ -215,6 +255,30 @@ defmodule AtMcp.RoundTripFindingsTest do
       assert hd(result.content).text =~ "reply rule"
       assert writes(pds) == []
       assert AtMcp.Effects.quota_status(effects).used == 0
+    end
+
+    test "a parent the AppView rate-limits is not replied to, and nothing is written or counted" do
+      %{effects: effects, pds: pds, state: state} =
+        pds(%{@post => %{"text" => "gated"}}, %{
+          "app.bsky.feed.getPosts" => {429, %{error: "RateLimitExceeded", message: "slow down"}}
+        })
+
+      result = call(state, "reply", %{"uri" => @post, "text" => "replying anyway"})
+      assert result.isError
+      assert %{code: "upstream_rate_limited"} = result.structuredContent
+      assert hd(result.content).text =~ "reply rule"
+      assert writes(pds) == []
+      assert AtMcp.Effects.quota_status(effects).used == 0
+    end
+
+    test "a parent the AppView does not have is replied to" do
+      %{pds: pds, state: state} =
+        pds(%{@post => %{"text" => "not indexed"}}, %{
+          "app.bsky.feed.getPosts" => {200, %{posts: []}}
+        })
+
+      refute call(state, "reply", %{"uri" => @post, "text" => "hello"})[:isError]
+      assert writes(pds) == ["com.atproto.repo.createRecord"]
     end
 
     test "a reply the rule allows is written" do

@@ -547,19 +547,45 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       sync(net)
 
-      for {name, first, kind} <- [
-            {"unlike", like, :like},
-            {"unrepost", repost, :repost},
-            {"unfollow", follow, :follow},
-            {"unblock", block, :block}
-          ] do
-        assert %{"deleted" => deleted} = call!(me, name, %{"uri" => first["uri"]})
+      relationship = fn ->
+        %{"items" => [item]} =
+          call!(me, "get_relationships", %{"actor" => me.did, "others" => [them.did]})
 
-        assert Enum.sort(deleted) == Enum.sort([first["uri"], second[kind]]),
-               "#{name} deleted #{inspect(deleted)}"
+        item
       end
 
-      sync(net)
+      # The record the AppView names for the subject now: one of the two.
+      viewed = fn
+        :block ->
+          %{"items" => [%{"viewer" => %{"blocking" => uri}}]} = call!(me, "get_blocks", %{})
+          uri
+
+        :follow ->
+          relationship.()["following"]
+
+        kind ->
+          only_post(me, post["uri"])["viewer"][Atom.to_string(kind)]
+      end
+
+      # The block goes first, so the post reads are made with no block between
+      # the accounts. Each undo is given the record the AppView does not name,
+      # as a caller holding a retried write's first answer would be, and takes
+      # the one it names with it.
+      for {name, first, kind} <- [
+            {"unblock", block, :block},
+            {"unfollow", follow, :follow},
+            {"unlike", like, :like},
+            {"unrepost", repost, :repost}
+          ] do
+        pair = [first["uri"], second[kind]]
+        named_by_appview = viewed.(kind)
+        assert named_by_appview in pair, "#{name}: #{inspect(named_by_appview)}"
+        [given] = pair -- [named_by_appview]
+
+        assert %{"deleted" => deleted} = call!(me, name, %{"uri" => given})
+        assert deleted == [given, named_by_appview], "#{name} deleted #{inspect(deleted)}"
+        sync(net)
+      end
 
       for uri <- Map.values(second) ++ Enum.map([like, repost, follow, block], & &1["uri"]),
           do: assert(record(me, uri) == nil, uri)
@@ -570,10 +596,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert view["like_count"] == 0 and view["repost_count"] == 0
       assert %{"items" => []} = call!(me, "get_blocks", %{})
 
-      assert %{"items" => [relationship]} =
-               call!(me, "get_relationships", %{"actor" => me.did, "others" => [them.did]})
-
-      assert relationship["following"] == nil
+      assert relationship.()["following"] == nil
 
       call!(them, "delete_post", %{"uri" => post["uri"]})
     end

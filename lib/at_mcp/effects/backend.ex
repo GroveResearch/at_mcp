@@ -234,7 +234,7 @@ defmodule AtMcp.Effects.Backend do
   @doc """
   This account's `:like`, `:repost`, `:follow` or `:block` record for
   `subject` (an AT URI, or for a follow or block a DID), as the AppView's
-  viewer state names it, or nil. Read before a like, repost, follow or block
+  viewer state names it and the account's repository confirms it, or nil. Read before a like, repost, follow or block
   is written, with no quota slot taken.
   """
   @callback viewer_record(state(), action :: atom(), subject :: String.t()) ::
@@ -242,8 +242,8 @@ defmodule AtMcp.Effects.Backend do
 
   @doc """
   Read what `:unlike`, `:unrepost`, `:unfollow` or `:unblock` of the record at
-  `uri` deletes: that record and this account's others of its kind for the
-  same subject. Nothing is sent. `{:ok, {:unchanged, summary}}` when there is
+  `uri` deletes: that record, and the one `viewer_record/3` names for the same
+  subject when it is another. Nothing is sent. `{:ok, {:unchanged, summary}}` when there is
   nothing to delete; otherwise the prepared value `undo/2` takes.
   """
   @callback prepare_undo(state(), action :: atom(), uri :: String.t()) ::

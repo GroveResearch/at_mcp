@@ -931,9 +931,10 @@ defmodule AtMcp.Effects do
   # second one goes wrong either way: the reference PDS's createRecord deletes
   # the first, so the uri the first call returned names nothing and an undo of
   # it changes nothing; a service that keeps both has the AppView count one,
-  # and an undo of either leaves the other. So the record the AppView names is
-  # returned as `unchanged: true`, and nothing is sent or counted. A record
-  # written moments ago that the AppView has not indexed yet is not seen.
+  # and an undo of either leaves the other. So the record the AppView names,
+  # once the PDS confirms it still holds it with this subject, is returned as
+  # `unchanged: true`, and nothing is sent or counted. A record written
+  # moments ago that the AppView has not indexed yet is not seen.
   defp once(backend, session, action, subject, summary) do
     case backend.viewer_record(session, action, subject) do
       {:ok, nil} ->
@@ -947,11 +948,11 @@ defmodule AtMcp.Effects do
     end
   end
 
-  # An undo deletes every record of its kind this account has for the same
-  # subject, as `remove_from_list` deletes every item for an account, so a
-  # second record (another client's, or one `once/5` could not see yet) does
-  # not leave the like, repost, follow or block in place. The backend reads
-  # them before anything is sent.
+  # An undo deletes the record it names and, when the AppView's viewer state
+  # names another one of this account's for the same subject (a retry after an
+  # unknown outcome leaves one), that one too, so the like, repost, follow or
+  # block does not stay in place. The backend reads both before anything is
+  # sent.
   defp undo(effects, action, uri) do
     take_and_write(
       effects,
