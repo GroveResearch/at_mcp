@@ -310,7 +310,8 @@ The moderation settings are there too: `mute_word` and `unmute_word`,
 `subscribe_labeler`, `set_label_visibility` and `get_labelers` for labelers
 and their labels, and `report`, which sends a report to a moderation service.
 `get_notifications` with `grouped` reads the groups the app's Notifications
-screen shows ("alice and 5 others liked your post"). Wherever a post appears (a feed, a thread, a conversation, a
+screen shows ("alice and 5 others liked your post"), and a reply, quote or
+mention whole, as the app shows it as a post. Wherever a post appears (a feed, a thread, a conversation, a
 notification or a quote) it carries the same facts: its labels and its
 author's, the verification and Live badges beside the author's name, and any
 block or mute between the account and the author. A post read also says who

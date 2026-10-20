@@ -1240,6 +1240,37 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
     end
 
+    test "get_notifications grouped: a reply reads as the whole post, as get_posts reads it (#139)",
+         %{net: net, me: me, them: them} do
+      post = post!(me, "reply to me whole")
+      sync(net)
+      reply = call!(them, "reply", %{"uri" => post["uri"], "text" => "a whole reply"})
+      sync(net)
+
+      result = call(me, "get_notifications", %{"grouped" => true})
+      refute result[:isError]
+
+      group =
+        Enum.find(
+          result.structuredContent["items"],
+          &(&1["kind"] == "replyNotification" and hd(&1["posts"])["uri"] == reply["uri"])
+        )
+
+      assert %{"posts" => [%{"post" => whole}]} = group
+      read = only_post(me, reply["uri"])
+      fields = ~w(uri cid text reply_to indexed_at author author_did created_at like_count)
+      assert Map.take(whole, fields) == Map.take(read, fields)
+
+      text = hd(result.content).text
+      assert text =~ "\nThe post: "
+      assert text =~ "\n> a whole reply\n"
+      assert text =~ "cid: #{reply["cid"]}"
+
+      call!(them, "delete_post", %{"uri" => reply["uri"]})
+      call!(me, "delete_post", %{"uri" => post["uri"]})
+      sync(net)
+    end
+
     test "subscribe_to_activity by handle: refused until this account follows, then get_profile and get_activity_subscriptions read it back, then the unsubscribe",
          %{net: net, me: me, them: them} do
       # Followers may subscribe by default, and this account does not follow.

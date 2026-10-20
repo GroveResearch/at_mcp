@@ -536,7 +536,17 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
-### From 0.2.11 to the next release
+### From 0.2.12 to the next release
+
+No stored data changes.
+
+- **A grouped read's reply, quote or mention carries its post whole** (#139):
+  each entry of its `posts` has a `post` holding the post as `get_posts`
+  reads one (time, counts, attachments, labels, this account's like, repost
+  and bookmark), and the text a model reads shows it as any read shows a
+  post. Other groups' `post` is null.
+
+### From 0.2.11 to 0.2.12
 
 No stored data changes. What a client or a delivery receiver reads changes
 (#132, #133, #134, #135):
