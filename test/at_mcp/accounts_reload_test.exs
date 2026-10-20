@@ -469,6 +469,40 @@ defmodule AtMcp.AccountsReloadTest do
     end
   end
 
+  test "the first reload after a boot leaves accounts whose file is unchanged running as they were",
+       %{config_file: file, rows: [a, b], service: service} do
+    # As the application boots: a fresh owner, then each configured account
+    # started, then the boot waits for them.
+    boot = fn rows ->
+      write(file, rows)
+      restart_accounts!()
+      assert :ok = Identities.boot_from_env!()
+      assert :ok = Accounts.await_initialization()
+      assert eventually(fn -> Enum.all?(rows, &(Store.ready(&1["id"]) == :ok)) end)
+      pids = Map.new(rows, &{&1["id"], Identity.whereis(&1["id"])})
+
+      assert {:ok, %{accounts: [], removed: [], unchanged: unchanged}} = Accounts.reload()
+      assert unchanged == Enum.sort(Enum.map(rows, & &1["id"]))
+      assert Map.new(rows, &{&1["id"], Identity.whereis(&1["id"])}) == pids
+    end
+
+    # An account with its own write limit, and one with neither field.
+    boot.([Map.put(a, "write_quota", %{"limit" => 4, "window_seconds" => 60}), b])
+
+    # An account with a delivery destination and its own write limit, and one
+    # with delivery turned off.
+    AtMcp.Test.Settings.put(notifications_enabled: true)
+    token = Path.join(Path.dirname(file), "token-a")
+    File.write!(token, "alice-token")
+
+    boot.([
+      a
+      |> Map.put("delivery", %{"url" => service <> "/inbound/alice", "token_file" => token})
+      |> Map.put("write_quota", %{"limit" => 4}),
+      Map.put(b, "delivery", nil)
+    ])
+  end
+
   test "starting a running account again with a changed write limit holds it to the new one at once",
        %{prefix: prefix, service: service} do
     id = prefix <> "c"

@@ -309,7 +309,9 @@ defmodule AtMcp.Accounts do
       removed = Enum.uniq(Map.keys(state.configs) ++ disconnected_running) -- Map.keys(configs)
 
       changed =
-        for {id, opts} <- configs, state.configs[id] != opts or id in disconnected_running, do: id
+        for {id, opts} <- configs,
+            not same_options?(state.configs[id], opts) or id in disconnected_running,
+            do: id
 
       previously_disconnected = Map.new(changed, &{&1, already_disconnected?(&1)})
       affected = Enum.uniq(removed ++ changed)
@@ -773,7 +775,7 @@ defmodule AtMcp.Accounts do
     cond do
       disconnected?(id) ->
         state =
-          if previous != opts do
+          if not same_options?(previous, opts) do
             ids = aliases(id, Store.accounts()[id].did)
             state |> invalidate(ids) |> launch(ids, {:stop, ids}, nil)
           else
@@ -782,7 +784,7 @@ defmodule AtMcp.Accounts do
 
         {:reply, {:error, :account_disconnected}, state}
 
-      previous == opts and operation_for(state, id) != nil ->
+      same_options?(previous, opts) and operation_for(state, id) != nil ->
         {token, op} = operation_for(state, id)
 
         {:noreply,
@@ -791,15 +793,21 @@ defmodule AtMcp.Accounts do
       # A running account given changed options is replaced, as reload
       # replaces a changed account, so it runs with what the host just said
       # (a new write limit, password or service) rather than reporting success
-      # and keeping the old. Options are compared regardless of order, since
-      # merging what a call gives reorders them.
+      # and keeping the old.
       true ->
         replace? =
           operation_for(state, id) != nil or
-            (running? and is_list(previous) and Enum.sort(previous) != Enum.sort(opts))
+            (running? and is_list(previous) and not same_options?(previous, opts))
 
         state = invalidate(state, [id])
         {:noreply, launch(state, [id], {:start, id, opts, replace?}, from)}
     end
   end
+
+  # Whether two configurations of one account say the same thing. Options are
+  # compared regardless of order: the accounts file's specs, the copy a start
+  # keeps (`:id` put first) and a merge of what a call gives each order them
+  # differently, and an order is not a change to restart an account for.
+  defp same_options?(a, b) when is_list(a) and is_list(b), do: Enum.sort(a) == Enum.sort(b)
+  defp same_options?(_a, _b), do: false
 end
