@@ -81,6 +81,99 @@ defmodule AtMcp.MCP.Input do
 
   defp json_keys(value), do: {:ok, value}
 
+  # Optional strings whose empty value is an instruction, not a blank: each
+  # tool's description says so ("an empty description removes it").
+  @empty_means %{
+    "update_profile" => ["pronouns", "website"],
+    "update_list" => ["description"],
+    "update_starter_pack" => ["description"]
+  }
+
+  @doc """
+  The arguments with every optional value filled in with nothing taken out,
+  before they are validated or reach a handler. Models fill every optional
+  field they are offered, with `""`, `null` and objects of those, for options
+  they are not using; read as values, such an object is an image that cannot
+  be read or a link card with no link, and the whole call is refused.
+
+  Absent here: an optional `null` or blank string (except those in
+  `@empty_means`); an object with nothing left in it, or with a required field
+  given blank (a link card whose url is ""); an image with neither `data` nor
+  `path`; and a list each of whose items was absent. A list given as `[]` is
+  kept: `reply_rule: []` is nobody and `links: []` removes them all. Inside an
+  object an empty list is absent too. A required argument is never taken out,
+  so validation still names it.
+  """
+  def drop_empty(name, arguments, %ExJsonSchema.Schema.Root{schema: schema}),
+    do: drop_empty(name, arguments, schema)
+
+  def drop_empty(name, arguments, schema) when is_map(arguments) and is_map(schema) do
+    keep = Map.get(@empty_means, name, [])
+    required = Map.get(schema, "required", [])
+    properties = Map.get(schema, "properties", %{})
+
+    Enum.reduce(arguments, arguments, fn {key, value}, acc ->
+      field = to_string(key)
+
+      cond do
+        field in required or field in keep or value == [] ->
+          acc
+
+        true ->
+          case emptied(value, Map.get(properties, field, %{})) do
+            :absent -> Map.delete(acc, key)
+            value -> Map.put(acc, key, value)
+          end
+      end
+    end)
+  end
+
+  def drop_empty(_name, arguments, _schema), do: arguments
+
+  # A value with its empty parts taken out, or `:absent` when nothing is left.
+  defp emptied(nil, _schema), do: :absent
+  defp emptied([], _schema), do: :absent
+
+  defp emptied(value, _schema) when is_binary(value),
+    do: if(String.trim(value) == "", do: :absent, else: value)
+
+  defp emptied(map, schema) when is_map(map) do
+    properties = Map.get(schema, "properties", %{})
+
+    kept =
+      for {key, value} <- map,
+          (value = emptied(value, Map.get(properties, to_string(key), %{}))) != :absent,
+          into: %{},
+          do: {key, value}
+
+    given = Enum.map(Map.keys(kept), &to_string/1)
+    blank = map |> Map.keys() |> Enum.map(&to_string/1) |> Enum.reject(&(&1 in given))
+    image? = Map.has_key?(properties, "data") and Map.has_key?(properties, "path")
+
+    cond do
+      kept == %{} -> :absent
+      Enum.any?(Map.get(schema, "required", []), &(&1 in blank)) -> :absent
+      image? and "data" not in given and "path" not in given -> :absent
+      true -> kept
+    end
+  end
+
+  # Only an object can be absent from a list: a list of strings is the tool's
+  # to read or refuse.
+  defp emptied(list, schema) when is_list(list) do
+    items = Map.get(schema, "items", %{})
+
+    list
+    |> Enum.map(fn item -> if is_map(item), do: emptied(item, items), else: item end)
+    |> Enum.reject(&(&1 == :absent))
+    |> case do
+      [] -> :absent
+      list -> list
+    end
+  end
+
+  defp emptied(value, _schema), do: value
+
   @doc """
   The paths of arguments the tool's schema does not define, such as `embed`
   or `images/0/caption`. They pass validation, since no schema here forbids
