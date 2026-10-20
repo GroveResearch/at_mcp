@@ -23,7 +23,10 @@ defmodule AtMcp.Stream.Jetstream do
       # Deliberately empty: see the moduledoc.
       wanted_dids: [],
       wanted_collections: Keyword.fetch!(opts, :collections),
-      name: Keyword.get(opts, :name, __MODULE__)
+      name: Keyword.get(opts, :name, __MODULE__),
+      # ProtoRune 0.6's own transport asks for HTTP/2, which Jetstream
+      # refuses a WebSocket over (AtMcp.Stream.Jetstream.HTTP1).
+      transport: AtMcp.Stream.Jetstream.HTTP1
     ]
 
     client_opts =

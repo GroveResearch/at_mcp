@@ -39,6 +39,19 @@ defmodule AtMcp.Stream.JetstreamTest do
     refute Keyword.has_key?(opts, :cursor)
   end
 
+  test "the client connects over HTTP/1.1, which a WebSocket needs" do
+    {:ok, _} =
+      AtMcp.Stream.Jetstream.start_link(
+        handler: self(),
+        collections: ["app.bsky.feed.post"],
+        cursor: nil,
+        name: nil
+      )
+
+    assert_receive {:client_opts, opts}
+    assert opts[:transport] == AtMcp.Stream.Jetstream.HTTP1
+  end
+
   test "a resume position is sent only when there is one" do
     for {cursor, expected} <- [{123_456, 123_456}, {0, nil}, {nil, nil}] do
       {:ok, _} =
