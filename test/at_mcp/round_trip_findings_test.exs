@@ -169,6 +169,24 @@ defmodule AtMcp.RoundTripFindingsTest do
                FakePDS.sent(pds, "com.atproto.repo.createRecord")
     end
 
+    test "a repost or like of something that is not an AT URI of a record is refused naming uri, and nothing is sent or counted" do
+      %{effects: effects, pds: pds, state: state} = pds()
+
+      for tool <- ["repost", "like"],
+          uri <- ["at://u", "at://u/app.bsky.feed.post", "at://did:plc:x", "at://did:plc:x//p"] do
+        result = call(state, tool, %{"uri" => uri})
+        assert result.isError, "#{tool} #{uri}"
+
+        assert %{code: "invalid_arguments", problems: [%{path: "uri", message: message}]} =
+                 result.structuredContent
+
+        assert message =~ "at://<handle or DID>/<collection>/<rkey>"
+      end
+
+      assert FakePDS.methods(pds) == []
+      assert AtMcp.Effects.quota_status(effects).used == 0
+    end
+
     test "an account already followed or blocked answers the record it has, and nothing is sent" do
       follow = "at://#{@me}/app.bsky.graph.follow/f1"
       block = "at://#{@me}/app.bsky.graph.block/b1"

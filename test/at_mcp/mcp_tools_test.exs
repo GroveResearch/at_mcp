@@ -10,7 +10,7 @@ defmodule AtMcp.MCP.ToolsTest do
       AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend, quota_limit: 3)
 
     assert {:ok, _} = AtMcp.Effects.login(effects)
-    assert {:ok, %{action: :repost}} = AtMcp.Effects.repost(effects, "at://u", "cid")
+    assert {:ok, %{action: :repost}} = AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
     assert AtMcp.Effects.quota_status(effects).used == 1
 
     assert {:ok, status} = AtMcp.MCP.Tools.identity_status(effects)
@@ -38,7 +38,7 @@ defmodule AtMcp.MCP.ToolsTest do
     assert {:ok, %{write_quota: %{limit: 4, window_seconds: 60, resets_at: nil, used: 0}}} =
              AtMcp.MCP.Tools.identity_status(effects)
 
-    assert {:ok, _} = AtMcp.Effects.repost(effects, "at://u", "cid")
+    assert {:ok, _} = AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
 
     assert {:ok, %{write_quota: %{used: 1, resets_at: "1970-01-01T00:02:00Z"}}} =
              AtMcp.MCP.Tools.identity_status(effects)

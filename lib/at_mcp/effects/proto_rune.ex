@@ -1951,24 +1951,27 @@ defmodule AtMcp.Effects.ProtoRune do
   # subject's current CID. A subject the AppView has no view of has neither.
   @impl true
   def subject_view(session, action, subject) when action in [:like, :repost] do
-    {:ok, {_repo, collection, _rkey}} = AtMcp.ATProto.parse_uri(subject)
+    case AtMcp.ATProto.parse_uri(subject) do
+      {:ok, {repo, collection, _rkey}} ->
+        {read, key} =
+          cond do
+            AtMcp.Network.collection?(collection, :generator) ->
+              {AtMcp.ATProto.get_feed_generators(session, [subject]), :feeds}
 
-    {read, key} =
-      cond do
-        AtMcp.Network.collection?(collection, :generator) ->
-          {AtMcp.ATProto.get_feed_generators(session, [subject]), :feeds}
+            AtMcp.Network.collection?(collection, :labeler) ->
+              {AtMcp.ATProto.get_services(session, [repo]), :views}
 
-        AtMcp.Network.collection?(collection, :labeler) ->
-          {:ok, {did, _, _}} = AtMcp.ATProto.parse_uri(subject)
-          {AtMcp.ATProto.get_services(session, [did]), :views}
+            true ->
+              {AtMcp.ATProto.get_posts(session, [subject]), :posts}
+          end
 
-        true ->
-          {AtMcp.ATProto.get_posts(session, [subject]), :posts}
-      end
+        with {:ok, uri} <- viewer_field(read, key, action),
+             {:ok, record} <- confirmed(session, uri, subject) do
+          {:ok, %{record: record, cid: view_cid(read, key)}}
+        end
 
-    with {:ok, uri} <- viewer_field(read, key, action),
-         {:ok, record} <- confirmed(session, uri, subject) do
-      {:ok, %{record: record, cid: view_cid(read, key)}}
+      {:error, reason} ->
+        {:error, failure(reason)}
     end
   end
 
