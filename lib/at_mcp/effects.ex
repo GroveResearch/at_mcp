@@ -1259,6 +1259,11 @@ defmodule AtMcp.Effects do
   @doc """
   Mark notifications seen up to `seen_at`, now when it is nil. A `seen_at`
   that is not an ISO 8601 date-time is refused before anything is sent.
+
+  A `seen_at` after now is sent as given, as the service accepts it and a
+  caller may mean it, and the result's `note` says how far ahead it is:
+  notifications that arrive before then will read as seen though nobody saw
+  them.
   """
   def update_seen(effects, seen_at \\ nil) do
     # Now is kept to the millisecond: the AppView counts a notification unread
@@ -1285,11 +1290,41 @@ defmodule AtMcp.Effects do
           end
       end
 
-    with {:ok, seen} <- seen do
-      take_and_write(effects, :update_seen, fn backend, session ->
-        backend.update_seen(session, seen)
-      end)
+    with {:ok, seen} <- seen,
+         {:ok, result} <-
+           take_and_write(effects, :update_seen, fn backend, session ->
+             backend.update_seen(session, seen)
+           end) do
+      {:ok, seen_ahead(result, seen, DateTime.utc_now())}
     end
+  end
+
+  defp seen_ahead(result, seen, now) do
+    case DateTime.diff(seen, now, :second) do
+      ahead when ahead > 0 ->
+        Map.put(
+          result,
+          :note,
+          "seen_at is #{span(ahead)} after now (#{DateTime.to_iso8601(DateTime.truncate(now, :second))}): " <>
+            "notifications that arrive before then will read as seen"
+        )
+
+      _ ->
+        result
+    end
+  end
+
+  # A span of seconds in its two largest units: `1 min 50 s`, `3 d 4 h`.
+  defp span(seconds) do
+    [{86_400, "d"}, {3_600, "h"}, {60, "min"}, {1, "s"}]
+    |> Enum.map_reduce(seconds, fn {size, unit}, left ->
+      {{div(left, size), unit}, rem(left, size)}
+    end)
+    |> elem(0)
+    |> Enum.drop_while(fn {n, _} -> n == 0 end)
+    |> Enum.take(2)
+    |> Enum.reject(fn {n, _} -> n == 0 end)
+    |> Enum.map_join(" ", fn {n, unit} -> "#{n} #{unit}" end)
   end
 
   # --- saved feeds, live status, feed feedback ---
