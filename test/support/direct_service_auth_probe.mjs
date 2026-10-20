@@ -21,6 +21,8 @@ function jwt(payload) {
 const app=http.createServer((req,res)=>{try {
   appCalls++;
   assert.equal(req.headers['atproto-proxy'],undefined);
+  // A direct read names the town's moderation service, as a read through the PDS does.
+  assert.equal(req.headers['atproto-accept-labelers'],'did:plc:7voo3hmmzshypkn34iam3mg5;redact');
   assert.ok(!JSON.stringify(req.headers).includes('home.access.jwt'));
   assert.ok(!JSON.stringify(req.headers).includes('home-refresh'));
   const [h,p,s]=req.headers.authorization.slice(7).split('.');

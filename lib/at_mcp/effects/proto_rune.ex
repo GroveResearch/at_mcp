@@ -118,8 +118,9 @@ defmodule AtMcp.Effects.ProtoRune do
   A page of notification groups, each hydrated from the response's related
   views: who acted (handle and display name from their profile views) and the
   posts acted on (their text from their post views). A reply, quote or mention
-  also carries its post whole, as `get_posts` reads one, because the app's
-  Notifications screen shows it as a full post (social-app
+  also carries its post whole, as `get_posts` reads one but without moderation
+  marks (notifications are not marked yet), because the app's Notifications
+  screen shows it as a full post (social-app
   NotificationFeedItem.tsx at 62b95002, lines 212-233). The service names at
   most the first ten of each in a group; `count` is how many it holds.
   """

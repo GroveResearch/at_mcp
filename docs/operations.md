@@ -584,8 +584,8 @@ No stored data changes.
 - **A grouped read's reply, quote or mention carries its post whole** (#139):
   each entry of its `posts` has a `post` holding the post as `get_posts`
   reads one (time, counts, attachments, labels, this account's like, repost
-  and bookmark), and the text a model reads shows it as any read shows a
-  post. Other groups' `post` is null.
+  and bookmark), without `moderation` marks, and the text a model reads
+  shows it as any read shows a post. Other groups' `post` is null.
 
 - **Reads carry the labels of the labelers the account subscribes to** (#83):
   every read sends `atproto-accept-labelers` as the app does, so posts and
@@ -595,6 +595,7 @@ No stored data changes.
 - **`update_seen` with a `seen_at` after now** (#118) is still sent as given,
   and its result carries a `note` saying how far ahead of now it is, since
   notifications that arrive before then will read as seen.
+
 - **A post whose text holds an escaped `<` or backslash** (#147) reads, in the
   text a model reads, with one line under it saying that `\<` and `\\` are
   the author's `<` and `\`, and that an unescaped `<…>` is where a link or
