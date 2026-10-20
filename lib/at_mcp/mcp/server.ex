@@ -31,7 +31,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_notifications",
-       "Read recent notifications on this network for this account. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, and feed picks the screen's tab." do
+       "Read recent notifications on this network for this account. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, a reply, quote or mention carries its post whole as get_posts reads one, and feed picks the screen's tab." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.notification_page())
 

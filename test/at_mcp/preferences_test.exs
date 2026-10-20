@@ -706,8 +706,17 @@ defmodule AtMcp.PreferencesTest do
         %{
           "$type" => "app.bsky.feed.defs#postView",
           "uri" => "at://did:plc:alice/app.bsky.feed.post/r",
+          "cid" => "bafyreply",
+          "indexedAt" => "2026-10-17T00:00:00.000Z",
+          "likeCount" => 2,
+          "viewer" => %{"like" => "at://did:plc:self/app.bsky.feed.like/l"},
           "author" => %{"did" => "did:plc:alice", "handle" => "alice.test"},
           "record" => %{
+            "createdAt" => "2026-10-17T00:00:00.000Z",
+            "reply" => %{
+              "root" => %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "cid" => "bafyp"},
+              "parent" => %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "cid" => "bafyp"}
+            },
             "text" => "nice kite @self.test",
             "facets" => [
               %{
@@ -766,8 +775,21 @@ defmodule AtMcp.PreferencesTest do
                "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
                "parent" => "at://did:plc:self/app.bsky.feed.post/p",
                # The mention reads with the DID it links to, as in any post.
-               "posts" => [%{"text" => "nice kite @self.test <did:plc:self>"}]
+               "posts" => [%{"text" => "nice kite @self.test <did:plc:self>", "post" => whole}]
              } = reply
+
+      # The app shows a reply as a full post (#139), so the group carries it
+      # whole, as get_posts reads one; a like group's post stays a line.
+      assert %{
+               "uri" => "at://did:plc:alice/app.bsky.feed.post/r",
+               "cid" => "bafyreply",
+               "indexed_at" => "2026-10-17T00:00:00.000Z",
+               "like_count" => 2,
+               "reply_to" => "at://did:plc:self/app.bsky.feed.post/p",
+               "viewer" => %{"like" => "at://did:plc:self/app.bsky.feed.like/l"}
+             } = whole
+
+      assert [%{"post" => nil}] = like["posts"]
 
       {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
       schema = Enum.find(tools, &(&1.name == "get_notifications")).outputSchema
@@ -785,8 +807,13 @@ defmodule AtMcp.PreferencesTest do
                ~s(at://did:plc:self/app.bsky.feed.post/p · link: https://bsky.app/profile/did:plc:self/post/p · "a kite")
 
       assert text =~ "alice.test replied"
-      assert text =~ ~s("nice kite @self.test <did:plc:self>")
-      assert text =~ "replying to at://did:plc:self/app.bsky.feed.post/p"
+
+      # The reply reads as a post reads in any other read.
+      assert text =~
+               "\nThe post: @alice.test · 2026-10-17T00:00:00.000Z · replying to at://did:plc:self/app.bsky.feed.post/p\n> nice kite @self.test <did:plc:self>\n"
+
+      assert text =~ "uri: at://did:plc:alice/app.bsky.feed.post/r"
+      assert text =~ "cid: bafyreply"
     end
 
     test "reasons is the ungrouped read's and feed the grouped one's; nothing is sent for either" do

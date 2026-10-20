@@ -117,7 +117,10 @@ defmodule AtMcp.Effects.ProtoRune do
   @doc """
   A page of notification groups, each hydrated from the response's related
   views: who acted (handle and display name from their profile views) and the
-  posts acted on (their text from their post views). The service names at
+  posts acted on (their text from their post views). A reply, quote or mention
+  also carries its post whole, as `get_posts` reads one, because the app's
+  Notifications screen shows it as a full post (social-app
+  NotificationFeedItem.tsx at 62b95002, lines 212-233). The service names at
   most the first ten of each in a group; `count` is how many it holds.
   """
   @impl true
@@ -133,6 +136,9 @@ defmodule AtMcp.Effects.ProtoRune do
       {:error, reason} -> {:error, failure(reason)}
     end
   end
+
+  # The groups the app shows as a full post, not a line about one.
+  @whole_post_kinds ~w(replyNotification quoteNotification mentionNotification)
 
   # The raw body, camelCase as the service sent it.
   defp grouped(%{"groups" => groups} = response) when is_list(groups) do
@@ -189,6 +195,8 @@ defmodule AtMcp.Effects.ProtoRune do
         _ -> actors
       end
 
+    whole? = kind_name(kind["$type"]) in @whole_post_kinds
+
     posts =
       ([%{"post" => kind["post"], "viaRepost" => kind["viaRepost"]}] ++ items)
       |> Enum.filter(&is_binary(&1["post"]))
@@ -200,7 +208,8 @@ defmodule AtMcp.Effects.ProtoRune do
           # each mention with the DID it links to.
           "text" => post_text(get_in(views, [item["post"], "record"])),
           "viaRepost" => item["viaRepost"],
-          "parent" => item["parent"]
+          "parent" => item["parent"],
+          "post" => if(whole?, do: whole_post(Map.get(views, item["post"])))
         }
       end)
 
@@ -219,6 +228,11 @@ defmodule AtMcp.Effects.ProtoRune do
       "generator" => kind["generator"]
     })
   end
+
+  # A related post view read as any other read's post view is: snakelized, as
+  # the XRPC client returns every other response.
+  defp whole_post(%{"record" => %{}} = view), do: ProtoRune.Case.snakelize_enum(view)
+  defp whole_post(_view), do: nil
 
   defp post_text(%{"text" => text} = record) do
     {rendered, _facets} = AtMcp.RichText.render(text, record["facets"])

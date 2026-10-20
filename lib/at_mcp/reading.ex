@@ -1304,12 +1304,14 @@ defmodule AtMcp.Reading do
 
   # A group of notifications, as the app's Notifications screen shows it: who
   # acted and what they did, then each post it is about with its uri, which
-  # the write tools take.
+  # the write tools take. A reply, quote or mention the group carries whole
+  # reads as a post reads in any other read, as the app shows it as a post.
   defp notification(%{"kind" => kind, "actors" => actors} = group, label)
        when is_binary(kind) or is_list(actors) do
     actors = List.wrap(actors)
     posts = List.wrap(group["posts"])
     count = group["count"]
+    whole? = Enum.any?(posts, &is_map(&1["post"]))
 
     header =
       cat([
@@ -1333,25 +1335,33 @@ defmodule AtMcp.Reading do
 
     join(
       [header] ++
-        Enum.map(posts, fn post ->
-          cat([
-            ~L"  ",
-            join(
-              [
-                ident(post["uri"]),
-                web(post),
-                shown(post["text"]),
-                if(is_binary(post["via_repost"]),
-                  do: cat([~L"via your repost ", ident(post["via_repost"])])
-                ),
-                if(is_binary(post["parent"]), do: cat([~L"replying to ", ident(post["parent"])]))
-              ],
-              :dot
-            )
-          ])
+        Enum.map(posts, fn
+          %{"post" => %{} = whole} ->
+            post(whole, ~L"The post:")
+
+          post ->
+            cat([
+              ~L"  ",
+              join(
+                [
+                  ident(post["uri"]),
+                  web(post),
+                  shown(post["text"]),
+                  if(is_binary(post["via_repost"]),
+                    do: cat([~L"via your repost ", ident(post["via_repost"])])
+                  ),
+                  if(is_binary(post["parent"]),
+                    do: cat([~L"replying to ", ident(post["parent"])])
+                  )
+                ],
+                :dot
+              )
+            ])
         end) ++
         [
-          if(is_binary(group["parent"]), do: cat([~L"  replying to ", ident(group["parent"])])),
+          if(is_binary(group["parent"]) and not whole?,
+            do: cat([~L"  replying to ", ident(group["parent"])])
+          ),
           if(is_binary(group["starter_pack"]),
             do: cat([~L"  starter pack: ", ident(group["starter_pack"])])
           ),

@@ -19,6 +19,8 @@ defmodule AtMcp.Summary do
   entries leave out the keys the response did not carry, `{:list, :string}` a
   list of strings, and `{:viewer, relationships}` a nested viewer read by the
   same rules as a shape's own `viewer` (a quoted post's author's, say).
+  `{:shape, name}` is a whole shape declared here, extracted as `extract/2`
+  extracts it: a post a notification group names, say.
   `{:web, :profile}` and `{:web, :record}` are a web link built by
   `AtMcp.WebLink` from the strings at its paths, in order: an account's handle
   and DID, or a record's AT URI and its author's handle.
@@ -428,7 +430,9 @@ defmodule AtMcp.Summary do
      "The post's text as `text` renders a post's: links and mentions marked, the author's `<` and backslash escaped; null when the service sent no view of it"},
     {:via_repost, :string, [["viaRepost"]],
      "AT URI of this account's repost the action came through, when it did"},
-    {:parent, :string, [["parent"]], "AT URI of the post it replies to, when it is a reply"}
+    {:parent, :string, [["parent"]], "AT URI of the post it replies to, when it is a reply"},
+    {:post, {:shape, :post}, [["post"]],
+     "A reply, quote or mention: the post whole, as get_posts reads one, since the app shows it as a full post; null for other groups, or when the service sent no view of it"}
   ]
 
   @activity_subscription [
@@ -823,6 +827,7 @@ defmodule AtMcp.Summary do
   defp matches?(value, {:object, _fields}), do: is_map(value)
   defp matches?(value, {:list, _fields}), do: is_list(value)
   defp matches?(value, {:viewer, _relationships}), do: is_map(value)
+  defp matches?(value, {:shape, _shape}), do: is_map(value)
   defp matches?(value, {:list, _fields, :omit_null}), do: is_list(value)
   defp matches?(value, :string), do: is_binary(value)
   defp matches?(value, :integer), do: is_integer(value)
@@ -852,6 +857,8 @@ defmodule AtMcp.Summary do
 
   defp project(value, {:object, fields}),
     do: Map.new(fields, fn {key, type, paths, _doc} -> {key, read(value, paths, type)} end)
+
+  defp project(value, {:shape, shape}), do: extract(shape, value)
 
   defp project(value, _type), do: value
 
@@ -888,6 +895,10 @@ defmodule AtMcp.Summary do
   end
 
   defp property({:web, _kind}, doc), do: property(:string, doc)
+
+  defp property({:shape, shape}, doc),
+    do: %{"type" => ["object", "null"], "description" => doc, "properties" => properties(shape)}
+
   defp property(type, doc), do: %{"type" => [json_type(type), "null"], "description" => doc}
 
   defp json_type(:string), do: "string"
