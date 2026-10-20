@@ -1744,6 +1744,10 @@ defmodule AtMcp.Effects.ProtoRune do
   Publish a post. `opts` carries what a post can hold beyond its text:
   `:reply` (a parent AT URI), `:images`, `:quote` and `:langs`.
 
+  `facets: :none` publishes the text exactly as given, with no facets: no
+  handle is resolved and nothing in it becomes a mention, link or tag. The
+  default, `:detect`, builds them with `AtMcp.RichText.build/3`.
+
   `:images` entries are `%{data: binary, mime_type: String.t(), alt: String.t()}`;
   each is uploaded as a blob before the record is built, because the record
   references a blob rather than carrying one. A quote is an AT URI, whose CID
@@ -1753,7 +1757,7 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def prepare_post(session, text, opts) do
     with :ok <- validate_post_languages(opts),
-         {rich_text, unresolved} = AtMcp.RichText.build(text, session),
+         {rich_text, unresolved} = rich_text(text, session, Keyword.get(opts, :facets)),
          {:ok, opts} <- resolve_references(session, opts),
          {:ok, opts} <- resolve_reply_lists(session, opts),
          {:ok, images} <- upload_images(session, Keyword.get(opts, :images)),
@@ -1794,6 +1798,9 @@ defmodule AtMcp.Effects.ProtoRune do
          detail: error
        )}
   end
+
+  defp rich_text(text, _session, :none), do: {%{text: text, facets: []}, []}
+  defp rich_text(text, session, _detect), do: AtMcp.RichText.build(text, session)
 
   # This is a targeted lexicon-derived check, not full record validation.
   # proto_rune 0.5.3's generator drops array bounds, emits unresolved refs that

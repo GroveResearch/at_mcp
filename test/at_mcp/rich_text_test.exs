@@ -143,6 +143,38 @@ defmodule AtMcp.RichTextTest do
            }
   end
 
+  test "facets: :none publishes the text exactly as given, with no facets, post and reply alike",
+       %{calls: calls, session: session} do
+    text = "@alice.test said: see https://example.com #tag"
+
+    for opts <- [[], [reply: "at://did:plc:parent/app.bsky.feed.post/parent"]] do
+      Agent.update(calls, fn _ -> [] end)
+
+      assert {:ok, result} =
+               AtMcp.Effects.ProtoRune.post(session, text, [facets: :none] ++ opts)
+
+      assert result.text == text
+      refute Map.has_key?(result, :unresolved_mentions)
+      requests = Agent.get(calls, & &1)
+      refute Enum.any?(requests, &String.ends_with?(&1.path, "resolveHandle"))
+      record = List.last(requests).body["record"]
+      assert record["text"] == text
+      refute Map.has_key?(record, "facets")
+      assert Map.has_key?(record, "reply") == (opts != [])
+    end
+
+    # Without it, the same text is detected as before.
+    Agent.update(calls, fn _ -> [] end)
+    assert {:ok, _} = AtMcp.Effects.ProtoRune.post(session, text)
+    record = List.last(Agent.get(calls, & &1)).body["record"]
+
+    assert Enum.map(record["facets"], &slice(text, &1)) == [
+             "@alice.test",
+             "https://example.com",
+             "#tag"
+           ]
+  end
+
   test "token boundaries avoid email and URL fragments; invalid hashtags remain plain", %{
     session: session
   } do

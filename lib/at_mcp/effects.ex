@@ -877,12 +877,19 @@ defmodule AtMcp.Effects do
   @doc "Whether a write verb counts against the account's write quota."
   def counts_against_quota?(verb) when is_atom(verb), do: verb in @publishing
 
+  @doc """
+  Publish a post. `opts` are `AtMcp.Effects.ProtoRune.prepare_post/3`'s and
+  `AtMcp.Interactions.post_options/2`'s. `facets: :none` publishes `text`
+  exactly as given, with no mention, link or tag facets, for a caller that
+  quotes text it did not write; the MCP tools do not offer it (decisions.md).
+  """
   def post(effects, text, opts \\ []) when is_binary(text) and is_list(opts),
     do: publish(effects, :post, text, opts)
 
   @doc """
   Reply to a post. A reply is a post with a parent, so it is the same write
-  with the same options; only the tool surface names it separately.
+  with the same options, `facets: :none` included; only the tool surface names
+  it separately.
   """
   def reply(effects, uri, text, opts \\ []) when is_binary(uri) and is_binary(text),
     do: publish(effects, :reply, text, Keyword.put(opts, :reply, uri))
