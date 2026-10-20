@@ -350,6 +350,20 @@ defmodule AtMcp.ModerationTest do
       assert [%{labelers: nil}] = FakePDS.sent(pds, "app.bsky.actor.putPreferences")
     end
 
+    test "a subscribed labeler that is not a DID is left out of the header" do
+      # The AppView drops the whole header when one of its DIDs is invalid,
+      # and a line break would make the read fail.
+      assert AtMcp.AcceptLabelers.value([
+               @labeler,
+               "not a did",
+               "did:plc:evil\r\nx-injected: 1",
+               "did:plc:trailing\n",
+               nil,
+               @labeler,
+               "did:web:labeler.example"
+             ]) == "#{@bsky_moderation};redact, #{@labeler}, did:web:labeler.example"
+    end
+
     test "subscribe_labeler adds the labeler as addLabeler does; the network's own and a non-labeler are refused unsent" do
       %{effects: effects, pds: pds} =
         pds(preferences: [@odd], answers: services([labeler_view(@labeler)]))

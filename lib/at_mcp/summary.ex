@@ -432,7 +432,7 @@ defmodule AtMcp.Summary do
      "AT URI of this account's repost the action came through, when it did"},
     {:parent, :string, [["parent"]], "AT URI of the post it replies to, when it is a reply"},
     {:post, {:shape, :post}, [["post"]],
-     "A reply, quote or mention: the post whole, as get_posts reads one, since the app shows it as a full post; null for other groups, or when the service sent no view of it"}
+     "A reply, quote or mention: the post whole, as get_posts reads one but without moderation marks, since the app shows it as a full post; null for other groups, or when the service sent no view of it"}
   ]
 
   @activity_subscription [

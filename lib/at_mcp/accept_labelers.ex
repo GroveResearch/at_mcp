@@ -15,12 +15,15 @@ defmodule AtMcp.AcceptLabelers do
 
   The subscribed labelers are those the account's preferences named when
   AtMcp last read or wrote them (`AtMcp.ATProto.preferences_as_stored/1` and
-  `put_preferences_as_stored/2`). Every read that marks moderation reads the
-  preferences, so a change another client makes reaches the next read after
-  that one. The first read of an account reads its preferences first. If that
-  fails, the read names the network's moderation service alone, as the app
-  does before it has loaded the preferences, and the next read tries again.
-  A direct read (`AT_MCP_APPVIEW_READS=direct`) does not read them first,
+  `put_preferences_as_stored/2`). Besides the settings tools, only a read that
+  marks moderation reads the preferences, so only such a read refreshes the
+  list. A change another client makes reaches the reads that follow the next
+  one that marks moderation; until then every other read (notifications,
+  lists, feeds) names the labelers as they were last read, however long ago.
+  The first read of an account reads its preferences first. If that fails,
+  the read names the network's moderation service alone, as the app does
+  before it has loaded the preferences, and the next read tries again. A
+  direct read (`AT_MCP_APPVIEW_READS=direct`) does not read them first,
   since that read goes through the PDS's proxy, which the direct route exists
   to do without; it names what is already known, or the network's service
   alone.
@@ -77,13 +80,20 @@ defmodule AtMcp.AcceptLabelers do
 
   @doc """
   The header's value: the network's own labelers with `;redact`, then the
-  subscribed ones, each once.
+  subscribed ones, each once. A subscribed one that is not a DID is left out:
+  the AppView drops the whole header when one of its DIDs is invalid, and a
+  line break would make the read fail.
   """
   def value(subscribed) do
     app = AtMcp.Moderation.app_labelers()
 
-    (Enum.map(app, &(&1 <> ";redact")) ++
-       Enum.reject(Enum.uniq(subscribed), &(&1 in app)))
+    subscribed =
+      subscribed
+      |> Enum.filter(&AtMcp.WebLink.did?/1)
+      |> Enum.uniq()
+      |> Enum.reject(&(&1 in app))
+
+    (Enum.map(app, &(&1 <> ";redact")) ++ subscribed)
     |> Enum.join(", ")
   end
 

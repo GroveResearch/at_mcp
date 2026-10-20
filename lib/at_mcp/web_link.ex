@@ -105,7 +105,8 @@ defmodule AtMcp.WebLink do
           handle
         )
 
-  defp did?(did),
+  @doc "Whether `did` has the DID syntax of the AT Protocol specification."
+  def did?(did),
     do: is_binary(did) and Regex.match?(~r/\Adid:[a-z]+:[a-zA-Z0-9._:%-]*[a-zA-Z0-9._-]\z/, did)
 
   # A segment as the app writes it: the app joins the handle or DID and the
