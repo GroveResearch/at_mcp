@@ -536,7 +536,15 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
-### From 0.2.11 to the next release
+### From 0.2.12 to the next release
+
+No stored data changes.
+
+- **`update_seen` with a `seen_at` after now** (#118) is still sent as given,
+  and its result carries a `note` saying how far ahead of now it is, since
+  notifications that arrive before then will read as seen.
+
+### From 0.2.11 to 0.2.12
 
 No stored data changes. What a client or a delivery receiver reads changes
 (#132, #133, #134, #135):
