@@ -162,7 +162,12 @@ defmodule AtMcp.NetworkTest do
 
       assert {:ok, _} = AtMcp.Effects.ProtoRune.get_profile(session_against(port), "self.example")
 
-      assert Agent.get(paths, & &1) == ["/xrpc/town.delve.actor.getProfile"]
+      # The first read of an account reads which labelers to ask for
+      # (AtMcp.AcceptLabelers), on the same namespace.
+      assert Agent.get(paths, & &1) == [
+               "/xrpc/town.delve.actor.getPreferences",
+               "/xrpc/town.delve.actor.getProfile"
+             ]
     end
 
     test "and by default asks for app.bsky's, exactly as before" do
@@ -170,7 +175,10 @@ defmodule AtMcp.NetworkTest do
 
       assert {:ok, _} = AtMcp.Effects.ProtoRune.get_profile(session_against(port), "self.example")
 
-      assert Agent.get(paths, & &1) == ["/xrpc/app.bsky.actor.getProfile"]
+      assert Agent.get(paths, & &1) == [
+               "/xrpc/app.bsky.actor.getPreferences",
+               "/xrpc/app.bsky.actor.getProfile"
+             ]
     end
 
     # Every read AtMcp makes goes through one of these, so naming them one by one
@@ -213,7 +221,10 @@ defmodule AtMcp.NetworkTest do
       AtMcp.ATProto.search_starter_packs(session, %{q: "x"})
       AtMcp.ATProto.get_starter_packs_with_membership(session, %{actor: "self.example"})
 
-      asked = Agent.get(paths, & &1)
+      # This PDS answers nothing a read can take preferences from, so each read
+      # first asks for them again (AtMcp.AcceptLabelers).
+      asked =
+        Agent.get(paths, & &1) |> Enum.reject(&(&1 == "/xrpc/town.delve.actor.getPreferences"))
 
       assert length(asked) == 32
       assert Enum.all?(asked, &String.starts_with?(&1, "/xrpc/town.delve."))

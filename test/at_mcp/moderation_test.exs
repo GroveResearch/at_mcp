@@ -312,6 +312,44 @@ defmodule AtMcp.ModerationTest do
   end
 
   describe "labelers and label settings" do
+    # #83: the AppView puts on a response only the labels of the labelers a
+    # request names, so a read names the account's, as the app does.
+    test "a read asks for the labels of the network's labeler and the account's own, and follows a subscription" do
+      %{effects: effects, pds: pds} =
+        pds(
+          preferences: [
+            %{"$type" => "app.bsky.actor.defs#labelersPref", "labelers" => [%{"did" => @labeler}]}
+          ],
+          answers:
+            Map.put(
+              services([labeler_view(@labeler), labeler_view("did:plc:second")]),
+              "app.bsky.feed.getPosts",
+              {200, %{posts: []}}
+            )
+        )
+
+      uri = "at://did:plc:alice/app.bsky.feed.post/p"
+      assert {:ok, _} = AtMcp.Effects.get_posts(effects, [uri])
+      assert {:ok, _} = AtMcp.Effects.get_posts(effects, [uri])
+
+      # The account's settings are read once, before the first read; every
+      # read names the network's own labeler with redact, then the account's.
+      assert [%{labelers: header}, %{labelers: header}] =
+               FakePDS.sent(pds, "app.bsky.feed.getPosts")
+
+      assert header == "#{@bsky_moderation};redact, #{@labeler}"
+      assert [%{labelers: nil} | _] = FakePDS.sent(pds, "app.bsky.actor.getPreferences")
+
+      assert {:ok, _} = AtMcp.Effects.subscribe_labeler(effects, "did:plc:second", true)
+      assert {:ok, _} = AtMcp.Effects.get_posts(effects, [uri])
+
+      assert %{labelers: "#{@bsky_moderation};redact, #{@labeler}, did:plc:second"} =
+               List.last(FakePDS.sent(pds, "app.bsky.feed.getPosts"))
+
+      # A write names none.
+      assert [%{labelers: nil}] = FakePDS.sent(pds, "app.bsky.actor.putPreferences")
+    end
+
     test "subscribe_labeler adds the labeler as addLabeler does; the network's own and a non-labeler are refused unsent" do
       %{effects: effects, pds: pds} =
         pds(preferences: [@odd], answers: services([labeler_view(@labeler)]))

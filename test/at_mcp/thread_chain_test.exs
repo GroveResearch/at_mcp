@@ -35,17 +35,23 @@ defmodule AtMcp.ThreadChainTest do
     def request(:get, url, _opts) do
       uri = URI.parse(url)
       query = URI.decode_query(uri.query || "")
-      send(Application.fetch_env!(:at_mcp, :thread_chain_test_owner), {:request, uri.path, query})
-
-      # The account's settings, which marking what the app would hide reads.
+      # The account's settings, which marking what the app would hide reads,
+      # and the first read of an account reads for which labelers to ask
+      # (AtMcp.AcceptLabelers). Only the thread's own reads are counted here.
       body =
-        if String.ends_with?(uri.path, ".actor.getPreferences"),
-          do: %{"preferences" => []},
-          else:
-            AtMcp.ThreadChainTest.body(
-              Application.fetch_env!(:at_mcp, :thread_chain_test_shape),
-              query["uri"]
-            )
+        if String.ends_with?(uri.path, ".actor.getPreferences") do
+          %{"preferences" => []}
+        else
+          send(
+            Application.fetch_env!(:at_mcp, :thread_chain_test_owner),
+            {:request, uri.path, query}
+          )
+
+          AtMcp.ThreadChainTest.body(
+            Application.fetch_env!(:at_mcp, :thread_chain_test_shape),
+            query["uri"]
+          )
+        end
 
       {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
     end

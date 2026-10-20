@@ -581,6 +581,11 @@ to put the copy back.
 
 No stored data changes.
 
+- **Reads carry the labels of the labelers the account subscribes to** (#83):
+  every read sends `atproto-accept-labelers` as the app does, so posts and
+  accounts carry labels from those labelers, not only from the network's own.
+  An account's first read after a start reads its preferences first.
+
 - **`update_seen` with a `seen_at` after now** (#118) is still sent as given,
   and its result carries a `note` saying how far ahead of now it is, since
   notifications that arrive before then will read as seen.

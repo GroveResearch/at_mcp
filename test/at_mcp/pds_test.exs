@@ -86,8 +86,11 @@ defmodule AtMcp.PDSTest do
 
       requests = Agent.get(calls, & &1)
 
+      # The first read reads which labelers to ask for (AtMcp.AcceptLabelers);
+      # the read after the re-login already knows.
       assert Enum.map(requests, & &1.path) == [
                "/xrpc/com.atproto.server.createSession",
+               "/xrpc/app.bsky.actor.getPreferences",
                "/xrpc/app.bsky.actor.getProfile",
                "/xrpc/com.atproto.server.refreshSession",
                "/xrpc/com.atproto.server.createSession",
@@ -95,8 +98,8 @@ defmodule AtMcp.PDSTest do
                "/xrpc/app.bsky.actor.getPreferences"
              ]
 
-      assert Enum.at(requests, 2).body == ""
-      assert Enum.at(requests, 2).auth == ["Bearer refresh-1"]
+      assert Enum.at(requests, 3).body == ""
+      assert Enum.at(requests, 3).auth == ["Bearer refresh-1"]
 
       for request <- Enum.filter(requests, &String.ends_with?(&1.path, "createSession")) do
         assert Jason.decode!(request.body) == %{

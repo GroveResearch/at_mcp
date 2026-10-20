@@ -44,10 +44,11 @@ defmodule AtMcp.Test.DevNetwork do
 
   @doc """
   Label the record at `uri` (`cid`) with `value` as the network's moderation
-  service (ozone), where the AppView reads labels.
+  service (ozone), or as the labeler `src` names, where the AppView reads
+  labels.
   """
-  def label(pid, uri, cid, value),
-    do: GenServer.call(pid, {:label, uri, cid, value}, @sync_timeout + 1_000)
+  def label(pid, uri, cid, value, src \\ nil),
+    do: GenServer.call(pid, {:label, uri, cid, value, src}, @sync_timeout + 1_000)
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
@@ -79,8 +80,8 @@ defmodule AtMcp.Test.DevNetwork do
     {:noreply, %{state | waiting: state.waiting ++ [{:report, from}]}}
   end
 
-  def handle_call({:label, uri, cid, value}, from, state) do
-    Port.command(state.port, "label #{uri} #{cid} #{value}\n")
+  def handle_call({:label, uri, cid, value, src}, from, state) do
+    Port.command(state.port, Enum.join(["label", uri, cid, value | List.wrap(src)], " ") <> "\n")
     {:noreply, %{state | waiting: state.waiting ++ [{:label, from}]}}
   end
 

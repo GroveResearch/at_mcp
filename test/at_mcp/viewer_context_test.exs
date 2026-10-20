@@ -32,6 +32,11 @@ defmodule AtMcp.ViewerContextTest do
 
       body =
         cond do
+          # The account's settings: which labelers a read asks for, and what
+          # the app would hide.
+          String.contains?(url, "getPreferences") ->
+            %{"preferences" => []}
+
           String.contains?(url, "getPostThread") ->
             %{
               "thread" => %{
