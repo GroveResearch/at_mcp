@@ -63,6 +63,90 @@ defmodule AtMcp.WriteQuotaTest do
     GenServer.stop(reopened)
   end
 
+  test "an account's own limit and window apply to it alone; one that sets none has the server's",
+       %{quota: quota, clock: clock} do
+    start = fn did, opts ->
+      {:ok, effects} =
+        AtMcp.Test.QuotaFixture.start_effects(
+          [backend: AtMcp.Test.MockBackend, backend_state: %{did: did}, write_quota: quota] ++
+            opts
+        )
+
+      effects
+    end
+
+    own = start.("did:plc:own", write_limit: 3, write_window_seconds: 30)
+    limit_only = start.("did:plc:limit-only", write_limit: 1)
+    server = start.("did:plc:server", [])
+
+    for _ <- 1..3, do: assert({:ok, _} = AtMcp.Effects.post(own, "mine"))
+    assert {:error, {:write_quota_exhausted, 130}} = AtMcp.Effects.post(own, "fourth")
+    assert {:ok, _} = AtMcp.Effects.post(limit_only, "one")
+    assert {:error, {:write_quota_exhausted, 110}} = AtMcp.Effects.post(limit_only, "two")
+    for _ <- 1..2, do: assert({:ok, _} = AtMcp.Effects.post(server, "default"))
+    assert {:error, {:write_quota_exhausted, 110}} = AtMcp.Effects.post(server, "third")
+
+    # What identity_status reports is the limit the account is held to.
+    assert {:ok, %{write_quota: own_status}} = AtMcp.MCP.Tools.identity_status(own)
+    assert %{limit: 3, window_seconds: 30, used: 3} = own_status
+    assert own_status.resets_at == DateTime.to_iso8601(DateTime.from_unix!(130))
+
+    assert %{limit: 1, window_seconds: 10, used: 1} = AtMcp.Effects.quota_status(limit_only)
+    assert %{limit: 2, window_seconds: 10, used: 2} = AtMcp.Effects.quota_status(server)
+
+    # The server's window has ended; the account's own has not.
+    Agent.update(clock, fn _ -> 115 end)
+    assert {:ok, _} = AtMcp.Effects.post(server, "next window")
+    assert {:error, {:write_quota_exhausted, 130}} = AtMcp.Effects.post(own, "still closed")
+  end
+
+  test "a window shortened while open ends when the new length says, and status says so", %{
+    quota: quota,
+    clock: clock,
+    dir: dir,
+    opts: opts
+  } do
+    did = "did:plc:shortened"
+    day = [limit: 100, window_seconds: 86_400]
+    hour = [limit: 16, window_seconds: 3600]
+    for _ <- 1..20, do: assert(:ok = AtMcp.WriteQuota.reserve(quota, did, day))
+
+    # Opened at 100 under a day; held to 16 an hour, it ends at 3700, not 86500.
+    Agent.update(clock, fn _ -> 200 end)
+    assert {:error, {:write_quota_exhausted, 3700}} = AtMcp.WriteQuota.reserve(quota, did, hour)
+
+    assert %{limit: 16, window_seconds: 3600, used: 20, resets_at_unix: 3700} =
+             AtMcp.WriteQuota.status(quota, did, hour)
+
+    Agent.update(clock, fn _ -> 3700 end)
+    assert %{used: 0, resets_at_unix: nil} = AtMcp.WriteQuota.status(quota, did, hour)
+    assert :ok = AtMcp.WriteQuota.reserve(quota, did, hour)
+    assert %{used: 1, resets_at_unix: 7300} = AtMcp.WriteQuota.status(quota, did, hour)
+
+    # A longer window keeps the open one's end; the new length is the next one's.
+    assert %{resets_at_unix: 7300} = AtMcp.WriteQuota.status(quota, did, day)
+
+    # What the ledger keeps reads back the same after a restart.
+    GenServer.stop(quota)
+    {:ok, reopened} = AtMcp.WriteQuota.start_link(Keyword.put(opts, :state_dir, dir))
+    assert %{used: 1, resets_at_unix: 7300} = AtMcp.WriteQuota.status(reopened, did, hour)
+    GenServer.stop(reopened)
+  end
+
+  test "an account's own limit must be positive integers" do
+    for bad <- [
+          [write_limit: 0],
+          [write_window_seconds: -1],
+          [write_limit: "16"],
+          [write_limit: nil],
+          [write_window_seconds: nil]
+        ] do
+      assert_raise ArgumentError, fn -> AtMcp.Effects.write_limits!(bad) end
+    end
+
+    assert AtMcp.Effects.write_limits!([]) == []
+  end
+
   test "unavailable quota fails before reserving an Effects write", %{quota: quota} do
     {:ok, effects} =
       AtMcp.Test.QuotaFixture.start_effects(

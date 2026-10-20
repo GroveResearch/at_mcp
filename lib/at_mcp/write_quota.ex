@@ -37,9 +37,27 @@ defmodule AtMcp.WriteQuota do
   against how accounts publish. An hour bounds a loop to 16 posts before it
   stops, and an account that reaches the limit can write again within the
   hour. It is a cautious starting point, not a measured one. An account in a
-  busy conversation reaches it at one reply every four minutes, and an
-  operator who expects that raises `AT_MCP_WRITE_LIMIT` or
-  `AT_MCP_WRITE_WINDOW_SECONDS` (`config/runtime.exs`).
+  busy conversation reaches it at one reply every four minutes.
+
+  ## Each account's own limit
+
+  Accounts on one service are different agents with different needs, so the
+  limit belongs to the account. An account in the accounts file may carry a
+  `write_quota` (`at_mcp-accounts write-quota NAME`, `AtMcp.AccountConfig`);
+  an embedding host passes `:write_limit` and `:write_window_seconds` to
+  `AtMcp.Identities.start_identity/1`. The account's `AtMcp.Effects` passes
+  them on every `reserve/3` and `status/3`. What an account leaves unset comes
+  from this server's own options, which a release sets from
+  `AT_MCP_WRITE_LIMIT` and `AT_MCP_WRITE_WINDOW_SECONDS`
+  (`config/runtime.exs`): they are the default for every account that sets
+  none, so an installation where no account sets one behaves as before.
+
+  The ledger is still one count per DID. The limit is read on every call, so a
+  changed limit applies to the window already open. A shorter window also
+  applies to the window already open, which then ends that much sooner after
+  it opened, so an account is never held longer than the window it is told
+  about; a longer window applies from the next window. Aliases of one DID share the count; each is
+  checked against its own limit, so an embedding host gives them the same one.
   """
   use GenServer
 
@@ -47,21 +65,41 @@ defmodule AtMcp.WriteQuota do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  def reserve(server \\ __MODULE__, did)
+  @doc """
+  Take one slot for `did`.
 
-  def reserve(server, did) when is_binary(did) and did != "" do
-    GenServer.call(server, {:reserve, did})
+  `limits` is the account's own `:limit` and `:window_seconds` ("Each
+  account's own limit"); either left out is the server's.
+  """
+  def reserve(server \\ __MODULE__, did, limits \\ [])
+
+  def reserve(server, did, limits) when is_binary(did) and did != "" do
+    GenServer.call(server, {:reserve, did, limits})
   catch
     :exit, _ -> {:error, :write_quota_unavailable}
   end
 
-  def reserve(_server, _did), do: {:error, :account_identity_unavailable}
+  def reserve(_server, _did, _limits), do: {:error, :account_identity_unavailable}
 
-  def status(server \\ __MODULE__, did) do
-    GenServer.call(server, {:status, did})
+  @doc "The limit, window and usage that apply to `did`; `limits` as in `reserve/3`."
+  def status(server \\ __MODULE__, did, limits \\ []) do
+    GenServer.call(server, {:status, did, limits})
   catch
     :exit, _ -> {:error, :write_quota_unavailable}
   end
+
+  @doc """
+  Whether `limits` is an account's own limits: a keyword list holding at most
+  `:limit` and `:window_seconds`, each a positive integer.
+  """
+  def valid_limits?(limits) when is_list(limits) do
+    Keyword.keyword?(limits) and
+      Enum.all?(limits, fn {key, value} ->
+        key in [:limit, :window_seconds] and is_integer(value) and value > 0
+      end)
+  end
+
+  def valid_limits?(_), do: false
 
   @impl true
   def init(opts) do
@@ -95,12 +133,18 @@ defmodule AtMcp.WriteQuota do
   end
 
   @impl true
-  def handle_call({:reserve, did}, _from, state) do
+  def handle_call({:reserve, did, limits}, _from, state) do
+    {limit, seconds} = applying(state, limits)
     now = max(state.clock.(), state.data["last_seen"])
     accounts = Map.reject(state.data["accounts"], fn {_, entry} -> entry["ends_at"] <= now end)
-    entry = Map.get(accounts, did, %{"used" => 0, "ends_at" => now + state.seconds})
 
-    if entry["used"] >= state.limit do
+    entry =
+      case open_window(accounts[did], seconds, now) do
+        nil -> %{"used" => 0, "opened_at" => now, "ends_at" => now + seconds}
+        entry -> entry
+      end
+
+    if entry["used"] >= limit do
       {:reply, {:error, {:write_quota_exhausted, entry["ends_at"]}}, state}
     else
       entry = Map.update!(entry, "used", &(&1 + 1))
@@ -110,19 +154,42 @@ defmodule AtMcp.WriteQuota do
     end
   end
 
-  def handle_call({:status, did}, _from, state) do
+  def handle_call({:status, did, limits}, _from, state) do
+    {limit, seconds} = applying(state, limits)
     now = max(state.clock.(), state.data["last_seen"])
-    entry = state.data["accounts"][did]
-    active = entry && entry["ends_at"] > now
+    entry = open_window(state.data["accounts"][did], seconds, now)
 
     {:reply,
      %{
-       limit: state.limit,
-       window_seconds: state.seconds,
-       used: if(active, do: entry["used"], else: 0),
-       resets_at_unix: if(active, do: entry["ends_at"], else: nil)
+       limit: limit,
+       window_seconds: seconds,
+       used: if(entry, do: entry["used"], else: 0),
+       resets_at_unix: if(entry, do: entry["ends_at"], else: nil)
      }, state}
   end
+
+  # The account's open window under the window length it is held to now, or
+  # nil when none is open. A window shortened since it opened ends that much
+  # sooner after it opened, so the account is never held to a longer window
+  # than the one it is told about; a lengthened one keeps the end it had, and
+  # the new length applies from the next window. An entry written before
+  # windows recorded when they opened keeps its end.
+  defp open_window(nil, _seconds, _now), do: nil
+
+  defp open_window(entry, seconds, now) do
+    ends_at =
+      case entry["opened_at"] do
+        opened when is_integer(opened) -> min(entry["ends_at"], opened + seconds)
+        _ -> entry["ends_at"]
+      end
+
+    if ends_at > now, do: %{entry | "ends_at" => ends_at}, else: nil
+  end
+
+  defp applying(state, limits),
+    do:
+      {Keyword.get(limits, :limit, state.limit),
+       Keyword.get(limits, :window_seconds, state.seconds)}
 
   defp decode!(bytes) do
     %{"version" => 1, "last_seen" => seen, "accounts" => accounts} = data = Jason.decode!(bytes)
@@ -132,7 +199,9 @@ defmodule AtMcp.WriteQuota do
       Enum.all?(accounts, fn {did, entry} ->
         is_binary(did) and did != "" and is_map(entry) and
           is_integer(entry["used"]) and entry["used"] >= 0 and
-          is_integer(entry["ends_at"]) and entry["ends_at"] > 0
+          is_integer(entry["ends_at"]) and entry["ends_at"] > 0 and
+          (not Map.has_key?(entry, "opened_at") or
+             (is_integer(entry["opened_at"]) and entry["opened_at"] >= 0))
       end)
 
     data

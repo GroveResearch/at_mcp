@@ -241,6 +241,37 @@ correct the file and reconnect explicitly. `remove` deletes saved credentials
 and keeps the account's history and its disconnected state. Neither `remove` nor `disconnect`
 revokes the app password at the PDS.
 
+### An account's own write limit
+
+Each account's publishing writes (posts, replies and reposts) are limited per
+window. `AT_MCP_WRITE_LIMIT` and `AT_MCP_WRITE_WINDOW_SECONDS` (16 per 3600
+seconds) are the limit for every account that does not set its own. Accounts
+on one service are often different agents with different needs, so an account
+can have its own:
+
+```sh
+at_mcp-accounts write-quota grug --limit 40 --window-seconds 3600
+at_mcp-accounts write-quota reader --limit 4
+at_mcp-accounts write-quota grug --default
+at_mcp-accounts reload
+```
+
+The limit is saved as an optional `write_quota` field on the account in the
+accounts file (`{"limit": 40, "window_seconds": 3600}`), and `list` shows it.
+Each command replaces the account's whole limit: a value it does not give
+(`--window-seconds` above, for `reader`) is the service's, and `--default`
+removes the field, so the account uses the service's limit and window again.
+Values are positive integers. `reload` applies the change by replacing that
+account, as it does for any changed account; other accounts keep running.
+
+The count belongs to the account's DID and survives the change. A new limit
+applies to the window already open, so lowering it below what the account has
+used in that window refuses its writes until the window ends. A shorter window
+applies to the open one too: it ends that much sooner after it opened (a day's
+window opened an hour ago, cut to an hour, ends now). A longer window applies
+from the next window. `identity_status` reports the limit and window the
+account is held to, with its usage and the time the open window ends.
+
 ### Replace an app password
 
 An app password is the account's credential at its PDS. Three other things
@@ -571,15 +602,40 @@ account before writing again.
 
 No release so far changes the format of what AtMcp stores (the accounts file,
 the grants file, the write quota and the delivery queue), so an upgrade
-changes no data and AtMcp keeps no copy of it. CI's upgrade check writes to
+changes no data and AtMcp keeps no copy of it. The next release adds an
+optional field to the accounts file, which an older release refuses; its
+section below says what to remove before rolling back. CI's upgrade check writes to
 each of these under the older release and the newer one and reads them back
 under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
-### From 0.2.12 to the next release
+### From 0.2.13 to the next release
 
-No stored data changes.
+The accounts file changes only if you give an account its own write limit.
+The write quota file also records when each account's window opened, a field
+0.2.13 reads past.
+
+- **Each account can have its own write limit** (#159):
+  `at_mcp-accounts write-quota NAME --limit N [--window-seconds S]`, then
+  `reload` ([An account's own write limit](#an-accounts-own-write-limit)). It
+  is saved as an optional `write_quota` field on that account in the accounts
+  file. An account without one keeps `AT_MCP_WRITE_LIMIT` and
+  `AT_MCP_WRITE_WINDOW_SECONDS`, so upgrading changes no account's limit until
+  you set one. Embedding hosts pass `write_limit:` and `write_window_seconds:`
+  to `AtMcp.Identities.start_identity/1`.
+
+  **Rolling back after setting one needs one step first.** 0.2.13 and older
+  refuse an accounts file holding a field they do not know: the service does
+  not start (its log ends with `AtMcp account configuration:
+  :config_corrupt`), and their `at_mcp-accounts` refuses the file too, so it
+  cannot take the field out. Before rolling back, while the newer release is
+  still installed, run `at_mcp-accounts write-quota NAME --default` for every
+  account that has a `write_quota` (`list` shows them), then `reload`; the
+  accounts then use the service's limit, as 0.2.13 does. If you have already
+  rolled back, put the newer release back and do this, or delete each
+  `"write_quota"` entry from the accounts file by hand. A service that never
+  ran `write-quota` rolls back as before. CI's upgrade check takes this step.
 
 - **A grouped read's reply, quote or mention carries its post whole** (#139):
   each entry of its `posts` has a `post` holding the post as `get_posts`
@@ -592,14 +648,18 @@ No stored data changes.
   accounts carry labels from those labelers, not only from the network's own.
   An account's first read after a start reads its preferences first.
 
-- **`update_seen` with a `seen_at` after now** (#118) is still sent as given,
-  and its result carries a `note` saying how far ahead of now it is, since
-  notifications that arrive before then will read as seen.
-
 - **A post whose text holds an escaped `<` or backslash** (#147) reads, in the
   text a model reads, with one line under it saying that `\<` and `\\` are
   the author's `<` and `\`, and that an unescaped `<…>` is where a link or
   mention points.
+
+### From 0.2.12 to 0.2.13
+
+No stored data changes.
+
+- **`update_seen` with a `seen_at` after now** (#118) is still sent as given,
+  and its result carries a `note` saying how far ahead of now it is, since
+  notifications that arrive before then will read as seen.
 
 ### From 0.2.11 to 0.2.12
 

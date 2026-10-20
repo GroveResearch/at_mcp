@@ -199,11 +199,17 @@ class Install:
         self.manager.run(["ln", "-sfn", "releases/" + name, self.current])
         self.manager.release_command = "kite" if self.legacy else "at_mcp"
 
-    def command(self, args, check=True, timeout=120, stdin=None):
-        """A command of the current release, run from a shell as Operations says."""
-        release = os.path.realpath(self.current)
-        prefix = "KITE_ENV_FILE=" if self.legacy else "AT_MCP_ENV_FILE="
-        if self.legacy:
+    def command(self, args, check=True, timeout=120, stdin=None, release=None):
+        """A command of the current release, or of the unpacked `release` named,
+        run from a shell as Operations says."""
+        if release is None:
+            release = os.path.realpath(self.current)
+            legacy = self.legacy
+        else:
+            release = str(self.manager.prefix / "releases" / release)
+            legacy = not (pathlib.Path(release) / "bin" / "at_mcp").exists()
+        prefix = "KITE_ENV_FILE=" if legacy else "AT_MCP_ENV_FILE="
+        if legacy:
             args = [arg.replace("bin/at_mcp", "bin/kite").replace("AtMcp.", "Kite.") for arg in args]
         argv = ["env", prefix + str(self.env_path), os.path.join(release, args[0])] + args[1:]
         p = self.manager.as_service_user(argv, timeout=timeout, stdin=stdin)
@@ -211,8 +217,8 @@ class Install:
             raise RuntimeError((args, p.returncode, p.stderr[-4000:], p.stdout[-2000:]))
         return p
 
-    def accounts(self, args, stdin=None, check=True):
-        p = self.command(["bin/at_mcp-accounts"] + args, stdin=stdin, check=check)
+    def accounts(self, args, stdin=None, check=True, release=None):
+        p = self.command(["bin/at_mcp-accounts"] + args, stdin=stdin, check=check, release=release)
         return json.loads(p.stdout) if check else p
 
     def ready(self):
@@ -240,6 +246,10 @@ class Install:
         """One write through the account's owner, so the write quota records it."""
         return self.rpc('{:ok, %%{uri: uri}} = AtMcp.Effects.post(AtMcp.Identity.effects_name("%s"), '
                         '"upgrade check"); IO.puts(uri)' % name)
+
+    def write_limit(self, name):
+        """The write limit the running account is held to."""
+        return int(self.rpc('IO.puts(AtMcp.Effects.quota_status(AtMcp.Identity.effects_name("%s")).limit)' % name))
 
     def writes_used(self, name):
         return int(self.rpc('IO.puts(AtMcp.WriteQuota.status("did:plc:%s").used)' % name))

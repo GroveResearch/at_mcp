@@ -413,12 +413,17 @@ hour by default, shared by every client, alias and reconnect. The default
 guards against an agent publishing faster than a person would notice and stop
 it. The number is the per-turn budget an earlier version had, kept when the
 bound moved to the hour, and has not been measured; `AtMcp.WriteQuota`'s
-moduledoc gives the reasoning, and `AT_MCP_WRITE_LIMIT` changes it. The quota bounds
+moduledoc gives the reasoning, and `AT_MCP_WRITE_LIMIT` changes it. Accounts on
+one service are different agents with different needs, so each account can
+have its own limit and window, saved on the account
+([Operations](operations.md#an-accounts-own-write-limit)) or given by an
+embedding host; the service's numbers are the default for an account that
+sets none. The quota bounds
 what the account publishes, so only `post`, `reply` and `repost` count
 (`AtMcp.Effects.publishing/0`); a like, a follow, a block, a mute, a deletion, a
 profile edit and marking notifications seen do not. A publishing write counts
 even when the remote call fails; reads do not count. `identity_status` reports
-usage and the reset time. The ledger is monotonic, so a clock moved backwards
+the limit the account is held to, its window, usage and the reset time. The ledger is monotonic, so a clock moved backwards
 cannot open a fresh window.
 
 An attempted publishing write takes a slot in the write quota before dispatch. Refusals

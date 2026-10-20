@@ -45,11 +45,24 @@ defmodule AtMcp.Identities do
   Start one identity under the DynamicSupervisor.
 
   Required: `:id` (string or atom). Optional: `:handle`, `:password`,
-  `:effects_name`, `:backend`, `:write_quota`,
-  `:notifications_enabled` and `:service` (account PDS URL).
+  `:effects_name`, `:backend`, `:write_quota`, `:write_limit`,
+  `:write_window_seconds`, `:notifications_enabled` and `:service` (account
+  PDS URL).
   Every identity uses the durable account quota; hosts own activity limits.
   `:write_quota` names a running quota server and defaults to AtMcp.WriteQuota.
+  `:write_limit` and `:write_window_seconds` are this account's own limit and
+  window, positive integers; either left out is the quota server's
+  (`AtMcp.WriteQuota`, "Each account's own limit").
   Explicit nil and retired turn-runtime options are refused.
+
+  Starting an identity that is already running merges the options given over
+  the ones it runs with. When that changes them (a new write limit, password
+  or service), the running identity is replaced, as `AtMcp.Accounts.reload/0`
+  replaces a changed account: calls in flight end, it logs in again, and the
+  `{:ok, pid}` returned is the new one. An option left out keeps the value
+  the identity runs with, so an account returns to the quota server's limit
+  by being stopped and started without `:write_limit`. Options a running
+  identity would refuse are refused before anything changes.
 
   Returns `{:ok, pid}` for the identity supervisor once it is ready. Without
   credentials, the identity can start without a logged-in session; success does
@@ -80,6 +93,10 @@ defmodule AtMcp.Identities do
          &Keyword.has_key?(opts, &1)
        ),
        do: raise(ArgumentError, "turn runtime options were removed; configure the account quota")
+
+    # Refused here, as `:invalid_configuration`, rather than when the account's
+    # owner starts under the identity's supervisor.
+    AtMcp.Effects.write_limits!(opts)
 
     case DynamicSupervisor.start_child(__MODULE__, {AtMcp.Identity, opts}) do
       {:ok, pid} ->
@@ -220,10 +237,26 @@ defmodule AtMcp.Identities do
       expected_did: account["did"]
     ]
 
-    if Map.has_key?(account, "delivery"),
-      do: Keyword.put(opts, :delivery, account["delivery"]),
-      else: opts
+    opts =
+      if Map.has_key?(account, "delivery"),
+        do: Keyword.put(opts, :delivery, account["delivery"]),
+        else: opts
+
+    # An account without its own write limit leaves the options out, so the
+    # quota server's (AT_MCP_WRITE_LIMIT, AT_MCP_WRITE_WINDOW_SECONDS) apply.
+    case account["write_quota"] do
+      %{} = quota ->
+        opts
+        |> put_present(:write_limit, quota["limit"])
+        |> put_present(:write_window_seconds, quota["window_seconds"])
+
+      nil ->
+        opts
+    end
   end
+
+  defp put_present(opts, _key, nil), do: opts
+  defp put_present(opts, key, value), do: Keyword.put(opts, key, value)
 
   @doc false
   def boot_from_env?, do: Application.get_env(:at_mcp, :boot_from_env, true)

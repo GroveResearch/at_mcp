@@ -92,6 +92,8 @@ defmodule AtMcp.Identity do
       |> maybe_put(:service, Keyword.get(opts, :service))
       |> maybe_put(:expected_did, Keyword.get(opts, :expected_did))
       |> maybe_put(:backend_state, Keyword.get(opts, :backend_state))
+      |> maybe_put(:write_limit, Keyword.get(opts, :write_limit))
+      |> maybe_put(:write_window_seconds, Keyword.get(opts, :write_window_seconds))
 
     children =
       [

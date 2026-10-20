@@ -427,6 +427,114 @@ defmodule AtMcp.AccountsReloadTest do
     assert Identity.whereis(a["id"]) == before
   end
 
+  test "reload gives an account its own write limit and takes it away", %{
+    config_file: file,
+    rows: [a, b]
+  } do
+    default = AtMcp.WriteQuota.status(a["did"])
+    b_pid = Identity.whereis(b["id"])
+    status = fn row -> AtMcp.Effects.quota_status(Identity.effects_name(row["id"])) end
+
+    assert {:ok, _} =
+             AccountConfig.set_write_quota(file, a["id"], %{"limit" => 2, "window_seconds" => 60})
+
+    assert {:ok, %{accounts: [%{id: id, status: "ready"}]}} = Accounts.reload()
+    assert id == a["id"]
+    assert Identity.whereis(b["id"]) == b_pid
+    assert %{limit: 2, window_seconds: 60, used: 0} = status.(a)
+    assert status.(b) == default
+
+    # The count is the DID's and survives the account being replaced.
+    for _ <- 1..2, do: assert(:ok = AtMcp.WriteQuota.reserve(a["did"]))
+    assert %{used: 2} = status.(a)
+
+    assert {:ok, _} = AccountConfig.set_write_quota(file, a["id"], nil)
+    assert {:ok, %{accounts: [%{status: "ready"}]}} = Accounts.reload()
+    assert %{limit: limit, window_seconds: seconds, used: 2} = status.(a)
+    assert {limit, seconds} == {default.limit, default.window_seconds}
+  end
+
+  test "an embedding host's invalid write limit is refused before the account starts", %{
+    prefix: prefix,
+    service: service
+  } do
+    for bad <- [[write_limit: 0], [write_window_seconds: "3600"]] do
+      assert {:error, :invalid_configuration} =
+               Identities.start_identity(
+                 [id: prefix <> "c", handle: prefix <> "c", password: "fixture", service: service] ++
+                   bad
+               )
+
+      refute Identity.whereis(prefix <> "c")
+    end
+  end
+
+  test "the first reload after a boot leaves accounts whose file is unchanged running as they were",
+       %{config_file: file, rows: [a, b], service: service} do
+    # As the application boots: a fresh owner, then each configured account
+    # started, then the boot waits for them.
+    boot = fn rows ->
+      write(file, rows)
+      restart_accounts!()
+      assert :ok = Identities.boot_from_env!()
+      assert :ok = Accounts.await_initialization()
+      assert eventually(fn -> Enum.all?(rows, &(Store.ready(&1["id"]) == :ok)) end)
+      pids = Map.new(rows, &{&1["id"], Identity.whereis(&1["id"])})
+
+      assert {:ok, %{accounts: [], removed: [], unchanged: unchanged}} = Accounts.reload()
+      assert unchanged == Enum.sort(Enum.map(rows, & &1["id"]))
+      assert Map.new(rows, &{&1["id"], Identity.whereis(&1["id"])}) == pids
+    end
+
+    # An account with its own write limit, and one with neither field.
+    boot.([Map.put(a, "write_quota", %{"limit" => 4, "window_seconds" => 60}), b])
+
+    # An account with a delivery destination and its own write limit, and one
+    # with delivery turned off.
+    AtMcp.Test.Settings.put(notifications_enabled: true)
+    token = Path.join(Path.dirname(file), "token-a")
+    File.write!(token, "alice-token")
+
+    boot.([
+      a
+      |> Map.put("delivery", %{"url" => service <> "/inbound/alice", "token_file" => token})
+      |> Map.put("write_quota", %{"limit" => 4}),
+      Map.put(b, "delivery", nil)
+    ])
+  end
+
+  test "starting a running account again with a changed write limit holds it to the new one at once",
+       %{prefix: prefix, service: service} do
+    id = prefix <> "c"
+    base = [id: id, handle: id, password: "fixture", service: service]
+    status = fn -> AtMcp.Effects.quota_status(Identity.effects_name(id)) end
+
+    assert {:ok, first} = Identities.start_identity(base ++ [write_limit: 2])
+    assert %{limit: 2} = status.()
+
+    # Lowering or raising it replaces the running account, which then holds it.
+    assert {:ok, second} = Identities.start_identity(base ++ [write_limit: 50])
+    assert second != first
+    assert Identity.whereis(id) == second
+    assert %{limit: 50} = status.()
+
+    # The same options, or fewer, change nothing and replace nothing.
+    assert {:ok, ^second} = Identities.start_identity(base ++ [write_limit: 50])
+    assert {:ok, ^second} = Identities.start_identity(id: id)
+    assert %{limit: 50} = status.()
+
+    # What it would refuse is refused before anything changes, and is not kept
+    # for the next reconnect.
+    for bad <- [[write_limit: nil], [write_window_seconds: nil], [write_limit: 0]] do
+      assert {:error, :invalid_configuration} = Identities.start_identity(base ++ bad)
+      assert Identity.whereis(id) == second
+      assert %{limit: 50} = status.()
+    end
+
+    assert {:ok, _} = Accounts.reconnect(id)
+    assert %{limit: 50} = status.()
+  end
+
   defp notification(account, suffix),
     do: %{
       source: :notifications,

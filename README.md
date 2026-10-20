@@ -379,7 +379,10 @@ login, state-directory and delivery problems.
   ([The write quota](docs/DESIGN.md#the-write-quota) says why);
   `AT_MCP_WRITE_LIMIT` (default 16) and `AT_MCP_WRITE_WINDOW_SECONDS` (default
   3600) change it, and a value that is not a positive integer refuses to start.
-  `identity_status` reports the limit, the window, usage and the reset time. Reads and every other
+  An account can have its own limit and window instead
+  (`at_mcp-accounts write-quota`, [Operations](docs/operations.md#an-accounts-own-write-limit));
+  the variables are then the default for accounts that set none.
+  `identity_status` reports the account's limit, window, usage and reset time. Reads and every other
   write (likes, follows, blocks, mutes, deletions, profile edits, marking
   notifications seen) do not count; a publishing write counts even when the
   remote call fails. Each write tool's description says whether it counts.
@@ -409,8 +412,8 @@ environment file ([Settings](docs/operations.md#settings) in the operations guid
 | `AT_MCP_PORT` | `4400` | A shared service's one loopback MCP endpoint, a port from 0 to 65535 |
 | `AT_MCP_CONTROL_PORT` | none (no listener) | A shared service's operator listener for identity discovery |
 | `AT_MCP_DIST_PORT` | `4370` | Where a shared service listens for operator commands, on 127.0.0.1 |
-| `AT_MCP_WRITE_LIMIT` | `16` | Publishing writes each account may attempt per window; a positive integer |
-| `AT_MCP_WRITE_WINDOW_SECONDS` | `3600` | Length of the write quota window; a positive integer |
+| `AT_MCP_WRITE_LIMIT` | `16` | Publishing writes each account may attempt per window, unless the account sets its own; a positive integer |
+| `AT_MCP_WRITE_WINDOW_SECONDS` | `3600` | Length of the write quota window, unless the account sets its own; a positive integer |
 | `AT_MCP_NOTIFICATIONS` | `1` | `1`/`true` or `0`/`false`: a shared service polls each account's notifications |
 | `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` | `60` | Seconds between notification sweeps of each account; a positive integer |
 | `AT_MCP_JETSTREAM` | `0` | `1`/`true` or `0`/`false`: the network-wide stream collector |

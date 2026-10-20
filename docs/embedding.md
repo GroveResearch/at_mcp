@@ -54,7 +54,15 @@ effects = AtMcp.Identity.effects_name("social")
 ```
 
 The account uses the durable write quota by default; a host can supply a quota
-server explicitly with `write_quota:`, and `service:` selects another PDS. With
+server explicitly with `write_quota:`, and `service:` selects another PDS.
+`write_limit:` and `write_window_seconds:` give this account its own limit and
+window (positive integers; anything else is `{:error, :invalid_configuration}`);
+what they leave out is the quota server's, which the application starts from
+`config :at_mcp, write_quota: [limit: ..., window_seconds: ...]`. Aliases of one
+DID share one count, and each is held to its own limit, so give them the same.
+Calling `start_identity` again for a running account with a changed option,
+such as a lower `write_limit:`, replaces that account, so the new limit holds
+from the moment the call returns; an option left out keeps its value. With
 `boot_from_env: false`, AtMcp creates no environment accounts, inherits no host
 credentials and attaches no HTTP delivery callback.
 
