@@ -52,9 +52,17 @@ defmodule AtMcp.Identities do
   `:write_quota` names a running quota server and defaults to AtMcp.WriteQuota.
   `:write_limit` and `:write_window_seconds` are this account's own limit and
   window, positive integers; either left out is the quota server's
-  (`AtMcp.WriteQuota`, "Each account's own limit"). Starting an identity again
-  with a different limit replaces the running one, as any changed option does.
+  (`AtMcp.WriteQuota`, "Each account's own limit").
   Explicit nil and retired turn-runtime options are refused.
+
+  Starting an identity that is already running merges the options given over
+  the ones it runs with. When that changes them (a new write limit, password
+  or service), the running identity is replaced, as `AtMcp.Accounts.reload/0`
+  replaces a changed account: calls in flight end, it logs in again, and the
+  `{:ok, pid}` returned is the new one. An option left out keeps the value
+  the identity runs with, so an account returns to the quota server's limit
+  by being stopped and started without `:write_limit`. Options a running
+  identity would refuse are refused before anything changes.
 
   Returns `{:ok, pid}` for the identity supervisor once it is ready. Without
   credentials, the identity can start without a logged-in session; success does

@@ -53,8 +53,10 @@ defmodule AtMcp.WriteQuota do
   none, so an installation where no account sets one behaves as before.
 
   The ledger is still one count per DID. The limit is read on every call, so a
-  changed limit applies to the window already open, and a changed window
-  length to the next window. Aliases of one DID share the count; each is
+  changed limit applies to the window already open. A shorter window also
+  applies to the window already open, which then ends that much sooner after
+  it opened, so an account is never held longer than the window it is told
+  about; a longer window applies from the next window. Aliases of one DID share the count; each is
   checked against its own limit, so an embedding host gives them the same one.
   """
   use GenServer
@@ -135,7 +137,12 @@ defmodule AtMcp.WriteQuota do
     {limit, seconds} = applying(state, limits)
     now = max(state.clock.(), state.data["last_seen"])
     accounts = Map.reject(state.data["accounts"], fn {_, entry} -> entry["ends_at"] <= now end)
-    entry = Map.get(accounts, did, %{"used" => 0, "ends_at" => now + seconds})
+
+    entry =
+      case open_window(accounts[did], seconds, now) do
+        nil -> %{"used" => 0, "opened_at" => now, "ends_at" => now + seconds}
+        entry -> entry
+      end
 
     if entry["used"] >= limit do
       {:reply, {:error, {:write_quota_exhausted, entry["ends_at"]}}, state}
@@ -150,16 +157,33 @@ defmodule AtMcp.WriteQuota do
   def handle_call({:status, did, limits}, _from, state) do
     {limit, seconds} = applying(state, limits)
     now = max(state.clock.(), state.data["last_seen"])
-    entry = state.data["accounts"][did]
-    active = entry && entry["ends_at"] > now
+    entry = open_window(state.data["accounts"][did], seconds, now)
 
     {:reply,
      %{
        limit: limit,
        window_seconds: seconds,
-       used: if(active, do: entry["used"], else: 0),
-       resets_at_unix: if(active, do: entry["ends_at"], else: nil)
+       used: if(entry, do: entry["used"], else: 0),
+       resets_at_unix: if(entry, do: entry["ends_at"], else: nil)
      }, state}
+  end
+
+  # The account's open window under the window length it is held to now, or
+  # nil when none is open. A window shortened since it opened ends that much
+  # sooner after it opened, so the account is never held to a longer window
+  # than the one it is told about; a lengthened one keeps the end it had, and
+  # the new length applies from the next window. An entry written before
+  # windows recorded when they opened keeps its end.
+  defp open_window(nil, _seconds, _now), do: nil
+
+  defp open_window(entry, seconds, now) do
+    ends_at =
+      case entry["opened_at"] do
+        opened when is_integer(opened) -> min(entry["ends_at"], opened + seconds)
+        _ -> entry["ends_at"]
+      end
+
+    if ends_at > now, do: %{entry | "ends_at" => ends_at}, else: nil
   end
 
   defp applying(state, limits),
@@ -175,7 +199,9 @@ defmodule AtMcp.WriteQuota do
       Enum.all?(accounts, fn {did, entry} ->
         is_binary(did) and did != "" and is_map(entry) and
           is_integer(entry["used"]) and entry["used"] >= 0 and
-          is_integer(entry["ends_at"]) and entry["ends_at"] > 0
+          is_integer(entry["ends_at"]) and entry["ends_at"] > 0 and
+          (not Map.has_key?(entry, "opened_at") or
+             (is_integer(entry["opened_at"]) and entry["opened_at"] >= 0))
       end)
 
     data

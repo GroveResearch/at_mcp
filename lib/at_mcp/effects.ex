@@ -194,12 +194,13 @@ defmodule AtMcp.Effects do
 
   @doc false
   # The account's own limits, as `AtMcp.WriteQuota.reserve/3` takes them.
+  # An option left out is the quota server's. An explicit nil is refused, as
+  # `AtMcp.Identities.start_identity/1` says, not read as left out.
   def write_limits!(opts) do
     limits =
       for {option, key} <- [write_limit: :limit, write_window_seconds: :window_seconds],
-          value = Keyword.get(opts, option),
-          not is_nil(value),
-          do: {key, value}
+          Keyword.has_key?(opts, option),
+          do: {key, Keyword.get(opts, option)}
 
     if AtMcp.WriteQuota.valid_limits?(limits),
       do: limits,

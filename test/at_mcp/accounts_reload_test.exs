@@ -469,6 +469,38 @@ defmodule AtMcp.AccountsReloadTest do
     end
   end
 
+  test "starting a running account again with a changed write limit holds it to the new one at once",
+       %{prefix: prefix, service: service} do
+    id = prefix <> "c"
+    base = [id: id, handle: id, password: "fixture", service: service]
+    status = fn -> AtMcp.Effects.quota_status(Identity.effects_name(id)) end
+
+    assert {:ok, first} = Identities.start_identity(base ++ [write_limit: 2])
+    assert %{limit: 2} = status.()
+
+    # Lowering or raising it replaces the running account, which then holds it.
+    assert {:ok, second} = Identities.start_identity(base ++ [write_limit: 50])
+    assert second != first
+    assert Identity.whereis(id) == second
+    assert %{limit: 50} = status.()
+
+    # The same options, or fewer, change nothing and replace nothing.
+    assert {:ok, ^second} = Identities.start_identity(base ++ [write_limit: 50])
+    assert {:ok, ^second} = Identities.start_identity(id: id)
+    assert %{limit: 50} = status.()
+
+    # What it would refuse is refused before anything changes, and is not kept
+    # for the next reconnect.
+    for bad <- [[write_limit: nil], [write_window_seconds: nil], [write_limit: 0]] do
+      assert {:error, :invalid_configuration} = Identities.start_identity(base ++ bad)
+      assert Identity.whereis(id) == second
+      assert %{limit: 50} = status.()
+    end
+
+    assert {:ok, _} = Accounts.reconnect(id)
+    assert %{limit: 50} = status.()
+  end
+
   defp notification(account, suffix),
     do: %{
       source: :notifications,

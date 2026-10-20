@@ -253,40 +253,19 @@ defmodule AtMcp.Accounts do
 
   defp handle_request({:start, opts}, from, state) do
     id = to_string(Keyword.fetch!(opts, :id))
+    running? = not is_nil(AtMcp.Identity.whereis(id))
 
     opts =
-      if AtMcp.Identity.whereis(id),
+      if running?,
         do: Keyword.merge(Map.get(state.configs, id, []), opts),
         else: opts
 
     opts = Keyword.put(opts, :id, id)
     previous = state.configs[id]
-    state = %{state | configs: Map.put(state.configs, id, opts)}
-    :ok = Store.account({:register, id})
 
-    cond do
-      disconnected?(id) ->
-        state =
-          if previous != opts do
-            ids = aliases(id, Store.accounts()[id].did)
-            state |> invalidate(ids) |> launch(ids, {:stop, ids}, nil)
-          else
-            state
-          end
-
-        {:reply, {:error, :account_disconnected}, state}
-
-      previous == opts and operation_for(state, id) != nil ->
-        {token, op} = operation_for(state, id)
-
-        {:noreply,
-         put_in(state.operations[token], %{op | waiters: [{from, {:identity, id}} | op.waiters]})}
-
-      true ->
-        replace? = operation_for(state, id) != nil
-        state = invalidate(state, [id])
-        {:noreply, launch(state, [id], {:start, id, opts, replace?}, from)}
-    end
+    if valid_start?(opts),
+      do: start(id, opts, previous, running?, from, state),
+      else: {:reply, {:error, :invalid_configuration}, state}
   end
 
   defp handle_request({:disconnect, id}, from, state) do
@@ -776,5 +755,51 @@ defmodule AtMcp.Accounts do
            _ -> false
          end
        end), do: {:error, :account_identity_changed}, else: :ok
+  end
+
+  # A configuration this runtime would refuse to start is refused before it is
+  # kept, so a running account keeps the one it runs with.
+  defp valid_start?(opts) do
+    AtMcp.Effects.write_limits!(opts)
+    true
+  rescue
+    ArgumentError -> false
+  end
+
+  defp start(id, opts, previous, running?, from, state) do
+    state = %{state | configs: Map.put(state.configs, id, opts)}
+    :ok = Store.account({:register, id})
+
+    cond do
+      disconnected?(id) ->
+        state =
+          if previous != opts do
+            ids = aliases(id, Store.accounts()[id].did)
+            state |> invalidate(ids) |> launch(ids, {:stop, ids}, nil)
+          else
+            state
+          end
+
+        {:reply, {:error, :account_disconnected}, state}
+
+      previous == opts and operation_for(state, id) != nil ->
+        {token, op} = operation_for(state, id)
+
+        {:noreply,
+         put_in(state.operations[token], %{op | waiters: [{from, {:identity, id}} | op.waiters]})}
+
+      # A running account given changed options is replaced, as reload
+      # replaces a changed account, so it runs with what the host just said
+      # (a new write limit, password or service) rather than reporting success
+      # and keeping the old. Options are compared regardless of order, since
+      # merging what a call gives reorders them.
+      true ->
+        replace? =
+          operation_for(state, id) != nil or
+            (running? and is_list(previous) and Enum.sort(previous) != Enum.sort(opts))
+
+        state = invalidate(state, [id])
+        {:noreply, launch(state, [id], {:start, id, opts, replace?}, from)}
+    end
   end
 end

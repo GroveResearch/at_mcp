@@ -13,16 +13,23 @@ under one prefix; `current` points at N and the service runs it. Then:
   still disconnected, N's grant is still accepted, one write is counted and
   one event is pending. Under N+1 a second grant is issued, a second write
   made, a second event accepted and the account reconnected.
+  Alice is then given her own write limit (`write-quota`, an optional field
+  in the accounts file) and reloaded, and is held to it.
+- Before rolling back: if N's `at_mcp-accounts` refuses the accounts file
+  holding that field, the field is removed under N+1 (`write-quota --default`
+  and `reload`), the step Operations gives for rolling back to such a release.
 - Rollback: the service is stopped, `current` repointed at N and the service
   started. N starts on what N+1 left: both accounts ready, both grants
-  accepted, two writes counted and two events pending.
+  accepted, two writes counted and two events pending, and alice still held
+  to her own limit when N knows the field.
 
 So every file AtMcp stores -- the accounts file, the grants file, the write
 quota and the delivery queue -- is written by each release and read by the
-other. AtMcp has no stored-data format change between releases, so nothing is
-backed up and nothing is restored. When a release changes the format of one of
-these files, this check fails, and that release must take its own copy at
-start and Operations must say how to put it back.
+other. Nothing is backed up and nothing is restored. When a release changes
+the format of one of these files, this check fails, and that release must
+take its own copy at start and Operations must say how to put it back; a
+release that adds an optional field an older release refuses must say in
+Operations what to remove before rolling back, and this check takes that step.
 
 `--systemd` installs the example unit (rel/examples/at_mcp.service) for real, as
 root, and `--launchd` the example plist, as the user; both change the machine
@@ -117,6 +124,21 @@ try:
     assert at_mcp.mcp(second) == 200
     assert at_mcp.accounts(["reconnect", "bob"])["ok"]
     assert states() == {"alice": "ready", "bob": "ready"}, states()
+    # An account's own write limit, an optional field in the accounts file.
+    assert at_mcp.accounts(["write-quota", "alice", "--limit", "40"])["write_quota"] == {"limit": 40}
+    assert at_mcp.accounts(["reload"])["ok"]
+    poll(lambda: states() == {"alice": "ready", "bob": "ready"})
+    assert (at_mcp.write_limit("alice"), at_mcp.writes_used("alice")) == (40, 2)
+
+    # Before rolling back, the step Operations gives for a field N refuses:
+    # with N+1 still installed, take the field out. N refuses the whole file
+    # otherwise, its service does not start and its own `at_mcp-accounts` cannot
+    # take the field out, so the refusal is checked, not assumed.
+    n_reads_write_quota = at_mcp.accounts(["list"], check=False, release="at_mcp-N").returncode == 0
+    if not n_reads_write_quota:
+        assert at_mcp.accounts(["write-quota", "alice", "--default"])["write_quota"] is None
+        assert at_mcp.accounts(["reload"])["ok"]
+        poll(lambda: states() == {"alice": "ready", "bob": "ready"})
 
     # Roll back: stop, repoint, start. Nothing is restored.
     manager.stop()
@@ -131,13 +153,17 @@ try:
     assert at_mcp.checkpoints("alice") == "[2000000,2000000]", "N lost N+1's collection checkpoints"
     assert at_mcp.queued_uris() == both_events, "N lost or changed N+1's queued events"
     assert (at_mcp.writes_used("alice"), at_mcp.pending()) == (2, 2), "N lost N+1's writes or events"
+    if n_reads_write_quota:
+        assert at_mcp.write_limit("alice") == 40, "N lost alice's own write limit"
     assert at_mcp.mcp() == 401
 
     status = manager.stop()
     assert status == 0, status
     print("upgraded %s -> %s and rolled back; accounts, disconnection, grants, write quota, collection checkpoints and pending "
-          "delivery carried both ways; "
-          "no stored-data format change, so nothing was backed up or restored" % (old.name, new.name))
+          "delivery carried both ways; an account's own write limit %s; "
+          "nothing was backed up or restored" % (
+              old.name, new.name,
+              "carried both ways" if n_reads_write_quota else "removed before rolling back, as Operations says"))
 except BaseException:
     sys.stderr.write(manager.logs()[-8000:])
     raise

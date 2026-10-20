@@ -100,12 +100,51 @@ defmodule AtMcp.WriteQuotaTest do
     assert {:error, {:write_quota_exhausted, 130}} = AtMcp.Effects.post(own, "still closed")
   end
 
+  test "a window shortened while open ends when the new length says, and status says so", %{
+    quota: quota,
+    clock: clock,
+    dir: dir,
+    opts: opts
+  } do
+    did = "did:plc:shortened"
+    day = [limit: 100, window_seconds: 86_400]
+    hour = [limit: 16, window_seconds: 3600]
+    for _ <- 1..20, do: assert(:ok = AtMcp.WriteQuota.reserve(quota, did, day))
+
+    # Opened at 100 under a day; held to 16 an hour, it ends at 3700, not 86500.
+    Agent.update(clock, fn _ -> 200 end)
+    assert {:error, {:write_quota_exhausted, 3700}} = AtMcp.WriteQuota.reserve(quota, did, hour)
+
+    assert %{limit: 16, window_seconds: 3600, used: 20, resets_at_unix: 3700} =
+             AtMcp.WriteQuota.status(quota, did, hour)
+
+    Agent.update(clock, fn _ -> 3700 end)
+    assert %{used: 0, resets_at_unix: nil} = AtMcp.WriteQuota.status(quota, did, hour)
+    assert :ok = AtMcp.WriteQuota.reserve(quota, did, hour)
+    assert %{used: 1, resets_at_unix: 7300} = AtMcp.WriteQuota.status(quota, did, hour)
+
+    # A longer window keeps the open one's end; the new length is the next one's.
+    assert %{resets_at_unix: 7300} = AtMcp.WriteQuota.status(quota, did, day)
+
+    # What the ledger keeps reads back the same after a restart.
+    GenServer.stop(quota)
+    {:ok, reopened} = AtMcp.WriteQuota.start_link(Keyword.put(opts, :state_dir, dir))
+    assert %{used: 1, resets_at_unix: 7300} = AtMcp.WriteQuota.status(reopened, did, hour)
+    GenServer.stop(reopened)
+  end
+
   test "an account's own limit must be positive integers" do
-    for bad <- [[write_limit: 0], [write_window_seconds: -1], [write_limit: "16"]] do
+    for bad <- [
+          [write_limit: 0],
+          [write_window_seconds: -1],
+          [write_limit: "16"],
+          [write_limit: nil],
+          [write_window_seconds: nil]
+        ] do
       assert_raise ArgumentError, fn -> AtMcp.Effects.write_limits!(bad) end
     end
 
-    assert AtMcp.Effects.write_limits!(write_limit: nil) == []
+    assert AtMcp.Effects.write_limits!([]) == []
   end
 
   test "unavailable quota fails before reserving an Effects write", %{quota: quota} do
