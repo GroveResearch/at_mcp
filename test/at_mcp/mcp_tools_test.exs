@@ -10,7 +10,10 @@ defmodule AtMcp.MCP.ToolsTest do
       AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend, quota_limit: 3)
 
     assert {:ok, _} = AtMcp.Effects.login(effects)
-    assert {:ok, %{action: :repost}} = AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+
+    assert {:ok, %{action: :repost}} =
+             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+
     assert AtMcp.Effects.quota_status(effects).used == 1
 
     assert {:ok, status} = AtMcp.MCP.Tools.identity_status(effects)

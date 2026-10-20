@@ -24,7 +24,10 @@ defmodule AtMcp.FalsifyClaimsTest do
     assert {:ok, _} = AtMcp.Effects.login(effects)
     assert {:ok, _} = AtMcp.Effects.post(effects, "first")
     assert {:error, {:write_quota_exhausted, _}} = AtMcp.Effects.post(effects, "second")
-    assert {:error, {:write_quota_exhausted, _}} = AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+
+    assert {:error, {:write_quota_exhausted, _}} =
+             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+
     # Only publishing counts against the write quota.
     assert {:ok, _} = AtMcp.Effects.like(effects, "at://did:plc:mock/app.bsky.feed.post/1", "cid")
     assert {:ok, _} = AtMcp.Effects.update_seen(effects)
