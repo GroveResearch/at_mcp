@@ -312,6 +312,34 @@ defmodule AtMcp.RoundTripFindingsTest do
     end
   end
 
+  describe "update_seen (#118)" do
+    test "a seen_at after now is sent as given, and the result says how far ahead it is" do
+      %{pds: pds, state: state} = pds()
+
+      ahead =
+        DateTime.utc_now()
+        |> DateTime.add(2 * 3600 + 30)
+        |> DateTime.truncate(:second)
+        |> DateTime.to_iso8601()
+
+      result = call(state, "update_seen", %{"seen_at" => ahead})
+      refute result[:isError]
+
+      assert [%{body: %{"seenAt" => ^ahead}}] =
+               FakePDS.sent(pds, "app.bsky.notification.updateSeen")
+
+      assert %{"note" => note} = result.structuredContent
+      assert note =~ ~r/^seen_at is 2 h( \d+ s)? after now \(\d{4}-\d\d-\d\dT[\d:]+Z\)/
+      assert note =~ "notifications that arrive before then will read as seen"
+    end
+
+    test "a seen_at in the past carries no note" do
+      %{state: state} = pds()
+      result = call(state, "update_seen", %{"seen_at" => "2026-01-01T12:00:00Z"})
+      refute Map.has_key?(result.structuredContent, "note")
+    end
+  end
+
   describe "reply (#113)" do
     defp thread(reply_disabled) do
       pds(%{@post => %{"text" => "gated"}}, %{

@@ -71,7 +71,10 @@ One endpoint serves every identity, and `Authorization: Bearer <grant>` decides
 which one a client acts as. A grant names one account and one scope. A request
 with no grant is refused with `401`: a mode in which an uncredentialed caller is
 served is the mode in which nothing is separated. `x-kite-account-did` confirms
-the binding and selects nothing. Revocation is removing the grant, and takes
+the binding and selects nothing. It, the `kite-` prefix of a grant token and
+the `kite/publicWrite` annotation below keep at_mcp's earlier name, Kite,
+because clients, grants and hosts made before the rename use them
+(`decisions.md`, "Current name"). Revocation is removing the grant, and takes
 effect on the next request.
 
 `AtMcp.Grants` alone answers which identity a request acts as and how much of the

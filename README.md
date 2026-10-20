@@ -19,7 +19,8 @@ Use an account belonging to the agent. In a browser, create or sign in to that
 account on [Bluesky](https://bsky.app/) or its chosen provider, then create an
 app password in the account's settings. Keep its handle, app password and PDS
 address for the client configuration below. AtMcp logs in to an existing
-account; it does not create one.
+account; it does not create one. To change the app password later, see
+[Replace the app password](#replace-the-app-password).
 
 For Delvetown, choose **Join Delvetown** at [delve.town](https://delve.town/),
 enter an invite, and choose **Create a new account** or **Use an existing
@@ -225,6 +226,27 @@ connection, then follow the prompts below. Keep Claude Code’s normal tool
 approvals enabled. It starts AtMcp itself; there is no service to start first.
 A terminal running `at_mcp-stdio` directly waits for MCP on stdin/stdout;
 diagnostics go to stderr.
+
+### Replace the app password
+
+For a client-launched `at_mcp-stdio`, the app password is wherever the client
+configuration puts `AT_MCP_APP_PASSWORD`. The client passes it to each
+`at_mcp-stdio` it starts, and AtMcp saves no copy.
+
+1. Create a new app password at the account's provider. Keep the old one for
+   now.
+2. Put it in `AT_MCP_APP_PASSWORD`. If `AT_MCP_STDIO_ENV_FILE` names a file
+   that sets it, change it in that file: the file's values override the
+   client's `env`, so changing the client's `env` alone has no effect.
+3. Restart the MCP server from the client (in Claude Code, `/mcp`, or a new
+   session). Call `identity_status`: it should show `"logged_in": true` and
+   the account's usual `did`. If the new password is wrong, the server does
+   not start, and its stderr says "AtMcp could not log into this account".
+4. Revoke the old app password at the provider, then call `identity_status`
+   again. AtMcp is using the new password if it still shows `"logged_in": true`.
+
+A shared service keeps the password in its accounts file instead; see
+[Replace an app password](docs/operations.md#replace-an-app-password).
 
 Direct stdio gives this client all 81 account tools, including publishing,
 profile changes and deletion. It has no read-only grant. To restrict an account
