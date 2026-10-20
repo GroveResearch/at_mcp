@@ -164,10 +164,10 @@ defmodule AtMcp.MCP.DSL do
   defmacro write_description(verb, description) when is_atom(verb) and is_binary(description),
     do: description <> " " <> quota_sentence(AtMcp.Effects.counts_against_quota?(verb))
 
-  # The published wire annotation stays across the rename for existing hosts.
-  # `kite/publicWrite` is what a host counting the account's writes reads:
-  # `Dwell.Capabilities` spends a turn's write allowance only on a tool that
-  # does not set it false.
+  # `kite/publicWrite` is what a host counting the account's writes reads: a
+  # host can spend a turn's write allowance only on a tool that does not set it
+  # false. Its name is from at_mcp's earlier name, Kite, and stays because hosts
+  # already read it (decisions.md, "Current name").
   @doc false
   defmacro write_annotations(verb, {:%{}, meta, pairs}) when is_atom(verb),
     do: {:%{}, meta, pairs ++ [{:"kite/publicWrite", AtMcp.Effects.counts_against_quota?(verb)}]}

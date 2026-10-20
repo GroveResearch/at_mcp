@@ -780,7 +780,7 @@ defmodule AtMcp.MCP.Schemas do
       },
       "note" =>
         nullable_string(
-          "save_feed, unsave_feed and set_preference: what the write could not guard against; an undo of a record that is not there: that nothing was deleted; set_notification_setting and subscribe_to_activity: that the service's answer could not be read"
+          "save_feed, unsave_feed and set_preference: what the write could not guard against; update_seen: that seen_at is after now, and by how much; an undo of a record that is not there: that nothing was deleted; set_notification_setting and subscribe_to_activity: that the service's answer could not be read"
         ),
       "status" => nullable_string("set_status: live, or clear"),
       "duration_minutes" => %{
