@@ -427,6 +427,48 @@ defmodule AtMcp.AccountsReloadTest do
     assert Identity.whereis(a["id"]) == before
   end
 
+  test "reload gives an account its own write limit and takes it away", %{
+    config_file: file,
+    rows: [a, b]
+  } do
+    default = AtMcp.WriteQuota.status(a["did"])
+    b_pid = Identity.whereis(b["id"])
+    status = fn row -> AtMcp.Effects.quota_status(Identity.effects_name(row["id"])) end
+
+    assert {:ok, _} =
+             AccountConfig.set_write_quota(file, a["id"], %{"limit" => 2, "window_seconds" => 60})
+
+    assert {:ok, %{accounts: [%{id: id, status: "ready"}]}} = Accounts.reload()
+    assert id == a["id"]
+    assert Identity.whereis(b["id"]) == b_pid
+    assert %{limit: 2, window_seconds: 60, used: 0} = status.(a)
+    assert status.(b) == default
+
+    # The count is the DID's and survives the account being replaced.
+    for _ <- 1..2, do: assert(:ok = AtMcp.WriteQuota.reserve(a["did"]))
+    assert %{used: 2} = status.(a)
+
+    assert {:ok, _} = AccountConfig.set_write_quota(file, a["id"], nil)
+    assert {:ok, %{accounts: [%{status: "ready"}]}} = Accounts.reload()
+    assert %{limit: limit, window_seconds: seconds, used: 2} = status.(a)
+    assert {limit, seconds} == {default.limit, default.window_seconds}
+  end
+
+  test "an embedding host's invalid write limit is refused before the account starts", %{
+    prefix: prefix,
+    service: service
+  } do
+    for bad <- [[write_limit: 0], [write_window_seconds: "3600"]] do
+      assert {:error, :invalid_configuration} =
+               Identities.start_identity(
+                 [id: prefix <> "c", handle: prefix <> "c", password: "fixture", service: service] ++
+                   bad
+               )
+
+      refute Identity.whereis(prefix <> "c")
+    end
+  end
+
   defp notification(account, suffix),
     do: %{
       source: :notifications,

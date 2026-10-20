@@ -137,6 +137,56 @@ defmodule AtMcp.AccountConfigTest do
     assert {:ok, [^saved]} = Config.load(path)
   end
 
+  test "an account's own write limit is saved, listed, replaced and removed", %{path: path} do
+    original = account(1)
+    other = account(2)
+    assert {:ok, _} = Config.add(path, original)
+    assert {:ok, _} = Config.add(path, other)
+    setup = &AtMcp.AccountSetup.execute(["--file", path, "write-quota", original["id"] | &1])
+
+    assert {:ok, %{write_quota: %{"limit" => 40, "window_seconds" => 600}} = result} =
+             setup.(["--limit", "40", "--window-seconds", "600"])
+
+    refute inspect(result) =~ "sentinel-secret"
+    assert {:ok, [saved, ^other]} = Config.load(path)
+    assert saved["write_quota"] == %{"limit" => 40, "window_seconds" => 600}
+    assert Map.delete(saved, "write_quota") == original
+    refute Map.has_key?(Config.public(saved), "write_quota")
+
+    assert {:ok, %{accounts: [listed, listed_other]}} =
+             AtMcp.AccountSetup.execute(["--file", path, "list"])
+
+    assert listed["write_quota"] == saved["write_quota"]
+    refute Map.has_key?(listed_other, "write_quota")
+
+    # A new limit replaces the whole object: what is not given is the service's again.
+    assert {:ok, _} = setup.(["--limit", "5"])
+    assert {:ok, [%{"write_quota" => %{"limit" => 5} = quota}, _]} = Config.load(path)
+    assert map_size(quota) == 1
+
+    for bad <- [
+          ["--limit", "0"],
+          ["--window-seconds", "-3"],
+          ["--limit", "ten"],
+          [],
+          ["--default", "--limit", "3"]
+        ] do
+      assert {:error, _} = setup.(bad)
+      assert {:ok, [%{"write_quota" => %{"limit" => 5}}, _]} = Config.load(path)
+    end
+
+    for bad <- [%{}, %{"limit" => 1.5}, %{"limit" => 2, "burst" => 3}, %{"limit" => nil}] do
+      assert {:error, :invalid_account} = Config.set_write_quota(path, original["id"], bad)
+      assert Config.validate(Map.put(original, "write_quota", bad)) == {:error, :invalid_account}
+    end
+
+    assert Config.validate(Map.put(original, "write_quota", nil)) == {:error, :invalid_account}
+    assert {:error, :not_found} = Config.set_write_quota(path, "missing", %{"limit" => 1})
+
+    assert {:ok, %{write_quota: nil}} = setup.(["--default"])
+    assert {:ok, [^original, ^other]} = Config.load(path)
+  end
+
   test "account delivery mode survives removing its only routed account", %{
     path: path,
     root: root

@@ -32,8 +32,10 @@ defmodule AtMcp.Effects do
   ## Write quota
 
   Every embedding and configured identity uses the durable account-wide
-  `AtMcp.WriteQuota`, shared by every client and alias of that DID. The quota
-  bounds what the account publishes, so only the verbs in `publishing/0` —
+  `AtMcp.WriteQuota`, shared by every client and alias of that DID, under
+  this account's own limit (`:write_limit`, `:write_window_seconds`) or, where
+  it sets none, the quota server's. The quota bounds what the account
+  publishes, so only the verbs in `publishing/0` —
   post, reply and repost — reserve before dispatch; every other write goes out
   without spending one. Failed and ambiguous backend attempts consume their
   reservation. Hosts own activity limits.
@@ -83,6 +85,8 @@ defmodule AtMcp.Effects do
   - `:backend` — module implementing `AtMcp.Effects.Backend` (default ProtoRune)
   - `:backend_state` — preloaded session/state (skips needing login for mocks)
   - `:write_quota` — durable account quota server (default AtMcp.WriteQuota); nil is refused
+  - `:write_limit` / `:write_window_seconds` — this account's own write limit
+    and window, positive integers; either left out is the quota server's
   - `:expected_did` — require this account DID on every session it accepts
   - `:name` — process name
   - `:logged_in` — mark already connected when `backend_state` is set
@@ -96,6 +100,8 @@ defmodule AtMcp.Effects do
 
     if is_nil(quota),
       do: raise(ArgumentError, "write_quota must name a durable account quota server")
+
+    write_limits = write_limits!(opts)
 
     if Enum.any?(
          [:max_writes_per_turn, :max_posts_per_turn, :require_turn],
@@ -131,6 +137,7 @@ defmodule AtMcp.Effects do
       logged_in?: logged_in?,
       credentials: credentials,
       write_quota: quota,
+      write_limits: write_limits,
       # Calls by id: %{from, caller, lane, fun, deadline_at, timer, task, dispatched}.
       calls: %{},
       # Task monitor ref => call id, for every running call.
@@ -181,8 +188,22 @@ defmodule AtMcp.Effects do
       )
 
   def quota_status(effects) do
-    quota = state(effects).write_quota
-    AtMcp.WriteQuota.status(quota, session_did(effects))
+    state = state(effects)
+    AtMcp.WriteQuota.status(state.write_quota, did_of(state.backend_state), state.write_limits)
+  end
+
+  @doc false
+  # The account's own limits, as `AtMcp.WriteQuota.reserve/3` takes them.
+  def write_limits!(opts) do
+    limits =
+      for {option, key} <- [write_limit: :limit, write_window_seconds: :window_seconds],
+          value = Keyword.get(opts, option),
+          not is_nil(value),
+          do: {key, value}
+
+    if AtMcp.WriteQuota.valid_limits?(limits),
+      do: limits,
+      else: raise(ArgumentError, "write_limit and write_window_seconds must be positive integers")
   end
 
   def login_count(effects), do: state(effects).login_count
@@ -2765,7 +2786,12 @@ defmodule AtMcp.Effects do
   defp reserve_write do
     state = GenServer.call(owner(), :state, :infinity)
 
-    with :ok <- AtMcp.WriteQuota.reserve(state.write_quota, did_of(state.backend_state)) do
+    with :ok <-
+           AtMcp.WriteQuota.reserve(
+             state.write_quota,
+             did_of(state.backend_state),
+             state.write_limits
+           ) do
       {:ok, state.backend, state.backend_state}
     end
   end
@@ -3499,7 +3525,8 @@ defmodule AtMcp.Effects do
         :login_count,
         :logged_in?,
         :credentials,
-        :write_quota
+        :write_quota,
+        :write_limits
       ])
 
   # What the app would hide, cover or flag in what a read returns, marked on

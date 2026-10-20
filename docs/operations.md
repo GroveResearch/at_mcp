@@ -241,6 +241,35 @@ correct the file and reconnect explicitly. `remove` deletes saved credentials
 and keeps the account's history and its disconnected state. Neither `remove` nor `disconnect`
 revokes the app password at the PDS.
 
+### An account's own write limit
+
+Each account's publishing writes (posts, replies and reposts) are limited per
+window. `AT_MCP_WRITE_LIMIT` and `AT_MCP_WRITE_WINDOW_SECONDS` (16 per 3600
+seconds) are the limit for every account that does not set its own. Accounts
+on one service are often different agents with different needs, so an account
+can have its own:
+
+```sh
+at_mcp-accounts write-quota grug --limit 40 --window-seconds 3600
+at_mcp-accounts write-quota reader --limit 4
+at_mcp-accounts write-quota grug --default
+at_mcp-accounts reload
+```
+
+The limit is saved as an optional `write_quota` field on the account in the
+accounts file (`{"limit": 40, "window_seconds": 3600}`), and `list` shows it.
+Each command replaces the account's whole limit: a value it does not give
+(`--window-seconds` above, for `reader`) is the service's, and `--default`
+removes the field, so the account uses the service's limit and window again.
+Values are positive integers. `reload` applies the change by replacing that
+account, as it does for any changed account; other accounts keep running.
+
+The count belongs to the account's DID and survives the change. A new limit
+applies to the window already open, so lowering it below what the account has
+used in that window refuses its writes until the window ends; a new window
+length applies from the next window. `identity_status` reports the limit and
+window the account is held to, with its usage and reset time.
+
 ### Replace an app password
 
 An app password is the account's credential at its PDS. Three other things
@@ -579,7 +608,24 @@ to put the copy back.
 
 ### From 0.2.12 to the next release
 
-No stored data changes.
+No stored data changes unless you give an account its own write limit.
+
+- **Each account can have its own write limit** (#159):
+  `at_mcp-accounts write-quota NAME --limit N [--window-seconds S]`, then
+  `reload` ([An account's own write limit](#an-accounts-own-write-limit)). It
+  is saved as an optional `write_quota` field on that account in the accounts
+  file. An account without one keeps `AT_MCP_WRITE_LIMIT` and
+  `AT_MCP_WRITE_WINDOW_SECONDS`, so upgrading changes no account's limit until
+  you set one. Embedding hosts pass `write_limit:` and `write_window_seconds:`
+  to `AtMcp.Identities.start_identity/1`.
+
+  **Rolling back after setting one needs one step first.** 0.2.12 refuses an
+  accounts file with a field it does not know, so it would start with no
+  accounts. Before rolling back, run `at_mcp-accounts write-quota NAME
+  --default` for every account that has a `write_quota` (`list` shows them)
+  while the newer release is still installed; the accounts then use the
+  service's limit, as 0.2.12 does. A service that never ran `write-quota`
+  rolls back as before.
 
 - **A grouped read's reply, quote or mention carries its post whole** (#139):
   each entry of its `posts` has a `post` holding the post as `get_posts`

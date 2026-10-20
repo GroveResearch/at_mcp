@@ -8,9 +8,16 @@ defmodule AtMcp.AccountConfig do
   (`AtMcp.MCP.HTTP`). An `mcp_port` key found in a file, which an account had
   before one endpoint served them all, is dropped when the file is read, and
   the next write leaves it out; a caller that passes one is refused.
+
+  Two fields are optional. `delivery` is where the account's notifications go
+  (`set_delivery/3`). `write_quota` is the account's own write limit
+  (`set_write_quota/3`): an object holding `limit`, `window_seconds` or both,
+  each a positive integer. An account without one, or a field it leaves out,
+  uses the service's (`AT_MCP_WRITE_LIMIT`, `AT_MCP_WRITE_WINDOW_SECONDS`).
   """
 
   @fields ~w(id handle did password service)
+  @optional ~w(delivery write_quota)
 
   @doc "Configuration path: `:accounts_file` (`AT_MCP_ACCOUNTS_FILE`), or a per-user default."
   def path do
@@ -270,7 +277,7 @@ defmodule AtMcp.AccountConfig do
   @doc "Validate an account configuration without filesystem or network access."
   def validate(account) when is_map(account) do
     valid =
-      Enum.sort(Map.keys(Map.delete(account, "delivery"))) == Enum.sort(@fields) and
+      Enum.sort(Map.keys(Map.drop(account, @optional))) == Enum.sort(@fields) and
         Enum.all?(
           @fields,
           &(is_binary(account[&1]) and String.valid?(account[&1]) and
@@ -279,7 +286,8 @@ defmodule AtMcp.AccountConfig do
 
     if valid and Regex.match?(~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\z/, account["id"]) and
          Regex.match?(~r/\Adid:[a-z0-9]+:[^\s]+\z/, account["did"]) and
-         valid_service?(account["service"]) and valid_delivery?(Map.get(account, "delivery")),
+         valid_service?(account["service"]) and valid_delivery?(Map.get(account, "delivery")) and
+         valid_write_quota?(Map.get(account, "write_quota", :default)),
        do: :ok,
        else: {:error, :invalid_account}
   end
@@ -303,6 +311,43 @@ defmodule AtMcp.AccountConfig do
       {:error, :invalid_account}
     end
   end
+
+  @doc """
+  Save an account's own write limit, or with `nil` remove it so the service's
+  applies, without changing the account credentials.
+  """
+  def set_write_quota(path, id, write_quota) do
+    if write_quota == nil or valid_write_quota?(write_quota) do
+      mutate(path, fn accounts ->
+        case Enum.find(accounts, &(&1["id"] == id)) do
+          nil ->
+            {:error, :not_found}
+
+          account ->
+            updated =
+              if write_quota,
+                do: Map.put(account, "write_quota", write_quota),
+                else: Map.delete(account, "write_quota")
+
+            {:ok, Enum.map(accounts, &if(&1["id"] == id, do: updated, else: &1)), updated}
+        end
+      end)
+    else
+      {:error, :invalid_account}
+    end
+  end
+
+  # Absent is the service's limit. An empty object or null would be a second
+  # spelling of absent, so neither is accepted.
+  defp valid_write_quota?(:default), do: true
+
+  defp valid_write_quota?(quota) when is_map(quota) and map_size(quota) > 0 do
+    Enum.all?(quota, fn {key, value} ->
+      key in ["limit", "window_seconds"] and is_integer(value) and value > 0
+    end)
+  end
+
+  defp valid_write_quota?(_), do: false
 
   # Null deliberately disables delivery for this account; it does not inherit
   # installation credentials or a communal destination.

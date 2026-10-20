@@ -63,6 +63,51 @@ defmodule AtMcp.WriteQuotaTest do
     GenServer.stop(reopened)
   end
 
+  test "an account's own limit and window apply to it alone; one that sets none has the server's",
+       %{quota: quota, clock: clock} do
+    start = fn did, opts ->
+      {:ok, effects} =
+        AtMcp.Test.QuotaFixture.start_effects(
+          [backend: AtMcp.Test.MockBackend, backend_state: %{did: did}, write_quota: quota] ++
+            opts
+        )
+
+      effects
+    end
+
+    own = start.("did:plc:own", write_limit: 3, write_window_seconds: 30)
+    limit_only = start.("did:plc:limit-only", write_limit: 1)
+    server = start.("did:plc:server", [])
+
+    for _ <- 1..3, do: assert({:ok, _} = AtMcp.Effects.post(own, "mine"))
+    assert {:error, {:write_quota_exhausted, 130}} = AtMcp.Effects.post(own, "fourth")
+    assert {:ok, _} = AtMcp.Effects.post(limit_only, "one")
+    assert {:error, {:write_quota_exhausted, 110}} = AtMcp.Effects.post(limit_only, "two")
+    for _ <- 1..2, do: assert({:ok, _} = AtMcp.Effects.post(server, "default"))
+    assert {:error, {:write_quota_exhausted, 110}} = AtMcp.Effects.post(server, "third")
+
+    # What identity_status reports is the limit the account is held to.
+    assert {:ok, %{write_quota: own_status}} = AtMcp.MCP.Tools.identity_status(own)
+    assert %{limit: 3, window_seconds: 30, used: 3} = own_status
+    assert own_status.resets_at == DateTime.to_iso8601(DateTime.from_unix!(130))
+
+    assert %{limit: 1, window_seconds: 10, used: 1} = AtMcp.Effects.quota_status(limit_only)
+    assert %{limit: 2, window_seconds: 10, used: 2} = AtMcp.Effects.quota_status(server)
+
+    # The server's window has ended; the account's own has not.
+    Agent.update(clock, fn _ -> 115 end)
+    assert {:ok, _} = AtMcp.Effects.post(server, "next window")
+    assert {:error, {:write_quota_exhausted, 130}} = AtMcp.Effects.post(own, "still closed")
+  end
+
+  test "an account's own limit must be positive integers" do
+    for bad <- [[write_limit: 0], [write_window_seconds: -1], [write_limit: "16"]] do
+      assert_raise ArgumentError, fn -> AtMcp.Effects.write_limits!(bad) end
+    end
+
+    assert AtMcp.Effects.write_limits!(write_limit: nil) == []
+  end
+
   test "unavailable quota fails before reserving an Effects write", %{quota: quota} do
     {:ok, effects} =
       AtMcp.Test.QuotaFixture.start_effects(

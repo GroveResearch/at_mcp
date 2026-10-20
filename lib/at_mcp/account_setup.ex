@@ -12,7 +12,10 @@ defmodule AtMcp.AccountSetup do
     transport: :string,
     url: :string,
     token_file: :string,
-    disable: :boolean
+    disable: :boolean,
+    limit: :integer,
+    window_seconds: :integer,
+    default: :boolean
   ]
 
   def main(args) do
@@ -45,7 +48,7 @@ defmodule AtMcp.AccountSetup do
 
   defp dispatch(["list"], opts, _) do
     with {:ok, accounts} <- AccountConfig.load(path(opts)) do
-      {:ok, %{accounts: Enum.map(accounts, &public/1)}}
+      {:ok, %{accounts: Enum.map(accounts, &listed/1)}}
     end
   end
 
@@ -106,6 +109,37 @@ defmodule AtMcp.AccountSetup do
     with {:ok, destination} <- delivery,
          {:ok, account} <- AccountConfig.set_delivery(path(opts), id, destination) do
       {:ok, %{account: public(account), next: reload_message()}}
+    end
+  end
+
+  # Saving replaces the account's whole write limit: a field not given is the
+  # service's again, so the file says everything the command was told.
+  defp dispatch(["write-quota", id], opts, _) do
+    quota =
+      case {opts[:default], opts[:limit], opts[:window_seconds]} do
+        {true, nil, nil} ->
+          {:ok, nil}
+
+        {default, limit, seconds}
+        when default in [nil, false] and (is_integer(limit) or is_integer(seconds)) ->
+          {:ok,
+           %{"limit" => limit, "window_seconds" => seconds}
+           |> Map.reject(fn {_, value} -> is_nil(value) end)}
+
+        _ ->
+          {:error, :usage}
+      end
+
+    with {:ok, quota} <- quota,
+         {:ok, account} <- AccountConfig.set_write_quota(path(opts), id, quota) do
+      {:ok,
+       %{
+         account: public(account),
+         write_quota: Map.get(account, "write_quota"),
+         next:
+           reload_message() <>
+             " Where write_quota is null or leaves a field out, the service's AT_MCP_WRITE_LIMIT and AT_MCP_WRITE_WINDOW_SECONDS apply."
+       }}
     end
   end
 
@@ -341,6 +375,10 @@ defmodule AtMcp.AccountSetup do
 
   defp public(account), do: AccountConfig.public(account)
 
+  # The operator reading the list is the one who set the limit.
+  defp listed(account),
+    do: Map.merge(public(account), Map.take(account, ["write_quota"]))
+
   defp descriptor(account, transport, deps),
     do: AccountConfig.descriptor(account, transport, deps)
 
@@ -361,6 +399,8 @@ defmodule AtMcp.AccountSetup do
       remove NAME
       delivery NAME --url URL --token-file ABSOLUTE_PATH
       delivery NAME --disable
+      write-quota NAME [--limit N] [--window-seconds SECONDS]
+      write-quota NAME --default
       list
       connection NAME [--transport http|stdio]
                       [--scope read|write|manage]
@@ -387,7 +427,8 @@ defmodule AtMcp.AccountSetup do
       "This network account is already saved under another name. Use list, then connection NAME to share it."
 
   defp message(:invalid_account),
-    do: "Use a simple account name and a valid PDS URL."
+    do:
+      "Use a simple account name and a valid PDS URL; a write limit and window are positive integers."
 
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
 
