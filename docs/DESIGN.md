@@ -404,7 +404,11 @@ link card by its text, without the video or the card's image.
 ## The write quota
 
 Every account has one durable write quota: 16 attempted publishing writes per
-hour by default, shared by every client, alias and reconnect. The quota bounds
+hour by default, shared by every client, alias and reconnect. The default
+guards against an agent publishing faster than a person would notice and stop
+it. The number is the per-turn budget an earlier version had, kept when the
+bound moved to the hour, and has not been measured; `AtMcp.WriteQuota`'s
+moduledoc gives the reasoning, and `AT_MCP_WRITE_LIMIT` changes it. The quota bounds
 what the account publishes, so only `post`, `reply` and `repost` count
 (`AtMcp.Effects.publishing/0`); a like, a follow, a block, a mute, a deletion, a
 profile edit and marking notifications seen do not. A publishing write counts
