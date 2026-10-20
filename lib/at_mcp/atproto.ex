@@ -663,15 +663,24 @@ defmodule AtMcp.ATProto do
   @doc false
   # `atproto-accept-labelers` on an application-namespace read, as the app
   # sends it (`AtMcp.AcceptLabelers`). Reading the preferences is not given
-  # one: it is what the header is made from.
-  def accept_labelers(session, method, "GET") do
+  # one: it is what the header is made from. A direct read (`ServiceAuth`)
+  # passes `read_first?` false: the preferences are read through the PDS's
+  # proxy, which a direct route exists to do without, so it names what is
+  # already known.
+  def accept_labelers(session, method, http_method, read_first? \\ true)
+
+  def accept_labelers(session, method, "GET", read_first?) do
     if String.starts_with?(method, Network.namespace() <> ".") and
-         method != Network.nsid("actor.getPreferences"),
-       do: AtMcp.AcceptLabelers.header(session, fn -> preferences_as_stored(session) end),
-       else: %{}
+         method != Network.nsid("actor.getPreferences") do
+      AtMcp.AcceptLabelers.header(session, fn ->
+        if read_first?, do: preferences_as_stored(session), else: :unknown
+      end)
+    else
+      %{}
+    end
   end
 
-  def accept_labelers(_session, _method, _http_method), do: %{}
+  def accept_labelers(_session, _method, _http_method, _read_first?), do: %{}
 
   @doc false
   # The account's own service, or the library's default. A session always

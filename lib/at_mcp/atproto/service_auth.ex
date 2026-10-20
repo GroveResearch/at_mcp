@@ -24,7 +24,7 @@ defmodule AtMcp.ATProto.ServiceAuth do
   def execute(session, query) do
     query = %{query | base_url: Network.appview_url()}
 
-    labelers = AtMcp.ATProto.accept_labelers(session, query.method, "GET")
+    labelers = AtMcp.ATProto.accept_labelers(session, query.method, "GET", false)
 
     with {:ok, token} <- issue(session, query.method),
          {:ok, body} <-

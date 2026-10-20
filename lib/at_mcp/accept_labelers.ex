@@ -20,6 +20,10 @@ defmodule AtMcp.AcceptLabelers do
   that one. The first read of an account reads its preferences first. If that
   fails, the read names the network's moderation service alone, as the app
   does before it has loaded the preferences, and the next read tries again.
+  A direct read (`AT_MCP_APPVIEW_READS=direct`) does not read them first,
+  since that read goes through the PDS's proxy, which the direct route exists
+  to do without; it names what is already known, or the network's service
+  alone.
 
   The list is kept in a table owned by this process, by DID and the account's
   service (aliases of one DID share it; every test PDS has its own).
