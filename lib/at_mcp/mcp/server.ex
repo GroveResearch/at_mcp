@@ -1763,7 +1763,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:seen_at, :string,
       description:
-        "ISO 8601 date-time to mark seen up to, e.g. 2026-01-01T12:00:00Z; omitted, now. One that does not parse is refused and nothing is sent"
+        "ISO 8601 date-time to mark seen up to, e.g. 2026-01-01T12:00:00Z; omitted, now. One that does not parse is refused and nothing is sent. One after now is sent as given, so notifications that arrive before it read as seen; the result's note says so"
     )
 
     run(fn a, state ->
