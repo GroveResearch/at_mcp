@@ -241,6 +241,47 @@ correct the file and reconnect explicitly. `remove` deletes saved credentials
 and keeps the account's history and its disconnected state. Neither `remove` nor `disconnect`
 revokes the app password at the PDS.
 
+### Replace an app password
+
+An app password is the account's credential at its PDS. Three other things
+look like credentials but are not it. The saved copy of the password in the
+accounts file belongs to AtMcp. A grant is how an MCP client reaches the
+service, and grants stay valid when the password changes. `remove` and
+`disconnect` stop AtMcp using the account. Replacing the password means
+writing the new one where AtMcp reads it, checking that AtMcp is using it,
+then revoking the old one at the PDS.
+
+1. Create a new app password in the account's settings at its home provider
+   (on Bluesky, **Settings → Privacy and security → App passwords**). Keep the
+   old one for now.
+2. Save it, then apply it:
+
+   ```sh
+   at_mcp-accounts update grug        # asks for the new app password
+   at_mcp-accounts reload
+   ```
+
+   `update` logs in with the new password and checks it reaches the saved DID
+   before saving it. If the login fails, or reaches another DID, the file is
+   unchanged. `reload` replaces the account, and the account must be reported
+   `"status": "ready"`. `unavailable` means the new login failed, and `reload`
+   exits nonzero. Restarting the service applies the file too.
+3. Check: `at_mcp-accounts status` shows the account with `"ready": true`
+   and its usual `did`.
+4. Revoke the old app password at the provider (on Bluesky, delete it from the
+   same list), then run `status` again. AtMcp is using the new password if the
+   account is still `ready`.
+
+The environment file's `AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` (and the
+`BLUESKY_*` names) are read once, to write an accounts file when none exists.
+After that, changing them changes nothing. Clients attached through
+`at_mcp-connect` or HTTP hold a grant, not the password, so they need no
+change. To also cut off a client, revoke its grant (`at_mcp-accounts revoke`,
+above). That does not touch the app password.
+
+For a client-launched `at_mcp-stdio`, see the README,
+[Replace the app password](../README.md#replace-the-app-password).
+
 `status`, `reload`, `disconnect` and `reconnect` reach the running service over
 the release's Erlang distribution, which listens on 127.0.0.1 only, at
 `AT_MCP_DIST_PORT`, with no port mapper (epmd). They reach it when
