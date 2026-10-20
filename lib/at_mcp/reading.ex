@@ -40,7 +40,9 @@ defmodule AtMcp.Reading do
   `test/at_mcp/reading_text_test.exs` fails if this module interpolates a
   string or makes a piece itself. In a post's `text`
   (`AtMcp.RichText.render/2`) the author's `<` and backslash are escaped too,
-  so an unescaped `<…>` is always a link or mention marker AtMcp added.
+  so an unescaped `<…>` is always a link or mention marker AtMcp added; a
+  post whose text, or quoted text, holds such an escape says so in one line
+  under it.
 
   It only drops what is absent. A post's text is never shortened, every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
@@ -1704,8 +1706,24 @@ defmodule AtMcp.Reading do
   defp answered(_parent, uri), do: uri
 
   defp body(post) do
-    [fence(post["text"]) | attachments(post)]
+    ([fence(post["text"]) | attachments(post)] ++ [escapes(post)])
     |> Enum.reject(&empty?/1)
+  end
+
+  # The author's `<` and backslash are escaped in a post's text
+  # (`AtMcp.RichText.render/2`) so that an unescaped `<…>` is always where a
+  # link or mention points. A reader that meets an escape is told so, once
+  # under the post, so it neither takes the backslash for the author's nor
+  # copies it into what it writes.
+  defp escapes(post) do
+    quote = if is_map(post["quote"]), do: post["quote"]["text"]
+
+    if Enum.any?(
+         [post["text"], quote],
+         &(is_binary(&1) and String.contains?(&1, ["\\<", "\\\\"]))
+       ),
+       do:
+         ~L"(In post text, \< is the author's < and \\ the author's \; an unescaped <…> is where the link or mention before it points.)"
   end
 
   # Images by their alt text, a link card, a video by its alt text, what a

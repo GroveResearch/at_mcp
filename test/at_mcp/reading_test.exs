@@ -417,6 +417,64 @@ defmodule AtMcp.ReadingTest do
              "[quoting #{name} · 2026-10-01T00:00:00.000Z, at://did:plc:a/app.bsky.feed.post/1: \"hello\" · #{labels} · You muted them]"
   end
 
+  # #147: the author's `<` and backslash read escaped, and every read that
+  # shows a post's text, or a quote of it, says what the escape means; a post
+  # with neither says nothing.
+  test "a post whose text holds an escaped < or backslash says what the escape means" do
+    note =
+      "(In post text, \\< is the author's < and \\\\ the author's \\; an unescaped <…> is where the link or mention before it points.)"
+
+    escaped = put_in(shown(), ["record", "text"], "0 < 6 and a\\b")
+
+    feed = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, escaped))]})
+
+    chain =
+      AtMcp.Reading.chain(%{
+        "chain" => [json(Summary.extract(:chain_post, escaped))],
+        "replies" => []
+      })
+
+    thread = AtMcp.Reading.thread(json(Summary.extract(:chain_post, escaped)))
+
+    notification =
+      AtMcp.Reading.notifications(%{
+        "items" => [
+          json(
+            Summary.extract(
+              :notification,
+              Map.merge(escaped, %{"reason" => "mention", "indexedAt" => "2026-10-01T00:00:01Z"})
+            )
+          )
+        ]
+      })
+
+    quoting = %{
+      "uri" => "at://did:plc:b/app.bsky.feed.post/2",
+      "author" => %{"handle" => "b.test", "did" => "did:plc:b"},
+      "record" => %{"text" => "look", "createdAt" => "2026-10-01T00:00:02.000Z"},
+      "embed" => %{
+        "$type" => AtMcp.Network.type(:embed_record) <> "#view",
+        "record" =>
+          Map.merge(escaped, %{
+            "$type" => AtMcp.Network.type(:embed_record) <> "#viewRecord",
+            "value" => Map.put(escaped["record"], "$type", AtMcp.Network.collection(:post))
+          })
+      }
+    }
+
+    quote = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, quoting))]})
+
+    for text <- [feed, chain, thread, notification] do
+      assert text =~ "> 0 \\< 6 and a\\\\b\n"
+      assert text =~ note
+    end
+
+    assert quote =~ note
+
+    plain = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, shown()))]})
+    refute plain =~ "In post text"
+  end
+
   test "a notification names its author as a post does, and a follow says what is known of who it is from" do
     follow = %{
       "reason" => "starterpack-joined",

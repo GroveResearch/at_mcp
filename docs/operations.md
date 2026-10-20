@@ -584,6 +584,10 @@ No stored data changes.
 - **`update_seen` with a `seen_at` after now** (#118) is still sent as given,
   and its result carries a `note` saying how far ahead of now it is, since
   notifications that arrive before then will read as seen.
+- **A post whose text holds an escaped `<` or backslash** (#147) reads, in the
+  text a model reads, with one line under it saying that `\<` and `\\` are
+  the author's `<` and `\`, and that an unescaped `<…>` is where a link or
+  mention points.
 
 ### From 0.2.11 to 0.2.12
 
