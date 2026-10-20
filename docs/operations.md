@@ -637,6 +637,20 @@ The write quota file also records when each account's window opened, a field
   `"write_quota"` entry from the accounts file by hand. A service that never
   ran `write-quota` rolls back as before. CI's upgrade check takes this step.
 
+- **An embedding host can post text exactly as given** (#163):
+  `AtMcp.Effects.post(effects, text, facets: :none)`, and the same option on
+  `AtMcp.Effects.reply/4`, write a record whose `text` is the text given, byte
+  for byte, with no `facets`: no handle is resolved, and nothing in the text
+  becomes a mention, a link or a tag, so nobody it names is notified. This is
+  for a program that quotes text it did not write. Without the option, or
+  with `facets: :detect`, posts are built as before; any other value is
+  refused as an invalid argument before anything is sent or counted. Replies,
+  quotes and link cards (`link:`, which is given, not detected) work as
+  without it; a `reply_rule` of `"mentioned"` then lets nobody in by mention,
+  since the post mentions nobody. The MCP `post` and `reply` tools do not take
+  it: the app publishes facets detected from the text, and the tools offer
+  what the app does.
+
 - **A grouped read's reply, quote or mention carries its post whole** (#139):
   each entry of its `posts` has a `post` holding the post as `get_posts`
   reads one (time, counts, attachments, labels, this account's like, repost

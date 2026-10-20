@@ -202,10 +202,12 @@ defmodule AtMcp.Interactions do
   Read the options `post` and `reply` take beyond the text, before anything is
   sent. A reply cannot set who may reply: a thread's reply rule belongs to its
   first post, and a threadgate on a reply is never read. A post carries one
-  kind of media, so images and a link card together are refused.
+  kind of media, so images and a link card together are refused. `facets` is
+  `:detect` (the default) or `:none`; anything else is refused.
   """
   def post_options(verb, opts) do
     with :ok <- no_reply_rule(verb, Keyword.get(opts, :reply_rule)),
+         :ok <- facets(Keyword.get(opts, :facets)),
          {:ok, reply_rule} <- reply_rule(Keyword.get(opts, :reply_rule)),
          # A new post with no gate is open to everyone already.
          reply_rule = if(reply_rule == :everyone, do: nil, else: reply_rule),
@@ -237,6 +239,15 @@ defmodule AtMcp.Interactions do
     do: invalid("link", "a post carries images or a link card, not both")
 
   defp one_media(_images, _link), do: :ok
+
+  # Whether AtMcp detects mentions, links and tags in the text (`:detect`, the
+  # default) or publishes the text with no facets (`:none`), for a caller whose
+  # text is not its own: a program that quotes untrusted text would otherwise
+  # mention, and notify, whoever that text names.
+  defp facets(value) when value in [nil, :detect, :none], do: :ok
+
+  defp facets(other),
+    do: invalid("facets", "must be :detect or :none; got #{inspect(other)}")
 
   @doc """
   Whether `repo`, the authority of an AT URI, is the session's own account,

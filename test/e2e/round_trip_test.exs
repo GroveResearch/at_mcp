@@ -325,6 +325,41 @@ defmodule AtMcp.E2E.RoundTripTest do
       call!(me, "delete_post", %{"uri" => post["uri"]})
     end
 
+    test "a post with facets: :none: the record holds the text as given and no facets, and nobody it names is notified",
+         %{net: net, me: me, them: them} do
+      text = "they said: @#{them.handle} see https://example.com #tag"
+
+      mentions = fn uri ->
+        call!(them, "get_notifications", %{})["items"]
+        |> Enum.filter(&(&1["reason"] == "mention" and &1["uri"] == uri))
+      end
+
+      # The embedding API; the tools do not take it.
+      assert {:ok, plain} = AtMcp.Effects.post(me.effects, text, facets: :none)
+      assert {:ok, reply} = AtMcp.Effects.reply(me.effects, plain.uri, text, facets: :none)
+      detected = post!(me, text)
+      sync(net)
+
+      for written <- [plain, reply] do
+        record = record(me, written.uri)
+        assert record["text"] == text
+        refute Map.has_key?(record, "facets")
+        assert only_post(me, written.uri)["raw_text"] == text
+        assert mentions.(written.uri) == []
+      end
+
+      assert record(me, reply.uri)["reply"]["parent"]["uri"] == plain.uri
+
+      # Without it, the same text is a mention, a link and a tag, and they are notified.
+      assert length(record(me, detected["uri"])["facets"]) == 3
+      assert [_] = mentions.(detected["uri"])
+
+      for uri <- [reply.uri, plain.uri, detected["uri"]],
+          do: call!(me, "delete_post", %{"uri" => uri})
+
+      sync(net)
+    end
+
     test "hide_reply and unhide_reply: the thread reads the reply as hidden, then not",
          %{net: net, me: me, them: them} do
       root = post!(me, "my thread")

@@ -77,4 +77,22 @@ defmodule AtMcp.PostValidationTest do
     assert AtMcp.Effects.quota_status(effects).used == 1
     assert {:error, {:write_quota_exhausted, _}} = AtMcp.Effects.post(effects, "over quota")
   end
+
+  test "a facets value other than :detect or :none is refused before the quota or the backend",
+       ctx do
+    for value <- ["none", false, []] do
+      assert {:error, {:invalid_argument, "facets", _}} =
+               AtMcp.Effects.post(ctx.effects, "@alice.test", facets: value)
+
+      assert {:error, {:invalid_argument, "facets", _}} =
+               AtMcp.Effects.reply(ctx.effects, @parent, "@alice.test", facets: value)
+    end
+
+    refute_received {:backend, _, _, _}
+    assert %{used: 0} = AtMcp.WriteQuota.status(ctx.quota, "did:plc:text")
+
+    for value <- [:none, :detect] do
+      assert {:ok, _} = AtMcp.Effects.post(ctx.effects, "@alice.test", facets: value)
+    end
+  end
 end
