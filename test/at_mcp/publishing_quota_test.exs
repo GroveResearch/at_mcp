@@ -35,7 +35,9 @@ defmodule AtMcp.PublishingQuotaTest do
     assert {:error, {:write_quota_exhausted, _}} =
              AtMcp.Effects.reply(effects, "at://did:plc:x/app.bsky.feed.post/1", "one more")
 
-    assert {:error, {:write_quota_exhausted, _}} = AtMcp.Effects.repost(effects, "at://u", "cid")
+    assert {:error, {:write_quota_exhausted, _}} =
+             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+
     assert AtMcp.Effects.quota_status(effects).used == 1
   end
 
@@ -51,7 +53,7 @@ defmodule AtMcp.PublishingQuotaTest do
     "reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1", "text" => "t"},
     "like" => %{"uri" => "at://u", "cid" => "c"},
     "unlike" => %{"uri" => "at://l"},
-    "repost" => %{"uri" => "at://u", "cid" => "c"},
+    "repost" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1", "cid" => "c"},
     "unrepost" => %{"uri" => "at://r"},
     "follow" => %{"actor" => "alice.example"},
     "unfollow" => %{"uri" => "at://f"},

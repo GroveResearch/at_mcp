@@ -957,12 +957,14 @@ defmodule AtMcp.Effects do
   # repost whose subject is a handle-form AT URI nowhere.
   def repost(effects, uri, cid \\ nil)
       when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
-    take_and_write(
-      effects,
-      :repost,
-      fn backend, session -> once_with_cid(backend, session, :repost, uri, cid) end,
-      fn {uri, cid} -> fn backend, session -> backend.repost(session, uri, cid) end end
-    )
+    with {:ok, _} <- at_uri_argument(uri, "uri") do
+      take_and_write(
+        effects,
+        :repost,
+        fn backend, session -> once_with_cid(backend, session, :repost, uri, cid) end,
+        fn {uri, cid} -> fn backend, session -> backend.repost(session, uri, cid) end end
+      )
+    end
   end
 
   # A like or repost reads the subject's view once, before anything is sent:
@@ -2387,15 +2389,25 @@ defmodule AtMcp.Effects do
   # `kinds` on either network. Checked before a session is taken; what is wrong
   # is said about the argument by name, so a caller can fix the call.
   defp record_argument(uri, field, kinds, what) when is_binary(uri) do
+    with {:ok, {_repo, collection, _rkey} = parts} <- at_uri_argument(uri, field) do
+      if Enum.any?(kinds, &AtMcp.Network.collection?(collection, &1)),
+        do: {:ok, parts},
+        else:
+          invalid(
+            field,
+            "must be the AT URI of #{what}; #{uri} is a #{collection} record"
+          )
+    end
+  end
+
+  defp record_argument(_uri, field, _kinds, what),
+    do: invalid(field, "must be the AT URI of #{what}")
+
+  # A URI that names one record, checked before anything is sent or counted.
+  defp at_uri_argument(uri, field) do
     case AtMcp.ATProto.parse_uri(uri) do
-      {:ok, {_repo, collection, _rkey} = parts} ->
-        if Enum.any?(kinds, &AtMcp.Network.collection?(collection, &1)),
-          do: {:ok, parts},
-          else:
-            invalid(
-              field,
-              "must be the AT URI of #{what}; #{uri} is a #{collection} record"
-            )
+      {:ok, parts} ->
+        {:ok, parts}
 
       {:error, _} ->
         invalid(
@@ -2404,9 +2416,6 @@ defmodule AtMcp.Effects do
         )
     end
   end
-
-  defp record_argument(_uri, field, _kinds, what),
-    do: invalid(field, "must be the AT URI of #{what}")
 
   # A record this account edits: in its own repository, named by its DID or the
   # handle the session holds. Answered as the URI in DID form, which is how
