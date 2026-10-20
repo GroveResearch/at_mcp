@@ -81,6 +81,8 @@ defmodule AtMcp.Application do
         {Registry, keys: :duplicate, name: AtMcp.Listen.Registry},
         {AtMcp.Inbound.Store, []},
         {AtMcp.WriteQuota, Application.get_env(:at_mcp, :write_quota, [])},
+        # Which labelers each account's reads ask the AppView for.
+        AtMcp.AcceptLabelers,
         # Shared Jetstream inbound ears — N identities track DIDs onto this one WS.
         {AtMcp.Inbound, name: AtMcp.Inbound},
         # N identities (Effects + Listen + optional MCP) — never communal login.

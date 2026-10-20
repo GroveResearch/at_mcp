@@ -24,8 +24,15 @@ defmodule AtMcp.ATProto.ServiceAuth do
   def execute(session, query) do
     query = %{query | base_url: Network.appview_url()}
 
+    labelers = AtMcp.ATProto.accept_labelers(session, query.method, "GET")
+
     with {:ok, token} <- issue(session, query.method),
-         {:ok, body} <- get(to_string(query), %{"authorization" => "Bearer " <> token}, :appview) do
+         {:ok, body} <-
+           get(
+             to_string(query),
+             Map.put(labelers, "authorization", "Bearer " <> token),
+             :appview
+           ) do
       {:ok, ProtoRune.Case.snakelize_enum(body)}
     end
   end

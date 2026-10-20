@@ -169,13 +169,14 @@ lines.on('line', async (line) => {
       }
       case 'label': {
         // dev-env does not carry ozone's labels to the AppView, so the label
-        // is written where the AppView reads labels, as ozone's, the way
-        // dev-env's own seed labels a record (seed/basic.ts).
-        const [cid, value] = rest
+        // is written where the AppView reads labels, as ozone's (or as the
+        // labeler a fourth word names), the way dev-env's own seed labels a
+        // record (seed/basic.ts).
+        const [cid, value, src] = rest
         await network.bsky.db.db
           .insertInto('label')
           .values({
-            src: network.ozone.ctx.cfg.service.did,
+            src: src ?? network.ozone.ctx.cfg.service.did,
             uri: arg,
             cid,
             val: value,

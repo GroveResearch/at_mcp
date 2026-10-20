@@ -1498,6 +1498,27 @@ defmodule AtMcp.E2E.RoundTripTest do
       {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before)
     end
 
+    # #83: the AppView carries a labeler's labels only when the read names it
+    # in atproto-accept-labelers, through the PDS.
+    test "a label from a labeler the account subscribes to arrives once it subscribes, and not before",
+         %{net: net, me: me, them: them} do
+      post = post!(me, "spoil it")
+      sync(net)
+      assert :ok = DevNetwork.label(net, post["uri"], post["cid"], "spoiler", them.did)
+
+      labels = fn -> Enum.map(only_post(me, post["uri"])["labels"] || [], & &1["val"]) end
+      refute "spoiler" in labels.()
+
+      call!(me, "subscribe_labeler", %{"actor" => them.did})
+      assert "spoiler" in labels.()
+
+      call!(me, "unsubscribe_labeler", %{"actor" => them.did})
+      refute "spoiler" in labels.()
+
+      call!(me, "delete_post", %{"uri" => post["uri"]})
+      sync(net)
+    end
+
     test "subscribe_labeler, set_label_visibility for its label, unsubscribe_labeler: get_labelers and get_preferences follow each",
          %{me: me, them: them, moderation: moderation, session: session} do
       assert [^moderation] = call!(me, "get_preferences", %{})["labelers"]
