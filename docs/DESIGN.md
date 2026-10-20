@@ -388,8 +388,13 @@ changed as `@atproto/api`'s `addMutedWord`, `updateMutedWord`,
 `removeMutedWord`, `addLabeler`, `removeLabeler` and `setContentLabelPref`
 change them, every other preference kept as stored, and `get_preferences`
 reads them back. The app applies them on the device, so at_mcp's reads still
-return muted posts and labelled content as served; and at_mcp's reads do not
-yet ask for the labels of the labelers an account subscribes to (#83).
+return muted posts and labelled content as served. Every read asks the
+AppView for the labels the app asks for (`atproto-accept-labelers`, which the
+PDS forwards): the network's own moderation service with `;redact`, then each
+labeler the account subscribes to, as its preferences named them when at_mcp
+last read or wrote them (`AtMcp.AcceptLabelers`). An account's first read
+reads its preferences first; if that fails, the read names the network's
+service alone, as the app does before its preferences load.
 `mute_list` and `block_list` take a moderation list by its DID-form URI,
 which is how reads name it (`muted_by_list`, `blocking_by_list`); a list
 block is a `graph.listblock` record written over the commit read, and
@@ -404,7 +409,11 @@ link card by its text, without the video or the card's image.
 ## The write quota
 
 Every account has one durable write quota: 16 attempted publishing writes per
-hour by default, shared by every client, alias and reconnect. The quota bounds
+hour by default, shared by every client, alias and reconnect. The default
+guards against an agent publishing faster than a person would notice and stop
+it. The number is the per-turn budget an earlier version had, kept when the
+bound moved to the hour, and has not been measured; `AtMcp.WriteQuota`'s
+moduledoc gives the reasoning, and `AT_MCP_WRITE_LIMIT` changes it. The quota bounds
 what the account publishes, so only `post`, `reply` and `repost` count
 (`AtMcp.Effects.publishing/0`); a like, a follow, a block, a mute, a deletion, a
 profile edit and marking notifications seen do not. A publishing write counts

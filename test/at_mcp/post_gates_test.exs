@@ -49,6 +49,68 @@ defmodule AtMcp.PostGatesTest do
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
     end
 
+    # A model that fills every optional field it is offered sends this for a
+    # post with no card. Read as a card, its thumb is an image that cannot be
+    # read, and the whole post was refused.
+    @every_optional_empty %{
+      "link" => %{
+        "url" => "",
+        "title" => "",
+        "description" => "",
+        "thumb" => %{"data" => "", "mimeType" => "", "path" => ""}
+      },
+      "images" => [%{"data" => "", "mimeType" => "", "path" => "", "alt" => ""}],
+      "quote" => "",
+      "quotes" => "",
+      "labels" => [],
+      "langs" => []
+    }
+
+    test "a post or reply with every optional argument empty is sent without them", ctx do
+      for {name, arguments} <- [
+            {"post", %{"text" => "t"}},
+            {"reply", %{"uri" => "at://did:plc:x/app.bsky.feed.post/1", "text" => "t"}},
+            # The link card a caller named with `uri`, as the record does.
+            {"post", %{"text" => "t", "link" => %{"uri" => "", "thumb" => %{"data" => ""}}}}
+          ] do
+        result = call(ctx.state, name, Map.merge(@every_optional_empty, arguments))
+        refute result[:isError], "#{name}: #{hd(result.content).text}"
+        refute hd(result.content).text =~ "ignored"
+      end
+
+      assert AtMcp.Effects.quota_status(ctx.effects).used == 3
+    end
+
+    test "an empty value that means something is kept" do
+      schema = fn name ->
+        {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+        Jason.decode!(Jason.encode!(Enum.find(tools, &(&1.name == name)).inputSchema))
+      end
+
+      post = schema.("post")
+
+      assert %{"reply_rule" => []} =
+               AtMcp.MCP.Input.drop_empty("post", %{"reply_rule" => []}, post)
+
+      profile = %{"pronouns" => "", "website" => " ", "links" => [], "description" => ""}
+
+      assert AtMcp.MCP.Input.drop_empty("update_profile", profile, schema.("update_profile")) ==
+               %{"pronouns" => "", "website" => " ", "links" => []}
+
+      # Links each of which is empty are not `[]`: the profile's links are kept.
+      assert AtMcp.MCP.Input.drop_empty(
+               "update_profile",
+               %{"links" => [%{"url" => "", "title" => ""}]},
+               schema.("update_profile")
+             ) == %{}
+
+      assert AtMcp.MCP.Input.drop_empty(
+               "update_list",
+               %{"uri" => "at://x", "description" => "", "avatar" => %{"data" => ""}},
+               schema.("update_list")
+             ) == %{"uri" => "at://x", "description" => ""}
+    end
+
     test "quotes and labels outside their values are refused by the schema, naming them", ctx do
       assert ["quotes"] =
                call(ctx.state, "post", %{"text" => "t", "quotes" => "never"}) |> problem_paths()
@@ -360,6 +422,58 @@ defmodule AtMcp.PostGatesTest do
 
       assert [%{body: <<1, 2, 3>>}] = FakePDS.sent(pds, "com.atproto.repo.uploadBlob")
       valid!(record, "app.bsky.feed.post")
+    end
+
+    test "through post, reply_rule [] is still nobody, and an empty thumb leaves the card without one" do
+      %{pds: pds, state: state} = pds()
+
+      result =
+        call(state, "post", %{
+          "text" => "see",
+          "reply_rule" => [],
+          "images" => [],
+          "link" => %{
+            "url" => "https://example.com/a",
+            "title" => "A page",
+            "description" => "",
+            "thumb" => %{"data" => "", "mimeType" => "", "path" => ""}
+          }
+        })
+
+      refute result[:isError], hd(result.content).text
+      [post, threadgate] = applied(pds)
+      assert threadgate["value"]["allow"] == []
+
+      assert post["value"]["embed"] == %{
+               "$type" => "app.bsky.embed.external",
+               "external" => %{
+                 "uri" => "https://example.com/a",
+                 "title" => "A page",
+                 "description" => ""
+               }
+             }
+
+      assert FakePDS.sent(pds, "com.atproto.repo.uploadBlob") == []
+      valid!(post["value"], "app.bsky.feed.post")
+    end
+
+    test "through post, a link card with nothing in it writes a post with no embed" do
+      %{pds: pds, state: state} = pds()
+
+      result =
+        call(state, "post", %{
+          "text" => "plain",
+          "link" => %{
+            "url" => "",
+            "title" => "",
+            "description" => "",
+            "thumb" => %{"data" => "", "mimeType" => "", "path" => ""}
+          }
+        })
+
+      refute result[:isError], hd(result.content).text
+      [create] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+      refute Map.has_key?(create.body["record"], "embed")
     end
 
     test "set_post_interactions replaces both rules and keeps hidden replies and createdAt" do

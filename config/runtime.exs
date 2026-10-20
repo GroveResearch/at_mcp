@@ -69,6 +69,8 @@ if config_env() != :test do
     {"AT_MCP_APPVIEW_READS", one_of.([:proxy, :direct]), :proxy},
     {"AT_MCP_ACCOUNTS_FILE", text, nil},
     {"AT_MCP_STATE_DIR", text, nil},
+    # 16 publishing writes an hour: why, and what it protects against, is in
+    # AtMcp.WriteQuota's moduledoc ("The default").
     {"AT_MCP_WRITE_LIMIT", positive, 16},
     {"AT_MCP_WRITE_WINDOW_SECONDS", positive, 3600},
     {"AT_MCP_NOTIFICATIONS", flag, true},

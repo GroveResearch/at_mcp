@@ -103,6 +103,8 @@ defmodule AtMcp.MCP.DSL do
             super(name, arguments, state)
 
           {:ok, schema} ->
+            arguments = AtMcp.MCP.Input.drop_empty(name, arguments, schema)
+
             case AtMcp.MCP.Input.validate(arguments, schema) do
               :ok ->
                 case AtMcp.MCP.WebLinks.resolve(name, arguments, state) do

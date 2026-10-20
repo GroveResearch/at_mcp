@@ -79,8 +79,9 @@ defmodule AtMcp.Test.FakePDS do
 
   @doc """
   Every request with this method, oldest first: `%{method, query, raw, body,
-  proxy}`. `query` keeps one value of a repeated key; `raw` is the query
-  string as sent; `proxy` is the `atproto-proxy` header, if any.
+  proxy, labelers}`. `query` keeps one value of a repeated key; `raw` is the
+  query string as sent; `proxy` is the `atproto-proxy` header and `labelers`
+  the `atproto-accept-labelers` header, if any.
   """
   def sent(state, method),
     do: state |> Agent.get(& &1.calls) |> Enum.filter(&(&1.method == method))
@@ -114,7 +115,8 @@ defmodule AtMcp.Test.FakePDS do
       query: conn.query_params,
       raw: conn.query_string,
       body: body,
-      proxy: conn |> get_req_header("atproto-proxy") |> List.first()
+      proxy: conn |> get_req_header("atproto-proxy") |> List.first(),
+      labelers: conn |> get_req_header("atproto-accept-labelers") |> List.first()
     }
 
     Agent.update(state, &%{&1 | calls: &1.calls ++ [call]})

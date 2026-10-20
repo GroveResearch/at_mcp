@@ -104,8 +104,12 @@ defmodule AtMcp.ATProto do
 
     with {:ok, %{body: body}} <- execute(session, query, "GET") do
       case Jason.decode(body) do
-        {:ok, %{"preferences" => preferences}} when is_list(preferences) -> {:ok, preferences}
-        _ -> {:error, :unreadable_preferences}
+        {:ok, %{"preferences" => preferences}} when is_list(preferences) ->
+          AtMcp.AcceptLabelers.remember(session, preferences)
+          {:ok, preferences}
+
+        _ ->
+          {:error, :unreadable_preferences}
       end
     end
   end
@@ -122,7 +126,14 @@ defmodule AtMcp.ATProto do
       |> Procedure.put_raw_body(Jason.encode!(%{"preferences" => preferences}))
       |> Procedure.put_header("content-type", "application/json")
 
-    execute(session, proc, "POST")
+    case execute(session, proc, "POST") do
+      {:error, _} = error ->
+        error
+
+      written ->
+        AtMcp.AcceptLabelers.remember(session, preferences)
+        written
+    end
   end
 
   @doc """
@@ -632,7 +643,8 @@ defmodule AtMcp.ATProto do
   end
 
   # `route` replaces where the PDS forwards the call, for the one method whose
-  # service is not the AppView (`send_interactions/3`).
+  # service is not the AppView (`send_interactions/3`). A read names the
+  # labelers whose labels it asks for (`accept_labelers/3`).
   defp execute(session, request, http_method, route \\ %{}) do
     url = Path.join(request.base_url, request.method)
 
@@ -641,11 +653,34 @@ defmodule AtMcp.ATProto do
         request.headers
         |> Map.merge(headers)
         |> Map.merge(Network.request_headers(request.method, session))
+        |> Map.merge(accept_labelers(session, request.method, http_method))
         |> Map.merge(route)
 
       Client.execute(%{request | headers: headers}, session: session)
     end
   end
+
+  @doc false
+  # `atproto-accept-labelers` on an application-namespace read, as the app
+  # sends it (`AtMcp.AcceptLabelers`). Reading the preferences is not given
+  # one: it is what the header is made from. A direct read (`ServiceAuth`)
+  # passes `read_first?` false: the preferences are read through the PDS's
+  # proxy, which a direct route exists to do without, so it names what is
+  # already known.
+  def accept_labelers(session, method, http_method, read_first? \\ true)
+
+  def accept_labelers(session, method, "GET", read_first?) do
+    if String.starts_with?(method, Network.namespace() <> ".") and
+         method != Network.nsid("actor.getPreferences") do
+      AtMcp.AcceptLabelers.header(session, fn ->
+        if read_first?, do: preferences_as_stored(session), else: :unknown
+      end)
+    else
+      %{}
+    end
+  end
+
+  def accept_labelers(_session, _method, _http_method, _read_first?), do: %{}
 
   @doc false
   # The account's own service, or the library's default. A session always

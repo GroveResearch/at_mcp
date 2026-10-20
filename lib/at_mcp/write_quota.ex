@@ -19,6 +19,27 @@ defmodule AtMcp.WriteQuota do
   That direction is the safe one — a stuck window refuses writes, where a reset
   one would let an account write past its limit — and `identity_status` reports
   it.
+
+  ## The default: 16 per hour
+
+  What it protects against: an agent publishing under the account's name
+  faster than a person would notice and stop it, such as a loop that replies
+  to its own replies, a retry storm, or a conversation between two agents that
+  never ends. Posts, replies and reposts are what other people see, so only
+  they count (`AtMcp.Effects.publishing/0`; on the first night agents used the
+  quota, likes and follows used it up within minutes). A refused write is the
+  visible failure: the refusal and `identity_status` name the limit and the
+  reset time.
+
+  Why this number and window: 16 is the per-turn write budget an earlier
+  version had. It was kept when the bound moved from the turn to the account
+  and the hour (decisions.md, 2026-09-13), and it has not been measured
+  against how accounts publish. An hour bounds a loop to 16 posts before it
+  stops, and an account that reaches the limit can write again within the
+  hour. It is a cautious starting point, not a measured one. An account in a
+  busy conversation reaches it at one reply every four minutes, and an
+  operator who expects that raises `AT_MCP_WRITE_LIMIT` or
+  `AT_MCP_WRITE_WINDOW_SECONDS` (`config/runtime.exs`).
   """
   use GenServer
 
@@ -44,6 +65,7 @@ defmodule AtMcp.WriteQuota do
 
   @impl true
   def init(opts) do
+    # Why 16 per hour: the moduledoc, "The default".
     limit = Keyword.get(opts, :limit, 16)
     seconds = Keyword.get(opts, :window_seconds, 3600)
 
