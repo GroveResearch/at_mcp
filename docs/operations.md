@@ -536,7 +536,16 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
-### From 0.2.11 to the next release
+### From 0.2.12 to the next release
+
+No stored data changes.
+
+- **A post whose text holds an escaped `<` or backslash** (#147) reads, in the
+  text a model reads, with one line under it saying that `\<` and `\\` are
+  the author's `<` and `\`, and that an unescaped `<…>` is where a link or
+  mention points.
+
+### From 0.2.11 to 0.2.12
 
 No stored data changes. What a client or a delivery receiver reads changes
 (#132, #133, #134, #135):
