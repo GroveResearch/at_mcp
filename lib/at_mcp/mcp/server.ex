@@ -1705,7 +1705,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_profile",
        write_description(
          :update_profile,
-         "Update display name, description, avatar, banner, pronouns, website and/or the links the profile shows. Fields not given are kept; an empty pronouns or website removes it. The profile record is read first and written only over that version. get_record on this account's profile record (rkey self) reads it back."
+         "Update display name, description, avatar, banner, pronouns, website, the links the profile shows and/or the labels the account gives itself. Fields not given are kept; an empty pronouns or website removes it. The profile record is read first and written only over that version. get_record on this account's profile record (rkey self) reads it back."
        ) do
     annotations(
       write_annotations(:update_profile, %{
@@ -1742,6 +1742,11 @@ defmodule AtMcp.MCP.Server do
     )
 
     param(:links, {:array, :object}, AtMcp.MCP.Schemas.profile_links())
+
+    param(:labels, {:array, :string},
+      description:
+        "Labels the account gives itself, such as bot for an automated account, replacing those it has. [] removes them all."
+    )
 
     run(fn a, state ->
       e = state.effects

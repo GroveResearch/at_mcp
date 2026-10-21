@@ -954,12 +954,14 @@ defmodule AtMcp.ATProto do
     |> put_present("labels", self_labels(Keyword.get(fields, :labels)))
   end
 
-  # A post's labels about itself, the app's content warnings. The union's type
-  # is `com.atproto`'s, the same on every network.
-  defp self_labels(nil), do: nil
-  defp self_labels([]), do: nil
+  @doc """
+  A record's labels about itself: a post's content warnings, or what an account
+  says it is. The union's type is `com.atproto`'s, the same on every network.
+  """
+  def self_labels(nil), do: nil
+  def self_labels([]), do: nil
 
-  defp self_labels(values) when is_list(values),
+  def self_labels(values) when is_list(values),
     do: %{
       "$type" => "com.atproto.label.defs#selfLabels",
       "values" => Enum.map(values, &%{"val" => &1})

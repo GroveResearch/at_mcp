@@ -2183,6 +2183,7 @@ defmodule AtMcp.Effects.ProtoRune do
            current
            |> merge_profile(safe)
            |> with_links(links)
+           |> with_self_labels(Keyword.fetch(updates, :labels))
            |> AtMcp.ATProto.profile_record(blobs),
          {:ok, result} <- put_profile_with_links(session, record, swap, links) do
       {:ok,
@@ -2193,6 +2194,7 @@ defmodule AtMcp.Effects.ProtoRune do
          description: Keyword.get(safe, :description),
          pronouns: Keyword.get(safe, :pronouns),
          website: Keyword.get(safe, :website),
+         labels: Keyword.get(updates, :labels),
          uri: Map.get(result, :uri) || Map.get(result, "uri")
        }
        |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))
@@ -2325,6 +2327,12 @@ defmodule AtMcp.Effects.ProtoRune do
       refs -> Map.put(record, "links", Enum.map(refs, &%{"uri" => &1.uri, "cid" => &1.cid}))
     end
   end
+
+  defp with_self_labels(record, :error), do: record
+  defp with_self_labels(record, {:ok, []}), do: Map.drop(record, ["labels", :labels])
+
+  defp with_self_labels(record, {:ok, values}),
+    do: record |> Map.drop([:labels]) |> Map.put("labels", AtMcp.ATProto.self_labels(values))
 
   # With links, the new link records were written first. A profile write the
   # service refused leaves them named by nothing, so they are deleted again

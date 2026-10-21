@@ -538,6 +538,35 @@ defmodule AtMcp.FeedProfileWritesTest do
 
       refute Map.has_key?(record, "pronouns")
     end
+
+    test "update_profile replaces the account's self-labels, and [] removes them" do
+      profile = "at://did:plc:self/town.delve.actor.profile/self"
+
+      %{effects: effects, pds: pds} =
+        pds(
+          records: %{
+            profile => %{"$type" => "town.delve.actor.profile", "displayName" => "Self"}
+          }
+        )
+
+      assert {:ok, %{labels: ["bot"]}} = AtMcp.Effects.update_profile(effects, labels: ["bot"])
+      [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
+      assert Lexicon.problems(body["record"], "app.bsky.actor.profile") == []
+
+      assert %{
+               "displayName" => "Self",
+               "labels" => %{
+                 "$type" => "com.atproto.label.defs#selfLabels",
+                 "values" => [%{"val" => "bot"}]
+               }
+             } = FakePDS.record(pds, profile)
+
+      assert {:ok, _} = AtMcp.Effects.update_profile(effects, description: "Hello")
+      assert %{"labels" => _} = FakePDS.record(pds, profile)
+
+      assert {:ok, _} = AtMcp.Effects.update_profile(effects, labels: [])
+      refute Map.has_key?(FakePDS.record(pds, profile), "labels")
+    end
   end
 
   describe "profile links and feed feedback, on Bluesky" do
