@@ -1378,24 +1378,29 @@ previous release.
 
 Pushing a version tag publishes one; a merge to `main` does not. The tag is
 the version: nothing in the repository changes to cut a release. Tag a commit
-of `main` whose run of `check` passed in the merge queue or on main, with `v`
-and the version (for 0.3.0):
+of `main` whose run of `check` passed in the merge queue, with `v` and the
+version (for 0.3.0); the tag can go on as soon as the pull request merges:
+main moves to the commit the queue tested, and `check` does not run on main
+again.
 
 ```sh
 git tag -a v0.3.0 -m "AtMcp 0.3.0" origin/main && git push origin v0.3.0
 ```
 
 (`origin/main` after a `git fetch`; any older commit of main that passed works
-too.) CI refuses a tag that is not `vX.Y.Z`, or whose commit is not on main or
-has no passing run of `check` there, before anything is built
-(`scripts/release_version.sh`). It then builds and tests the tagged commit as
-that version (`RELEASE_VERSION`, which `mix.exs` reads), builds the Linux and
-macOS releases, and publishes only after both platforms pass. Publication
-requires both exact-version tarballs and their checksum files; a partial
-platform build does not create or replace a release. Once the GitHub release
-is published, CI writes the version into the package's `VERSION` file and
-publishes the package and its docs to Hex with `mix hex.publish`, using the
-`HEX_API_KEY` secret in the repository's `hex` environment.
+too. A commit of main that never went through the queue needs a requested run
+first: `gh workflow run check --ref main`.) CI refuses a tag that is not
+`vX.Y.Z`, or whose commit is not on main or has no passing run of `check` in
+the merge queue or requested on main, before anything is built
+(`scripts/release_version.sh`). It does not run the tests again; it builds the
+Linux and macOS releases as that version (`RELEASE_VERSION`, which `mix.exs`
+reads), checks each as the queue does, and publishes only after both
+platforms pass. Publication requires both exact-version tarballs and their
+checksum files; a partial platform build does not create or replace a
+release. Once the GitHub release is published, CI writes the version into the
+package's `VERSION` file and publishes the package and its docs to Hex with
+`mix hex.publish`, using the `HEX_API_KEY` secret in the repository's `hex`
+environment.
 
 When a tag's run does not finish:
 

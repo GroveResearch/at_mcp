@@ -7,21 +7,24 @@ name: check
 #                  quick check a pull request needs to join the merge queue.
 #   merge queue    test in full, release (Linux) on the queued pull requests
 #                  merged onto main; nothing is published. Nothing reaches
-#                  main without passing everything here.
-#   push to main   test in full, release (Linux); nothing is published
-#   push a v* tag  test, release (Linux), macos, then publish both tarballs
-#                  only if both platform jobs passed, then publish the
-#                  package to Hex only if that GitHub release was published
+#                  main without passing everything here, and main then moves
+#                  to exactly the commit that passed, so main is not tested
+#                  again (cache.yml only keeps main's dependency cache).
+#   push a v* tag  release (Linux) and macos build the tagged commit as the
+#                  tag's version, then publish both tarballs only if both
+#                  passed, then the package goes to Hex only if that GitHub
+#                  release was published. test does not run: the commit
+#                  already passed it in the merge queue.
 #   on request     test, release (Linux), macos; nothing is published
 #
 # Publishing is a deliberate act: docs/operations.md's "Publish a release"
 # says how to push a tag. The tag is the version: a `vX.Y.Z` tag builds and
 # publishes X.Y.Z (scripts/release_version.sh sets RELEASE_VERSION, which
-# mix.exs reads), and nothing in the repository is changed to cut one. `test`
-# refuses any other tag, and a tag on a commit that is not on main or has no
-# passing run of this workflow in the merge queue or on main, before anything
-# is built. Both advertised platforms must pass before a release can be
-# created or updated.
+# mix.exs reads), and nothing in the repository is changed to cut one.
+# `release` and `macos` refuse any other tag, and a tag on a commit that is
+# not on main or has no passing run of this workflow in the merge queue (or a
+# requested run on main), before anything is built. Both advertised platforms must pass before a
+# release can be created or updated.
 # macOS runs only on a tag or on request because macOS runner minutes on this
 # private repository bill at ten times Linux's.
 #
@@ -32,14 +35,13 @@ name: check
 # the pieces is found before anything reaches main.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   pull_request:
   merge_group:
   workflow_dispatch:
 
-# A newer push to a pull request cancels its run still going. Main's runs are
-# its record and a tag's run publishes, so neither is cancelled.
+# A newer push to a pull request cancels its run still going. A tag's run
+# publishes, so it is not cancelled.
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -53,22 +55,13 @@ jobs:
   # Format, compile with warnings as errors and the whole suite (`mix check`),
   # with every environment-gated test given its environment: the official MCP
   # client packages, and a production release for the tests that run one.
+  # A tag's commit already passed it in the merge queue.
   test:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # actions: read lets a tag's run find the passing run of its commit.
-    permissions:
-      contents: read
-      actions: read
     steps:
       - uses: actions/checkout@v7
-
-      # On a tag, the version it publishes; nothing otherwise. A tag that is
-      # not vX.Y.Z on a commit of main that passed this workflow stops here.
-      - name: Take the version from the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/release_version.sh --from-green-main >> "$GITHUB_ENV"
 
       - name: Verify release platform and baseline contracts
         run: |
@@ -111,7 +104,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           mix docs
-          echo "${RELEASE_VERSION:-0.0.0-dev}" > VERSION
+          echo "0.0.0-dev" > VERSION
           mix hex.build
           rm VERSION
           python3 scripts/package_consumer_check.py at_mcp-*.tar
@@ -178,14 +171,23 @@ jobs:
   # reaches main.
   release:
     needs: test
-    if: github.event_name != 'pull_request'
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && (needs.test.result == 'success' || github.ref_type == 'tag') }}
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    # actions: read lets a tag's run find the passing run of its commit.
+    permissions:
+      contents: read
+      actions: read
     env:
       MIX_ENV: prod
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
+
+      # On a tag, the version it publishes; nothing otherwise. A tag that is
+      # not vX.Y.Z on a commit of main that passed this workflow stops here.
+      - name: Take the version from the tag
+        run: scripts/release_version.sh --from-green-main >> "$GITHUB_ENV"
 
       # Pinned with the test job's runtime; see the reason there.
       - uses: erlef/setup-beam@v1
@@ -205,10 +207,6 @@ jobs:
           fi
 
       - run: mix deps.get
-
-      # `test` has already refused a bad tag; this only names the version.
-      - name: Take the version from the tag
-        run: scripts/release_version.sh >> "$GITHUB_ENV"
 
       - run: mix release
 
@@ -285,14 +283,21 @@ jobs:
   # passed is published only when Linux passed too.
   macos:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: ${{ !cancelled() && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && needs.test.result == 'success')) }}
     runs-on: macos-14
     timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
     env:
       MIX_ENV: prod
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
+
+      # As in release: a bad tag stops here, before anything is built.
+      - name: Take the version from the tag
+        run: scripts/release_version.sh --from-green-main >> "$GITHUB_ENV"
 
       # Pinned with the test job's runtime; see the reason there.
       - uses: erlef/setup-beam@v1
@@ -309,10 +314,6 @@ jobs:
           fi
 
       - run: mix deps.get
-
-      # `test` has already refused a bad tag; this only names the version.
-      - name: Take the version from the tag
-        run: scripts/release_version.sh >> "$GITHUB_ENV"
 
       - run: mix release
 
@@ -473,6 +474,15 @@ jobs:
         run: |
           scripts/release_version.sh | cut -d= -f2 > VERSION
           test -s VERSION
+
+      # The package at the tag's version, used from a separate application
+      # before it is published. The merge queue checked this commit's package
+      # as 0.0.0-dev; test does not run on a tag.
+      - name: Build the package and use it from a separate application
+        run: |
+          mix hex.build
+          python3 scripts/package_consumer_check.py at_mcp-*.tar
+          rm at_mcp-*.tar
 
       - run: mix hex.publish --yes
         env:

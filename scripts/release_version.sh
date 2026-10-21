@@ -11,11 +11,11 @@
 #
 # With --from-green-main, a tag is refused unless its commit (GITHUB_SHA) is
 # on main and a run of the `check` workflow passed for it in the merge queue
-# or on main, so only a commit that passed everything is released, and unless
-# its version is the next patch, minor or major after the newest other
-# `vX.Y.Z` tag (after v0.2.11: v0.2.12, v0.3.0 or v1.0.0). A published version
-# cannot really be taken back (Hex keeps it, a server may have fetched it), so
-# a typo such as v0.2.21 or v0.21.0 stops here. That asks GitHub (gh, with
+# (or a run requested on main), so only a commit that passed everything is
+# released, and unless its version is the next patch, minor or major after
+# the newest other `vX.Y.Z` tag (after v0.2.11: v0.2.12, v0.3.0 or v1.0.0). A
+# published version cannot really be taken back (Hex keeps it, a server may
+# have fetched it), so a typo such as v0.2.21 or v0.21.0 stops here. That asks GitHub (gh, with
 # GH_TOKEN and GITHUB_REPOSITORY; the token needs `actions: read`).
 set -euo pipefail
 
@@ -64,9 +64,9 @@ if [ "${1:-}" = --from-green-main ]; then
 
   run=$(gh run list --repo "$repo" --workflow check --commit "$sha" --status success \
     --limit 50 --json databaseId,event,headBranch \
-    --jq '[.[] | select(.event == "merge_group" or (.event == "push" and .headBranch == "main"))][0].databaseId // empty')
+    --jq '[.[] | select(.event == "merge_group" or (.event == "workflow_dispatch" and .headBranch == "main"))][0].databaseId // empty')
   if [ -z "$run" ]; then
-    echo "no run of check passed for $sha in the merge queue or on main; tag a commit of main once its run has passed" >&2
+    echo "no run of check passed for $sha in the merge queue or on request on main; tag a commit of main that passed the merge queue, or run check on main (gh workflow run check --ref main) and tag once it passes" >&2
     exit 1
   fi
   echo "$tag: $sha is on main and passed check in run $run" >&2

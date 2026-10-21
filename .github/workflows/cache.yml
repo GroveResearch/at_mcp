@@ -1,0 +1,52 @@
+name: cache
+
+# Main's dependency cache, which pull requests and the merge queue restore
+# (a cache saved in the merge queue belongs to its temporary branch and no
+# other run can read it). check.yml does not run on a push to main: main moves
+# to the commit the merge queue already tested. So this keeps the cache that
+# check.yml's test job reads: when mix.lock changed, it compiles the
+# dependencies for test and prod as test does and saves them under the new
+# key; otherwise the key exists and it stops there.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # The key and paths are check.yml's test job's.
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+
+      # Pinned with check.yml's runtime.
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: mix deps.get
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: mix deps.compile
+        env:
+          MIX_ENV: test
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: mix deps.compile
+        env:
+          MIX_ENV: prod
