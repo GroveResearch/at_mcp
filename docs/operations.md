@@ -637,6 +637,11 @@ The write quota file also records when each account's window opened, a field
   `"write_quota"` entry from the accounts file by hand. A service that never
   ran `write-quota` rolls back as before. CI's upgrade check takes this step.
 
+- **`update_profile` sets the account's self-labels**: `labels` replaces the
+  labels the profile record gives the account, such as `bot` for an automated
+  account, and `[]` removes them. Left out, the profile's labels are kept, as
+  before. Its result carries the labels written.
+
 - **An embedding host can post text exactly as given** (#163):
   `AtMcp.Effects.post(effects, text, facets: :none)`, and the same option on
   `AtMcp.Effects.reply/4`, write a record whose `text` is the text given, byte
