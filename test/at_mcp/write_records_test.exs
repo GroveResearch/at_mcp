@@ -49,6 +49,8 @@ defmodule AtMcp.WriteRecordsTest do
     defp response("com.atproto.repo.createRecord", _conn),
       do: %{uri: "at://did:plc:self/c/new", cid: "bafyreinew"}
 
+    defp response("town.delve.identity.getState", _conn), do: %{activated: false}
+
     defp response("com.atproto.repo.putRecord", _conn),
       do: %{uri: "at://did:plc:self/c/self", cid: "bafyreiself"}
 

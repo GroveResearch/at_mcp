@@ -259,6 +259,9 @@ defmodule AtMcp.Test.FakePDS do
 
   defp answer(method, call, state) do
     cond do
+      method == "town.delve.identity.getState" ->
+        {{200, %{activated: false}}, state}
+
       String.ends_with?(method, ".actor.getPreferences") ->
         {{200, %{preferences: state.preferences}}, state}
 

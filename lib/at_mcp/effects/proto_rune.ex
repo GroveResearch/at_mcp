@@ -1926,16 +1926,26 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def follow(session, "did:" <> _ = did) do
-    case create(session, :follow, AtMcp.ATProto.follow_record(subject: did)) do
-      {:ok, result} -> {:ok, Map.merge(summarize_record(result), %{actor: did, action: :follow})}
+    with {:ok, activated} <- identity_authority(session),
+         record = AtMcp.ATProto.follow_record([subject: did], activated),
+         {:ok, result} <-
+           create_in(session, AtMcp.Network.identity_collection(:follow, activated), record) do
+      {:ok, Map.merge(summarize_record(result), %{actor: did, action: :follow})}
+      |> confirm_identity_write(session, activated)
+    else
       {:error, reason} -> {:error, failure(reason)}
     end
   end
 
   @impl true
   def block(session, "did:" <> _ = did) do
-    case create(session, :block, AtMcp.ATProto.block_record(subject: did)) do
-      {:ok, result} -> {:ok, Map.merge(summarize_record(result), %{actor: did, action: :block})}
+    with {:ok, activated} <- identity_authority(session),
+         record = AtMcp.ATProto.block_record([subject: did], activated),
+         {:ok, result} <-
+           create_in(session, AtMcp.Network.identity_collection(:block, activated), record) do
+      {:ok, Map.merge(summarize_record(result), %{actor: did, action: :block})}
+      |> confirm_identity_write(session, activated)
+    else
       {:error, reason} -> {:error, failure(reason)}
     end
   end
@@ -2173,6 +2183,156 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def update_profile(session, updates) when is_list(updates) do
+    with {:ok, activated} <- identity_authority(session) do
+      result =
+        if activated and AtMcp.Network.name() == :delve,
+          do: update_shared_profile(session, updates),
+          else: update_network_profile(session, updates)
+
+      confirm_identity_write(result, session, activated)
+    end
+  end
+
+  # Authority is account-bound and may change while the process is alive.
+  # An unreadable/unsupported answer is never permission to write legacy records.
+  defp identity_authority(session) do
+    if AtMcp.Network.name() == :bluesky do
+      {:ok, false}
+    else
+      case AtMcp.ATProto.identity_state(session) do
+        {:ok, state} ->
+          case field(state, :activated) do
+            activated when is_boolean(activated) -> {:ok, activated}
+            _ -> {:error, unreadable("shared identity authority", state)}
+          end
+
+        {:error, reason} ->
+          {:error, failure(reason)}
+      end
+    end
+  end
+
+  # Activation can finish after the first authority read. A legacy write may
+  # have landed without becoming effective; never turn that into success or
+  # an auth refusal that the Effects owner would automatically replay.
+  defp confirm_identity_write({:ok, _} = result, session, false) do
+    if AtMcp.Network.name() == :bluesky do
+      result
+    else
+      case identity_authority(session) do
+        {:ok, false} ->
+          result
+
+        _ ->
+          {:error,
+           AtMcp.Effects.Failure.new(:indeterminate,
+             message:
+               "The record was written, but identity authority changed or could not be confirmed. Read the account state and visible result before deciding what to do next.",
+             detail: :identity_authority_unconfirmed
+           )}
+      end
+    end
+  end
+
+  defp confirm_identity_write(result, _session, _activated), do: result
+
+  defp update_shared_profile(session, updates) do
+    if Keyword.has_key?(updates, :links) do
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message: "Town does not serve profile links. Nothing was written."
+       )}
+    else
+      write_shared_profile(session, updates)
+    end
+  end
+
+  defp write_shared_profile(session, updates) do
+    shared = AtMcp.Network.identity_collection(:profile, true)
+    local = AtMcp.Network.collection(:profile)
+    safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
+
+    # Capture the repository head BEFORE either read. A concurrent edit makes
+    # applyWrites refuse the entire edit, including both halves of a mixed edit.
+    with {:ok, head} <- AtMcp.ATProto.get_latest_commit(session, session.did),
+         commit when is_binary(commit) <- field(head, :cid),
+         {:ok, current, shared_op} <- profile_as_stored(session, shared),
+         {:ok, adjunct, local_op} <- profile_as_stored(session, local),
+         {:ok, blobs} <- upload_profile_images(session, updates) do
+      shared_record =
+        current
+        |> merge_profile_fields(safe)
+        |> AtMcp.ATProto.profile_record(Map.take(blobs, [:avatar]), true)
+
+      local_record = AtMcp.ATProto.profile_record(adjunct, Map.take(blobs, [:banner]))
+
+      writes =
+        if(safe != [] or Map.has_key?(blobs, :avatar),
+          do: [{shared_op, shared, "self", shared_record}],
+          else: []
+        ) ++
+          if Map.has_key?(blobs, :banner), do: [{local_op, local, "self", local_record}], else: []
+
+      result =
+        if writes == [],
+          do: {:ok, %{}},
+          else:
+            AtMcp.ATProto.apply_writes(session, session.did, writes,
+              swap_commit: commit,
+              preserve_record_keys: true
+            )
+
+      case result do
+        {:ok, _} ->
+          collection = if safe != [] or Map.has_key?(blobs, :avatar), do: shared, else: local
+
+          {:ok,
+           %{
+             ok: true,
+             action: :update_profile,
+             display_name: Keyword.get(safe, :display_name),
+             description: Keyword.get(safe, :description),
+             pronouns: Keyword.get(safe, :pronouns),
+             website: Keyword.get(safe, :website),
+             uri: "at://#{session.did}/#{collection}/self"
+           }
+           |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
+
+        {:error, %ProtoRune.XRPC.Error{reason: reason}}
+        when reason in [:invalid_swap, "invalid_swap"] ->
+          {:error, changed_meanwhile("The profile")}
+
+        {:error, reason} ->
+          {:error, failure(reason)}
+      end
+    else
+      {:error, reason} -> {:error, failure(reason)}
+      _ -> {:error, unreadable("the repository head", %{})}
+    end
+  end
+
+  defp profile_as_stored(session, collection) do
+    case AtMcp.ATProto.get_record_as_stored(session, %{
+           repo: session.did,
+           collection: collection,
+           rkey: "self"
+         }) do
+      {:ok, %{"value" => value}} when is_map(value) ->
+        {:ok, value, :update}
+
+      {:ok, response} ->
+        {:error, unreadable("the stored profile", response)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found, "record_not_found"] ->
+        {:ok, %{}, :create}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp update_network_profile(session, updates) do
     safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
 
     with {:ok, current, swap} <- current_profile(session),
@@ -4559,10 +4719,13 @@ defmodule AtMcp.Effects.ProtoRune do
   # Every record AtMcp creates goes through here, so the collection and the
   # record's `$type` cannot disagree: both are `AtMcp.Network`'s answer for the
   # same kind.
-  defp create(session, kind, record) do
+  defp create(session, kind, record),
+    do: create_in(session, AtMcp.Network.collection(kind), record)
+
+  defp create_in(session, collection, record) do
     AtMcp.ATProto.create_record(session, %{
       repo: session.did,
-      collection: AtMcp.Network.collection(kind),
+      collection: collection,
       record: record
     })
   end
@@ -4912,6 +5075,8 @@ defmodule AtMcp.Effects.ProtoRune do
     website: "website"
   }
 
+  @profile_wire_fields Map.new(@profile_fields, fn {key, wire} -> {Atom.to_string(key), wire} end)
+
   # A field not given is kept. Pronouns and a website given empty are removed;
   # the tool drops an empty display name or description before it gets here.
   defp merge_profile(current, updates) do
@@ -4919,9 +5084,13 @@ defmodule AtMcp.Effects.ProtoRune do
 
     current =
       Map.new(current, fn {key, value} ->
-        {Map.get(@profile_fields, String.to_atom(key), key), value}
+        {Map.get(@profile_wire_fields, key, key), value}
       end)
 
+    merge_profile_fields(current, updates)
+  end
+
+  defp merge_profile_fields(current, updates) do
     Enum.reduce(@profile_fields, current, fn {key, wire}, record ->
       case Keyword.get(updates, key) do
         nil -> record
