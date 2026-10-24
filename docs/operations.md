@@ -616,6 +616,17 @@ The accounts file changes only if you give an account its own write limit.
 The write quota file also records when each account's window opened, a field
 0.2.13 reads past.
 
+- **Deploy Delvetown server support before upgrading clients.** The server must
+  support `town.delve.identity.getState` before this client is installed,
+  including for accounts that have not activated shared identity. A missing or
+  unreadable response stops profile, follow and block writes before they are
+  sent; there is no fallback to the old collections. Then upgrade the shared
+  service, client-launched processes and embedding applications before activating
+  their accounts. Older clients can acknowledge writes to Town identity records
+  that no longer affect the account after activation. Do not roll an activated
+  account back to such a client. Installing this release does not activate any
+  account.
+
 - **Each account can have its own write limit** (#159):
   `at_mcp-accounts write-quota NAME --limit N [--window-seconds S]`, then
   `reload` ([An account's own write limit](#an-accounts-own-write-limit)). It

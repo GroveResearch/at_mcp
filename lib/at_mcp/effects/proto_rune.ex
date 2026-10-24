@@ -2184,12 +2184,9 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def update_profile(session, updates) when is_list(updates) do
     with {:ok, activated} <- identity_authority(session) do
-      result =
-        if activated and AtMcp.Network.name() == :delve,
-          do: update_shared_profile(session, updates),
-          else: update_network_profile(session, updates)
-
-      confirm_identity_write(result, session, activated)
+      if activated and AtMcp.Network.name() == :delve,
+        do: update_shared_profile(session, updates),
+        else: update_network_profile(session, updates)
     end
   end
 
@@ -2215,7 +2212,7 @@ defmodule AtMcp.Effects.ProtoRune do
   # Activation can finish after the first authority read. A legacy write may
   # have landed without becoming effective; never turn that into success or
   # an auth refusal that the Effects owner would automatically replay.
-  defp confirm_identity_write({:ok, _} = result, session, false) do
+  defp confirm_identity_write({:ok, written} = result, session, false) do
     if AtMcp.Network.name() == :bluesky do
       result
     else
@@ -2228,7 +2225,7 @@ defmodule AtMcp.Effects.ProtoRune do
            AtMcp.Effects.Failure.new(:indeterminate,
              message:
                "The record was written, but identity authority changed or could not be confirmed. Read the account state and visible result before deciding what to do next.",
-             detail: :identity_authority_unconfirmed
+             detail: {:identity_authority_unconfirmed, summarize_record(written)}
            )}
       end
     end
@@ -2344,7 +2341,8 @@ defmodule AtMcp.Effects.ProtoRune do
            |> merge_profile(safe)
            |> with_links(links)
            |> AtMcp.ATProto.profile_record(blobs),
-         {:ok, result} <- put_profile_with_links(session, record, swap, links) do
+         {:ok, written} <- put_profile_with_links(session, record, swap, links),
+         {:ok, result} <- confirm_identity_write({:ok, written}, session, false) do
       {:ok,
        %{
          ok: true,

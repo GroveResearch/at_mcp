@@ -65,15 +65,45 @@ defmodule AtMcp.SharedIdentityTest do
     refute "town.delve.identity.activate" in FakePDS.methods(pds)
   end
 
-  test "activation during a legacy write is uncertain rather than successful or automatically retried" do
-    {session, pds} =
-      FakePDS.start(answers: %{@state => [{200, %{activated: false}}, {200, %{activated: true}}]})
+  test "an uncertain identity write retains its acknowledged record for reconciliation without retry" do
+    for operation <- [:follow, :block, :update_profile],
+        confirmation <- [{200, %{activated: true}}, {503, %{error: "Unavailable"}}] do
+      {session, pds} =
+        FakePDS.start(
+          records: @records,
+          answers: %{@state => [{200, %{activated: false}}, confirmation]}
+        )
 
-    assert {:error, %{kind: :indeterminate, detail: :identity_authority_unconfirmed}} =
-             Backend.follow(session, "did:plc:other")
+      argument =
+        if operation == :update_profile, do: [display_name: "Changed"], else: "did:plc:other"
 
-    assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
-    refute "town.delve.identity.activate" in FakePDS.methods(pds)
+      assert {:error,
+              %AtMcp.Effects.Failure{
+                kind: :indeterminate,
+                detail: {:identity_authority_unconfirmed, %{uri: uri, cid: cid}}
+              } = failure} = apply(Backend, operation, [session, argument])
+
+      assert FakePDS.record(pds, uri) != nil
+      assert cid == FakePDS.cid(uri)
+
+      writes =
+        FakePDS.sent(pds, "com.atproto.repo.createRecord") ++
+          FakePDS.sent(pds, "com.atproto.repo.putRecord")
+
+      assert [_] = writes
+      refute "town.delve.identity.activate" in FakePDS.methods(pds)
+
+      assert {:ok, result, :state} =
+               AtMcp.MCP.Tools.respond({:error, {:write_outcome_unknown, failure}}, :state)
+
+      assert %{
+               code: "write_outcome_unknown",
+               outcome: "unknown",
+               written: %{uri: ^uri, cid: ^cid}
+             } = result.structuredContent
+
+      assert hd(result.content).text =~ uri
+    end
   end
 
   test "unknown authority refuses to dispatch any identity write" do
