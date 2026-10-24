@@ -375,6 +375,13 @@ defmodule AtMcp.Network do
   def collection(kind) when is_map_key(@collections, kind),
     do: nsid(Map.fetch!(@collections, kind))
 
+  @doc "The identity record collection for one account's verified authority."
+  def identity_collection(kind, activated) when kind in [:profile, :follow, :block] do
+    if activated,
+      do: @networks.bluesky.namespace <> "." <> Map.fetch!(@collections, kind),
+      else: collection(kind)
+  end
+
   @doc "Whether a collection names this record kind on any supported network."
   @spec collection?(String.t(), atom()) :: boolean()
   def collection?(collection, kind) when is_map_key(@collections, kind) do

@@ -51,6 +51,8 @@ defmodule AtMcp.ATProto do
   def get_membership(session, params),
     do: read(session, "membership.getMembership", params)
 
+  def identity_state(session), do: read(session, "identity.getState", %{})
+
   # --- feed reads ---
 
   # `ProtoRune.Bsky.get_post_thread/2` sends `parent_height`, which the lexicon
@@ -763,12 +765,25 @@ defmodule AtMcp.ATProto do
         commit -> Map.put(params, :swap_commit, commit)
       end
 
-    procedure(
-      session,
-      "com.atproto.repo.applyWrites",
-      %{repo: {:required, :string}, writes: {:required, :any}, swap_commit: :string},
-      params
-    )
+    if Keyword.get(opts, :preserve_record_keys, false) do
+      # Shared profiles belong to other clients too. Keep their unknown keys
+      # byte-for-byte instead of passing records through ProtoRune's camelizer.
+      body = %{repo: repo, writes: params.writes, swapCommit: Keyword.fetch!(opts, :swap_commit)}
+
+      proc =
+        Procedure.new("com.atproto.repo.applyWrites", base_url: base_url(session))
+        |> Procedure.put_raw_body(Jason.encode!(body))
+        |> Procedure.put_header("content-type", "application/json")
+
+      execute(session, proc, "POST")
+    else
+      procedure(
+        session,
+        "com.atproto.repo.applyWrites",
+        %{repo: {:required, :string}, writes: {:required, :any}, swap_commit: :string},
+        params
+      )
+    end
   end
 
   @doc "The repository's current commit: `%{cid, rev}`."
@@ -1045,7 +1060,8 @@ defmodule AtMcp.ATProto do
   def repost_record(fields), do: subject_record(:repost, fields)
 
   @doc "Build a `graph.follow` record. The subject of a follow is a bare DID."
-  def follow_record(fields), do: did_subject_record(:follow, fields)
+  def follow_record(fields, activated \\ false),
+    do: did_subject_record(:follow, fields, activated)
 
   @doc """
   Build an `actor.status` record saying the account is live at `:url` for
@@ -1073,7 +1089,7 @@ defmodule AtMcp.ATProto do
   end
 
   @doc "Build a `graph.block` record. The subject of a block is a bare DID."
-  def block_record(fields), do: did_subject_record(:block, fields)
+  def block_record(fields, activated \\ false), do: did_subject_record(:block, fields, activated)
 
   @doc """
   Stamp an existing `actor.profile` record with this network's `$type`, and
@@ -1082,14 +1098,14 @@ defmodule AtMcp.ATProto do
   A profile update reads the record it is about to replace, so the fields it
   does not mention survive; only the type is AtMcp's to say.
   """
-  def profile_record(current, blobs \\ %{}) when is_map(current) do
+  def profile_record(current, blobs \\ %{}, activated \\ false) when is_map(current) do
     Enum.reduce(blobs, current, fn {key, blob}, record ->
       record
       |> Map.drop([key, Atom.to_string(key)])
       |> Map.put(Atom.to_string(key), wire_blob(blob))
     end)
     |> Map.drop(["$type", :"$type"])
-    |> Map.put("$type", AtMcp.Network.collection(:profile))
+    |> Map.put("$type", AtMcp.Network.identity_collection(:profile, activated))
   end
 
   @doc """
@@ -1241,9 +1257,9 @@ defmodule AtMcp.ATProto do
     }
   end
 
-  defp did_subject_record(kind, fields) do
+  defp did_subject_record(kind, fields, activated) do
     %{
-      "$type" => AtMcp.Network.collection(kind),
+      "$type" => AtMcp.Network.identity_collection(kind, activated),
       "subject" => Keyword.fetch!(fields, :subject),
       "createdAt" => timestamp(Keyword.get(fields, :created_at))
     }
