@@ -762,7 +762,6 @@ defmodule AtMcp.MCP.Tools do
   end
 
   defp maybe_kw(kw, _key, nil), do: kw
-  defp maybe_kw(kw, _key, ""), do: kw
   defp maybe_kw(kw, key, value), do: Keyword.put(kw, key, value)
 
   # Backends own page limits and summaries. Keep their complete values here:

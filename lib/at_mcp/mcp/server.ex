@@ -1716,8 +1716,14 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.action_result())
-    param(:display_name, :string, description: "New display name")
-    param(:description, :string, description: "New description")
+
+    param(:display_name, :string,
+      description: "New display name; empty clears it, omitted keeps it"
+    )
+
+    param(:description, :string,
+      description: "New description; empty clears it, omitted keeps it"
+    )
 
     param(
       :avatar,

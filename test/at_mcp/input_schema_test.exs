@@ -91,6 +91,47 @@ defmodule AtMcp.InputSchemaTest do
     end
   end
 
+  test "public profile tool preserves explicit blank basics and omits absent ones" do
+    state = state()
+
+    for args <- [
+          %{"display_name" => "", "description" => ""},
+          %{"display_name" => ""},
+          %{"description" => ""},
+          %{"description" => "new biography"}
+        ] do
+      assert {:ok, result, _} =
+               AtMcp.MCP.Server.handle_call_tool("update_profile", args, state)
+
+      refute result[:isError], inspect(result)
+      assert_received {:update_profile, updates}
+      assert Map.new(updates, fn {key, value} -> {Atom.to_string(key), value} end) == args
+    end
+
+    assert {:ok, %{isError: true}, _} =
+             AtMcp.MCP.Server.handle_call_tool("update_profile", %{}, state)
+
+    refute_received {:update_profile, _}
+
+    for field <- ["display_name", "description"] do
+      other = if field == "display_name", do: "description", else: "display_name"
+
+      assert {:ok, result, _} =
+               AtMcp.MCP.Server.handle_call_tool(
+                 "update_profile",
+                 %{field => nil, other => ""},
+                 state
+               )
+
+      refute result[:isError]
+      assert_received {:update_profile, updates}
+
+      assert Map.new(updates, fn {key, value} -> {Atom.to_string(key), value} end) == %{
+               other => ""
+             }
+    end
+  end
+
   test "mimeType reaches the backend as the image's MIME type" do
     state = state()
 
