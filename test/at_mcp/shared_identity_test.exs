@@ -10,6 +10,16 @@ defmodule AtMcp.SharedIdentityTest do
     @shared => %{
       "$type" => "app.bsky.actor.profile",
       "displayName" => "Shared",
+      "labels" => %{
+        "$type" => "com.atproto.label.defs#selfLabels",
+        "values" => [%{"val" => "bot"}]
+      },
+      "avatar" => %{
+        "$type" => "blob",
+        "ref" => %{"$link" => "shared-avatar"},
+        "mimeType" => "image/png",
+        "size" => 3
+      },
       "display_name" => "foreign spelling",
       "foreign_key" => %{"nested_key" => 1}
     },
@@ -116,6 +126,7 @@ defmodule AtMcp.SharedIdentityTest do
     local = FakePDS.record(pds, @local)
     assert local["displayName"] == "Shared"
     assert local["description"] == "Town biography"
+    assert local["avatar"] == @records[@shared]["avatar"]
     assert local["presentation"] == true
     assert local["pinnedPost"] == @records[@local]["pinnedPost"]
     assert local["labels"] == @records[@local]["labels"]
