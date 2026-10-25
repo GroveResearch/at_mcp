@@ -5263,8 +5263,8 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @profile_wire_fields Map.new(@profile_fields, fn {key, wire} -> {Atom.to_string(key), wire} end)
 
-  # A field not given is kept. Pronouns and a website given empty are removed;
-  # the tool drops an empty display name or description before it gets here.
+  # Omitted fields are kept. Explicit empty display name, description, pronouns
+  # or website values remove their optional record keys.
   defp merge_profile(current, updates) do
     current = Map.new(current, fn {key, value} -> {to_string(key), value} end)
 
