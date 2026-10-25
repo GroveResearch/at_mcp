@@ -382,6 +382,13 @@ defmodule AtMcp.Network do
       else: collection(kind)
   end
 
+  @doc "All supported relationship collections, including old Town records to remove."
+  def relationship_collections(kind) when kind in [:follow, :block],
+    do:
+      Enum.map(@networks, fn {_name, network} ->
+        network.namespace <> "." <> Map.fetch!(@collections, kind)
+      end)
+
   @doc "Whether a collection names this record kind on any supported network."
   @spec collection?(String.t(), atom()) :: boolean()
   def collection?(collection, kind) when is_map_key(@collections, kind) do

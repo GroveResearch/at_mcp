@@ -600,17 +600,40 @@ delivered after the restart. A write running at the restart may or may not
 have landed, as with any interrupted write, and nothing retries it: check the
 account before writing again.
 
-No release so far changes the format of what AtMcp stores (the accounts file,
-the grants file, the write quota and the delivery queue), so an upgrade
-changes no data and AtMcp keeps no copy of it. The next release adds an
-optional field to the accounts file, which an older release refuses; its
-section below says what to remove before rolling back. CI's upgrade check writes to
+This release changes no local stored data and AtMcp keeps no copy of it.
+Version 0.2.14 added an optional field to the accounts file, which older
+releases refuse; its section below says what to remove before rolling back. CI's upgrade check writes to
 each of these under the older release and the newer one and reads them back
 under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
-### From 0.2.13 to the next release
+### From 0.2.14 to the next release
+
+Deploy Delvetown server support for signed Town profile `presentation: true`
+and detailed `getProfile.profileSource` before upgrading this client. The
+server must preserve the selected historical profile and serve shared
+relationships independently of graph conversion. Missing `profileSource`
+means blank displayed basics; it is not a signal to copy an old raw profile.
+
+Follow and Block now write shared records without an activation check.
+Unfollow and Unblock remove the observed shared and old Town records of the
+same subject together, refusing if the repository changes before removal.
+An already absent URI still reports no deletion because its subject is unknown.
+
+Edit Profile saves complete Town presentation, including deliberate blanks,
+without changing shared basics or the public bot declaration. A partial first
+save retains the selected avatar and the banner actually displayed. Embedded
+applications should use `AtMcp.Effects.get_own_profile/1` to read that same
+presentation; activation checks and direct access to the Effects process state
+are no longer needed. Upgrade embedding applications from the published Hex
+package before switching their running release.
+
+Do not roll Town clients back to 0.2.14 after this cutover: its profile writer
+can change shared basics and its relationship writer still requires activation
+state. This release does not convert an account or alter local storage formats.
+
+### From 0.2.13 to 0.2.14
 
 The accounts file changes only if you give an account its own write limit.
 The write quota file also records when each account's window opened, a field

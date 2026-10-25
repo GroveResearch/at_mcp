@@ -122,10 +122,12 @@ an absolute `AT_MCP_STATE_DIR` path and keep it for later runs (for example,
 account’s home PDS. Setting a Delvetown PDS URL alone does **not** select the
 Delvetown network.
 
-For a Delvetown account that has explicitly activated shared identity, profile
-basics, follows and blocks use the shared records. Town posts, banner and pins
-stay Town-specific. The client checks that account's authority before these
-identity edits; it does not activate accounts or guess when the check fails.
+Delvetown follows and blocks use shared records, regardless of graph conversion.
+Profile edits save a complete Town presentation and keep the shared profile
+unchanged. Fields omitted from `update_profile` retain their current Town
+appearance; explicit empty text stays empty. Town posts, banners and pins also
+stay Town-specific. Sign-in, membership and these actions do not require a
+converted-account status.
 
 ### Use Bluesky
 
@@ -173,8 +175,7 @@ For an externally hosted account, keep `AT_MCP_NETWORK` set to `delve` and
 replace only `AT_MCP_SERVICE` with its actual home PDS URL. Keep that account’s
 handle and app password. Authenticated town reads go through its PDS to
 Delvetown; Town content is written to the same account’s repository using
-`town.delve.*` collections. The DID stays the same. Shared identity records
-take effect only after the account's explicit activation.
+`town.delve.*` collections. The DID stays the same. Follows and blocks use shared records immediately.
 
 ### Prototype: direct authenticated reads
 

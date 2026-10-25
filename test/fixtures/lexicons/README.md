@@ -12,3 +12,9 @@ namespace; the checker reads another network's `$type`s back into it.
 
 Upstream copyright and license terms are in
 [`licenses/lexicons`](../../../licenses/lexicons/NOTICE.md).
+
+`town/delve/actor/profile.json` is copied unchanged from
+`GroveResearch/delvetown-atproto` at
+`62133ca188e6575a3a1ce576f967c7f94a60d6ac`. Town's signed `presentation` field
+is deliberately absent from the Bluesky profile schema, so Town Save tests
+use this canonical declaration rather than treating the profiles as identical.
