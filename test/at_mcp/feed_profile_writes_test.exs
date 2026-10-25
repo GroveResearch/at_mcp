@@ -514,6 +514,7 @@ defmodule AtMcp.FeedProfileWritesTest do
             profile => %{
               "$type" => "town.delve.actor.profile",
               "displayName" => "Self",
+              "presentation" => true,
               "pronouns" => "it/its",
               "pinnedPost" => %{
                 "uri" => "at://did:plc:self/town.delve.feed.post/p",
@@ -529,9 +530,10 @@ defmodule AtMcp.FeedProfileWritesTest do
                  website: "https://self.example"
                )
 
-      [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
-      assert body["swapRecord"] == FakePDS.cid(profile)
-      assert Lexicon.problems(body["record"], "app.bsky.actor.profile") == []
+      [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      assert is_binary(body["swapCommit"])
+      [write] = body["writes"]
+      assert Lexicon.problems(write["value"], "town.delve.actor.profile") == []
 
       assert %{"displayName" => "Self", "website" => "https://self.example", "pinnedPost" => _} =
                record = FakePDS.record(pds, profile)
