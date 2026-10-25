@@ -82,3 +82,17 @@ Use `AtMcp.Effects` for reads and writes and `AtMcp.Accounts` for lifecycle
 control. [Design](DESIGN.md) explains account ownership, failure kinds and
 network boundaries; [Operations](operations.md#incoming-activity) describes
 the delivery contract if your host needs incoming activity.
+
+## Read the profile before a partial edit
+
+`AtMcp.Effects.get_own_profile(effects)` returns `{:ok, %{value: record}}`, with
+native string keys and blob references. It reads the presentation that
+`update_profile` will retain for omitted fields. Embedded clients can compare
+that map with their configured profile before deciding whether to upload an
+image or change text. They should not select profile records from graph state
+or read an Effects process's internal session.
+
+On Delvetown, `update_profile` saves complete Town presentation and preserves
+unrelated Town fields. It leaves the shared profile and its public bot
+declaration unchanged. A stale selected profile or changed repository refuses
+the edit; an unacknowledged write remains an unknown outcome and is not retried.

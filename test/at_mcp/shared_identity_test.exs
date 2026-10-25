@@ -35,118 +35,175 @@ defmodule AtMcp.SharedIdentityTest do
     :ok
   end
 
-  test "two accounts and an activation change select their own follow/block collections without changing Town posts" do
-    {shared, pds} =
+  test "two accounts use shared relationships regardless of activation changes" do
+    {first, pds} =
+      FakePDS.start(answers: %{@state => [{200, %{activated: false}}, {200, %{activated: true}}]})
+
+    {second, other} = FakePDS.start()
+    assert {:ok, _} = Backend.follow(first, "did:plc:other")
+    assert {:ok, _} = Backend.block(first, "did:plc:other")
+    assert {:ok, _} = Backend.block(second, "did:plc:other")
+
+    assert Enum.map(FakePDS.sent(pds, "com.atproto.repo.createRecord"), & &1.body["collection"]) ==
+             ["app.bsky.graph.follow", "app.bsky.graph.block"]
+
+    assert [write] = FakePDS.sent(other, "com.atproto.repo.createRecord")
+    assert write.body["collection"] == "app.bsky.graph.block"
+    assert AtMcp.Network.collection(:post) == "town.delve.feed.post"
+    assert FakePDS.sent(pds, @state) == []
+    assert FakePDS.sent(other, @state) == []
+  end
+
+  test "an uncertain relationship write is sent once to the shared collection" do
+    for operation <- [:follow, :block] do
+      {session, pds} =
+        FakePDS.start(
+          answers: %{
+            "com.atproto.repo.createRecord" => {503, %{error: "Unavailable"}},
+            @state => {200, %{activated: false}}
+          }
+        )
+
+      assert {:error, %{kind: :indeterminate}} =
+               apply(Backend, operation, [session, "did:plc:other"])
+
+      assert [write] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+      assert write.body["collection"] == "app.bsky.graph.#{operation}"
+      assert write.body["repo"] == session.did
+      assert FakePDS.sent(pds, @state) == []
+    end
+  end
+
+  test "an unreadable activation answer is unrelated to a shared relationship write" do
+    for answer <- [{200, %{}}, {503, %{error: "Unavailable", message: "later"}}] do
+      {session, pds} = FakePDS.start(answers: %{@state => answer})
+      assert {:ok, _} = Backend.follow(session, "did:plc:other")
+      assert {:ok, _} = Backend.block(session, "did:plc:other")
+      assert length(FakePDS.sent(pds, "com.atproto.repo.createRecord")) == 2
+      assert FakePDS.sent(pds, @state) == []
+    end
+  end
+
+  test "partial Town Save retains displayed shared basics and Town metadata without editing shared profile" do
+    {session, pds} =
       FakePDS.start(
+        records: @records,
         answers: %{
-          @state => [
-            {200, %{activated: false}},
-            {200, %{activated: false}},
-            {200, %{activated: true}}
-          ]
+          "town.delve.actor.getProfile" =>
+            {200, %{profileSource: %{uri: @shared, cid: FakePDS.cid(@shared)}}}
         }
       )
 
-    {legacy, other} = FakePDS.start()
-    assert {:ok, _} = Backend.follow(shared, "did:plc:other")
-    assert {:ok, _} = Backend.block(shared, "did:plc:other")
-    assert {:ok, _} = Backend.block(legacy, "did:plc:other")
+    effects =
+      start_supervised!(
+        {AtMcp.Effects,
+         backend: Backend, backend_state: session, write_quota: AtMcp.Test.QuotaFixture.quota(10)}
+      )
 
-    assert Enum.map(FakePDS.sent(pds, "com.atproto.repo.createRecord"), & &1.body["collection"]) ==
-             ["town.delve.graph.follow", "app.bsky.graph.block"]
+    assert {:ok, %{value: displayed}} = AtMcp.Effects.get_own_profile(effects)
+    assert displayed["displayName"] == "Shared"
 
-    assert [write] = FakePDS.sent(other, "com.atproto.repo.createRecord")
-    assert write.body["collection"] == "town.delve.graph.block"
-    assert AtMcp.Network.collection(:post) == "town.delve.feed.post"
-
-    for write <- FakePDS.sent(pds, "com.atproto.repo.createRecord"),
-        do: assert(write.body["collection"] == write.body["record"]["$type"])
-
-    refute "town.delve.identity.activate" in FakePDS.methods(pds)
-  end
-
-  test "an uncertain identity write retains its acknowledged record for reconciliation without retry" do
-    for operation <- [:follow, :block, :update_profile],
-        confirmation <- [{200, %{activated: true}}, {503, %{error: "Unavailable"}}] do
-      {session, pds} =
-        FakePDS.start(
-          records: @records,
-          answers: %{@state => [{200, %{activated: false}}, confirmation]}
-        )
-
-      argument =
-        if operation == :update_profile, do: [display_name: "Changed"], else: "did:plc:other"
-
-      assert {:error,
-              %AtMcp.Effects.Failure{
-                kind: :indeterminate,
-                detail: {:identity_authority_unconfirmed, %{uri: uri, cid: cid}}
-              } = failure} = apply(Backend, operation, [session, argument])
-
-      assert FakePDS.record(pds, uri) != nil
-      assert cid == FakePDS.cid(uri)
-
-      writes =
-        FakePDS.sent(pds, "com.atproto.repo.createRecord") ++
-          FakePDS.sent(pds, "com.atproto.repo.putRecord")
-
-      assert [_] = writes
-      refute "town.delve.identity.activate" in FakePDS.methods(pds)
-
-      assert {:ok, result, :state} =
-               AtMcp.MCP.Tools.respond({:error, {:write_outcome_unknown, failure}}, :state)
-
-      assert %{
-               code: "write_outcome_unknown",
-               outcome: "unknown",
-               written: %{uri: ^uri, cid: ^cid}
-             } = result.structuredContent
-
-      assert hd(result.content).text =~ uri
-    end
-  end
-
-  test "unknown authority refuses to dispatch any identity write" do
-    for answer <- [{200, %{}}, {503, %{error: "Unavailable", message: "later"}}] do
-      {session, pds} = FakePDS.start(answers: %{@state => answer})
-      assert {:error, _} = Backend.follow(session, "did:plc:other")
-      assert {:error, _} = Backend.update_profile(session, display_name: "Unsafe")
-      assert FakePDS.sent(pds, "com.atproto.repo.createRecord") == []
-      assert FakePDS.sent(pds, "com.atproto.repo.putRecord") == []
-      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
-    end
-  end
-
-  test "shared profile basics and Town banner land in one guarded commit with foreign keys and local adjuncts intact" do
-    {session, pds} =
-      FakePDS.start(records: @records, answers: %{@state => {200, %{activated: true}}})
-
-    assert {:ok, %{uri: @shared}} =
-             Backend.update_profile(session,
-               display_name: "New",
+    assert {:ok, %{uri: @local}} =
+             AtMcp.Effects.update_profile(effects,
+               description: "Town biography",
                banner: %{data: "png", mime_type: "image/png"}
              )
 
     assert [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
     assert is_binary(body["swapCommit"])
-
-    assert Enum.map(body["writes"], & &1["collection"]) == [
-             "app.bsky.actor.profile",
-             "town.delve.actor.profile"
-           ]
-
-    assert FakePDS.record(pds, @shared)["displayName"] == "New"
-    assert FakePDS.record(pds, @shared)["display_name"] == "foreign spelling"
-    assert FakePDS.record(pds, @shared)["foreign_key"] == %{"nested_key" => 1}
+    assert ["town.delve.actor.profile"] == Enum.map(body["writes"], & &1["collection"])
+    assert FakePDS.record(pds, @shared) == @records[@shared]
     local = FakePDS.record(pds, @local)
-    assert local["displayName"] == "Legacy"
+    assert local["displayName"] == "Shared"
+    assert local["description"] == "Town biography"
+    assert local["presentation"] == true
     assert local["pinnedPost"] == @records[@local]["pinnedPost"]
     assert local["labels"] == @records[@local]["labels"]
     assert local["banner"]["mimeType"] == "image/png"
-    refute Map.has_key?(FakePDS.record(pds, @shared), "banner")
+    refute Map.has_key?(local, "foreign_key")
+    assert FakePDS.sent(pds, @state) == []
   end
 
-  test "unsupported shared profile links are refused before any write or upload" do
+  test "marked Town blanks and absent avatar are kept despite a newer shared profile" do
+    records =
+      Map.put(@records, @local, %{
+        "$type" => "town.delve.actor.profile",
+        "presentation" => true,
+        "displayName" => "",
+        "foreign_key" => 7
+      })
+
+    {session, pds} = FakePDS.start(records: records)
+    assert {:ok, %{value: before}} = Backend.get_own_profile(session)
+    assert before["displayName"] == ""
+    assert {:ok, _} = Backend.update_profile(session, description: "")
+    local = FakePDS.record(pds, @local)
+    assert local["displayName"] == ""
+    refute Map.has_key?(local, "description")
+    refute Map.has_key?(local, "avatar")
+    assert local["foreign_key"] == 7
+    assert FakePDS.record(pds, @shared) == records[@shared]
+    assert FakePDS.sent(pds, "town.delve.actor.getProfile") == []
+  end
+
+  test "the selected raw avatar and old Town presentation survive a partial edit" do
+    avatar = %{
+      "$type" => "blob",
+      "ref" => %{"$link" => "original-avatar"},
+      "mimeType" => "image/png",
+      "size" => 3
+    }
+
+    records = put_in(@records, [@local, "avatar"], avatar)
+
+    {session, pds} =
+      FakePDS.start(
+        records: records,
+        answers: %{
+          "town.delve.actor.getProfile" =>
+            {200, %{profileSource: %{uri: @local, cid: FakePDS.cid(@local)}}}
+        }
+      )
+
+    assert {:ok, _} = Backend.update_profile(session, description: "Edited")
+    assert FakePDS.record(pds, @local)["avatar"] == avatar
+    assert FakePDS.record(pds, @local)["displayName"] == "Legacy"
+    assert FakePDS.record(pds, @shared) == records[@shared]
+  end
+
+  test "an absent displayed source does not revive stale unmarked Town basics" do
+    {session, pds} =
+      FakePDS.start(
+        records: %{@local => @records[@local]},
+        answers: %{
+          "town.delve.actor.getProfile" => {200, %{did: "did:plc:self"}}
+        }
+      )
+
+    assert {:ok, _} = Backend.update_profile(session, description: "First intentional Save")
+    local = FakePDS.record(pds, @local)
+    refute Map.has_key?(local, "displayName")
+    assert local["presentation"] == true
+    assert local["pinnedPost"] == @records[@local]["pinnedPost"]
+  end
+
+  test "a stale source CID refuses before upload or profile write" do
+    {session, pds} =
+      FakePDS.start(
+        records: @records,
+        answers: %{
+          "town.delve.actor.getProfile" => {200, %{profileSource: %{uri: @shared, cid: "stale"}}}
+        }
+      )
+
+    assert {:error, %{kind: :refused}} =
+             Backend.update_profile(session, avatar: %{data: "png", mime_type: "image/png"})
+
+    assert FakePDS.sent(pds, "com.atproto.repo.uploadBlob") == []
+    assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+  end
+
+  test "unsupported Town profile links are refused before any write or upload" do
     {session, pds} = FakePDS.start(answers: %{@state => {200, %{activated: true}}})
 
     assert {:error, %{kind: :refused}} =
@@ -156,7 +213,7 @@ defmodule AtMcp.SharedIdentityTest do
     assert FakePDS.sent(pds, "com.atproto.repo.uploadBlob") == []
   end
 
-  test "a refused or uncertain combined profile write is never reported as success or retried" do
+  test "a refused or uncertain Town profile write is never reported as success or retried" do
     for {status, error, kind} <- [
           {400, "InvalidSwap", :refused},
           {503, "Unavailable", :indeterminate}

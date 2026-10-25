@@ -439,6 +439,20 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  @doc """
+  Read this account's complete current profile presentation as `%{value: record}`.
+  `record` keeps the native record's string keys and blob references, suitable
+  for an embedded client's comparison before `update_profile/2`. Town metadata
+  stays local; cosmetic fallback never changes shared public labels.
+  """
+  def get_own_profile(effects) do
+    with_session(effects, fn backend, session ->
+      if function_exported?(backend, :get_own_profile, 1),
+        do: backend.get_own_profile(session),
+        else: {:error, AtMcp.Effects.Failure.new(:refused, detail: :own_profile_not_supported)}
+    end)
+  end
+
   def get_profiles(effects, actors) when is_list(actors) do
     with :ok <- validate_batch(actors) do
       with_session(effects, fn backend, session ->

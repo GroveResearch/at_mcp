@@ -2342,147 +2342,140 @@ defmodule AtMcp.Effects.ProtoRune do
     do: delete(session, post_uri, :delete_post, :post)
 
   @impl true
+  def get_own_profile(session) do
+    if AtMcp.Network.name() == :delve do
+      with {:ok, snapshot} <- town_profile_snapshot(session),
+           do: {:ok, %{value: snapshot.value}}
+    else
+      with {:ok, record} <- stored_profile(session, AtMcp.Network.collection(:profile)),
+           do: {:ok, %{value: record.value}}
+    end
+  end
+
+  @impl true
   def update_profile(session, updates) when is_list(updates) do
-    with {:ok, activated} <- identity_authority(session) do
-      if activated and AtMcp.Network.name() == :delve,
-        do: update_shared_profile(session, updates),
-        else: update_network_profile(session, updates)
-    end
+    if AtMcp.Network.name() == :delve,
+      do: update_town_profile(session, updates),
+      else: update_network_profile(session, updates)
   end
 
-  # Authority is account-bound and may change while the process is alive.
-  # An unreadable/unsupported answer is never permission to write legacy records.
-  defp identity_authority(session) do
-    if AtMcp.Network.name() == :bluesky do
-      {:ok, false}
-    else
-      case AtMcp.ATProto.identity_state(session) do
-        {:ok, state} ->
-          case field(state, :activated) do
-            activated when is_boolean(activated) -> {:ok, activated}
-            _ -> {:error, unreadable("shared identity authority", state)}
-          end
-
-        {:error, reason} ->
-          {:error, failure(reason)}
-      end
-    end
-  end
-
-  # Activation can finish after the first authority read. A legacy write may
-  # have landed without becoming effective; never turn that into success or
-  # an auth refusal that the Effects owner would automatically replay.
-  defp confirm_identity_write({:ok, written} = result, session, false) do
-    if AtMcp.Network.name() == :bluesky do
-      result
-    else
-      case identity_authority(session) do
-        {:ok, false} ->
-          result
-
-        _ ->
-          {:error,
-           AtMcp.Effects.Failure.new(:indeterminate,
-             message:
-               "The record was written, but identity authority changed or could not be confirmed. Read the account state and visible result before deciding what to do next.",
-             detail: {:identity_authority_unconfirmed, summarize_record(written)}
-           )}
-      end
-    end
-  end
-
-  defp confirm_identity_write(result, _session, _activated), do: result
-
-  defp update_shared_profile(session, updates) do
+  defp update_town_profile(session, updates) do
     if Keyword.has_key?(updates, :links) do
       {:error,
        AtMcp.Effects.Failure.new(:refused,
          message: "Town does not serve profile links. Nothing was written."
        )}
     else
-      write_shared_profile(session, updates)
+      with {:ok, snapshot} <- town_profile_snapshot(session),
+           {:ok, blobs} <- upload_profile_images(session, updates) do
+        safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
+
+        record =
+          snapshot.value
+          |> merge_profile_fields(safe)
+          |> Map.put("presentation", true)
+          |> AtMcp.ATProto.profile_record(blobs)
+
+        collection = AtMcp.Network.collection(:profile)
+        writes = [{snapshot.operation, collection, "self", record}]
+
+        case AtMcp.ATProto.apply_writes(session, session.did, writes,
+               swap_commit: snapshot.commit,
+               preserve_record_keys: true
+             ) do
+          {:ok, _} ->
+            {:ok,
+             %{
+               ok: true,
+               action: :update_profile,
+               display_name: Keyword.get(safe, :display_name),
+               description: Keyword.get(safe, :description),
+               pronouns: Keyword.get(safe, :pronouns),
+               website: Keyword.get(safe, :website),
+               uri: "at://#{session.did}/#{collection}/self"
+             }
+             |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
+
+          {:error, %ProtoRune.XRPC.Error{reason: reason}}
+          when reason in [:invalid_swap, "invalid_swap"] ->
+            {:error, changed_meanwhile("The profile")}
+
+          {:error, reason} ->
+            {:error, failure(reason)}
+        end
+      else
+        {:error, reason} -> {:error, failure(reason)}
+      end
     end
   end
 
-  defp write_shared_profile(session, updates) do
-    shared = AtMcp.Network.identity_collection(:profile, true)
+  # Presentation ownership is signed into the Town profile. Unmarked historical
+  # profiles are selected by the server's finite continuity record, never by
+  # graph activation. Its exact source CID must still match the repository.
+  defp town_profile_snapshot(session) do
     local = AtMcp.Network.collection(:profile)
-    safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
+    shared = AtMcp.Network.identity_collection(:profile, true)
 
-    # Capture the repository head BEFORE either read. A concurrent edit makes
-    # applyWrites refuse the entire edit, including both halves of a mixed edit.
-    with {:ok, head} <- AtMcp.ATProto.get_latest_commit(session, session.did),
-         commit when is_binary(commit) <- field(head, :cid),
-         {:ok, current, shared_op} <- profile_as_stored(session, shared),
-         {:ok, adjunct, local_op} <- profile_as_stored(session, local),
-         {:ok, blobs} <- upload_profile_images(session, updates) do
-      shared_record =
-        current
-        |> merge_profile_fields(safe)
-        |> AtMcp.ATProto.profile_record(Map.take(blobs, [:avatar]), true)
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, town} <- stored_profile(session, local),
+         {:ok, external} <- stored_profile(session, shared),
+         {:ok, presentation} <- selected_presentation(session, town, external),
+         {:ok, ^commit} <- latest_commit(session) do
+      value =
+        town.value
+        |> Map.drop(["displayName", "description", "avatar"])
+        |> Map.merge(Map.take(presentation, ["displayName", "description", "avatar"]))
 
-      local_record = AtMcp.ATProto.profile_record(adjunct, Map.take(blobs, [:banner]))
-
-      writes =
-        if(safe != [] or Map.has_key?(blobs, :avatar),
-          do: [{shared_op, shared, "self", shared_record}],
-          else: []
-        ) ++
-          if Map.has_key?(blobs, :banner), do: [{local_op, local, "self", local_record}], else: []
-
-      result =
-        if writes == [],
-          do: {:ok, %{}},
-          else:
-            AtMcp.ATProto.apply_writes(session, session.did, writes,
-              swap_commit: commit,
-              preserve_record_keys: true
-            )
-
-      case result do
-        {:ok, _} ->
-          collection = if safe != [] or Map.has_key?(blobs, :avatar), do: shared, else: local
-
-          {:ok,
-           %{
-             ok: true,
-             action: :update_profile,
-             display_name: Keyword.get(safe, :display_name),
-             description: Keyword.get(safe, :description),
-             pronouns: Keyword.get(safe, :pronouns),
-             website: Keyword.get(safe, :website),
-             uri: "at://#{session.did}/#{collection}/self"
-           }
-           |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
-
-        {:error, %ProtoRune.XRPC.Error{reason: reason}}
-        when reason in [:invalid_swap, "invalid_swap"] ->
-          {:error, changed_meanwhile("The profile")}
-
-        {:error, reason} ->
-          {:error, failure(reason)}
-      end
+      {:ok, %{value: value, operation: town.operation, commit: commit}}
     else
       {:error, reason} -> {:error, failure(reason)}
-      _ -> {:error, unreadable("the repository head", %{})}
+      _ -> {:error, changed_meanwhile("The profile")}
     end
   end
 
-  defp profile_as_stored(session, collection) do
+  defp selected_presentation(_session, %{value: %{"presentation" => true}} = town, _shared),
+    do: {:ok, town.value}
+
+  defp selected_presentation(session, town, shared) do
+    with {:ok, view} <- AtMcp.ATProto.get_profile(session, %{actor: session.did}) do
+      case field(view, :profile_source) do
+        nil ->
+          {:ok, %{}}
+
+        source when is_map(source) ->
+          case Enum.find(
+                 [town, shared],
+                 &(&1.uri == field(source, :uri) and &1.cid == field(source, :cid) and
+                     is_binary(&1.cid))
+               ) do
+            nil -> {:error, changed_meanwhile("The displayed profile source")}
+            record -> {:ok, record.value}
+          end
+
+        _ ->
+          {:error, unreadable("the displayed profile source", view)}
+      end
+    end
+  end
+
+  defp stored_profile(session, collection) do
+    uri = "at://#{session.did}/#{collection}/self"
+
     case AtMcp.ATProto.get_record_as_stored(session, %{
            repo: session.did,
            collection: collection,
            rkey: "self"
          }) do
-      {:ok, %{"value" => value}} when is_map(value) ->
-        {:ok, value, :update}
+      {:ok, %{"uri" => ^uri, "cid" => cid, "value" => value}}
+      when is_binary(cid) and is_map(value) ->
+        {:ok, %{uri: uri, cid: cid, value: value, operation: :update}}
 
       {:ok, response} ->
         {:error, unreadable("the stored profile", response)}
 
       {:error, %ProtoRune.XRPC.Error{reason: reason}}
       when reason in [:not_found, :record_not_found, "record_not_found"] ->
-        {:ok, %{}, :create}
+        {:ok, %{uri: uri, cid: nil, value: %{}, operation: :create}}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -2501,8 +2494,7 @@ defmodule AtMcp.Effects.ProtoRune do
            |> merge_profile(safe)
            |> with_links(links)
            |> AtMcp.ATProto.profile_record(blobs),
-         {:ok, written} <- put_profile_with_links(session, record, swap, links),
-         {:ok, result} <- confirm_identity_write({:ok, written}, session, false) do
+         {:ok, result} <- put_profile_with_links(session, record, swap, links) do
       {:ok,
        %{
          ok: true,
