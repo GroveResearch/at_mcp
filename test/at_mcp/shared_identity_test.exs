@@ -198,6 +198,50 @@ defmodule AtMcp.SharedIdentityTest do
     assert local["pinnedPost"] == @records[@local]["pinnedPost"]
   end
 
+  test "first Town Save preserves only the banner actually displayed by the AppView" do
+    banner = %{
+      "$type" => "blob",
+      "ref" => %{"$link" => "shared-banner"},
+      "mimeType" => "image/png",
+      "size" => 3
+    }
+
+    shared = Map.put(@records[@shared], "banner", banner)
+
+    for shown <- [nil, "https://images.test/img/banner/plain/did:plc:self/shared-banner@jpeg"] do
+      {session, pds} =
+        FakePDS.start(
+          records: %{@shared => shared},
+          answers: %{
+            "town.delve.actor.getProfile" =>
+              {200, %{profileSource: %{uri: @shared, cid: FakePDS.cid(@shared)}, banner: shown}}
+          }
+        )
+
+      assert {:ok, _} = Backend.update_profile(session, description: "Town")
+      assert FakePDS.record(pds, @local)["banner"] == if(shown, do: banner)
+      assert FakePDS.record(pds, @shared) == shared
+    end
+  end
+
+  test "a displayed banner that does not match its selected native blob refuses first Save" do
+    {session, pds} =
+      FakePDS.start(
+        records: %{@shared => @records[@shared]},
+        answers: %{
+          "town.delve.actor.getProfile" =>
+            {200,
+             %{
+               profileSource: %{uri: @shared, cid: FakePDS.cid(@shared)},
+               banner: "https://images.test/img/banner/plain/did:plc:self/missing@jpeg"
+             }}
+        }
+      )
+
+    assert {:error, %{kind: :refused}} = Backend.update_profile(session, description: "Town")
+    assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+  end
+
   test "a stale source CID refuses before upload or profile write" do
     {session, pds} =
       FakePDS.start(

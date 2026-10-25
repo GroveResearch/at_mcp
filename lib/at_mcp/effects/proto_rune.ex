@@ -2419,14 +2419,16 @@ defmodule AtMcp.Effects.ProtoRune do
     with {:ok, commit} <- latest_commit(session),
          {:ok, town} <- stored_profile(session, local),
          {:ok, external} <- stored_profile(session, shared),
-         {:ok, presentation} <- selected_presentation(session, town, external),
+         {:ok, presentation, view} <- selected_presentation(session, town, external),
          {:ok, ^commit} <- latest_commit(session) do
       value =
         town.value
         |> Map.drop(["displayName", "description", "avatar"])
         |> Map.merge(Map.take(presentation, ["displayName", "description", "avatar"]))
 
-      {:ok, %{value: value, operation: town.operation, commit: commit}}
+      with {:ok, value} <- initial_town_banner(town.operation, value, presentation, view) do
+        {:ok, %{value: value, operation: town.operation, commit: commit}}
+      end
     else
       {:error, reason} -> {:error, failure(reason)}
       _ -> {:error, changed_meanwhile("The profile")}
@@ -2434,13 +2436,13 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   defp selected_presentation(_session, %{value: %{"presentation" => true}} = town, _shared),
-    do: {:ok, town.value}
+    do: {:ok, town.value, nil}
 
   defp selected_presentation(session, town, shared) do
     with {:ok, view} <- AtMcp.ATProto.get_profile(session, %{actor: session.did}) do
       case field(view, :profile_source) do
         nil ->
-          {:ok, %{}}
+          {:ok, %{}, view}
 
         source when is_map(source) ->
           case Enum.find(
@@ -2449,12 +2451,46 @@ defmodule AtMcp.Effects.ProtoRune do
                      is_binary(&1.cid))
                ) do
             nil -> {:error, changed_meanwhile("The displayed profile source")}
-            record -> {:ok, record.value}
+            record -> {:ok, record.value, view}
           end
 
         _ ->
           {:error, unreadable("the displayed profile source", view)}
       end
+    end
+  end
+
+  # Existing Town records own their banner, including its absence. Only the
+  # first Town record preserves a shared banner that the AppView actually shows.
+  defp initial_town_banner(:update, value, _presentation, _view), do: {:ok, value}
+
+  defp initial_town_banner(:create, value, presentation, view) do
+    case field(view, :banner) do
+      nil ->
+        {:ok, Map.delete(value, "banner")}
+
+      url when is_binary(url) ->
+        blob = Map.get(presentation, "banner")
+
+        cid = if is_map(blob), do: blob_cid(blob)
+
+        if is_binary(cid) and displayed_blob_cid(url) == cid,
+          do: {:ok, Map.put(value, "banner", blob)},
+          else: {:error, changed_meanwhile("The displayed profile banner")}
+
+      _ ->
+        {:error, unreadable("the displayed profile banner", view)}
+    end
+  end
+
+  defp displayed_blob_cid(url) do
+    with %URI{path: path} when is_binary(path) <- URI.parse(url),
+         filename when is_binary(filename) <- path |> String.split("/") |> List.last(),
+         [cid | _] <- String.split(filename, "@", parts: 2),
+         true <- cid != "" do
+      URI.decode(cid)
+    else
+      _ -> nil
     end
   end
 
