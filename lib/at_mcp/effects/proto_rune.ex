@@ -1926,12 +1926,10 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def follow(session, "did:" <> _ = did) do
-    with {:ok, activated} <- identity_authority(session),
-         record = AtMcp.ATProto.follow_record([subject: did], activated),
+    with record = AtMcp.ATProto.follow_record([subject: did], true),
          {:ok, result} <-
-           create_in(session, AtMcp.Network.identity_collection(:follow, activated), record) do
+           create_in(session, AtMcp.Network.identity_collection(:follow, true), record) do
       {:ok, Map.merge(summarize_record(result), %{actor: did, action: :follow})}
-      |> confirm_identity_write(session, activated)
     else
       {:error, reason} -> {:error, failure(reason)}
     end
@@ -1939,12 +1937,10 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def block(session, "did:" <> _ = did) do
-    with {:ok, activated} <- identity_authority(session),
-         record = AtMcp.ATProto.block_record([subject: did], activated),
+    with record = AtMcp.ATProto.block_record([subject: did], true),
          {:ok, result} <-
-           create_in(session, AtMcp.Network.identity_collection(:block, activated), record) do
+           create_in(session, AtMcp.Network.identity_collection(:block, true), record) do
       {:ok, Map.merge(summarize_record(result), %{actor: did, action: :block})}
-      |> confirm_identity_write(session, activated)
     else
       {:error, reason} -> {:error, failure(reason)}
     end
@@ -2055,6 +2051,56 @@ defmodule AtMcp.Effects.ProtoRune do
   @undo_kinds %{unlike: :like, unrepost: :repost, unfollow: :follow, unblock: :block}
 
   @impl true
+  def prepare_undo(session, action, uri) when action in [:unfollow, :unblock] do
+    kind = Map.fetch!(@undo_kinds, action)
+
+    with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri),
+         :ok <- require_record_kind(collection, kind, action),
+         true <- AtMcp.Interactions.own_repo?(session, repo),
+         {:ok, commit} <- latest_commit(session),
+         {:ok, record} <- relationship_source(session, collection, rkey) do
+      if is_nil(record) do
+        {:ok, {:unchanged, undo_summary(%{action: action, uri: uri, unchanged: true})}}
+      else
+        with subject when is_binary(subject) <- undo_subject(field(record, :value)),
+             {:ok, records} <- relationship_inventory(session, kind, subject),
+             true <-
+               Enum.any?(
+                 records,
+                 &(&1.uri == "at://#{session.did}/#{collection}/#{rkey}" and
+                     &1.cid == field(record, :cid))
+               ),
+             {:ok, ^commit} <- latest_commit(session),
+             :ok <- relationship_batch_size(records) do
+          {:ok,
+           %{
+             action: action,
+             uri: uri,
+             deleted: Enum.map(records, & &1.uri),
+             records: records,
+             repo: session.did,
+             commit: commit
+           }}
+        else
+          {:error, reason} -> {:error, failure(reason)}
+          _ -> {:error, changed_meanwhile("The relationship inventory")}
+        end
+      end
+    else
+      false ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message: "Only this account's relationships can be removed."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+
+      _ ->
+        {:error, unreadable("the relationship", %{})}
+    end
+  end
+
   def prepare_undo(session, action, uri) do
     kind = Map.fetch!(@undo_kinds, action)
 
@@ -2068,6 +2114,95 @@ defmodule AtMcp.Effects.ProtoRune do
         else: {:ok, prepared}
     else
       {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  defp relationship_batch_size(records) do
+    if length(records) <= AtMcp.ATProto.max_writes() do
+      :ok
+    else
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message:
+           "There are too many matching relationship records to remove atomically. Nothing was deleted."
+       )}
+    end
+  end
+
+  defp relationship_source(session, collection, rkey) do
+    case AtMcp.ATProto.get_record(session, %{
+           repo: session.did,
+           collection: collection,
+           rkey: rkey
+         }) do
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:record_not_found, "record_not_found"] ->
+        {:ok, nil}
+
+      result ->
+        result
+    end
+  end
+
+  defp relationship_inventory(session, kind, subject) do
+    collections = AtMcp.Network.relationship_collections(kind)
+
+    Enum.reduce_while(collections, {:ok, []}, fn collection, {:ok, records} ->
+      case relationship_page(session, collection, subject, nil, @own_record_pages, []) do
+        {:ok, found} -> {:cont, {:ok, records ++ found}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp relationship_page(_session, _collection, _subject, _cursor, 0, _found),
+    do:
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message: "Relationship inventory exceeds the supported page limit. Nothing was deleted."
+       )}
+
+  defp relationship_page(session, collection, subject, cursor, pages, found) do
+    params =
+      AtMcp.ATProto.params(%{
+        repo: session.did,
+        collection: collection,
+        limit: 100,
+        cursor: cursor
+      })
+
+    with {:ok, response} <- AtMcp.ATProto.list_records(session, params),
+         records when is_list(records) <- field(response, :records) do
+      matching =
+        for record <- records,
+            undo_subject(field(record, :value)) == subject,
+            do: %{uri: field(record, :uri), cid: field(record, :cid)}
+
+      valid =
+        Enum.all?(matching, fn record ->
+          case AtMcp.ATProto.parse_uri(record.uri || "") do
+            {:ok, {did, ^collection, _}} -> did == session.did and is_binary(record.cid)
+            _ -> false
+          end
+        end)
+
+      if valid and length(Enum.uniq_by(found ++ matching, & &1.uri)) == length(found ++ matching) do
+        case cursor_of(response) do
+          next when is_binary(next) and next != cursor and records != [] ->
+            relationship_page(session, collection, subject, next, pages - 1, found ++ matching)
+
+          nil ->
+            {:ok, found ++ matching}
+
+          _ ->
+            {:error, unreadable("the relationship inventory cursor", response)}
+        end
+      else
+        {:error, unreadable("the relationship inventory", response)}
+      end
+    else
+      {:error, reason} -> {:error, failure(reason)}
+      _ -> {:error, unreadable("the relationship inventory", %{})}
     end
   end
 
@@ -2114,7 +2249,32 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # One record is deleted as it is named; two are deleted together, in one
   # commit of this account's repository.
+  # The prepared DID and commit are immutable. A new login or a concurrent
+  # repository write cannot turn this removal into a different operation.
   @impl true
+  def undo(session, %{repo: repo, commit: commit, deleted: deleted} = prepared) do
+    if session.did != repo do
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message: "The prepared removal belongs to another account."
+       )}
+    else
+      case AtMcp.ATProto.apply_writes(session, repo, Enum.map(deleted, &removal/1),
+             swap_commit: commit
+           ) do
+        {:ok, _} ->
+          {:ok, undo_summary(prepared)}
+
+        {:error, %ProtoRune.XRPC.Error{reason: reason}}
+        when reason in [:invalid_swap, "invalid_swap"] ->
+          {:error, changed_meanwhile("The relationships")}
+
+        {:error, reason} ->
+          {:error, failure(reason)}
+      end
+    end
+  end
+
   def undo(session, %{deleted: [uri]} = prepared) do
     with {:ok, %{ok: true}} <- delete(session, uri, prepared.action, @undo_kinds[prepared.action]),
          do: {:ok, undo_summary(prepared)}

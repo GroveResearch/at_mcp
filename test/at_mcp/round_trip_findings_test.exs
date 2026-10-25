@@ -240,7 +240,7 @@ defmodule AtMcp.RoundTripFindingsTest do
         })
 
       assert {:ok, %{deleted: [^follow]}} = AtMcp.Effects.unfollow(effects, follow)
-      assert writes(pds) == ["com.atproto.repo.deleteRecord"]
+      assert writes(pds) == ["com.atproto.repo.applyWrites"]
     end
 
     test "a record gone between the read and the commit: nothing was applied, and the result says so" do

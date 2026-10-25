@@ -1561,7 +1561,7 @@ defmodule AtMcp.MCP.Server do
   tool "unfollow",
        write_description(
          :unfollow,
-         "Unfollow by the follow record AT URI. When the AppView names another follow of this account's of the same account, that one is deleted too; deleted lists what was deleted."
+         "Unfollow by the follow record AT URI. Reads this account's repository and removes every shared and old Town follow of the same account in one conditional commit. A changed repository refuses the removal. deleted lists what was deleted. If the named record is gone, its subject is unknown and nothing is deleted."
        ) do
     annotations(
       write_annotations(:unfollow, %{
@@ -1611,7 +1611,7 @@ defmodule AtMcp.MCP.Server do
   tool "unblock",
        write_description(
          :unblock,
-         "Unblock by the block record AT URI. When the AppView names another block of this account's of the same account, that one is deleted too; deleted lists what was deleted."
+         "Unblock by the block record AT URI. Reads this account's repository and removes every shared and old Town block of the same account in one conditional commit. A changed repository refuses the removal. deleted lists what was deleted. If the named record is gone, its subject is unknown and nothing is deleted."
        ) do
     annotations(
       write_annotations(:unblock, %{
