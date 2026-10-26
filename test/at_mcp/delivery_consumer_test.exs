@@ -113,9 +113,9 @@ defmodule AtMcp.DeliveryConsumerTest do
 
     event = %{
       source: :notifications,
-      matched_did: "did:plc:resident",
+      matched_did: "did:plc:account",
       uri: "at://did:plc:author/app.bsky.feed.post/1",
-      subject_uri: "at://did:plc:resident/app.bsky.feed.post/parent",
+      subject_uri: "at://did:plc:account/app.bsky.feed.post/parent",
       reason: "reply",
       text: "hello"
     }

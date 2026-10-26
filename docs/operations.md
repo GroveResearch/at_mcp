@@ -83,14 +83,12 @@ the operator commands refuse to run with it empty.
   and what it runs from reading other services' command lines. On a machine
   with other login accounts, also mount /proc with `hidepid=invisible`.
 - `AT_MCP_DIST_PORT` is where the service listens for the operator commands, on
-  127.0.0.1 only; no port mapper (epmd) is needed. 4370 is the default
-  (Dwell's is 4380, Haven's 4390).
+  127.0.0.1 only; no port mapper (epmd) is needed. 4370 is the default.
 - `AT_MCP_PORT` is the one loopback MCP endpoint every client reaches
   (`http://127.0.0.1:4400/mcp`); the grant a client presents selects the
   account.
-- To deliver incoming activity to a consumer such as Dwell,
-  `AT_MCP_DELIVERY_URL` (Dwell's `http://127.0.0.1:$DWELL_INBOUND_PORT/inbound`)
-  and `AT_MCP_DELIVERY_TOKEN_FILE`, a file holding the consumer's token and
+- To deliver incoming activity to a consumer, `AT_MCP_DELIVERY_URL` (for
+  example `http://127.0.0.1:4380/inbound`) and `AT_MCP_DELIVERY_TOKEN_FILE`, a file holding the consumer's token and
   readable by the service. `AT_MCP_NETWORK=delve` points the tools at
   `town.delve.*`. The README's [Settings](../README.md#settings) lists
   every variable.
@@ -195,7 +193,7 @@ at_mcp-accounts connection grug --scope read
 
 Each run of `connection` issues a new grant and prints a descriptor an MCP
 client consumes: the shared URL, an `Authorization: Bearer` header carrying the
-grant, and the account's DID in `x-kite-account-did`, which confirms the
+grant, and the account's DID in `x-at-mcp-account-did`, which confirms the
 binding and selects nothing. Tokens are stored only as digests, so a grant
 cannot be recovered later.
 
@@ -366,7 +364,8 @@ attaches:
 
 ```json
 {"name":"at_mcp-grug","type":"http","url":"http://127.0.0.1:4400/mcp",
- "headers":[{"name":"authorization","value":"Bearer kite-..."},
+ "headers":[{"name":"authorization","value":"Bearer at_mcp-..."},
+            {"name":"x-at-mcp-account-did","value":"did:plc:..."},
             {"name":"x-kite-account-did","value":"did:plc:..."}]}
 ```
 
@@ -377,7 +376,7 @@ private `mcp.json` file in this shape (do not paste the headers array):
 ```json
 {"mcpServers":{"at_mcp":{"type":"http","url":"http://127.0.0.1:4400/mcp",
  "headers":{"authorization":"Bearer YOUR_RETURNED_GRANT",
-            "x-kite-account-did":"YOUR_RETURNED_DID"}}}}
+            "x-at-mcp-account-did":"YOUR_RETURNED_DID"}}}}
 ```
 
 Start it with `claude --mcp-config /absolute/path/to/mcp.json --strict-mcp-config`.
@@ -552,7 +551,7 @@ curl -s http://127.0.0.1:4410/identities
 ```
 
 Each entry carries the account's public fields, a descriptor with the shared
-URL and `x-kite-account-did` (no credential; add the grant from
+URL and `x-at-mcp-account-did` (no credential; add the grant from
 `at_mcp-accounts connection`), and a `runtime` object. `runtime: null` means the
 service has not loaded the account (reload fixes it); `running: false` means it
 is loaded and down (reload will not); `ready: true` means it is logged in and
@@ -608,7 +607,35 @@ under the other, so it fails when a release changes one. A release that
 changes the format will copy what it changes when it starts, and say here how
 to put the copy back.
 
-### From 0.2.14 to the next release
+### From 0.2.15 to the next release
+
+The header that confirms an account's DID is now `x-at-mcp-account-did`, and
+the annotation that says whether a write tool counts against the write quota
+is now `at_mcp/publicWrite`. The service still accepts the old header,
+`x-kite-account-did`, and every write tool still carries the old annotation,
+`kite/publicWrite`, with the same value. A descriptor from
+`at_mcp-accounts connection` carries both headers. The old header and
+annotation are removed in the release after this one, so move clients to the
+new names before then. New grants start with `at_mcp-`. Grants issued before
+keep working: the service looks a grant up by its digest and never reads its
+prefix.
+
+At startup at_mcp no longer looks for data in the default folders of the
+project's earlier name. 0.2.15 refused to start while such a folder existed
+and no setting named a path, so an installation that runs 0.2.15 already sets
+`AT_MCP_ACCOUNTS_FILE` and `AT_MCP_STATE_DIR`, or has no such folder, and
+nothing changes for it.
+
+`update_profile` takes `labels`, the self-labels the account gives itself,
+such as `bot` for an automated account. They replace the labels it has, `[]`
+removes them, and left out they are kept. On Delvetown they are written to the
+shared `app.bsky.actor.profile`, the public bot declaration, changing only its
+`labels`; a missing shared profile is created holding only them. Presentation
+and labels given together are written in one commit over the records read, so
+both change or neither does. On Bluesky they go on the one profile record. The
+result carries the labels written.
+
+### From 0.2.14 to 0.2.15
 
 Deploy Delvetown server support for signed Town profile `presentation: true`
 and detailed `getProfile.profileSource` before upgrading this client. The
@@ -628,15 +655,6 @@ applications should use `AtMcp.Effects.get_own_profile/1` to read that same
 presentation; activation checks and direct access to the Effects process state
 are no longer needed. Upgrade embedding applications from the published Hex
 package before switching their running release.
-
-`update_profile` takes `labels`, the self-labels the account gives itself,
-such as `bot` for an automated account. They replace the labels it has, `[]`
-removes them, and left out they are kept. On Delvetown they are written to the
-shared `app.bsky.actor.profile`, the public bot declaration, changing only its
-`labels`; a missing shared profile is created holding only them. Presentation
-and labels given together are written in one commit over the records read, so
-both change or neither does. On Bluesky they go on the one profile record. The
-result carries the labels written.
 
 Do not roll Town clients back to 0.2.14 after this cutover: its profile writer
 can change shared basics and its relationship writer still requires activation
@@ -1138,62 +1156,6 @@ sudo systemctl start at_mcp              # Mac: launchctl bootstrap "gui/$(id -u
 The older release starts on the accounts, grants and state the newer one
 left.
 
-## Transition from Kite
-
-Kite 0.1.2 installations can move to `at_mcp` while keeping their account
-state. The public repository starts from a reviewed source snapshot; the
-private Kite Git history remains separate.
-
-Stop Kite before starting at_mcp on the same state. Keep the existing state
-files and service account; no account recreation, grant rotation or data conversion
-is needed. Unpack the new release beside the old one and retain the old release
-and configuration for rollback.
-
-Rename each `KITE_*` setting to `AT_MCP_*`, **preserving its value**, except
-`KITE_MCP_PORT` becomes `AT_MCP_PORT`. In particular, set
-`AT_MCP_ACCOUNTS_FILE` to the exact existing accounts file and `AT_MCP_STATE_DIR`
-to the exact existing state directory. The grants file remains beside the accounts
-file. `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD` and `BLUESKY_SERVICE` keep
-working (with a warning to rename them `AT_MCP_HANDLE`, `AT_MCP_APP_PASSWORD`
-and `AT_MCP_SERVICE`); the cookie, node name and port values do not change. Old `KITE_*` settings are rejected with
-the corresponding new name; they are not silently ignored or treated as aliases.
-
-For example, an existing Linux installation keeps:
-
-```sh
-AT_MCP_ACCOUNTS_FILE=/var/lib/kite/accounts.json
-AT_MCP_STATE_DIR=/var/lib/kite
-AT_MCP_PORT=4400
-AT_MCP_DIST_PORT=4370
-```
-
-Update the installed unit's command to `current/bin/at_mcp start`, keeping its
-existing user, group, environment-file path, working directory and state-directory
-ownership. The new-install examples above use new paths; do not replace existing
-paths with those defaults during this transition. Update shell commands and MCP
-client commands from `kite-accounts` to `at_mcp-accounts`, `kite-mcp` to
-`at_mcp-stdio`, and `kite-connect` to `at_mcp-connect`. Set `AT_MCP_ENV_FILE` or
-`AT_MCP_STDIO_ENV_FILE` in place of the corresponding old setting. Shared clients
-keep their existing bearer token, under `AT_MCP_GRANT` for the new stdio front.
-HTTP clients keep their URL, token, tool names and `x-kite-account-did` header.
-
-If the old installation used defaults, at_mcp refuses to silently start an empty
-store when it finds the old location and prints the exact new setting and path.
-For single-account stdio, that path is the account's existing hashed directory
-under the old `inbound/stdio/` folder, not the shared `inbound` root. Fresh
-installations without old data use the new `at_mcp` defaults normally.
-
-After restarting, run `at_mcp-accounts status` and confirm the same account IDs,
-DIDs, readiness, disconnected accounts and write usage. Roll back by stopping
-at_mcp, restoring the old unit command and configuration names, pointing `current`
-at the old release, and starting Kite. Both releases read the same unchanged
-accounts, grants, quota and inbound files, including work accepted after the upgrade.
-
-Elixir hosts embedding the library also rename `config :kite` to
-`config :at_mcp` and module references to `AtMcp`, retaining their configured
-paths. Startup rejects recognized settings left under `:kite` instead of
-silently choosing new defaults.
-
 ## Build a release
 
 This developer path starts from a source checkout and needs Elixir 1.19,
@@ -1413,10 +1375,8 @@ and record the scope of what was run in the pull request.
 
 This is a maintainer action, not an installation step. One tag publishes both
 the GitHub binary release and the Hex package. The previous-release CI
-check uses the newest eligible published release, or the explicit historical
-Kite baseline described below when there is no eligible predecessor. That
-baseline must be available in this public repository; no private Git history
-is required. Do not skip the check or use a rebuilt candidate as its own
+check upgrades from the newest eligible published release and fails when
+there is none. Do not skip the check or use a rebuilt candidate as its own
 previous release.
 
 Pushing a version tag publishes one; a merge to `main` does not. The tag is
@@ -1463,53 +1423,3 @@ upgrade needs, or what an operator sees, adds its note under
 [Upgrade](#upgrade) in that same pull request, in a section headed
 `From A to the next release`, A being the newest release; the first pull
 request after a release renames that heading to the version it shipped as.
-
-## Bootstrap a fresh public repository
-
-This is release preparation for maintainers. It does not publish anything by
-itself. A fresh source snapshot has no previous release, and its Git history
-must not be populated with the private Kite history just to satisfy upgrade CI.
-
-`scripts/legacy_baseline.json` names a specific historical Kite 0.1.2 build and
-pins each platform's notice-complete archive. The repack adds notices and
-`BASELINE_PROVENANCE.json`; it preserves every original file's bytes, mode and
-symlink target. The archives have new names and new SHA-256 values. Original
-release checksums describe only the original archives, never the repacks.
-
-Prepare each repack privately using its genuine original archive and a reviewed
-notice tree containing `LICENSE` and `licenses/`. The tree must include the
-actual old dependency and runtime versions, rather than today's build's notices:
-
-```sh
-python3 scripts/repack_legacy_baseline.py linux-x86_64 ORIGINAL NOTICE_TREE OUTPUT
-```
-
-Repeat for `macos-arm64`, review both outputs against the manifest, and run the
-usual default-path and upgrade/rollback checks on the repacked old release.
-The repack command verifies original hashes and preserves original contents;
-it does not establish that a supplied notice tree is complete. Notice review
-and the release-notice verifier are separate requirements.
-
-After publication approval, the order is:
-
-1. Create the empty public repository and push the reviewed single-root source
-   snapshot to `bootstrap`. The workflow runs pushes to `main`, not this branch.
-2. Create `legacy-kite-v0.1.2` in that same repository as a **prerelease**, with
-   **latest disabled**, containing both manifest-named repacks and their new
-   checksum files. Target the new root commit. State in its release notes that
-   the binaries come from historical source `40a969a`, not from the tag's new
-   root; only notices and provenance were added. This tag does not match the
-   workflow's automatic `v*` publication trigger.
-3. Verify unauthenticated downloads against the committed archive digests and
-   exact historical `BUILD`, then push the same root to `main` and make it the
-   default branch. The first main-branch CI run can now exercise a real
-   old-to-new upgrade without private GitHub access.
-4. Require green release CI before the separately approved application tag or
-   Hex publication. Creating the legacy baseline does not publish `at_mcp`.
-
-The ordinary newest eligible release always takes precedence. Only when there
-is no eligible predecessor does the selector use this explicit baseline. Missing
-assets, altered checksums, an unexpected `BUILD`, or the candidate serving as its
-own baseline fail the gate. A failure fetching an ordinary predecessor never
-silently chooses the baseline instead. Keep this exceptional path only while
-Kite-to-at_mcp remains a supported first upgrade.

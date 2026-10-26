@@ -21,7 +21,7 @@ defmodule AtMcp.LiveRoundtrip do
 
         {:ok, client} =
           ExMCP.Client.connect(url,
-            headers: [{"authorization", "Bearer " <> grant}, {"x-kite-account-did", did}]
+            headers: [{"authorization", "Bearer " <> grant}, {"x-at-mcp-account-did", did}]
           )
 
         {:ok, %{"did" => ^did}} = call(client, "identity_status", %{})

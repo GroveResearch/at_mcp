@@ -23,7 +23,7 @@ defmodule AtMcp.WebLinkTest do
   @did "did:plc:alice"
   @post "at://#{@did}/app.bsky.feed.post/3kpost"
   @list "at://#{@did}/app.bsky.graph.list/3klist"
-  @feed "at://#{@did}/app.bsky.feed.generator/kites"
+  @feed "at://#{@did}/app.bsky.feed.generator/gliders"
   @pack "at://#{@did}/app.bsky.graph.starterpack/3kpack"
   @creator %{"did" => @did, "handle" => "alice.test", "displayName" => "Alice"}
 
@@ -170,7 +170,7 @@ defmodule AtMcp.WebLinkTest do
     end
 
     test "a list, and the accounts on it" do
-      list = Summary.extract(:list, %{"uri" => @list, "name" => "Kites", "creator" => @creator})
+      list = Summary.extract(:list, %{"uri" => @list, "name" => "Gliders", "creator" => @creator})
       assert list.web_url == "https://bsky.app/profile/did:plc:alice/lists/3klist"
 
       member =
@@ -196,25 +196,25 @@ defmodule AtMcp.WebLinkTest do
         Summary.extract(:generator, %{
           "uri" => @feed,
           "cid" => "bafy",
-          "displayName" => "Kites",
+          "displayName" => "Gliders",
           "creator" => @creator
         })
 
       {text, _} = text(%{items: [feed]}, :feeds)
 
       assert text =~
-               "uri: #{@feed} · cid: bafy\nlink: https://bsky.app/profile/did:plc:alice/feed/kites"
+               "uri: #{@feed} · cid: bafy\nlink: https://bsky.app/profile/did:plc:alice/feed/gliders"
     end
 
     test "a starter pack, and the feeds it recommends" do
       pack =
         Summary.extract(:starter_pack, %{
           "uri" => @pack,
-          "record" => %{"name" => "Kiters", "feeds" => [%{"uri" => @feed}]},
+          "record" => %{"name" => "Glider pilots", "feeds" => [%{"uri" => @feed}]},
           "creator" => @creator
         })
 
-      assert hd(pack.feeds).web_url == "https://bsky.app/profile/did:plc:alice/feed/kites"
+      assert hd(pack.feeds).web_url == "https://bsky.app/profile/did:plc:alice/feed/gliders"
 
       {text, _} = text(pack, :starter_pack)
       assert text =~ "uri: #{@pack}\nlink: https://bsky.app/start/did:plc:alice/3kpack"

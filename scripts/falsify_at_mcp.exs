@@ -1,6 +1,6 @@
 # Matklad-style live probes for AtMcp claims 3,4,6(live).
 # Run from at_mcp/:
-#   set -a; source ../dwell/.env; set +a
+#   set -a; source YOUR_ENV_FILE; set +a   # AT_MCP_HANDLE and AT_MCP_APP_PASSWORD
 #   AT_MCP_PORT=4411 AT_MCP_JETSTREAM=0 mix run scripts/falsify_at_mcp.exs
 #
 # mix run starts the OTP app (Effects + MCP HTTP + Listen).
@@ -222,10 +222,7 @@ defmodule AtMcp.FalsifyLive do
        "unit Notifications poll inbound; Jetstream wanted_dids=own-repo"},
       {"6 Jetstream unit", "PASS", "unit FakeJetstream wanted_dids"},
       {"6 Jetstream live", elem(results.claim6_live, 0), elem(results.claim6_live, 1)},
-      {"7 dwell import", "see dwell", "falsify_at_mcp_claims_test + acp_test"},
-      {"8 Permission grain", "see dwell", "permission_policy :client for mcp_at_mcp_post"},
-      {"9 Refresh ownership", "PASS", "unit no Effects.login( in MCP"},
-      {"10 Haven attach doc", "see haven", "falsify_at_mcp_attach_test"}
+      {"7 Refresh ownership", "PASS", "unit no Effects.login( in MCP"}
     ]
 
     IO.puts("\n## Falsify matrix\n")

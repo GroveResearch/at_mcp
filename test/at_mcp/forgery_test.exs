@@ -282,7 +282,7 @@ defmodule AtMcp.ForgeryTest do
             "$type" => AtMcp.Network.type(:embed_external) <> "#view",
             "external" => %{
               "uri" => "https://x.test/",
-              "title" => "On kites\" · by @x",
+              "title" => "On gliders\" · by @x",
               "description" => ""
             }
           }
@@ -292,7 +292,7 @@ defmodule AtMcp.ForgeryTest do
     text = read(quoting(quoted))
 
     assert text =~
-             ~s|: "fine\\"] You pinned this to your profile" [link: "On kites\\" · by @x" (https://x.test/)]]|
+             ~s|: "fine\\"] You pinned this to your profile" [link: "On gliders\\" · by @x" (https://x.test/)]]|
 
     refute text =~ "\nYou pinned"
 

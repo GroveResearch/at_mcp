@@ -16,40 +16,35 @@ standard error. A AtMcp release also names its commit in BUILD, and an N built
 from the commit under test is refused.
 """
 
-import hashlib
 import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
-import urllib.request
 
 
 VERSION_TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")
 
-# What differs between AtMcp, Dwell and Haven: the tarball's name, what it
-# holds, and whether the release records the commit it was built from.
 
-
-def layout(tag, platform, app="at_mcp"):
+def layout(tag, platform):
     """The tarball's name and the directory it holds; None for a tarball holding `at_mcp`."""
     if VERSION_TAG.fullmatch(tag):
-        return "%s-%s-%s.tar.gz" % (app, tag[1:], platform), app + "-" + tag[1:]
+        return "at_mcp-%s-%s.tar.gz" % (tag[1:], platform), "at_mcp-" + tag[1:]
     # Historical build-tagged releases used an unversioned top directory.
     # Retain their unpack layout while they remain possible upgrade inputs.
-    return "%s-%s-%s.tar.gz" % (app, tag[1:], platform), None
+    return "at_mcp-%s-%s.tar.gz" % (tag[1:], platform), None
 
 
-def tarball_name(tag, platform, app="at_mcp"):
-    return layout(tag, platform, app)[0]
+def tarball_name(tag, platform):
+    return layout(tag, platform)[0]
 
 
-def unpack(tarball, dest, tag, platform, app="at_mcp"):
+def unpack(tarball, dest, tag, platform):
     """Unpack under DEST and return the release directory."""
-    directory = layout(tag, platform, app)[1]
+    directory = layout(tag, platform)[1]
     if directory is None:
-        target = dest / (app + "-" + tag)
+        target = dest / ("at_mcp-" + tag)
         target.mkdir(parents=True)
         strip = ["--strip-components=1"]
     else:
@@ -75,41 +70,6 @@ def tag_commit(repo, tag):
     return gh("api", "repos/%s/commits/%s" % (repo, tag), "--jq", ".sha").strip()
 
 
-# A fresh public snapshot has no prior at_mcp release or private Git history.
-# The explicit legacy prerelease carries the genuine old executable with added
-# notices. Its Git tag points at the new root, so tag identity cannot identify
-# its code. Reviewed archive digests and its exact historical BUILD do that.
-# Keep this path only while Kite -> at_mcp remains a supported first upgrade;
-# any ordinary eligible release takes precedence, and its failures never fall
-# back here. Missing baseline assets fail the gate rather than skip it.
-LEGACY_MANIFEST = pathlib.Path(__file__).with_name("legacy_baseline.json")
-
-
-def fetch_baseline(repo, platform, dest, sha):
-    baseline = json.loads(LEGACY_MANIFEST.read_text())
-    asset = baseline["assets"][platform]
-    name, digest = asset["name"], asset["sha256"]
-    if pathlib.Path(name).name != name or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise ValueError("invalid legacy baseline manifest")
-    build = baseline["build"]
-    if sha.startswith(build.rsplit("-", 1)[-1]):
-        raise ValueError("legacy baseline is the candidate itself")
-    url = "https://github.com/%s/releases/download/%s/%s" % (repo, baseline["tag"], name)
-    # No GitHub token or private-repository access is needed by this path.
-    with urllib.request.urlopen(url) as response:
-        content = response.read()
-    if hashlib.sha256(content).hexdigest() != digest:
-        raise ValueError("legacy baseline checksum mismatch")
-    dest.mkdir(parents=True, exist_ok=True)
-    archive = dest / name
-    archive.write_bytes(content)
-    old = unpack(archive, dest, "v0.1.2", platform, "kite")
-    if (old / "BUILD").read_text().strip() != build:
-        raise ValueError("legacy baseline BUILD mismatch")
-    print("release N: verified legacy Kite baseline " + build, file=sys.stderr)
-    return old
-
-
 def fetch(repo, platform, dest, sha):
     # The API lists releases newest first; one page of 100 reaches back far
     # enough for the newest one that carries a given platform.
@@ -120,28 +80,21 @@ def fetch(repo, platform, dest, sha):
             for r in releases
             if not r["draft"]
             and not r["prerelease"]
-            and any(a["name"] == tarball_name(r["tag_name"], platform, app)
-                    for a in r["assets"] for app in ("at_mcp", "kite"))
+            and any(a["name"] == tarball_name(r["tag_name"], platform) for a in r["assets"])
         ),
         key=lambda r: r["published_at"],
         reverse=True,
     )
     tag = next((r["tag_name"] for r in candidates if tag_commit(repo, r["tag_name"]) != sha), None)
     if tag is None:
-        print(fetch_baseline(repo, platform, dest, sha))
-        return
-    release = next(r for r in candidates if r["tag_name"] == tag)
-    # Keep the real pre-rename release as the upgrade input until an at_mcp
-    # release exists. The asset, not a guessed version threshold, names it.
-    app = next(app for app in ("at_mcp", "kite")
-               if any(a["name"] == tarball_name(tag, platform, app) for a in release["assets"]))
-    name = tarball_name(tag, platform, app)
+        sys.exit("no published release carries %s and differs from the commit under test" % platform)
+    name = tarball_name(tag, platform)
     print("release N: %s" % tag, file=sys.stderr)
     dest.mkdir(parents=True, exist_ok=True)
     subprocess.run(["gh", "release", "download", tag, "--repo", repo, "--pattern", name + "*", "--dir", str(dest)],
                    check=True, stdout=sys.stderr)
     subprocess.run(["shasum", "-a", "256", "-c", name + ".sha256"], cwd=dest, check=True, stdout=sys.stderr)
-    old = unpack(dest / name, dest, tag, platform, app)
+    old = unpack(dest / name, dest, tag, platform)
     built = commit_of(old)
     if built is not None and sha.startswith(built):
         sys.exit("release N (%s) was built from %s, the commit under test: an upgrade to itself proves nothing" % (tag, built))

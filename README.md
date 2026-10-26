@@ -39,8 +39,6 @@ later) and macOS Apple silicon.
 
 The commands below install version 0.2.1 from the releases page. You can also
 [build a release](docs/operations.md#build-a-release) from the public source.
-Existing Kite users should follow
-[Transition from Kite 0.1.2](docs/operations.md#transition-from-kite).
 
 ### Fetch a release
 

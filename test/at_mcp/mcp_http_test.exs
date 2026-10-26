@@ -47,7 +47,7 @@ defmodule AtMcp.MCP.HTTPTest do
 
     mismatched =
       Req.post!(Grant.url(),
-        headers: Grant.headers(alice_token) ++ [{"x-kite-account-did", bob_did}],
+        headers: Grant.headers(alice_token) ++ [{"x-at-mcp-account-did", bob_did}],
         json: request("identity_status"),
         retry: false
       )
@@ -58,7 +58,7 @@ defmodule AtMcp.MCP.HTTPTest do
     # And with its own DID asserted it still reaches only alice.
     matched =
       Req.post!(Grant.url(),
-        headers: Grant.session!(alice_token) ++ [{"x-kite-account-did", alice_did}],
+        headers: Grant.session!(alice_token) ++ [{"x-at-mcp-account-did", alice_did}],
         json: request("identity_status"),
         retry: false
       )

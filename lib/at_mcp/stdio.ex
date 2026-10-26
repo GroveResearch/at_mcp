@@ -166,7 +166,7 @@ defmodule AtMcp.Stdio do
             opts[:handle]
           ])
 
-        AtMcp.Rename.default_state_path(["stdio", Base.encode16(key, case: :lower)])
+        AtMcp.Inbound.Store.default_state_path(["stdio", Base.encode16(key, case: :lower)])
     end
   end
 

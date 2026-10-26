@@ -35,7 +35,7 @@ processes and the durable record of which accounts are disconnected.
 | ProtoRune | AT Protocol sessions and XRPC transport | The records AtMcp writes, or the namespace it writes them to |
 | AtMcp | Account configuration, readiness, tools, write quota, collection and delivery | Agent turns or conversational instructions |
 | MCP | The client's tool connection to AtMcp | The agent's execution lifecycle |
-| Consumer (Dwell, Haven) | Routing, queues, conversations, mediated permissions | Account passwords or tool implementation |
+| Consumer | Routing, queues, conversations, mediated permissions | Account passwords or tool implementation |
 | Agent | Tool selection under its instructions | AtMcp's durable account state |
 
 ACP is the host-to-agent connection; MCP is the agent-to-tool connection. An
@@ -70,12 +70,9 @@ the write quota and disconnect control.
 One endpoint serves every identity, and `Authorization: Bearer <grant>` decides
 which one a client acts as. A grant names one account and one scope. A request
 with no grant is refused with `401`: a mode in which an uncredentialed caller is
-served is the mode in which nothing is separated. `x-kite-account-did` confirms
-the binding and selects nothing. It, the `kite-` prefix of a grant token and
-the `kite/publicWrite` annotation below keep at_mcp's earlier name, Kite,
-because clients, grants and hosts made before the rename use them
-(`decisions.md`, "Current name"). Revocation is removing the grant, and takes
-effect on the next request.
+served is the mode in which nothing is separated. `x-at-mcp-account-did`
+confirms the binding and selects nothing. Revocation is removing the grant, and
+takes effect on the next request.
 
 `AtMcp.Grants` alone answers which identity a request acts as and how much of the
 surface it may reach; `AtMcp.MCP.HTTP` resolves, and nothing else reads the
@@ -144,7 +141,7 @@ while its text asks for the serialized JSON for older clients
 
 Each tool's `readOnlyHint` and `destructiveHint` annotations are the only
 definition of what a scope reaches. Every write tool also carries
-`"kite/publicWrite"`, true for the three that count against the write quota
+`"at_mcp/publicWrite"`, true for the three that count against the write quota
 (`post`, `reply`, `repost`) and false for every other write, and its
 description ends with the matching sentence. Both derive from
 `AtMcp.Effects.publishing/0`, the list the reservation reads, so a host
