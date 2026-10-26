@@ -2393,7 +2393,7 @@ defmodule AtMcp.Effects.ProtoRune do
         uri =
           case writes do
             [{_op, collection, _rkey, _record} | _] -> "at://#{session.did}/#{collection}/self"
-            [] -> snapshot.shared.uri
+            [] -> nil
           end
 
         result =

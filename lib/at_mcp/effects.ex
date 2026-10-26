@@ -1213,10 +1213,40 @@ defmodule AtMcp.Effects do
   defp validate_profile(updates) do
     with :ok <- bounded(updates[:pronouns], "pronouns", @profile_limits.pronouns),
          :ok <- website(updates[:website]),
-         :ok <- profile_links(Keyword.fetch(updates, :links)) do
+         :ok <- profile_links(Keyword.fetch(updates, :links)),
+         :ok <- profile_labels(Keyword.fetch(updates, :labels)) do
       :ok
     end
   end
+
+  # `com.atproto.label.defs#selfLabels`: at most 10 values, each at most 128
+  # bytes.
+  defp profile_labels(:error), do: :ok
+
+  defp profile_labels({:ok, labels}) when is_list(labels) and length(labels) > 10,
+    do: invalid("labels", "a record carries at most 10 self-labels; this is #{length(labels)}")
+
+  defp profile_labels({:ok, labels}) when is_list(labels) do
+    labels
+    |> Enum.with_index()
+    |> Enum.find_value(:ok, fn {label, i} ->
+      cond do
+        not is_binary(label) or label == "" or not String.valid?(label) ->
+          invalid("labels[#{i}]", "must be a non-empty string")
+
+        byte_size(label) > 128 ->
+          invalid("labels[#{i}]", "may be at most 128 bytes")
+
+        label in Enum.take(labels, i) ->
+          invalid("labels[#{i}]", "#{label} is already in labels")
+
+        true ->
+          nil
+      end
+    end)
+  end
+
+  defp profile_labels({:ok, _other}), do: invalid("labels", "must be a list of strings")
 
   defp bounded(nil, _field, _limits), do: :ok
 

@@ -148,6 +148,25 @@ defmodule AtMcp.FeedProfileWritesTest do
                call(state, "update_profile", %{"pronouns" => " ", "links" => []}).structuredContent
     end
 
+    test "update_profile takes labels alone, and refuses ones a record cannot carry" do
+      state = mock()
+
+      assert %{"labels" => ["bot"]} =
+               call(state, "update_profile", %{"labels" => ["bot"]}).structuredContent
+
+      assert %{"labels" => []} =
+               call(state, "update_profile", %{"labels" => []}).structuredContent
+
+      refused(call(state, "update_profile", %{"labels" => ["bot", "bot"]}), "labels[1]")
+
+      refused(
+        call(state, "update_profile", %{"labels" => [String.duplicate("x", 129)]}),
+        "labels[0]"
+      )
+
+      refused(call(state, "update_profile", %{"labels" => Enum.map(1..11, &"l#{&1}")}), "labels")
+    end
+
     test "feed_feedback takes a feed generator and a post" do
       state = mock()
 
@@ -606,7 +625,7 @@ defmodule AtMcp.FeedProfileWritesTest do
       %{effects: effects, pds: pds} = pds(records: %{town => town_record})
 
       # Nothing to remove, so nothing is written.
-      assert {:ok, %{labels: []}} = AtMcp.Effects.update_profile(effects, labels: [])
+      assert {:ok, %{labels: [], uri: nil}} = AtMcp.Effects.update_profile(effects, labels: [])
       assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
 
       assert {:ok, _} = AtMcp.Effects.update_profile(effects, labels: ["bot"])
@@ -693,8 +712,9 @@ defmodule AtMcp.FeedProfileWritesTest do
                }
              } = FakePDS.record(pds, profile)
 
+      bot = FakePDS.record(pds, profile)["labels"]
       assert {:ok, _} = AtMcp.Effects.update_profile(effects, description: "Hello")
-      assert %{"labels" => _} = FakePDS.record(pds, profile)
+      assert %{"labels" => ^bot} = FakePDS.record(pds, profile)
 
       assert {:ok, _} = AtMcp.Effects.update_profile(effects, labels: [])
       refute Map.has_key?(FakePDS.record(pds, profile), "labels")

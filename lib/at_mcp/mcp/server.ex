@@ -1705,7 +1705,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_profile",
        write_description(
          :update_profile,
-         "Update display name, description, avatar, banner, pronouns, website, the links the profile shows and/or the labels the account gives itself. On Delvetown, saves complete Town presentation and leaves the shared profile unchanged apart from its labels; links are unsupported. Fields not given keep their current presentation; empty text removes that field and stays blank on Town. The write is conditional on the records read. get_record on this account's profile record (rkey self) reads it back."
+         "Update display name, description, avatar, banner, pronouns, website, the links the profile shows and/or the labels the account gives itself. On Delvetown, saves complete Town presentation and leaves the shared profile unchanged apart from its labels; links are unsupported. Fields not given keep their current presentation; empty text removes that field and stays blank on Town. The write is conditional on the records read. get_record on this account's profile record (rkey self) reads it back; on Delvetown, labels are on app.bsky.actor.profile."
        ) do
     annotations(
       write_annotations(:update_profile, %{
@@ -1751,7 +1751,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:labels, {:array, :string},
       description:
-        "Labels the account gives itself, such as bot for an automated account, replacing those it has. [] removes them all. On Delvetown they go on the shared app.bsky.actor.profile record."
+        "Labels the account gives itself, such as bot for an automated account, replacing those it has; at most 10. [] removes them all. On Delvetown they go on the shared app.bsky.actor.profile record."
     )
 
     run(fn a, state ->

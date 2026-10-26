@@ -675,6 +675,7 @@ defmodule AtMcp.Test.MockBackend do
        description: Keyword.get(updates, :description),
        pronouns: Keyword.get(updates, :pronouns),
        website: Keyword.get(updates, :website),
+       labels: Keyword.get(updates, :labels),
        uri: "at://did:plc:test/app.bsky.actor.profile/self"
      }
      |> Map.merge(
