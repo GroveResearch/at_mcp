@@ -740,6 +740,11 @@ defmodule AtMcp.MCP.Schemas do
       },
       "pronouns" => nullable_string("update_profile: the pronouns written; empty when removed"),
       "website" => nullable_string("update_profile: the website written; empty when removed"),
+      "labels" => %{
+        "type" => ["array", "null"],
+        "items" => %{"type" => "string"},
+        "description" => "update_profile with labels: the labels the account now gives itself"
+      },
       "links" => %{
         "type" => ["array", "null"],
         "description" =>

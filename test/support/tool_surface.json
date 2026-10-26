@@ -887,6 +887,7 @@
         "banner": "object",
         "description": "string",
         "display_name": "string",
+        "labels": "array",
         "links": "array",
         "pronouns": "string",
         "website": "string"

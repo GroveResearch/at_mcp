@@ -629,6 +629,15 @@ presentation; activation checks and direct access to the Effects process state
 are no longer needed. Upgrade embedding applications from the published Hex
 package before switching their running release.
 
+`update_profile` takes `labels`, the self-labels the account gives itself,
+such as `bot` for an automated account. They replace the labels it has, `[]`
+removes them, and left out they are kept. On Delvetown they are written to the
+shared `app.bsky.actor.profile`, the public bot declaration, changing only its
+`labels`; a missing shared profile is created holding only them. Presentation
+and labels given together are written in one commit over the records read, so
+both change or neither does. On Bluesky they go on the one profile record. The
+result carries the labels written.
+
 Do not roll Town clients back to 0.2.14 after this cutover: its profile writer
 can change shared basics and its relationship writer still requires activation
 state. This release does not convert an account or alter local storage formats.

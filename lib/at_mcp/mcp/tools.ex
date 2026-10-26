@@ -635,11 +635,17 @@ defmodule AtMcp.MCP.Tools do
           updates
       end
 
+    updates =
+      case Map.get(args, :labels, Map.get(args, "labels")) do
+        labels when is_list(labels) -> Keyword.put(updates, :labels, labels)
+        _ -> updates
+      end
+
     with {:ok, updates} <- profile_image(updates, :avatar, args),
          {:ok, updates} <- profile_image(updates, :banner, args) do
       if updates == [] do
         {:error,
-         "provide display_name, description, avatar, banner, pronouns, website and/or links"}
+         "provide display_name, description, avatar, banner, pronouns, website, links and/or labels"}
       else
         AtMcp.Effects.update_profile(effects, updates)
       end

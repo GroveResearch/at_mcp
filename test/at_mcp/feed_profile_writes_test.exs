@@ -148,6 +148,25 @@ defmodule AtMcp.FeedProfileWritesTest do
                call(state, "update_profile", %{"pronouns" => " ", "links" => []}).structuredContent
     end
 
+    test "update_profile takes labels alone, and refuses ones a record cannot carry" do
+      state = mock()
+
+      assert %{"labels" => ["bot"]} =
+               call(state, "update_profile", %{"labels" => ["bot"]}).structuredContent
+
+      assert %{"labels" => []} =
+               call(state, "update_profile", %{"labels" => []}).structuredContent
+
+      refused(call(state, "update_profile", %{"labels" => ["bot", "bot"]}), "labels[1]")
+
+      refused(
+        call(state, "update_profile", %{"labels" => [String.duplicate("x", 129)]}),
+        "labels[0]"
+      )
+
+      refused(call(state, "update_profile", %{"labels" => Enum.map(1..11, &"l#{&1}")}), "labels")
+    end
+
     test "feed_feedback takes a feed generator and a post" do
       state = mock()
 
@@ -540,6 +559,117 @@ defmodule AtMcp.FeedProfileWritesTest do
 
       refute Map.has_key?(record, "pronouns")
     end
+
+    test "update_profile writes labels to the shared profile, keeping its other fields and the Town record" do
+      town = "at://did:plc:self/town.delve.actor.profile/self"
+      shared = "at://did:plc:self/app.bsky.actor.profile/self"
+
+      town_record = %{
+        "$type" => "town.delve.actor.profile",
+        "displayName" => "Self",
+        "presentation" => true,
+        "pronouns" => "it/its"
+      }
+
+      shared_record = %{
+        "$type" => "app.bsky.actor.profile",
+        "displayName" => "Shared",
+        "description" => "Elsewhere",
+        "createdAt" => "2026-10-01T00:00:00.000Z"
+      }
+
+      %{effects: effects, pds: pds} =
+        pds(records: %{town => town_record, shared => shared_record})
+
+      bot = %{"$type" => "com.atproto.label.defs#selfLabels", "values" => [%{"val" => "bot"}]}
+
+      assert {:ok, %{labels: ["bot"], uri: ^shared}} =
+               AtMcp.Effects.update_profile(effects, labels: ["bot"])
+
+      [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      assert is_binary(body["swapCommit"])
+      assert [%{"collection" => "app.bsky.actor.profile", "value" => written}] = body["writes"]
+      assert Lexicon.problems(written, "app.bsky.actor.profile") == []
+      assert FakePDS.record(pds, shared) == Map.put(shared_record, "labels", bot)
+      assert FakePDS.record(pds, town) == town_record
+
+      # Left out, the labels are kept; the presentation goes on the Town record.
+      assert {:ok, result} = AtMcp.Effects.update_profile(effects, description: "Hello")
+      refute Map.get(result, :labels)
+      assert FakePDS.record(pds, shared) == Map.put(shared_record, "labels", bot)
+      assert %{"description" => "Hello", "pronouns" => "it/its"} = FakePDS.record(pds, town)
+
+      # Presentation and labels together are one commit; [] removes the labels.
+      assert {:ok, %{labels: []}} =
+               AtMcp.Effects.update_profile(effects, display_name: "New", labels: [])
+
+      [_, _, %{body: body}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+
+      assert Enum.map(body["writes"], & &1["collection"]) ==
+               ["town.delve.actor.profile", "app.bsky.actor.profile"]
+
+      assert FakePDS.record(pds, shared) == shared_record
+      assert %{"displayName" => "New", "description" => "Hello"} = FakePDS.record(pds, town)
+    end
+
+    test "update_profile with labels and no shared profile creates one holding only them" do
+      town = "at://did:plc:self/town.delve.actor.profile/self"
+      shared = "at://did:plc:self/app.bsky.actor.profile/self"
+
+      town_record = %{
+        "$type" => "town.delve.actor.profile",
+        "displayName" => "Self",
+        "presentation" => true
+      }
+
+      %{effects: effects, pds: pds} = pds(records: %{town => town_record})
+
+      # Nothing to remove, so nothing is written.
+      assert {:ok, %{labels: [], uri: nil}} = AtMcp.Effects.update_profile(effects, labels: [])
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+
+      assert {:ok, _} = AtMcp.Effects.update_profile(effects, labels: ["bot"])
+
+      [%{body: %{"writes" => [write]}}] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      assert write["$type"] == "com.atproto.repo.applyWrites#create"
+
+      assert FakePDS.record(pds, shared) == %{
+               "$type" => "app.bsky.actor.profile",
+               "labels" => %{
+                 "$type" => "com.atproto.label.defs#selfLabels",
+                 "values" => [%{"val" => "bot"}]
+               }
+             }
+
+      assert FakePDS.record(pds, town) == town_record
+    end
+
+    test "presentation and labels changed meanwhile are refused together, and neither record is written" do
+      town = "at://did:plc:self/town.delve.actor.profile/self"
+      shared = "at://did:plc:self/app.bsky.actor.profile/self"
+
+      town_record = %{
+        "$type" => "town.delve.actor.profile",
+        "displayName" => "Self",
+        "presentation" => true
+      }
+
+      shared_record = %{"$type" => "app.bsky.actor.profile", "displayName" => "Shared"}
+
+      %{effects: effects, pds: pds} =
+        pds(
+          records: %{town => town_record, shared => shared_record},
+          answers: %{
+            "com.atproto.repo.applyWrites" => {400, %{error: "InvalidSwap", message: "moved"}}
+          }
+        )
+
+      assert {:error, %{detail: {:changed_meanwhile, _}}} =
+               AtMcp.Effects.update_profile(effects, display_name: "New", labels: ["bot"])
+
+      assert FakePDS.record(pds, town) == town_record
+      refute Map.has_key?(FakePDS.record(pds, shared), "labels")
+    end
   end
 
   describe "profile links and feed feedback, on Bluesky" do
@@ -560,6 +690,34 @@ defmodule AtMcp.FeedProfileWritesTest do
                FakePDS.sent(pds, "app.bsky.notification.updateSeen")
 
       assert seen_at =~ ~r/\.\d{3}Z$/
+    end
+
+    test "update_profile replaces the profile's self-labels, and [] removes them" do
+      profile = "at://did:plc:self/app.bsky.actor.profile/self"
+
+      %{effects: effects, pds: pds} =
+        pds(
+          records: %{profile => %{"$type" => "app.bsky.actor.profile", "displayName" => "Self"}}
+        )
+
+      assert {:ok, %{labels: ["bot"]}} = AtMcp.Effects.update_profile(effects, labels: ["bot"])
+      [%{body: body}] = FakePDS.sent(pds, "com.atproto.repo.putRecord")
+      assert Lexicon.problems(body["record"], "app.bsky.actor.profile") == []
+
+      assert %{
+               "displayName" => "Self",
+               "labels" => %{
+                 "$type" => "com.atproto.label.defs#selfLabels",
+                 "values" => [%{"val" => "bot"}]
+               }
+             } = FakePDS.record(pds, profile)
+
+      bot = FakePDS.record(pds, profile)["labels"]
+      assert {:ok, _} = AtMcp.Effects.update_profile(effects, description: "Hello")
+      assert %{"labels" => ^bot} = FakePDS.record(pds, profile)
+
+      assert {:ok, _} = AtMcp.Effects.update_profile(effects, labels: [])
+      refute Map.has_key?(FakePDS.record(pds, profile), "labels")
     end
 
     @profile "at://did:plc:self/app.bsky.actor.profile/self"
