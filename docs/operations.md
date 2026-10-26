@@ -551,7 +551,8 @@ curl -s http://127.0.0.1:4410/identities
 ```
 
 Each entry carries the account's public fields, a descriptor with the shared
-URL and `x-at-mcp-account-did` (no credential; add the grant from
+URL and the account's DID under both `x-at-mcp-account-did` and
+`x-kite-account-did` (no credential; add the grant from
 `at_mcp-accounts connection`), and a `runtime` object. `runtime: null` means the
 service has not loaded the account (reload fixes it); `running: false` means it
 is loaded and down (reload will not); `ready: true` means it is logged in and
@@ -624,7 +625,7 @@ At startup at_mcp no longer looks for data in the default folders of the
 project's earlier name. 0.2.15 refused to start while such a folder existed
 and no setting named a path, so an installation that runs 0.2.15 already sets
 `AT_MCP_ACCOUNTS_FILE` and `AT_MCP_STATE_DIR`, or has no such folder, and
-nothing changes for it.
+nothing changes for it. Upgrade an older installation to 0.2.15 first.
 
 `update_profile` takes `labels`, the self-labels the account gives itself,
 such as `bot` for an automated account. They replace the labels it has, `[]`

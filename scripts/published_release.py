@@ -9,10 +9,10 @@ carries PLATFORM's tarball, so a release whose build for this platform failed
 is never chosen, and whose tag is not the commit under test (GITHUB_SHA): an
 upgrade from a build to itself proves nothing. The tarball's name is derived
 from the tag, so releases tagged by version (v0.2.0) and the earlier ones
-tagged by build (v0.1.0-<short sha>) are both found. CI retrieves this historical baseline with GitHub authentication (unlike the
-public newcomer curl path), checks its SHA-256, and unpacks it under DEST;
+tagged by build (v0.1.0-<short sha>) are both found. CI downloads release N
+with GitHub authentication, checks its SHA-256, and unpacks it under DEST;
 the release directory is printed on standard output, everything else goes to
-standard error. A AtMcp release also names its commit in BUILD, and an N built
+standard error. An AtMcp release also names its commit in BUILD, and an N built
 from the commit under test is refused.
 """
 
