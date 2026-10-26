@@ -48,7 +48,7 @@ No stored data changes. What a client or a delivery receiver reads changes
 ## From 0.2.10 to 0.2.11
 
 0.2.11 stores data in the same format as 0.2.10 and starts from the same
-environment, so rolling back works as below.
+environment, so rolling back works as [Roll back](operations.md#roll-back) says.
 
 - **`like` and `repost` take `cid` as optional** (#51, #125): left out, the
   AppView's CID for the subject is used; a given cid that differs from the
@@ -64,7 +64,7 @@ environment, so rolling back works as below.
 ## From 0.2.9 to 0.2.10
 
 0.2.10 stores data in the same format as 0.2.9 and starts from the same
-environment, so rolling back works as below.
+environment, so rolling back works as [Roll back](operations.md#roll-back) says.
 
 - **Moderation** (#90, #121): `report` (to the network's moderation service or
   a labeler the account subscribes to; the service's moderators see the report
@@ -81,7 +81,7 @@ environment, so rolling back works as below.
 ## From 0.2.8 to 0.2.9
 
 0.2.9 stores data in the same format as 0.2.8 and starts from the same
-environment, so rolling back works as below.
+environment, so rolling back works as [Roll back](operations.md#roll-back) says.
 
 - **Preferences and notification settings** (#91, #119): `get_preferences`,
   `set_preference` (home feed, threads, interaction defaults, adult content,
@@ -99,7 +99,7 @@ environment, so rolling back works as below.
 ## From 0.2.7 to 0.2.8
 
 0.2.8 stores data in the same format as 0.2.7 and starts from the same
-environment, so rolling back works as below. Reads show what the app shows,
+environment, so rolling back works as [Roll back](operations.md#roll-back) says. Reads show what the app shows,
 the same way through every tool (#116):
 
 - **Profiles read as plain text**, not JSON, in every tool that returns
@@ -119,7 +119,7 @@ the same way through every tool (#116):
 ## From 0.2.6 to 0.2.7
 
 0.2.7 stores data in the same format as 0.2.6 and starts from the same
-environment, so rolling back works as below. Fixes found by running the write
+environment, so rolling back works as [Roll back](operations.md#roll-back) says. Fixes found by running the write
 tools against the reference PDS and AppView (#107, #109):
 
 - **`repost` by a handle-form address** now writes the DID form; before, the
@@ -139,7 +139,7 @@ tools against the reference PDS and AppView (#107, #109):
 ## From 0.2.5 to 0.2.6
 
 0.2.6 stores data in the same format as 0.2.5 and starts from the same
-environment, so rolling back works as below. Existing calls mean what they did;
+environment, so rolling back works as [Roll back](operations.md#roll-back) says. Existing calls mean what they did;
 new arguments are optional.
 
 - **Feeds and discovery** (#93, #104): `get_feed_info`, `get_actor_feeds`,
@@ -164,7 +164,7 @@ new arguments are optional.
 ## From 0.2.4 to 0.2.5
 
 0.2.5 stores data in the same format as 0.2.4 and starts from the same
-environment, so rolling back works as below. Existing tools keep their
+environment, so rolling back works as [Roll back](operations.md#roll-back) says. Existing tools keep their
 arguments; `post` and `get_thread` gain optional ones. New tools bring the app's
 remaining post, list and starter pack actions.
 
@@ -193,7 +193,7 @@ remaining post, list and starter pack actions.
 ## From 0.2.3 to 0.2.4
 
 0.2.4 stores data in the same format as 0.2.3 and starts from the same
-environment, so rolling back works as below. No tool or argument changed.
+environment, so rolling back works as [Roll back](operations.md#roll-back) says. No tool or argument changed.
 Reads pass on more of what the service returns; a post without these things
 reads exactly as before, except that multi-line image alt text now reads as
 one line.
@@ -218,7 +218,7 @@ one line.
 ## From 0.2.2 to 0.2.3
 
 0.2.3 stores data in the same format as 0.2.2 and starts from the same
-environment, so rolling back works as below. No tool or argument changed.
+environment, so rolling back works as [Roll back](operations.md#roll-back) says. No tool or argument changed.
 Reads now pass on more of what the service returns, so a client reading
 results sees more.
 
@@ -290,7 +290,7 @@ quoting `Bearer`, rotate that token.
 ## From 0.2.0 to 0.2.1
 
 0.2.1 stores data in the same format as 0.2.0, and an environment that started
-0.2.0 starts 0.2.1 unchanged, so rolling back works as below. No tool, argument
+0.2.0 starts 0.2.1 unchanged, so rolling back works as [Roll back](operations.md#roll-back) says. No tool, argument
 or setting was removed or made stricter, and every call that worked on 0.2.0
 works on 0.2.1. Two things a client reading tool results sees are different.
 
@@ -343,7 +343,7 @@ to change.
 
 ## From 0.1.3 to 0.2.0
 
-0.2.0 stores data in the same format as 0.1.3, so rolling back works as below.
+0.2.0 stores data in the same format as 0.1.3, so rolling back works as [Roll back](operations.md#roll-back) says.
 What changes is how it reads its settings, and some of what it does with them.
 The version is 0.2.0 rather than 0.1.4 because an environment that started
 0.1.3 can stop 0.2.0 from starting, and because the Hex package changes how an
@@ -352,7 +352,7 @@ embedding application configures it (below).
 **Check the environment before you restart.** 0.2.0 checks every setting when
 it starts and refuses to start, naming the variable, when:
 
-- a variable starting `AT_MCP_` is not one of the settings in the README's
+- a variable starting `AT_MCP_` is not one of the settings in the
   [Settings](operations.md#settings) table (a misspelling is told the closest
   setting). 0.1.3 ignored such a variable;
 - a value fails its check. `AT_MCP_NOTIFICATIONS` and `AT_MCP_JETSTREAM` take

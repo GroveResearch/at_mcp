@@ -20,7 +20,7 @@ mix deps.get
 MIX_ENV=prod mix release               # _build/prod/rel/at_mcp
 ```
 
-A build from a checkout is version `0.0.0-dev`; its `BUILD` file names the
+A build from a checkout is version `0.0.0-dev`; its `BUILD` file gives the
 commit. To build it as a version, as CI does for a tag, set `RELEASE_VERSION`:
 `RELEASE_VERSION=0.3.0 MIX_ENV=prod mix release`. Mix does not recompile when
 only the version changes, so after building another version run
@@ -180,7 +180,7 @@ has indexed everything the PDS sequenced, rather than sleeping.
 
 What it cannot do locally:
 
-- `feed_feedback` reaches only its refusal: dev-env's feed generator does not
+- `feed_feedback` gets only as far as its refusal: dev-env's feed generator does not
   accept interactions or serve `sendInteractions`, and nothing reads feedback
   back.
 - A compare-and-swap that loses a race cannot be provoked through a tool, so
@@ -192,7 +192,7 @@ What it cannot do locally:
 
 ### Check a live account
 
-Fixtures prove mechanics; only a live service shows the contract it serves.
+Fixtures prove mechanics. Only a live service shows what it actually serves.
 Read-only, against a running shared service:
 
 ```sh
@@ -204,7 +204,7 @@ MCP_CLIENT_PATH="$probe_dir/node_modules/@modelcontextprotocol/client" \
 
 It checks that every tool advertises its output schema, that structured content
 matches the text on real responses (its JSON, or for reads made of posts a text
-naming every post), and that refusals arrive as codes. It
+listing every post), and that refusals arrive as codes. It
 calls no write tool.
 
 `scripts/pds_read_probe.exs` logs into an authorized account with writes
@@ -216,14 +216,14 @@ and `EXPECTED_DID` (and `_2` values for a second account), then
 
 A claim is established when a test fails if you revert the change that makes
 it true. Use a focused test while changing behavior and the full check before
-landing. Test what a caller can observe, such as the selected identity, accepted
+merging. Test what a caller can observe, such as the selected identity, accepted
 activity, the returned result and durable recovery, rather than prose or
 internal structure.
 Where a check cannot run without credentials, a network or a machine, say so
 in the test with `@tag skip:` and a reason, and give the `test` job in
 `check.yml` its environment so the gap is visible in CI rather than in a document. When a live
 check finds what a fixture missed, write the test that fails without the fix,
-and record the scope of what was run in the pull request.
+and write down in the pull request what was run.
 
 Two more checks keep the documentation true. `docs/tools.md` is written by
 `mix at_mcp.tools_doc` from the tools the server declares, and
@@ -274,7 +274,7 @@ When a tag's run does not finish:
   (`git push origin :refs/tags/v0.3.0`) and tag again.
 - `publish` succeeded and `hex` failed: re-run the failed `hex` job
   (`gh run rerun RUN --failed`); the GitHub release stands.
-- Never reuse a version that reached the GitHub release or Hex: a server may
+- Never reuse a version that was published to GitHub or Hex: a server may
   have fetched it, and Hex keeps it. Fix on main and tag the next patch.
 
 The tag check also refuses a version that is not the next patch, minor or
@@ -282,10 +282,10 @@ major after the newest release tag (after v0.2.11: v0.2.12, v0.3.0 or
 v1.0.0), so a typo cannot publish.
 
 Upgrade notes are not a release step. A pull request that changes what an
-upgrade needs, or what an operator sees, adds its note under
+upgrade needs, or what an operator notices, adds its note under
 [Upgrade](docs/operations.md#upgrade) in that same pull request, in a section headed
 `From A to the next release`, A being the newest release; the first pull
-request after a release renames that heading to the version it shipped as.
+request after a release renames that heading to the version it was released as.
 
 
 ## Older baseline
@@ -300,7 +300,9 @@ and fails if anything is missing or differs. A failure to fetch an ordinary
 release never falls back to the baseline.
 
 `scripts/repack_legacy_baseline.py` makes those archives from the original ones
-and a reviewed notice tree holding `LICENSE` and `licenses/`. It keeps every
+and a reviewed notice tree holding `LICENSE` and `licenses/`. The notice tree
+must list the dependency and runtime versions of the old build. The current
+build's versions are wrong for it. It keeps every
 original file's bytes, mode and symlink target, and adds the notices and
 `BASELINE_PROVENANCE.json`, so the repacked archives have new SHA-256 values:
 
@@ -318,7 +320,9 @@ To start a new public copy of this repository with no release history:
 
 1. Push the reviewed source snapshot to a branch named `bootstrap`.
 2. Publish the repacked baseline archives and their checksum files as a
-   prerelease, not marked latest, under the tag the manifest gives. That tag
+   prerelease, not marked latest, under the tag the manifest gives. Its release
+   notes say which source commit built the binaries, and that only notices and
+   `BASELINE_PROVENANCE.json` were added. That tag
    does not start the release workflow, which runs only on `v*` tags.
 3. Download the archives without signing in and compare them with the
    manifest's digests and `BUILD`. Then push the snapshot to `main` and make it

@@ -3,9 +3,9 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp serves 100 tools: 46 that read and 54 that write. Each line below is the first sentence of the tool's own description. An MCP client shows the agent the full description and the arguments.
+at_mcp serves 100 tools: 46 that read and 54 that write. Each row gives the first sentence of the tool's own description. An MCP client shows the agent the full description and the arguments.
 
-A client started with `at_mcp-stdio` can call every tool. A client of the shared service holds a grant, and the grant's scope decides which tools it may call: `read` reaches the reads, `write` adds the writes marked `write`, and `manage` adds the rest ([Operations](operations.md#issue-a-connection)).
+A client that starts `at_mcp-stdio` can call every tool. A client of the shared service holds a grant, a token that at_mcp issues for one account. The grant's scope says which tools the client may call: `read` allows the reads, `write` adds the writes marked `write`, and `manage` adds the rest ([Operations](operations.md#issue-a-connection)).
 
 ## Reads
 

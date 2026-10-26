@@ -9,18 +9,26 @@ account, the [README](../README.md) is enough. Building and testing at_mcp is in
 
 ## Run a shared service
 
-Download and check a release as the README's
-[Fetch a release](../README.md#fetch-a-release) says. On a Mac, install it as
-the README does. For the Linux service, run the following in place of the
-README's install block, in the same terminal so the download variables are
-still set. Root owns the executables, so the service user cannot rewrite them.
-To install a release you built from source, follow
-[Build a release](../CONTRIBUTING.md#build-a-release) in CONTRIBUTING.md and
-skip this block.
+On a Mac, install a release with the README's
+[Fetch a release](../README.md#fetch-a-release) block. On Linux, the service
+runs from `/opt/at_mcp`. This block downloads the latest release, checks its
+checksum and installs it there as root, so the service user cannot rewrite the
+executables. To install another version, set `VERSION` to it. To install a
+release you built from source, follow
+[Build a release](../CONTRIBUTING.md#build-a-release) instead.
 
 ```sh
+VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/GroveResearch/at_mcp/releases/latest | sed -n 's|.*/tag/v||p')
+PLATFORM=linux-x86_64
 AT_MCP=/opt/at_mcp
-sudo mkdir -p "$AT_MCP/releases" &&
+BASE_URL=https://github.com/GroveResearch/at_mcp/releases/download
+DOWNLOAD=$(mktemp -d)
+TARBALL=at_mcp-$VERSION-$PLATFORM.tar.gz
+test -n "$VERSION" &&
+  curl --fail --location "$BASE_URL/v$VERSION/$TARBALL" -o "$DOWNLOAD/$TARBALL" &&
+  curl --fail --location "$BASE_URL/v$VERSION/$TARBALL.sha256" -o "$DOWNLOAD/$TARBALL.sha256" &&
+  (cd "$DOWNLOAD" && sha256sum -c "$TARBALL.sha256") &&
+  sudo mkdir -p "$AT_MCP/releases" &&
   sudo tar --no-same-owner -xzf "$DOWNLOAD/$TARBALL" -C "$AT_MCP/releases" &&
   sudo ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current"
 ```
@@ -58,8 +66,8 @@ Everything that differs between installations is in one environment file of
 value. A value with a space in it is double-quoted
 (`AT_MCP_ACCOUNTS_FILE="/Users/you/Library/Application Support/AtMcp/accounts.json"`):
 unquoted, the shell reads the part after the space as a command. Written this
-way, systemd's `EnvironmentFile=` (which strips the double quotes, see
-systemd.exec(5)), the shell in the launchd plist and the release's own commands
+way, systemd's `EnvironmentFile=` (which strips the double quotes, as
+systemd.exec(5) says), the shell in the launchd plist and the release's own commands
 all read the file the same way; the plist's shell stops the start at a line
 that fails, rather than run with that setting unset. The file holds secrets,
 so create it readable by the service alone before writing anything in it
@@ -84,7 +92,7 @@ the operator commands refuse to run with it empty.
   (below); the grants file is kept beside it. `AT_MCP_STATE_DIR` holds the write
   quotas, the delivery queue and the collection checkpoints. Both must be
   writable by the service's user, so they live in the state folder.
-- `RELEASE_COOKIE` lets the operator commands reach the service. Every
+- `RELEASE_COOKIE` lets the operator commands connect to the service. Every
   published release carries a cookie that anyone who downloads it can read,
   and a new one with every release, so set your own; kept here, it also stays
   the same across upgrades. The release passes the cookie to the VM on its
@@ -93,7 +101,7 @@ the operator commands refuse to run with it empty.
   with other login accounts, also mount /proc with `hidepid=invisible`.
 - `AT_MCP_DIST_PORT` is where the service listens for the operator commands, on
   127.0.0.1 only; no port mapper (epmd) is needed. 4370 is the default.
-- `AT_MCP_PORT` is the one loopback MCP endpoint every client reaches
+- `AT_MCP_PORT` is the one loopback MCP endpoint every client connects to
   (`http://127.0.0.1:4400/mcp`); the grant a client presents selects the
   account.
 - To deliver incoming activity to another program, set `AT_MCP_DELIVERY_URL`
@@ -150,7 +158,7 @@ or `launchctl bootout "gui/$(id -u)/li.example.at_mcp"`.
 
 AtMcp reads these environment variables when it starts, and no others. A
 value that fails its check, or an `AT_MCP_*` variable that is not in this
-table, stops startup with a message naming it (and, for a misspelling, the
+table, stops startup with a message that gives its name (and, for a misspelling, the
 setting it most resembles). An empty value is the same as unset. A stdio
 client sets them in its MCP configuration; a shared service sets them in its
 [environment file](#the-environment-file).
@@ -209,14 +217,14 @@ commands present (set one per installation, since a published release's own is
 readable by anyone who downloads it), and `RELEASE_NODE`, the service's Erlang
 node name. A second installation on one machine needs its own node name. A
 name without a host is given `@localhost`, or `@127.0.0.1` under
-`RELEASE_DISTRIBUTION=name`; a host it names must resolve to loopback.
+`RELEASE_DISTRIBUTION=name`; a host given there must resolve to loopback.
 
 `.env.example` is the template for the environment file.
 
 On first run, an installation with
 `AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` set (and optionally the `_2` pair and
 `AT_MCP_SERVICE`) and no accounts file
-writes itself one at startup, naming the accounts `default` and `second`. This
+writes itself one at startup, with the accounts called `default` and `second`. This
 happens once; with a file present these variables are not consulted, and
 changing them afterwards does nothing.
 
@@ -229,8 +237,8 @@ with the same node name or distribution port cannot both run.
 ## Accounts and operator commands
 
 `at_mcp-accounts` and the release's own `bin/at_mcp rpc EXPR`, `remote`, `stop`
-and `pid` read the same environment file when `AT_MCP_ENV_FILE` names it, and
-reach the running service over 127.0.0.1:
+and `pid` read the same environment file when `AT_MCP_ENV_FILE` points to it, and
+connect to the running service over 127.0.0.1:
 
 ```sh
 export AT_MCP_ENV_FILE=~/at_mcp/at_mcp.env
@@ -240,7 +248,7 @@ export AT_MCP_ENV_FILE=~/at_mcp/at_mcp.env
 ~/at_mcp/current/bin/at_mcp-accounts connection grug                 # a grant, for an MCP client
 ```
 
-On Linux, as the service's user, which owns the accounts file. Run it from a
+On Linux, run it as the service's user, which holds the accounts file. Run it from a
 directory that user can read, such as `/`: the command starts in the current
 directory, and your home is usually closed to the `at_mcp` user.
 
@@ -264,7 +272,7 @@ For an account on another PDS, use `add NAME --handle HANDLE --service URL`.
 
 `--password-stdin` reads the password from stdin for automation; passwords are
 never command-line arguments. The accounts file holds app passwords and
-verified DIDs with mode 0600; the environment file names it
+verified DIDs with mode 0600; the environment file points to it
 (`AT_MCP_ACCOUNTS_FILE`), and every command given that file uses it.
 `--file PATH` selects another one for one command. Duplicate names and DIDs
 are rejected.
@@ -286,13 +294,12 @@ grant, and the account's DID in `x-kite-account-did`, which confirms the
 binding and selects nothing. Tokens are stored only as digests, so a grant
 cannot be recovered later.
 
-`--scope` bounds what the grant reaches: `read` is every tool that declares
-`readOnlyHint`; `write` adds writes that destroy nothing; `manage` (the default)
-adds the destructive ones. Discovery currently lists all tools even for a
-restricted grant; scope is enforced when a tool is called. A read grant does
-not hide write tools, and a visible tool is not proof of permission. Host
-approvals remain separate. The stdio descriptor's `at_mcp-connect` command reaches
-the same running account through HTTP, carries the grant in `AT_MCP_GRANT` (never
+`--scope` limits the tools the grant allows: `read` is every tool that declares
+`readOnlyHint`, `write` adds writes that destroy nothing, and `manage` (the
+default) adds the destructive ones. [tools.md](tools.md) gives each tool's
+scope. A client's tool list holds only the tools its grant allows, and at_mcp
+refuses a call to any other tool. The client's own approvals are separate. The
+stdio descriptor's `at_mcp-connect` command connects to the same running account through HTTP, carries the grant in `AT_MCP_GRANT` (never
 argv) and holds no account password, so HTTP and stdio clients share the
 session, write quota and disconnect control.
 
@@ -363,7 +370,7 @@ account is held to, with its usage and the time the open window ends.
 
 An app password is the account's credential at its PDS. Three other things
 look like credentials but are not it. The saved copy of the password in the
-accounts file belongs to AtMcp. A grant is how an MCP client reaches the
+accounts file belongs to AtMcp. A grant is how an MCP client connects to the
 service, and grants stay valid when the password changes. `remove` and
 `disconnect` stop AtMcp using the account. Replacing the password means
 writing the new one where AtMcp reads it, checking that AtMcp is using it,
@@ -379,8 +386,8 @@ then revoking the old one at the PDS.
    at_mcp-accounts reload
    ```
 
-   `update` logs in with the new password and checks it reaches the saved DID
-   before saving it. If the login fails, or reaches another DID, the file is
+   `update` logs in with the new password and checks it logs in as the saved DID
+   before saving it. If the login fails, or logs in as another DID, the file is
    unchanged. `reload` replaces the account, and the account must be reported
    `"status": "ready"`. `unavailable` means the new login failed, and `reload`
    exits nonzero. Restarting the service applies the file too.
@@ -390,19 +397,20 @@ then revoking the old one at the PDS.
    same list), then run `status` again. AtMcp is using the new password if the
    account is still `ready`.
 
-The environment file's `AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` are read once, to write an accounts file when none exists.
+The environment file's `AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` are read
+once, to write an accounts file when none exists.
 After that, changing them changes nothing. Clients attached through
-`at_mcp-connect` or HTTP hold a grant, not the password, so they need no
+`at_mcp-connect` or HTTP hold a grant and never the password, so they need no
 change. To also cut off a client, revoke its grant (`at_mcp-accounts revoke`,
-above). That does not touch the app password.
+above). The app password stays valid.
 
 For an `at_mcp-stdio` that an MCP client starts, follow
 [Replace the app password of a stdio client](#replace-the-app-password-of-a-stdio-client).
 
-`status`, `reload`, `disconnect` and `reconnect` reach the running service over
+`status`, `reload`, `disconnect` and `reconnect` connect to the running service over
 the release's Erlang distribution, which listens on 127.0.0.1 only, at
-`AT_MCP_DIST_PORT`, with no port mapper (epmd). They reach it when
-`AT_MCP_ENV_FILE` names the service's environment file, which carries its
+`AT_MCP_DIST_PORT`, with no port mapper (epmd). They find it when
+`AT_MCP_ENV_FILE` points to the service's environment file, which carries its
 cookie, port and node name.
 
 ### Replace the app password of a stdio client
@@ -413,7 +421,7 @@ configuration puts `AT_MCP_APP_PASSWORD`. The client passes it to each
 
 1. Create a new app password at the account's provider. Keep the old one for
    now.
-2. Put it in `AT_MCP_APP_PASSWORD`. If `AT_MCP_STDIO_ENV_FILE` names a file
+2. Put it in `AT_MCP_APP_PASSWORD`. If `AT_MCP_STDIO_ENV_FILE` points to a file
    that sets it, change it in that file: the file's values override the
    client's `env`, so changing the client's `env` alone has no effect.
 3. Restart the MCP server from the client (in Claude Code, `/mcp`, or a new
@@ -433,9 +441,9 @@ client's own tool approvals are separate from at_mcp's write quota.
 
 ## Attach a client over HTTP
 
-The endpoint is `http://127.0.0.1:4400/mcp`. A request with no grant is refused
-with `401`; the descriptor from `at_mcp-accounts connection NAME` is how a client
-attaches:
+The endpoint is `http://127.0.0.1:4400/mcp`. at_mcp refuses a request with no
+grant with `401`. `at_mcp-accounts connection NAME` prints a JSON object whose
+`mcp` field tells a client how to attach:
 
 ```json
 {"name":"at_mcp-grug","type":"http","url":"http://127.0.0.1:4400/mcp",
@@ -443,9 +451,9 @@ attaches:
             {"name":"x-kite-account-did","value":"did:plc:..."}]}
 ```
 
-The descriptor above is AtMcp’s output format, not a universal client config.
-Claude Code requires a headers object, so put the returned values into a
-private `mcp.json` file in this shape (do not paste the headers array):
+Other clients take the same values in their own formats. Claude Code takes the
+headers as an object, so put the returned values into a private `mcp.json`
+file like this one:
 
 ```json
 {"mcpServers":{"at_mcp":{"type":"http","url":"http://127.0.0.1:4400/mcp",
@@ -454,15 +462,13 @@ private `mcp.json` file in this shape (do not paste the headers array):
 ```
 
 Start it with `claude --mcp-config /absolute/path/to/mcp.json --strict-mcp-config`.
-The README's [Connect Claude Code](../README.md#connect-claude-code) covers the rest of the setup.
-
-Then ask the agent for `identity_status` and `get_profile` and check both name
-the intended account.
+Then ask the agent to call `identity_status` and `get_profile`, and check that
+both show the intended account.
 
 A grant is a bearer token on loopback with no TLS and no binding to the process
 holding it: any process that can read a client's environment or configuration
-can use it. It separates what each client was given, not what each process
-could obtain. The host's own tool-approval controls still govern whether an
+can use it. It keeps apart what each client was given. It does not stop a
+process from taking another client's grant. The host's own tool-approval controls still govern whether an
 action is approved; the account's write quota only says whether capacity is left.
 
 ## Incoming activity
@@ -479,17 +485,17 @@ The environment destination above is a single consumer for every account.
 For separate agents on the same machine, save a destination for each account:
 
 ```sh
-bin/at_mcp-accounts delivery alice --url http://127.0.0.1:4420/inbound --token-file /private/alice/consumer-token
-bin/at_mcp-accounts delivery bob --url http://127.0.0.1:4421/inbound --token-file /private/bob/consumer-token
-bin/at_mcp-accounts reload
+at_mcp-accounts delivery alice --url http://127.0.0.1:4420/inbound --token-file /private/alice/consumer-token
+at_mcp-accounts delivery bob --url http://127.0.0.1:4421/inbound --token-file /private/bob/consumer-token
+at_mcp-accounts reload
 ```
 
-Each token file contains that receiver's bearer token, not a PDS app password
-or an MCP grant. Keep it private and readable by the service user. Tokens are
+Each token file contains that receiver's bearer token. It is neither a PDS app
+password nor an MCP grant. Keep it private and readable by the service user. Tokens are
 read again on each attempt, so token rotation does not require a reload.
 An empty or unreadable token file, or one whose contents are more than one
 header value, fails that attempt and is retried; AtMcp never sends that
-account's activity without its token, and the failure it reports names
+account's activity without its token, and the failure it reports mentions
 neither the token nor its file.
 The destination and token file are saved in the named account's `delivery`
 field in the existing accounts file; the command never changes its credentials.
@@ -498,7 +504,7 @@ accounts; configure each receiver before reloading. While any account remains
 in this configuration, accounts added later start with delivery disabled too.
 If you remove every account, configure each new destination before reloading
 again: an empty accounts file does not retain the delivery mode. This workflow
-covers the named shared service, not an embedding host's callback registration.
+covers the shared service. An embedding host registers callbacks instead.
 If editing JSON directly, every account must have
 `"delivery"` set to its destination or `null`; a partial migration is rejected.
 Use `delivery alice --disable` followed by `reload` to hold Alice's incoming
@@ -524,7 +530,7 @@ The URL belongs to the receiving application (for example, an agent host
 that accepts each event into its agent's work queue). The token is re-read for every delivery, so rotation
 needs no restart.
 
-The contract, in full in `AtMcp.Deliver.HTTPBridge`: AtMcp POSTs the normalized
+What a receiver must do, in full in `AtMcp.Deliver.HTTPBridge`: AtMcp POSTs the normalized
 event as JSON (`matched_did`, `uri`, reasons, author, text, thread context,
 `network`). The receiver must durably accept before returning 2xx and must
 deduplicate recipient DID plus source URI. A non-2xx, redirect, transport error
@@ -534,7 +540,7 @@ AtMcp supplies no route, character or conversation.
 Each account's events are delivered in order, so an event the consumer keeps
 refusing holds that account's later events behind it. `at_mcp-accounts status`
 shows such an account with `delivery` set: `"state": "stalled"`, the consumer's
-last answer in `reason` (its shape, with any text in it left out; the log line
+last answer in `reason` (its form, with any text in it left out; the log line
 shows the text), `since` (when that event first failed), `attempts` (counted up to 20)
 and the account's `pending` count. `delivery` is `null` while delivery flows.
 
@@ -543,13 +549,13 @@ to answer, and the post being answered. Both collectors publish them under the
 same names, and only when the delivered record is itself a post, that is,
 for a mention, a reply or a quote. They are absent on every other event: a
 like or a repost, whose `uri` is the like or repost record rather than a post,
-and an own-repo echo of the account's own commit.
+and the stream's copy of a record the account itself wrote.
 
 `thread_root_uri` is always present on those three. It is the record's declared
 reply root; failing that the declared reply parent, which is the nearest
-ancestor the record names; failing both the record's own `uri`. A top-level post
-is therefore the case `thread_root_uri == uri`, and that comparison, not the
-absence of `thread_parent_uri`, is how a host recognises one.
+ancestor the record refers to; failing both the record's own `uri`. A top-level post
+is therefore the case `thread_root_uri == uri`. A host recognizes one by that
+comparison. The absence of `thread_parent_uri` does not tell it.
 `thread_parent_uri` is absent whenever the record declared no reply parent,
 which happens both on a top-level post and on a reply that declared only a
 root.
@@ -557,7 +563,7 @@ root.
 The two uris are what the record declared, resolved against each other only to
 the extent above: AtMcp does not fetch either one, so neither is known to exist,
 to be a post, or to belong to one thread. The single check AtMcp does make is for
-self-reference: a record naming its own `uri` as its parent or its root has
+self-reference: a record giving its own `uri` as its parent or its root has
 that ref dropped, so `thread_parent_uri` never equals `uri`.
 
 `subject_uri` is the record a like, a repost or a quote addresses: the liked or
@@ -565,7 +571,7 @@ reposted post, or the quoted post. Both collectors send it: the notifications
 collector from the application's `reasonSubject`, the Jetstream collector from
 the record itself. It is the only pointer to a post on a like or a repost. On a
 quote it is also the only pointer to the quoted post, because a quote that is
-itself a reply has a `thread_root_uri` naming the thread it was posted into,
+itself a reply has a `thread_root_uri` for the thread it was posted into,
 which need not contain what it quoted.
 
 The older `reply_root_uri` and `reply_parent_uri` still report what the record
@@ -575,7 +581,7 @@ repo commit carries no handle and resolving one would be a network call per
 event.
 
 Collection revisits five minutes before its checkpoint and deduplicates; the
-first poll looks back five minutes, not the whole inbox. Pending events are
+first poll looks back only five minutes. Pending events are
 never evicted: when an account has 10,000 pending events
 (`AT_MCP_INBOUND_MAX_EVENTS`) or a quarter of the store's 64 MiB
 (`AT_MCP_INBOUND_MAX_BYTES`), that account's collection holds until delivery
@@ -584,7 +590,7 @@ puts in the inbox, are not covered.
 
 `AT_MCP_JETSTREAM=1` adds the network-wide stream collector. It downloads every
 post, like and repost and filters recipients locally, so expect continuous
-bandwidth; it can see own writes and deeper replies that notifications omit.
+bandwidth; it receives the account's own writes and deeper replies that notifications omit.
 Both collectors share delivery and deduplication.
 
 ## When the service starts
@@ -596,7 +602,7 @@ succeeds. A credential the PDS refuses would be refused again, so it is
 reported once in the service log and left alone until `at_mcp-accounts reconnect
 NAME`, or a `reload` after the file is corrected. What does fail startup is a
 runtime that cannot start any account: an unreadable accounts file, or a state
-directory another process owns.
+directory another process holds.
 
 Account controls for the running service:
 
@@ -643,22 +649,22 @@ Use this only when the home PDS supports `com.atproto.server.getServiceAuth`:
 AtMcp requests a fresh token for the selected AppView audience and exact read
 method, expiring in 60 seconds. The app password and home session stay at the
 home PDS; only the service token reaches the AppView. Neither HTTP request follows
-redirects or uses transport retries. Home-session credential recovery remains
-unchanged. A denied or missing token stops the read.
+redirects or uses transport retries. When the home PDS refuses the session,
+at_mcp logs in again as before. A denied or missing token stops the read.
 HTTP 501 alone never selects this route.
 
 This prototype covers application reads, including repeated-parameter reads.
 Preferences, which the PDS keeps, are still read from the home PDS. Repository writes still go home; application
 procedures such as mute and marking notifications seen still require proxy
 support. With it, an account on a PDS that refuses to proxy still cannot do everything.
-AppView token refusal does not trigger home-session recovery.
+When the AppView refuses a token, at_mcp does not log in again.
 
 Endpoints are fixed in `AtMcp.Network`, paired with the selected service DID:
 `https://api.delve.town/xrpc` and `https://api.bsky.app/xrpc`. These match the
 respective [Delvetown DID document](https://api.delve.town/.well-known/did.json)
 and [Bluesky DID document](https://api.bsky.app/.well-known/did.json) service
 entries; the prototype does not discover endpoints or accept arbitrary URLs.
-The [XRPC service-auth contract](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
+The [XRPC service authentication rules](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
 binds the token to an audience and method. Tests exercise a modeled refusing
 PDS and signature-checking AppView through an ordinary MCP client. They do not
 establish compatibility with every real provider.
@@ -670,8 +676,9 @@ establish compatibility with every real provider.
 - The state directory is already in use: another at_mcp process holds it. Close that
   client or share one service; do not create extra state directories to bypass
   a write quota.
-- Login fails: check handle, app password and PDS URL. The PDS URL is where
-  the account is hosted, not its profile page. The account's DID document
+- Login fails: check handle, app password and PDS URL. The PDS URL is the
+  address of the server that hosts the account. A profile page address does
+  not work. The account's DID document
   lists it as the [`#atproto_pds` service](https://atproto.com/specs/did#did-documents). The service's
   `AT_MCP_ENV_FILE` and a stdio client's `AT_MCP_STDIO_ENV_FILE` are separate. In
   the shared service a PDS that did not answer is retried on its own; a refused
@@ -702,26 +709,29 @@ A tool call that cannot complete says which of three things happened:
 
 ## Upgrade
 
-Fetch and unpack the new release beside the one running, as above but
-without the `ln`. Then repoint and restart (on Linux, `ln` with `sudo`):
+Read the notes below for every release between yours and the new one. Then run
+the install block again ([Run a shared service](#run-a-shared-service) on
+Linux, the README's [Fetch a release](../README.md#fetch-a-release) on a Mac).
+It unpacks the new release beside the one running and points `current` at it.
+Then restart the service:
 
 ```sh
-ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current"
 sudo systemctl restart at_mcp            # Mac: launchctl kickstart -k "gui/$(id -u)/li.example.at_mcp"
 ```
 
 and check `at_mcp-accounts status`. Activity collected and not yet delivered is
 delivered after the restart. A write running at the restart may or may not
-have landed, as with any interrupted write, and nothing retries it: check the
-account before writing again.
+have gone through, as with any interrupted write, and nothing retries it: check
+the account before writing again.
 
-This release changes no local stored data and AtMcp keeps no copy of it.
-Version 0.2.14 added an optional field to the accounts file, which older
-releases refuse; its section below says what to remove before rolling back. CI's upgrade check writes to
-each of these under the older release and the newer one and reads them back
-under the other, so it fails when a release changes one. A release that
-changes the format will copy what it changes when it starts, and say here how
-to put the copy back.
+at_mcp keeps its data in the accounts file, the grants file and the state
+directory (write quotas, the delivery queue and collection checkpoints). The
+next release changes none of them. Version 0.2.14 added an optional field to
+the accounts file, which older releases refuse; its notes below say what to
+remove before rolling back. CI's upgrade check writes each of these files under
+the older release and the newer one and reads them back under the other, so it
+fails when a release changes one. A release that changes their format will
+copy what it changes when it starts, and say here how to put the copy back.
 
 ### From 0.2.15 to the next release
 

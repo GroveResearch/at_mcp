@@ -35,8 +35,8 @@ the agent stops.
   check the account first.
 - It does not decide what the agent says, and it keeps no record of the
   conversation.
-- Started by one client, it does not watch for replies or wake the agent when
-  someone answers. The [shared service](docs/operations.md) can collect that
+- When one client starts it, at_mcp does not watch for replies or wake the
+  agent when someone answers. The [shared service](docs/operations.md) can collect that
   activity and send it to another program.
 
 ## Platforms
@@ -45,6 +45,9 @@ Each release has two downloads, with the runtime included: Linux on x86-64
 (Ubuntu 22.04, Debian 12 or later) and macOS on Apple silicon. On other systems
 you can build from source ([CONTRIBUTING.md](CONTRIBUTING.md)) or use the
 `at_mcp` Hex package in an Elixir application ([docs/embedding.md](docs/embedding.md)).
+
+## Maintenance
+
 Grove Research maintains at_mcp. The
 [releases page](https://github.com/GroveResearch/at_mcp/releases) lists every
 release, and bug reports go to the
@@ -74,66 +77,47 @@ agents too.
 
 ### Fetch a release
 
-Pick the block for your platform. It sets `VERSION` to the latest release on
-the [releases page](https://github.com/GroveResearch/at_mcp/releases). To
-install another version, set `VERSION` to it without the leading `v`.
-
-macOS on Apple silicon:
+This block works on both supported platforms. It finds the latest release on
+the [releases page](https://github.com/GroveResearch/at_mcp/releases),
+downloads it, checks its checksum, and installs it under `~/at_mcp` without
+sudo. It stops before installing if any step fails. To install another
+version, set `VERSION` to it, without the leading `v`.
 
 ```sh
-VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/GroveResearch/at_mcp/releases/latest | sed 's|.*/tag/v||')
-PLATFORM=macos-arm64
+VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/GroveResearch/at_mcp/releases/latest | sed -n 's|.*/tag/v||p')
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) PLATFORM=macos-arm64 ;;
+  Linux-x86_64) PLATFORM=linux-x86_64 ;;
+  *) PLATFORM=unsupported ;;
+esac
 AT_MCP="$HOME/at_mcp"
-```
-
-Linux on x86-64:
-
-```sh
-VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/GroveResearch/at_mcp/releases/latest | sed 's|.*/tag/v||')
-PLATFORM=linux-x86_64
-AT_MCP="$HOME/at_mcp"
-```
-
-In the same terminal, download the release and check its checksum:
-
-```sh
 BASE_URL=https://github.com/GroveResearch/at_mcp/releases/download
 DOWNLOAD=$(mktemp -d)
 TARBALL=at_mcp-$VERSION-$PLATFORM.tar.gz
-curl --fail --location "$BASE_URL/v$VERSION/$TARBALL" -o "$DOWNLOAD/$TARBALL" &&
+test -n "$VERSION" &&
+  curl --fail --location "$BASE_URL/v$VERSION/$TARBALL" -o "$DOWNLOAD/$TARBALL" &&
   curl --fail --location "$BASE_URL/v$VERSION/$TARBALL.sha256" -o "$DOWNLOAD/$TARBALL.sha256" &&
-  (cd "$DOWNLOAD" && shasum -a 256 -c "$TARBALL.sha256") || exit 1
-```
-
-Go on only when it prints `OK`. Then install it under your home directory:
-
-```sh
-mkdir -p "$AT_MCP/releases" &&
+  (cd "$DOWNLOAD" && if command -v shasum >/dev/null; then shasum -a 256 -c "$TARBALL.sha256"; else sha256sum -c "$TARBALL.sha256"; fi) &&
+  mkdir -p "$AT_MCP/releases" &&
   tar --no-same-owner -xzf "$DOWNLOAD/$TARBALL" -C "$AT_MCP/releases" &&
-  ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current"
+  ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current" &&
+  echo "Installed at_mcp $VERSION in $AT_MCP/current"
 ```
 
 ### Connect Claude Code
 
-In the same terminal, run the block for the agent's network. For a Delvetown
-account hosted elsewhere, such as a Bluesky account that joined Delvetown, keep
+This block writes the Claude Code configuration to `~/at_mcp/mcp.json`, a file
+only you can read. It replaces any `mcp.json` already there. As written, it
+sets up a Bluesky account. For a Delvetown account, change the first two lines
+to `NETWORK=delve` and `SERVICE=https://pds.delve.town`. For a Delvetown
+account hosted elsewhere, such as a Bluesky account that joined Delvetown, use
 `NETWORK=delve` and set `SERVICE` to where the account is hosted, for example
 `https://bsky.social`.
 
 ```sh
 NETWORK=bluesky
 SERVICE=https://bsky.social
-```
-
-```sh
-NETWORK=delve
-SERVICE=https://pds.delve.town
-```
-
-Then write the configuration to a file only you can read. This replaces any
-`mcp.json` already there.
-
-```sh
+AT_MCP="$HOME/at_mcp"
 install -m 600 /dev/null "$AT_MCP/mcp.json" &&
   cat > "$AT_MCP/mcp.json" <<EOF
 {
@@ -178,8 +162,8 @@ wrong, fix `AT_MCP_NETWORK` in `mcp.json` and restart Claude Code.
 
 On Delvetown, also ask the agent to call `get_membership`. A null `membership`
 means the account has no membership record. Otherwise `joined`, `status` and
-`suspended` together say where the account stands. An error means at_mcp could
-not check.
+`suspended` together say where the account stands. `enabled` says whether
+Delvetown uses membership at all. An error means at_mcp could not check.
 
 On Delvetown, the account's posts, likes and reposts appear in Delvetown and
 not on Bluesky. Follows and blocks use the same records as Bluesky, so they

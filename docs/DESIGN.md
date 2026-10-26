@@ -243,7 +243,7 @@ The moderation tools do what the app's moderation settings and Report menu do
 (`AtMcp.Moderation`). A report reaches the people who run that moderation
 service and cannot be withdrawn. Muted words, labeler subscriptions and label
 settings are preferences. The app applies them on the device, so at_mcp's reads
-still return muted posts and labelled content as served. Every read asks the
+still return muted posts and labeled content as served. Every read asks the
 AppView for the labels the app asks for (`atproto-accept-labelers`): the
 network's own moderation service, then each labeler the account subscribes to
 (`AtMcp.AcceptLabelers`).
@@ -320,7 +320,7 @@ replies that notifications omit, at the cost of steady commit volume.
 message shape and event fields, and `AtMcp.Inbound` and `AtMcp.Inbound.Match` see
 only `AtMcp.Stream.Event`. The current adapter is Jetstream v1 through
 ProtoRune's client. Another service is another module implementing that
-behaviour, not a change to collection, matching, the store or delivery.
+behavior, not a change to collection, matching, the store or delivery.
 
 Both collectors persist into the same store and share delivery and
 deduplication. Pending events are never evicted: when an account has 10,000
@@ -336,8 +336,9 @@ concurrently, so one account's slow or failing consumer never delays another
 account's events. A delivery that outlives `AtMcp.Deliver.timeout_ms/0` is
 killed and retried; the HTTP bridge bounds its own request to end before that.
 
-`AtMcp.Deliver.HTTPBridge` registers one global delivery callback and POSTs the
-normalized event as JSON to the configured consumer. Only a 2xx is acceptance,
+`AtMcp.Deliver.HTTPBridge` POSTs the normalized event as JSON to the
+consumer: the one configured for the installation, or the destination saved
+on the event's account. Only a 2xx is acceptance,
 and the consumer must durably accept before returning one and must deduplicate
 on recipient DID plus source URI. Redirects are not followed; a non-2xx,
 redirect, transport error or timeout leaves the event in the durable outbox.
@@ -455,8 +456,8 @@ account and restart handling. The API reference describes each call.
   notification poller or the Jetstream collector.
 - Delivery: the at-least-once HTTP POST of a collected event to the
   configured consumer, retried from a durable outbox.
-- Consumer: the one application an installation delivers inbound events
-  to, which owns routing and must deduplicate.
+- Consumer: a program an installation delivers inbound events to, one for
+  every account or one per account. It decides routing and must deduplicate.
 - Write quota: the durable per-account limit on attempted publishing
   writes (post, reply, repost) per hour, shared by every client on that account.
 - Ready: an account that is logged in, verified as its DID and not

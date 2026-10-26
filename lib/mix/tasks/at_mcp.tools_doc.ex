@@ -22,6 +22,9 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
 
   @impl Mix.Task
   def run(_args) do
+    if Mix.Project.config()[:app] != :at_mcp,
+      do: Mix.raise("mix at_mcp.tools_doc writes at_mcp's own docs/tools.md; run it in at_mcp")
+
     Mix.Task.run("compile")
     File.write!(@path, render())
     Mix.shell().info("wrote #{@path}")
@@ -40,14 +43,15 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
     at_mcp serves #{length(tools)} tools: #{length(reads)} that read and \
-    #{length(writes)} that write. Each line below is the first sentence of the \
+    #{length(writes)} that write. Each row gives the first sentence of the \
     tool's own description. An MCP client shows the agent the full description \
     and the arguments.
 
-    A client started with `at_mcp-stdio` can call every tool. A client of the \
-    shared service holds a grant, and the grant's scope decides which tools it \
-    may call: `read` reaches the reads, `write` adds the writes marked `write`, \
-    and `manage` adds the rest ([Operations](operations.md#issue-a-connection)).
+    A client that starts `at_mcp-stdio` can call every tool. A client of the \
+    shared service holds a grant, a token that at_mcp issues for one account. \
+    The grant's scope says which tools the client may call: `read` allows the \
+    reads, `write` adds the writes marked `write`, and `manage` adds the rest \
+    ([Operations](operations.md#issue-a-connection)).
 
     ## Reads
 
@@ -78,7 +82,7 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
   # parentheses. A first sentence that runs past a colon into a long list
   # stops at the colon.
   defp summary(tool) do
-    sentence = first_sentence(tool.description)
+    sentence = tool.description |> String.replace(~r/\s+/, " ") |> first_sentence()
 
     sentence =
       case String.split(sentence, ": ", parts: 2) do
@@ -93,7 +97,6 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
 
   defp first_sentence("", _depth, acc), do: acc
   defp first_sentence(". " <> _, 0, acc), do: acc <> "."
-  defp first_sentence(".\n" <> _, 0, acc), do: acc <> "."
   defp first_sentence("(" <> rest, depth, acc), do: first_sentence(rest, depth + 1, acc <> "(")
 
   defp first_sentence(")" <> rest, depth, acc),
