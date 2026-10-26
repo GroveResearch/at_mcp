@@ -286,10 +286,10 @@ defmodule AtMcp.Test.MockBackend do
   @impl true
   def get_trends(_state, suffix, _opts) do
     trend = %{
-      topic: "kites",
-      display_name: "Kites",
-      description: "Kite season",
-      link: "/search?q=kites",
+      topic: "gliders",
+      display_name: "Gliders",
+      description: "Glider season",
+      link: "/search?q=gliders",
       started_at: "2026-10-18T00:00:00Z",
       post_count: 12,
       status: "hot",

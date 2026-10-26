@@ -16,6 +16,35 @@ defmodule AtMcp.GrantsTest do
     assert Grants.authorize("at_mcp-nothing", ctx.opts) == {:error, :unknown_grant}
   end
 
+  test "a new grant's token starts with at_mcp-", ctx do
+    {:ok, grant} = Grants.issue("alice", ctx.opts)
+    assert "at_mcp-" <> rest = grant.token
+    assert byte_size(rest) > 32
+  end
+
+  # Grants issued before the prefix changed start with `kite-`, and operators
+  # still hold them. The store keeps only digests, so the prefix never matters.
+  test "a grant issued under the earlier kite- prefix still authorizes", ctx do
+    {:ok, _} = Grants.issue("alice", ctx.opts)
+    path = ctx.opts[:path]
+    old = "kite-" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+
+    row = %{
+      "id" => "earlier",
+      "account" => "bob",
+      "scope" => "read",
+      "digest" => :crypto.hash(:sha256, old) |> Base.encode16(case: :lower),
+      "issued_at" => "2026-09-11T00:00:00Z"
+    }
+
+    store = path |> File.read!() |> Jason.decode!() |> Map.update!("grants", &(&1 ++ [row]))
+    File.write!(path, Jason.encode!(store))
+    File.chmod!(path, 0o600)
+
+    assert Grants.authorize(old, ctx.opts) == {:ok, "bob", :read}
+    assert Grants.resolve(old, ctx.opts) == {:ok, "bob"}
+  end
+
   # An unreadable store is the case where answering "no such grant" says the
   # opposite of what is true, and sends an operator to reissue a credential that
   # already works. The endpoint turns this into 503, not 401.

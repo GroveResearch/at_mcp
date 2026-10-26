@@ -22,11 +22,7 @@ defmodule AtMcp.AccountConfig do
   @doc "Configuration path: `:accounts_file` (`AT_MCP_ACCOUNTS_FILE`), or a per-user default."
   def path do
     (Application.get_env(:at_mcp, :accounts_file) ||
-       AtMcp.Rename.default_path(
-         Path.join(to_string(:filename.basedir(:user_config, ~c"at_mcp")), "accounts.json"),
-         Path.join(to_string(:filename.basedir(:user_config, ~c"kite")), "accounts.json"),
-         "AT_MCP_ACCOUNTS_FILE"
-       ))
+       Path.join(to_string(:filename.basedir(:user_config, ~c"at_mcp")), "accounts.json"))
     |> Path.expand()
   end
 
@@ -70,10 +66,11 @@ defmodule AtMcp.AccountConfig do
   everything a host would otherwise be told by hand, and nothing it could attach
   with.
 
-  The published header is retained across the at_mcp rename for existing clients.
-  `x-kite-account-did` is still present and still only confirms: a host is never
-  made to type a DID, and a grant naming a different account than the header
-  claims is refused rather than acted on.
+  The `x-at-mcp-account-did` header names the account's DID, and only confirms
+  it: a host is never made to type a DID, and a grant naming a different account
+  than the header claims is refused rather than acted on. The descriptor also
+  carries the same DID under the header's earlier name, `x-kite-account-did`,
+  for clients that still read that one; that copy goes away in a later release.
   """
   def descriptor(account, transport, dependencies \\ [])
 
@@ -90,7 +87,12 @@ defmodule AtMcp.AccountConfig do
          name: "at_mcp-#{account["id"]}",
          type: "http",
          url: endpoint(),
-         headers: credential ++ [%{name: "x-kite-account-did", value: account["did"]}]
+         headers:
+           credential ++
+             [
+               %{name: "x-at-mcp-account-did", value: account["did"]},
+               %{name: "x-kite-account-did", value: account["did"]}
+             ]
        }}
     end
   end

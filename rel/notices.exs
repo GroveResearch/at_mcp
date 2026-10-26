@@ -22,8 +22,6 @@ defmodule AtMcp.ReleaseNotices do
     release
   end
 
-  # Used for the original Kite binary too: dependency sources and runtime
-  # versions must come from that binary's build, not from today's lockfile.
   def copy!(release_path, deps, versions, notices \\ Path.join(__DIR__, "notices")) do
     target = Path.join(release_path, "licenses/bundled")
     File.rm_rf!(target)
@@ -37,7 +35,7 @@ defmodule AtMcp.ReleaseNotices do
       destination = Path.join(target, entry)
 
       cond do
-        app in ["at_mcp", "kite"] ->
+        app == "at_mcp" ->
           :ok
 
         app in @runtime_apps ->

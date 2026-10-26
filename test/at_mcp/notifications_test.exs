@@ -276,7 +276,7 @@ defmodule AtMcp.NotificationsTest do
     assert event.thread_parent_uri == "at://did:plc:paged/app.bsky.feed.post/mid"
     assert event.text == "reply1"
     assert event.author == "alice.test"
-    # The two inputs Dwell hashes into its source_id are untouched.
+    # The two inputs a host can hash into an event id are untouched.
     assert event.uri == notification.uri
     assert event.matched_did == @did
     # The names that say "this record was a reply" keep their meaning.

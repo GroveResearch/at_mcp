@@ -17,7 +17,7 @@ def check(release: Path) -> None:
         assert path.resolve().is_relative_to(notices.resolve()), relative
         assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, f"Changed notice: {relative}"
     for app in apps:
-        if not app.startswith(("at_mcp-", "kite-")):
+        if not app.startswith("at_mcp-"):
             assert (notices / app).is_dir(), f"Missing notice directory: {app}"
     print(f"Bundled notices verified for {len(apps)} release applications")
 

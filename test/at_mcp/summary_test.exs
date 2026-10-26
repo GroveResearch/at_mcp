@@ -58,7 +58,7 @@ defmodule AtMcp.SummaryTest do
       "record" => %{
         "text" => "café 日本語 🪁",
         "langs" => ["fr", "ja"],
-        "tags" => ["kites"],
+        "tags" => ["gliders"],
         "createdAt" => "2026-09-13T12:30:00.000Z",
         "reply" => %{"parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"}}
       },
@@ -105,7 +105,7 @@ defmodule AtMcp.SummaryTest do
       "record" => %{
         "text" => "café 日本語 🪁",
         "langs" => ["fr", "ja"],
-        "tags" => ["kites"],
+        "tags" => ["gliders"],
         "createdAt" => "2026-09-13T12:30:00.000Z",
         "reply" => %{
           "parent" => %{"uri" => "at://did:plc:parent/app.bsky.feed.post/p"},
@@ -205,10 +205,10 @@ defmodule AtMcp.SummaryTest do
       "viewer" => %{"like" => "at://did:plc:viewer/app.bsky.feed.like/1"}
     },
     trend: %{
-      "topic" => "kites",
-      "displayName" => "Kites",
-      "description" => "kite season",
-      "link" => "/search?q=kites",
+      "topic" => "gliders",
+      "displayName" => "Gliders",
+      "description" => "glider season",
+      "link" => "/search?q=gliders",
       "startedAt" => "2026-10-18T00:00:00.000Z",
       "postCount" => 12,
       "status" => "hot",
@@ -233,7 +233,7 @@ defmodule AtMcp.SummaryTest do
         "posts" => [
           %{
             "text" => "café 日本語 🪁",
-            "embedImages" => [%{"localRef" => %{"path" => "/1.jpg"}, "alt" => "a kite"}]
+            "embedImages" => [%{"localRef" => %{"path" => "/1.jpg"}, "alt" => "a glider"}]
           }
         ]
       }
@@ -265,7 +265,7 @@ defmodule AtMcp.SummaryTest do
       "record" => %{
         "text" => "hello",
         "langs" => ["en"],
-        "tags" => ["kites"],
+        "tags" => ["gliders"],
         "createdAt" => "2026-09-13T12:30:00.000Z",
         # Read from a like's or repost's record; one response carries every field.
         "subject" => %{"uri" => "at://did:plc:me/app.bsky.feed.post/s", "cid" => "bafys"},
@@ -398,7 +398,7 @@ defmodule AtMcp.SummaryTest do
                   "parent" => @responses.post,
                   "root" => @responses.post
                 },
-                "feedContext" => "t-kites",
+                "feedContext" => "t-gliders",
                 "reqId" => "req-1"
               })
           })

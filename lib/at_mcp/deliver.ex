@@ -2,7 +2,7 @@ defmodule AtMcp.Deliver do
   @moduledoc """
   Deliver-callback registry for listen/inbound events — global and per-DID.
 
-  Hosts (Dwell, Haven, tests) register a 1-arity callback that receives
+  Hosts (and tests) register a 1-arity callback that receives
   normalized listen events. Callbacks are optional — AtMcp runs without a
   host connected. Events still fan out via `AtMcp.Listen.notify/1`.
 
@@ -17,7 +17,7 @@ defmodule AtMcp.Deliver do
   sharing one communal deliver filter.
 
       AtMcp.Deliver.set_callback(fn event -> IO.inspect(event, label: "deliver") end)
-      AtMcp.Deliver.set_callback("did:plc:alice", fn event -> Dwell.Inbound.ingest(event) end)
+      AtMcp.Deliver.set_callback("did:plc:alice", fn event -> MyHost.Inbound.ingest(event) end)
 
   ## Event shapes
 
@@ -38,7 +38,7 @@ defmodule AtMcp.Deliver do
 
   Path: collector → `AtMcp.Inbound.Store` → `AtMcp.Deliver.deliver` → host
   callback. This does **not** invent an agent reply; the host/agent decides
-  whether to act (MCP tools / dwell session).
+  whether to act (MCP tools / the host's own session).
   """
 
   @global :at_mcp_deliver_callback

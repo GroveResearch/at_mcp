@@ -103,6 +103,6 @@ defmodule AtMcp.SearchPostsFiltersTest do
     assert {:error, {:invalid_argument, "query", _}} =
              AtMcp.Effects.search_posts(effects, nil, sort: "top")
 
-    assert {:ok, %{query: nil}} = AtMcp.Effects.search_posts(effects, " ", hashtags: ["kites"])
+    assert {:ok, %{query: nil}} = AtMcp.Effects.search_posts(effects, " ", hashtags: ["gliders"])
   end
 end

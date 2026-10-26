@@ -18,7 +18,7 @@ async function connect(grant, did) {
   const client = new Client({ name: 'at_mcp-independent-probe', version: '1' });
   clients.push(client);
   const headers = { authorization: `Bearer ${grant}` };
-  if (did) headers['x-kite-account-did'] = did;
+  if (did) headers['x-at-mcp-account-did'] = did;
   await client.connect(new StreamableHTTPClientTransport(new URL(url), {
     requestInit: { headers }
   }));

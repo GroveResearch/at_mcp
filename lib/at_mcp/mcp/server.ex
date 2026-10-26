@@ -10,7 +10,7 @@ defmodule AtMcp.MCP.Server do
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
-  description and `kite/publicWrite` annotation say whether it counts, derived
+  description and `at_mcp/publicWrite` annotation say whether it counts, derived
   from `AtMcp.Effects.publishing/0` when the tools are declared. The MCP host controls
   per-action permission; MCP itself does not supply consent. No client can
   reset a write quota.

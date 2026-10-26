@@ -89,8 +89,9 @@ defmodule AtMcp.Grants do
 
     with :ok <- valid_account(account),
          :ok <- valid_scope(scope) do
-      # Published bearer format stays stable; existing digests remain valid.
-      token = "kite-" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+      # Only the digest is stored and looked up, so a token issued under any
+      # earlier prefix still resolves.
+      token = "at_mcp-" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
       row = %{
         "id" => Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false),

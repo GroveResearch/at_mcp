@@ -1812,7 +1812,7 @@ defmodule AtMcp.E2E.RoundTripTest do
         call!(them, "follow", %{"actor" => me.handle})
       ]
 
-      mine = post!(me, "kites for @#{them.handle}")
+      mine = post!(me, "gliders for @#{them.handle}")
       sync(net)
       reply = call!(them, "reply", %{"uri" => mine["uri"], "text" => "@#{me.handle} yes"})
       quote = post!(them, "look at this", %{"quote" => mine["uri"]})
@@ -1840,8 +1840,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert text =~ "You pinned this to your profile"
       assert text =~ "You bookmarked this"
       # The mention the post tool resolved links to them, and reads so.
-      assert p["text"] == "kites for @#{them.handle} <#{them.did}>"
-      assert p["raw_text"] == "kites for @#{them.handle}"
+      assert p["text"] == "gliders for @#{them.handle} <#{them.did}>"
+      assert p["raw_text"] == "gliders for @#{them.handle}"
       assert is_binary(p["indexed_at"]) and is_binary(p["created_at"])
 
       if dir = System.get_env("AT_MCP_E2E_RECORD"), do: record(session, pds, me, mine, dir)

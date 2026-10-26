@@ -38,7 +38,7 @@ defmodule AtMcp.FeedProfileWritesTest do
     hd(result.content).text
   end
 
-  @feed "at://did:plc:mock/app.bsky.feed.generator/kites"
+  @feed "at://did:plc:mock/app.bsky.feed.generator/gliders"
   @post "at://did:plc:mock/app.bsky.feed.post/p"
 
   describe "through the tools, over the mock backend" do
@@ -383,9 +383,9 @@ defmodule AtMcp.FeedProfileWritesTest do
 
       assert {:ok, %{status: "live", replaced: nil, expires_at: expires}} =
                AtMcp.Effects.set_status(effects, "live",
-                 url: "https://twitch.tv/kites",
+                 url: "https://twitch.tv/gliders",
                  duration_minutes: 60,
-                 title: "Kites"
+                 title: "Gliders"
                )
 
       assert is_binary(expires)
@@ -399,12 +399,12 @@ defmodule AtMcp.FeedProfileWritesTest do
                "durationMinutes" => 60,
                "embed" => %{
                  "$type" => "town.delve.embed.external",
-                 "external" => %{"uri" => "https://twitch.tv/kites", "title" => "Kites"}
+                 "external" => %{"uri" => "https://twitch.tv/gliders", "title" => "Gliders"}
                }
              } = FakePDS.record(pds, status)
 
       # A second one replaces the first, written only over it, and names it.
-      assert {:ok, %{replaced: %{url: "https://twitch.tv/kites", duration_minutes: 60}}} =
+      assert {:ok, %{replaced: %{url: "https://twitch.tv/gliders", duration_minutes: 60}}} =
                AtMcp.Effects.set_status(effects, "live",
                  url: "https://stream.place/k",
                  duration_minutes: 30
@@ -958,7 +958,7 @@ defmodule AtMcp.FeedProfileWritesTest do
                  "at://alice.test/app.bsky.feed.generator/k",
                  "at://alice.test/app.bsky.feed.post/p",
                  "show_less",
-                 feed_context: "t-kites"
+                 feed_context: "t-gliders"
                )
 
       assert [%{body: body, proxy: "did:web:feeds.example#bsky_fg"}] =
@@ -972,7 +972,7 @@ defmodule AtMcp.FeedProfileWritesTest do
                  %{
                    "item" => "at://did:plc:alice/app.bsky.feed.post/p",
                    "event" => "app.bsky.feed.defs#requestLess",
-                   "feedContext" => "t-kites"
+                   "feedContext" => "t-gliders"
                  }
                ]
              }
@@ -1006,17 +1006,17 @@ defmodule AtMcp.FeedProfileWritesTest do
             "feed" => [
               %{
                 "post" => %{"uri" => "at://did:plc:a/app.bsky.feed.post/p", "record" => %{}},
-                "feedContext" => "t-kites",
+                "feedContext" => "t-gliders",
                 "reqId" => "r1"
               }
             ]
           })
         )
 
-      assert [%{feed_context: "t-kites", req_id: "r1"} = item] = page.items
+      assert [%{feed_context: "t-gliders", req_id: "r1"} = item] = page.items
 
       text = AtMcp.Reading.posts(Jason.decode!(Jason.encode!(%{items: [item]})))
-      assert text =~ ~s(For feed_feedback: feed_context: "t-kites" · req_id: "r1")
+      assert text =~ ~s(For feed_feedback: feed_context: "t-gliders" · req_id: "r1")
     end
   end
 

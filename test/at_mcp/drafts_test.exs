@@ -90,7 +90,7 @@ defmodule AtMcp.DraftsTest do
       "posts" => [
         %{
           "text" => "first, before",
-          "embedImages" => [%{"localRef" => %{"path" => "/photos/1.jpg"}, "alt" => "a kite"}]
+          "embedImages" => [%{"localRef" => %{"path" => "/photos/1.jpg"}, "alt" => "a glider"}]
         },
         %{"text" => "second"}
       ],
@@ -132,7 +132,7 @@ defmodule AtMcp.DraftsTest do
       # The draft is read again after the update, to check it still exists.
       assert length(FakePDS.sent(pds, "app.bsky.draft.getDrafts")) == 2
 
-      assert [%{text: "first, after", images: [%{alt: "a kite"}]}, %{text: "second"}] =
+      assert [%{text: "first, after", images: [%{alt: "a glider"}]}, %{text: "second"}] =
                draft.posts
 
       [update] = FakePDS.sent(pds, "app.bsky.draft.updateDraft")
