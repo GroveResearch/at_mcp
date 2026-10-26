@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end round trips: every write tool against upstream's reference PDS
-# and AppView, running on this machine (test/e2e, docs/operations.md "End-to-end
+# and AppView, running on this machine (test/e2e, CONTRIBUTING.md "End-to-end
 # round trips").
 #
 #   scripts/e2e.sh [mix test arguments]

@@ -19,6 +19,7 @@ defmodule AtMcp.MixProject do
           "mix.exs",
           "VERSION",
           "README.md",
+          "CONTRIBUTING.md",
           "decisions.md",
           "LICENSE",
           "licenses",
@@ -31,10 +32,13 @@ defmodule AtMcp.MixProject do
         main: "readme",
         extras: [
           "README.md",
+          "docs/tools.md",
           "docs/embedding.md",
           "docs/operations.md",
+          "docs/upgrades.md",
           "docs/DESIGN.md",
-          "decisions.md"
+          "decisions.md",
+          "CONTRIBUTING.md"
         ],
         source_url: "https://github.com/GroveResearch/at_mcp",
         source_ref: "main"

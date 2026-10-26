@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  AtMcp as a launchd agent for one user. README.md, "Run it", says where each
+  AtMcp as a launchd agent for one user. docs/operations.md, "Run a shared service", says where each
   path comes from; replace /Users/you with your home folder (launchd does not
   expand ~). Install as ~/Library/LaunchAgents/li.example.at_mcp.plist, then:
 

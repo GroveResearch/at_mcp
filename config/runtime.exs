@@ -5,7 +5,7 @@ import Config
 # A value that fails its check, or an AT_MCP_* variable that is not one of
 # these, stops startup and names the variable. An empty value is the same as
 # unset. The rest of AtMcp reads the application environment this file writes,
-# never the process environment. README.md, "Settings", documents each one, and
+# never the process environment. docs/operations.md, "Settings", documents each one, and
 # `AtMcp.CLI.settings/0` prints what this file resolved.
 #
 # A test run configures AtMcp in config/test.exs and the tests themselves, so it
@@ -117,7 +117,7 @@ if config_env() != :test do
 
     raise ArgumentError,
           "#{name} is not an AtMcp setting; did you mean #{closest}? " <>
-            "README.md, \"Settings\", lists every setting."
+            "docs/operations.md, \"Settings\", lists every setting."
   end
 
   present = fn name ->

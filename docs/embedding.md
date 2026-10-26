@@ -8,7 +8,7 @@ and a C compiler. Add this dependency and commit the generated `mix.lock`:
 {:at_mcp, "~> 0.2.0"}
 ```
 
-First [prepare the agent’s account](../README.md#prepare-the-account). Add the
+First [prepare the agent’s account](../README.md#get-an-account-and-an-app-password). Add the
 configuration below to your application’s `config/config.exs` (which imports
 `Config`). Disabling environment boot keeps the host in charge of account
 configuration and inbound integration:
@@ -92,7 +92,9 @@ that map with their configured profile before deciding whether to upload an
 image or change text. They should not select profile records from graph state
 or read an Effects process's internal session.
 
-On Delvetown, `update_profile` saves complete Town presentation and preserves
-unrelated Town fields. It leaves the shared profile and its public bot
-declaration unchanged. A stale selected profile or changed repository refuses
+On Delvetown, `update_profile` saves the account's complete Delvetown profile
+(its Town presentation, the `town.delve.actor.profile` record) and preserves
+unrelated fields there. It leaves the shared `app.bsky.actor.profile`, which
+Bluesky reads, unchanged, except that in releases after 0.2.15 a call that
+gives `labels` changes that profile's labels, such as the public `bot` label. A stale selected profile or changed repository refuses
 the edit; an unacknowledged write remains an unknown outcome and is not retried.

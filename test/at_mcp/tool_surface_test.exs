@@ -17,6 +17,9 @@ defmodule AtMcp.ToolSurfaceTest do
     * a new tool or argument is added to the file when it is added to the
       server, which is how it becomes published.
 
+  `docs/tools.md` lists the served tools for readers. `mix at_mcp.tools_doc`
+  writes it, and the last test here fails until it is rewritten after a change.
+
   A removal date gives callers at least one release cycle to move; ninety days
   from the rename is the default.
   """
@@ -96,5 +99,12 @@ defmodule AtMcp.ToolSurfaceTest do
                "#{name}'s description must name its removal date, #{date}"
       end
     end
+  end
+
+  test "docs/tools.md is what `mix at_mcp.tools_doc` writes from the served tools" do
+    path = Mix.Tasks.AtMcp.ToolsDoc.path()
+
+    assert File.read!(path) == Mix.Tasks.AtMcp.ToolsDoc.render(),
+           "#{path} is out of date: run `mix at_mcp.tools_doc` and commit the result"
   end
 end

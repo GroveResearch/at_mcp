@@ -21,7 +21,7 @@ import threading
 release = Path(sys.argv[1]).resolve()
 repo = Path(__file__).resolve().parent.parent
 version = (release / "releases/start_erl.data").read_text().split()[1]
-section = (repo / "README.md").read_text().split("### Fetch a release\n", 1)[1].split("## Connect a first account", 1)[0]
+section = (repo / "README.md").read_text().split("### Fetch a release\n", 1)[1].split("### Connect Claude Code", 1)[0]
 blocks = re.findall(r"```sh\n(.*?)```", section, re.S)
 assert len(blocks) == 4, "expected Mac, Linux, download and install command blocks"
 class Quiet(http.server.SimpleHTTPRequestHandler):

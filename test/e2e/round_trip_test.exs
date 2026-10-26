@@ -16,7 +16,7 @@ defmodule AtMcp.E2E.RoundTripTest do
   repository record (`get_record`) or, for preferences, the PDS directly.
 
   Run with scripts/e2e.sh, or `mix test --only e2e` with its environment; see
-  docs/operations.md, "End-to-end round trips".
+  CONTRIBUTING.md, "End-to-end round trips".
   """
   use ExUnit.Case, async: false
 

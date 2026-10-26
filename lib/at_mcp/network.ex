@@ -31,7 +31,7 @@ defmodule AtMcp.Network do
 
   A network's AppView can be replaced for a network that is not its public
   deployment, such as the one `@atproto/dev-env` runs on localhost for the
-  end-to-end suite (docs/operations.md, "End-to-end round trips"):
+  end-to-end suite (CONTRIBUTING.md, "End-to-end round trips"):
 
       config :at_mcp, appview: [service: "did:plc:...#bsky_appview", url: "http://localhost:2584/xrpc"]
 

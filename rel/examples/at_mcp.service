@@ -1,4 +1,4 @@
-# AtMcp as a systemd service. README.md, "Run it", says where each path comes
+# AtMcp as a systemd service. docs/operations.md, "Run a shared service", says where each path comes
 # from; change them to match this machine. Install as
 # /etc/systemd/system/at_mcp.service, then:
 #
@@ -14,7 +14,7 @@ Wants=network-online.target
 [Service]
 User=at_mcp
 Group=at_mcp
-# The one environment file: NAME=value lines (README, "Run it").
+# The one environment file: NAME=value lines (docs/operations.md, "The environment file").
 EnvironmentFile=/etc/at_mcp/at_mcp.env
 ExecStart=/opt/at_mcp/current/bin/at_mcp start
 # /var/lib/at_mcp, owned by User and private to it: the accounts file, the
