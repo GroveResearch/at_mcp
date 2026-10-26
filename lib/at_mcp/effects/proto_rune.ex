@@ -1926,16 +1926,22 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def follow(session, "did:" <> _ = did) do
-    case create(session, :follow, AtMcp.ATProto.follow_record(subject: did)) do
-      {:ok, result} -> {:ok, Map.merge(summarize_record(result), %{actor: did, action: :follow})}
+    with record = AtMcp.ATProto.follow_record([subject: did], true),
+         {:ok, result} <-
+           create_in(session, AtMcp.Network.identity_collection(:follow, true), record) do
+      {:ok, Map.merge(summarize_record(result), %{actor: did, action: :follow})}
+    else
       {:error, reason} -> {:error, failure(reason)}
     end
   end
 
   @impl true
   def block(session, "did:" <> _ = did) do
-    case create(session, :block, AtMcp.ATProto.block_record(subject: did)) do
-      {:ok, result} -> {:ok, Map.merge(summarize_record(result), %{actor: did, action: :block})}
+    with record = AtMcp.ATProto.block_record([subject: did], true),
+         {:ok, result} <-
+           create_in(session, AtMcp.Network.identity_collection(:block, true), record) do
+      {:ok, Map.merge(summarize_record(result), %{actor: did, action: :block})}
+    else
       {:error, reason} -> {:error, failure(reason)}
     end
   end
@@ -2045,6 +2051,56 @@ defmodule AtMcp.Effects.ProtoRune do
   @undo_kinds %{unlike: :like, unrepost: :repost, unfollow: :follow, unblock: :block}
 
   @impl true
+  def prepare_undo(session, action, uri) when action in [:unfollow, :unblock] do
+    kind = Map.fetch!(@undo_kinds, action)
+
+    with {:ok, {repo, collection, rkey}} <- AtMcp.ATProto.parse_uri(uri),
+         :ok <- require_record_kind(collection, kind, action),
+         true <- AtMcp.Interactions.own_repo?(session, repo),
+         {:ok, commit} <- latest_commit(session),
+         {:ok, record} <- relationship_source(session, collection, rkey) do
+      if is_nil(record) do
+        {:ok, {:unchanged, undo_summary(%{action: action, uri: uri, unchanged: true})}}
+      else
+        with subject when is_binary(subject) <- undo_subject(field(record, :value)),
+             {:ok, records} <- relationship_inventory(session, kind, subject),
+             true <-
+               Enum.any?(
+                 records,
+                 &(&1.uri == "at://#{session.did}/#{collection}/#{rkey}" and
+                     &1.cid == field(record, :cid))
+               ),
+             {:ok, ^commit} <- latest_commit(session),
+             :ok <- relationship_batch_size(records) do
+          {:ok,
+           %{
+             action: action,
+             uri: uri,
+             deleted: Enum.map(records, & &1.uri),
+             records: records,
+             repo: session.did,
+             commit: commit
+           }}
+        else
+          {:error, reason} -> {:error, failure(reason)}
+          _ -> {:error, changed_meanwhile("The relationship inventory")}
+        end
+      end
+    else
+      false ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message: "Only this account's relationships can be removed."
+         )}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+
+      _ ->
+        {:error, unreadable("the relationship", %{})}
+    end
+  end
+
   def prepare_undo(session, action, uri) do
     kind = Map.fetch!(@undo_kinds, action)
 
@@ -2058,6 +2114,95 @@ defmodule AtMcp.Effects.ProtoRune do
         else: {:ok, prepared}
     else
       {:error, reason} -> {:error, failure(reason)}
+    end
+  end
+
+  defp relationship_batch_size(records) do
+    if length(records) <= AtMcp.ATProto.max_writes() do
+      :ok
+    else
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message:
+           "There are too many matching relationship records to remove atomically. Nothing was deleted."
+       )}
+    end
+  end
+
+  defp relationship_source(session, collection, rkey) do
+    case AtMcp.ATProto.get_record(session, %{
+           repo: session.did,
+           collection: collection,
+           rkey: rkey
+         }) do
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:record_not_found, "record_not_found"] ->
+        {:ok, nil}
+
+      result ->
+        result
+    end
+  end
+
+  defp relationship_inventory(session, kind, subject) do
+    collections = AtMcp.Network.relationship_collections(kind)
+
+    Enum.reduce_while(collections, {:ok, []}, fn collection, {:ok, records} ->
+      case relationship_page(session, collection, subject, nil, @own_record_pages, []) do
+        {:ok, found} -> {:cont, {:ok, records ++ found}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp relationship_page(_session, _collection, _subject, _cursor, 0, _found),
+    do:
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message: "Relationship inventory exceeds the supported page limit. Nothing was deleted."
+       )}
+
+  defp relationship_page(session, collection, subject, cursor, pages, found) do
+    params =
+      AtMcp.ATProto.params(%{
+        repo: session.did,
+        collection: collection,
+        limit: 100,
+        cursor: cursor
+      })
+
+    with {:ok, response} <- AtMcp.ATProto.list_records(session, params),
+         records when is_list(records) <- field(response, :records) do
+      matching =
+        for record <- records,
+            undo_subject(field(record, :value)) == subject,
+            do: %{uri: field(record, :uri), cid: field(record, :cid)}
+
+      valid =
+        Enum.all?(matching, fn record ->
+          case AtMcp.ATProto.parse_uri(record.uri || "") do
+            {:ok, {did, ^collection, _}} -> did == session.did and is_binary(record.cid)
+            _ -> false
+          end
+        end)
+
+      if valid and length(Enum.uniq_by(found ++ matching, & &1.uri)) == length(found ++ matching) do
+        case cursor_of(response) do
+          next when is_binary(next) and next != cursor and records != [] ->
+            relationship_page(session, collection, subject, next, pages - 1, found ++ matching)
+
+          nil ->
+            {:ok, found ++ matching}
+
+          _ ->
+            {:error, unreadable("the relationship inventory cursor", response)}
+        end
+      else
+        {:error, unreadable("the relationship inventory", response)}
+      end
+    else
+      {:error, reason} -> {:error, failure(reason)}
+      _ -> {:error, unreadable("the relationship inventory", %{})}
     end
   end
 
@@ -2104,7 +2249,32 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # One record is deleted as it is named; two are deleted together, in one
   # commit of this account's repository.
+  # The prepared DID and commit are immutable. A new login or a concurrent
+  # repository write cannot turn this removal into a different operation.
   @impl true
+  def undo(session, %{repo: repo, commit: commit, deleted: deleted} = prepared) do
+    if session.did != repo do
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message: "The prepared removal belongs to another account."
+       )}
+    else
+      case AtMcp.ATProto.apply_writes(session, repo, Enum.map(deleted, &removal/1),
+             swap_commit: commit
+           ) do
+        {:ok, _} ->
+          {:ok, undo_summary(prepared)}
+
+        {:error, %ProtoRune.XRPC.Error{reason: reason}}
+        when reason in [:invalid_swap, "invalid_swap"] ->
+          {:error, changed_meanwhile("The relationships")}
+
+        {:error, reason} ->
+          {:error, failure(reason)}
+      end
+    end
+  end
+
   def undo(session, %{deleted: [uri]} = prepared) do
     with {:ok, %{ok: true}} <- delete(session, uri, prepared.action, @undo_kinds[prepared.action]),
          do: {:ok, undo_summary(prepared)}
@@ -2172,7 +2342,183 @@ defmodule AtMcp.Effects.ProtoRune do
     do: delete(session, post_uri, :delete_post, :post)
 
   @impl true
+  def get_own_profile(session) do
+    if AtMcp.Network.name() == :delve do
+      with {:ok, snapshot} <- town_profile_snapshot(session),
+           do: {:ok, %{value: snapshot.value}}
+    else
+      with {:ok, record} <- stored_profile(session, AtMcp.Network.collection(:profile)),
+           do: {:ok, %{value: record.value}}
+    end
+  end
+
+  @impl true
   def update_profile(session, updates) when is_list(updates) do
+    if AtMcp.Network.name() == :delve,
+      do: update_town_profile(session, updates),
+      else: update_network_profile(session, updates)
+  end
+
+  defp update_town_profile(session, updates) do
+    if Keyword.has_key?(updates, :links) do
+      {:error,
+       AtMcp.Effects.Failure.new(:refused,
+         message: "Town does not serve profile links. Nothing was written."
+       )}
+    else
+      with {:ok, snapshot} <- town_profile_snapshot(session),
+           {:ok, blobs} <- upload_profile_images(session, updates) do
+        safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
+
+        record =
+          snapshot.value
+          |> merge_profile_fields(safe)
+          |> Map.put("presentation", true)
+          |> AtMcp.ATProto.profile_record(blobs)
+
+        collection = AtMcp.Network.collection(:profile)
+        writes = [{snapshot.operation, collection, "self", record}]
+
+        case AtMcp.ATProto.apply_writes(session, session.did, writes,
+               swap_commit: snapshot.commit,
+               preserve_record_keys: true
+             ) do
+          {:ok, _} ->
+            {:ok,
+             %{
+               ok: true,
+               action: :update_profile,
+               display_name: Keyword.get(safe, :display_name),
+               description: Keyword.get(safe, :description),
+               pronouns: Keyword.get(safe, :pronouns),
+               website: Keyword.get(safe, :website),
+               uri: "at://#{session.did}/#{collection}/self"
+             }
+             |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
+
+          {:error, %ProtoRune.XRPC.Error{reason: reason}}
+          when reason in [:invalid_swap, "invalid_swap"] ->
+            {:error, changed_meanwhile("The profile")}
+
+          {:error, reason} ->
+            {:error, failure(reason)}
+        end
+      else
+        {:error, reason} -> {:error, failure(reason)}
+      end
+    end
+  end
+
+  # Presentation ownership is signed into the Town profile. Unmarked historical
+  # profiles are selected by the server's finite continuity record, never by
+  # graph activation. Its exact source CID must still match the repository.
+  defp town_profile_snapshot(session) do
+    local = AtMcp.Network.collection(:profile)
+    shared = AtMcp.Network.identity_collection(:profile, true)
+
+    with {:ok, commit} <- latest_commit(session),
+         {:ok, town} <- stored_profile(session, local),
+         {:ok, external} <- stored_profile(session, shared),
+         {:ok, presentation, view} <- selected_presentation(session, town, external),
+         {:ok, ^commit} <- latest_commit(session) do
+      value =
+        town.value
+        |> Map.drop(["displayName", "description", "avatar"])
+        |> Map.merge(Map.take(presentation, ["displayName", "description", "avatar"]))
+
+      with {:ok, value} <- initial_town_banner(town.operation, value, presentation, view) do
+        {:ok, %{value: value, operation: town.operation, commit: commit}}
+      end
+    else
+      {:error, reason} -> {:error, failure(reason)}
+      _ -> {:error, changed_meanwhile("The profile")}
+    end
+  end
+
+  defp selected_presentation(_session, %{value: %{"presentation" => true}} = town, _shared),
+    do: {:ok, town.value, nil}
+
+  defp selected_presentation(session, town, shared) do
+    with {:ok, view} <- AtMcp.ATProto.get_profile(session, %{actor: session.did}) do
+      case field(view, :profile_source) do
+        nil ->
+          {:ok, %{}, view}
+
+        source when is_map(source) ->
+          case Enum.find(
+                 [town, shared],
+                 &(&1.uri == field(source, :uri) and &1.cid == field(source, :cid) and
+                     is_binary(&1.cid))
+               ) do
+            nil -> {:error, changed_meanwhile("The displayed profile source")}
+            record -> {:ok, record.value, view}
+          end
+
+        _ ->
+          {:error, unreadable("the displayed profile source", view)}
+      end
+    end
+  end
+
+  # Existing Town records own their banner, including its absence. Only the
+  # first Town record preserves a shared banner that the AppView actually shows.
+  defp initial_town_banner(:update, value, _presentation, _view), do: {:ok, value}
+
+  defp initial_town_banner(:create, value, presentation, view) do
+    case field(view, :banner) do
+      nil ->
+        {:ok, Map.delete(value, "banner")}
+
+      url when is_binary(url) ->
+        blob = Map.get(presentation, "banner")
+
+        cid = if is_map(blob), do: blob_cid(blob)
+
+        if is_binary(cid) and displayed_blob_cid(url) == cid,
+          do: {:ok, Map.put(value, "banner", blob)},
+          else: {:error, changed_meanwhile("The displayed profile banner")}
+
+      _ ->
+        {:error, unreadable("the displayed profile banner", view)}
+    end
+  end
+
+  defp displayed_blob_cid(url) do
+    with %URI{path: path} when is_binary(path) <- URI.parse(url),
+         filename when is_binary(filename) <- path |> String.split("/") |> List.last(),
+         [cid | _] <- String.split(filename, "@", parts: 2),
+         true <- cid != "" do
+      URI.decode(cid)
+    else
+      _ -> nil
+    end
+  end
+
+  defp stored_profile(session, collection) do
+    uri = "at://#{session.did}/#{collection}/self"
+
+    case AtMcp.ATProto.get_record_as_stored(session, %{
+           repo: session.did,
+           collection: collection,
+           rkey: "self"
+         }) do
+      {:ok, %{"uri" => ^uri, "cid" => cid, "value" => value}}
+      when is_binary(cid) and is_map(value) ->
+        {:ok, %{uri: uri, cid: cid, value: value, operation: :update}}
+
+      {:ok, response} ->
+        {:error, unreadable("the stored profile", response)}
+
+      {:error, %ProtoRune.XRPC.Error{reason: reason}}
+      when reason in [:not_found, :record_not_found, "record_not_found"] ->
+        {:ok, %{uri: uri, cid: nil, value: %{}, operation: :create}}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  defp update_network_profile(session, updates) do
     safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
 
     with {:ok, current, swap} <- current_profile(session),
@@ -4567,10 +4913,13 @@ defmodule AtMcp.Effects.ProtoRune do
   # Every record AtMcp creates goes through here, so the collection and the
   # record's `$type` cannot disagree: both are `AtMcp.Network`'s answer for the
   # same kind.
-  defp create(session, kind, record) do
+  defp create(session, kind, record),
+    do: create_in(session, AtMcp.Network.collection(kind), record)
+
+  defp create_in(session, collection, record) do
     AtMcp.ATProto.create_record(session, %{
       repo: session.did,
-      collection: AtMcp.Network.collection(kind),
+      collection: collection,
       record: record
     })
   end
@@ -4920,16 +5269,22 @@ defmodule AtMcp.Effects.ProtoRune do
     website: "website"
   }
 
-  # A field not given is kept. Pronouns and a website given empty are removed;
-  # the tool drops an empty display name or description before it gets here.
+  @profile_wire_fields Map.new(@profile_fields, fn {key, wire} -> {Atom.to_string(key), wire} end)
+
+  # Omitted fields are kept. Explicit empty display name, description, pronouns
+  # or website values remove their optional record keys.
   defp merge_profile(current, updates) do
     current = Map.new(current, fn {key, value} -> {to_string(key), value} end)
 
     current =
       Map.new(current, fn {key, value} ->
-        {Map.get(@profile_fields, String.to_atom(key), key), value}
+        {Map.get(@profile_wire_fields, key, key), value}
       end)
 
+    merge_profile_fields(current, updates)
+  end
+
+  defp merge_profile_fields(current, updates) do
     Enum.reduce(@profile_fields, current, fn {key, wire}, record ->
       case Keyword.get(updates, key) do
         nil -> record

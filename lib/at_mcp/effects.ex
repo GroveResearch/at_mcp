@@ -439,6 +439,20 @@ defmodule AtMcp.Effects do
     end)
   end
 
+  @doc """
+  Read this account's complete current profile presentation as `%{value: record}`.
+  `record` keeps the native record's string keys and blob references, suitable
+  for an embedded client's comparison before `update_profile/2`. Town metadata
+  stays local; cosmetic fallback never changes shared public labels.
+  """
+  def get_own_profile(effects) do
+    with_session(effects, fn backend, session ->
+      if function_exported?(backend, :get_own_profile, 1),
+        do: backend.get_own_profile(session),
+        else: {:error, AtMcp.Effects.Failure.new(:refused, detail: :own_profile_not_supported)}
+    end)
+  end
+
   def get_profiles(effects, actors) when is_list(actors) do
     with :ok <- validate_batch(actors) do
       with_session(effects, fn backend, session ->
@@ -1122,11 +1136,10 @@ defmodule AtMcp.Effects do
     end
   end
 
-  # An undo deletes the record it names and, when the AppView's viewer state
-  # names another one of this account's for the same subject (a retry after an
-  # unknown outcome leaves one), that one too, so the like, repost, follow or
-  # block does not stay in place. The backend reads both before anything is
-  # sent.
+  # Relationship removal inventories every shared and old Town record of the
+  # named subject and keeps its repository root through execution. Likes and
+  # reposts also remove the second record named by the AppView. The backend
+  # prepares each removal before anything is sent.
   defp undo(effects, action, uri) do
     take_and_write(
       effects,

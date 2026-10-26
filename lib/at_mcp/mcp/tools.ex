@@ -150,6 +150,24 @@ defmodule AtMcp.MCP.Tools do
     )
   end
 
+  def respond(
+        {:error,
+         {:write_outcome_unknown,
+          %AtMcp.Effects.Failure{detail: {:identity_authority_unconfirmed, written}}}},
+        state
+      ) do
+    error(
+      state,
+      "write_outcome_unknown",
+      cat([
+        ~L"error: the record was written at ",
+        ident(written.uri),
+        ~L", but whether it takes effect could not be confirmed. Read the account's identity state and visible result before deciding whether to retry. AtMcp did not retry this uncertain write."
+      ]),
+      %{outcome: "unknown", written: Map.take(written, [:uri, :cid])}
+    )
+  end
+
   def respond({:error, {:write_outcome_unknown, _reason}}, state) do
     error(
       state,
@@ -750,7 +768,6 @@ defmodule AtMcp.MCP.Tools do
   end
 
   defp maybe_kw(kw, _key, nil), do: kw
-  defp maybe_kw(kw, _key, ""), do: kw
   defp maybe_kw(kw, key, value), do: Keyword.put(kw, key, value)
 
   # Backends own page limits and summaries. Keep their complete values here:

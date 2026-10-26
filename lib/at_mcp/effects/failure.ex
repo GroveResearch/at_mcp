@@ -29,7 +29,8 @@ defmodule AtMcp.Effects.Failure do
   own parsing cannot read an answer, as `AtMcp.Effects.ProtoRune` does.
 
   `status` and `message` carry what the service said, for an agent to act on.
-  `detail` is retained for logs and is never published in a tool result.
+  `detail` is retained for logs, not published wholesale. Tool handlers may expose
+  explicitly selected record references needed to reconcile an uncertain write.
   """
 
   @enforce_keys [:kind]

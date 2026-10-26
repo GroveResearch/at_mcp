@@ -95,7 +95,7 @@ defmodule AtMcp.PostGatesTest do
       profile = %{"pronouns" => "", "website" => " ", "links" => [], "description" => ""}
 
       assert AtMcp.MCP.Input.drop_empty("update_profile", profile, schema.("update_profile")) ==
-               %{"pronouns" => "", "website" => " ", "links" => []}
+               %{"pronouns" => "", "website" => " ", "links" => [], "description" => ""}
 
       # Links each of which is empty are not `[]`: the profile's links are kept.
       assert AtMcp.MCP.Input.drop_empty(

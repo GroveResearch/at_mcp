@@ -88,6 +88,9 @@ defmodule AtMcp.Effects.Backend do
   @callback get_author_feed(state(), actor :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
   @callback get_profile(state(), actor :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @doc "The account's current native profile presentation as `%{value: record}`."
+  @callback get_own_profile(state()) :: {:ok, summary()} | {:error, reason()}
+  @optional_callbacks get_own_profile: 1
   @callback get_profiles(state(), actors :: [String.t()]) :: {:ok, summary()} | {:error, reason()}
   @callback get_posts(state(), uris :: [String.t()]) :: {:ok, summary()} | {:error, reason()}
   @callback search_posts(state(), query :: String.t() | nil, opts :: keyword()) ::

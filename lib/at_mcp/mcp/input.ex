@@ -84,7 +84,7 @@ defmodule AtMcp.MCP.Input do
   # Optional strings whose empty value is an instruction, not a blank: each
   # tool's description says so ("an empty description removes it").
   @empty_means %{
-    "update_profile" => ["pronouns", "website"],
+    "update_profile" => ["display_name", "description", "pronouns", "website"],
     "update_list" => ["description"],
     "update_starter_pack" => ["description"]
   }
@@ -116,6 +116,10 @@ defmodule AtMcp.MCP.Input do
       field = to_string(key)
 
       cond do
+        # Optional basic fields historically treat null as omitted, not a clear.
+        name == "update_profile" and field in ["display_name", "description"] and is_nil(value) ->
+          Map.delete(acc, key)
+
         field in required or field in keep or value == [] ->
           acc
 

@@ -736,7 +736,7 @@ defmodule AtMcp.MCP.Schemas do
         "type" => ["array", "null"],
         "items" => %{"type" => "string"},
         "description" =>
-          "unlike, unrepost, unfollow and unblock: AT URIs of every record deleted: the one named, and the record the AppView names for the same subject when that is another one"
+          "AT URIs of every record deleted. Unfollow and Unblock inventory all shared and old Town records of the same subject; Unlike and Unrepost also remove the other record named by the AppView."
       },
       "pronouns" => nullable_string("update_profile: the pronouns written; empty when removed"),
       "website" => nullable_string("update_profile: the website written; empty when removed"),

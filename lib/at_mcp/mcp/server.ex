@@ -1561,7 +1561,7 @@ defmodule AtMcp.MCP.Server do
   tool "unfollow",
        write_description(
          :unfollow,
-         "Unfollow by the follow record AT URI. When the AppView names another follow of this account's of the same account, that one is deleted too; deleted lists what was deleted."
+         "Unfollow by the follow record AT URI. Reads this account's repository and removes every shared and old Town follow of the same account in one conditional commit. A changed repository refuses the removal. deleted lists what was deleted. If the named record is gone, its subject is unknown and nothing is deleted."
        ) do
     annotations(
       write_annotations(:unfollow, %{
@@ -1611,7 +1611,7 @@ defmodule AtMcp.MCP.Server do
   tool "unblock",
        write_description(
          :unblock,
-         "Unblock by the block record AT URI. When the AppView names another block of this account's of the same account, that one is deleted too; deleted lists what was deleted."
+         "Unblock by the block record AT URI. Reads this account's repository and removes every shared and old Town block of the same account in one conditional commit. A changed repository refuses the removal. deleted lists what was deleted. If the named record is gone, its subject is unknown and nothing is deleted."
        ) do
     annotations(
       write_annotations(:unblock, %{
@@ -1705,7 +1705,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_profile",
        write_description(
          :update_profile,
-         "Update display name, description, avatar, banner, pronouns, website, the links the profile shows and/or the labels the account gives itself. Fields not given are kept; an empty pronouns or website removes it. The profile record is read first and written only over that version. get_record on this account's profile record (rkey self) reads it back."
+         "Update display name, description, avatar, banner, pronouns, website, the links the profile shows and/or the labels the account gives itself. On Delvetown, saves complete Town presentation and leaves the shared profile unchanged apart from its labels; links are unsupported. Fields not given keep their current presentation; empty text removes that field and stays blank on Town. The write is conditional on the records read. get_record on this account's profile record (rkey self) reads it back."
        ) do
     annotations(
       write_annotations(:update_profile, %{
@@ -1716,8 +1716,14 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.action_result())
-    param(:display_name, :string, description: "New display name")
-    param(:description, :string, description: "New description")
+
+    param(:display_name, :string,
+      description: "New display name; empty clears it, omitted keeps it"
+    )
+
+    param(:description, :string,
+      description: "New description; empty clears it, omitted keeps it"
+    )
 
     param(
       :avatar,

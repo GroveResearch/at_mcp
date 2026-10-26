@@ -49,8 +49,32 @@ defmodule AtMcp.WriteRecordsTest do
     defp response("com.atproto.repo.createRecord", _conn),
       do: %{uri: "at://did:plc:self/c/new", cid: "bafyreinew"}
 
+    defp response("town.delve.actor.getProfile", _),
+      do: %{
+        profileSource: %{
+          uri: "at://did:plc:self/town.delve.actor.profile/self",
+          cid: "bafyreiparent"
+        }
+      }
+
+    defp response("town.delve.identity.getState", _conn), do: %{activated: false}
+
     defp response("com.atproto.repo.putRecord", _conn),
       do: %{uri: "at://did:plc:self/c/self", cid: "bafyreiself"}
+
+    defp response("com.atproto.sync.getLatestCommit", _), do: %{cid: "root"}
+
+    defp response("com.atproto.repo.listRecords", %{query_params: q}) do
+      %{
+        records: [
+          %{
+            uri: "at://did:plc:self/#{q["collection"]}/abc",
+            cid: "bafyreiparent",
+            value: %{subject: "did:plc:other"}
+          }
+        ]
+      }
+    end
 
     # Parents whose writers named their thread's root by handle, or by DID
     # with a CID the root no longer has, or by DID in a repository that is
@@ -86,6 +110,12 @@ defmodule AtMcp.WriteRecordsTest do
         cid: "bafyreiparent",
         value: %{
           text: "parent",
+          subject:
+            if(
+              String.ends_with?(conn.query_params["collection"], ["graph.follow", "graph.block"]),
+              do: "did:plc:other",
+              else: nil
+            ),
           displayName: "Old name",
           pinnedPost: "at://kept",
           banner: %{
@@ -181,6 +211,22 @@ defmodule AtMcp.WriteRecordsTest do
     )
   end
 
+  defp assert_deleted(calls, action, collection, _repo) when action in [:unfollow, :unblock] do
+    deleted = calls |> sent("com.atproto.repo.applyWrites") |> List.last()
+    assert deleted.body["repo"] == "did:plc:self"
+    assert deleted.body["swapCommit"] == "root"
+
+    assert Enum.any?(
+             deleted.body["writes"],
+             &(&1["collection"] == collection and &1["rkey"] == "abc")
+           )
+  end
+
+  defp assert_deleted(calls, _action, collection, repo) do
+    deleted = calls |> sent("com.atproto.repo.deleteRecord") |> List.last()
+    assert deleted.body == %{"collection" => collection, "repo" => repo, "rkey" => "abc"}
+  end
+
   describe "the collection and the $type" do
     test "a post is written to the configured network, not to app.bsky", %{
       calls: calls,
@@ -206,7 +252,7 @@ defmodule AtMcp.WriteRecordsTest do
     # Every record-creating verb, named one by one, because a single one left
     # on the library's helper is exactly the defect that would survive a spot
     # check of `post`.
-    test "every record AtMcp creates carries the configured network's collection", %{
+    test "content uses Town collections while relationships use shared collections", %{
       calls: calls,
       session: session
     } do
@@ -224,8 +270,8 @@ defmodule AtMcp.WriteRecordsTest do
                "town.delve.feed.post",
                "town.delve.feed.like",
                "town.delve.feed.repost",
-               "town.delve.graph.follow",
-               "town.delve.graph.block"
+               "app.bsky.graph.follow",
+               "app.bsky.graph.block"
              ]
 
       # A record whose `$type` disagrees with the collection it is written to is
@@ -335,8 +381,7 @@ defmodule AtMcp.WriteRecordsTest do
           assert {:ok, %{action: ^action, uri: ^uri}} =
                    delete_by(action, ctx.session, uri)
 
-          deleted = ctx.calls |> sent("com.atproto.repo.deleteRecord") |> List.last()
-          assert deleted.body == %{"collection" => collection, "repo" => repo, "rkey" => "abc"}
+          assert_deleted(ctx.calls, action, collection, repo)
         end
       end
 
@@ -714,19 +759,20 @@ defmodule AtMcp.WriteRecordsTest do
     } do
       assert {:ok, _} = AtMcp.Effects.ProtoRune.update_profile(session, display_name: "New name")
 
-      written = calls |> sent("com.atproto.repo.putRecord") |> List.last()
+      written = calls |> sent("com.atproto.repo.applyWrites") |> List.last()
+      [write] = written.body["writes"]
 
-      assert written.body["collection"] == "town.delve.actor.profile"
-      assert written.body["rkey"] == "self"
-      assert written.body["record"]["$type"] == "town.delve.actor.profile"
-      assert written.body["record"]["displayName"] == "New name"
+      assert write["collection"] == "town.delve.actor.profile"
+      assert write["rkey"] == "self"
+      assert write["value"]["$type"] == "town.delve.actor.profile"
+      assert write["value"]["displayName"] == "New name"
 
       # Read back snakelized, written out camelCase: a field that survives a
       # round trip as `display_name` is a field the lexicon does not define.
-      refute Map.has_key?(written.body["record"], "display_name")
-      assert written.body["record"]["pinnedPost"] == "at://kept"
+      refute Map.has_key?(write["value"], "display_name")
+      assert write["value"]["pinnedPost"] == "at://kept"
       # Written only over the record it was built from.
-      assert written.body["swapRecord"] == "bafyreiparent"
+      assert written.body["swapCommit"] == "root"
     end
 
     @tag :tmp_dir
@@ -747,7 +793,8 @@ defmodule AtMcp.WriteRecordsTest do
       assert result.avatar_cid == "bafkreiblob"
       assert [%{body: "png"}] = sent(calls, "com.atproto.repo.uploadBlob")
 
-      record = (calls |> sent("com.atproto.repo.putRecord") |> List.last()).body["record"]
+      [write] = (calls |> sent("com.atproto.repo.applyWrites") |> List.last()).body["writes"]
+      record = write["value"]
 
       assert record["avatar"] == %{
                "$type" => "blob",
