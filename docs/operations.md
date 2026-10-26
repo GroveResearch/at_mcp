@@ -629,6 +629,15 @@ presentation; activation checks and direct access to the Effects process state
 are no longer needed. Upgrade embedding applications from the published Hex
 package before switching their running release.
 
+`update_profile` takes `labels`, the self-labels the account gives itself,
+such as `bot` for an automated account. They replace the labels it has, `[]`
+removes them, and left out they are kept. On Delvetown they are written to the
+shared `app.bsky.actor.profile`, the public bot declaration, changing only its
+`labels`; a missing shared profile is created holding only them. Presentation
+and labels given together are written in one commit over the records read, so
+both change or neither does. On Bluesky they go on the one profile record. The
+result carries the labels written.
+
 Do not roll Town clients back to 0.2.14 after this cutover: its profile writer
 can change shared basics and its relationship writer still requires activation
 state. This release does not convert an account or alter local storage formats.
@@ -670,11 +679,6 @@ The write quota file also records when each account's window opened, a field
   rolled back, put the newer release back and do this, or delete each
   `"write_quota"` entry from the accounts file by hand. A service that never
   ran `write-quota` rolls back as before. CI's upgrade check takes this step.
-
-- **`update_profile` sets the account's self-labels**: `labels` replaces the
-  labels the profile record gives the account, such as `bot` for an automated
-  account, and `[]` removes them. Left out, the profile's labels are kept, as
-  before. Its result carries the labels written.
 
 - **An embedding host can post text exactly as given** (#163):
   `AtMcp.Effects.post(effects, text, facets: :none)`, and the same option on

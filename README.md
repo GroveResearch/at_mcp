@@ -323,7 +323,8 @@ trending. `get_record` reads any one record as its repository holds it.
 `save_feed` and `unsave_feed` keep the account's saved and pinned feeds,
 `feed_feedback` asks a feed to show more or less like a post, and `like`
 also likes a feed or a labeler. `update_profile` sets pronouns, a website,
-the links the profile shows and the labels the account gives itself (`bot`); `set_status` says the account is live.
+the links the profile shows and the labels the account gives itself (such as
+`bot`); `set_status` says the account is live.
 `get_profile` reads them back, with the pinned post, the verification check,
 when the account was made and how many lists, feeds and starter packs it has
 made. `get_preferences` reads the account's settings as the app shows them

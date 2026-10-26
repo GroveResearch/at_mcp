@@ -2369,20 +2369,43 @@ defmodule AtMcp.Effects.ProtoRune do
       with {:ok, snapshot} <- town_profile_snapshot(session),
            {:ok, blobs} <- upload_profile_images(session, updates) do
         safe = Keyword.take(updates, [:display_name, :description, :pronouns, :website])
+        labels = Keyword.fetch(updates, :labels)
 
-        record =
-          snapshot.value
-          |> merge_profile_fields(safe)
-          |> Map.put("presentation", true)
-          |> AtMcp.ATProto.profile_record(blobs)
+        # Presentation is the Town record's; self-labels, such as the bot
+        # declaration, stay on the shared profile, which the reader prefers
+        # for them. Both writes go in one commit over the one read, so the
+        # call changes both or neither.
+        town_write =
+          if safe != [] or blobs != %{} do
+            record =
+              snapshot.value
+              |> merge_profile_fields(safe)
+              |> Map.put("presentation", true)
+              |> AtMcp.ATProto.profile_record(blobs)
 
-        collection = AtMcp.Network.collection(:profile)
-        writes = [{snapshot.operation, collection, "self", record}]
+            [{snapshot.operation, AtMcp.Network.collection(:profile), "self", record}]
+          else
+            []
+          end
 
-        case AtMcp.ATProto.apply_writes(session, session.did, writes,
-               swap_commit: snapshot.commit,
-               preserve_record_keys: true
-             ) do
+        writes = town_write ++ shared_labels_write(snapshot.shared, labels)
+
+        uri =
+          case writes do
+            [{_op, collection, _rkey, _record} | _] -> "at://#{session.did}/#{collection}/self"
+            [] -> snapshot.shared.uri
+          end
+
+        result =
+          if writes == [],
+            do: {:ok, :unchanged},
+            else:
+              AtMcp.ATProto.apply_writes(session, session.did, writes,
+                swap_commit: snapshot.commit,
+                preserve_record_keys: true
+              )
+
+        case result do
           {:ok, _} ->
             {:ok,
              %{
@@ -2392,7 +2415,8 @@ defmodule AtMcp.Effects.ProtoRune do
                description: Keyword.get(safe, :description),
                pronouns: Keyword.get(safe, :pronouns),
                website: Keyword.get(safe, :website),
-               uri: "at://#{session.did}/#{collection}/self"
+               labels: Keyword.get(updates, :labels),
+               uri: uri
              }
              |> Map.merge(Map.new(blobs, fn {key, blob} -> {:"#{key}_cid", blob_cid(blob)} end))}
 
@@ -2427,12 +2451,28 @@ defmodule AtMcp.Effects.ProtoRune do
         |> Map.merge(Map.take(presentation, ["displayName", "description", "avatar"]))
 
       with {:ok, value} <- initial_town_banner(town.operation, value, presentation, view) do
-        {:ok, %{value: value, operation: town.operation, commit: commit}}
+        {:ok, %{value: value, operation: town.operation, commit: commit, shared: external}}
       end
     else
       {:error, reason} -> {:error, failure(reason)}
       _ -> {:error, changed_meanwhile("The profile")}
     end
+  end
+
+  # The shared profile with only its self-labels replaced, every other field
+  # kept as stored. With none to remove and no record, nothing is written.
+  defp shared_labels_write(_shared, :error), do: []
+  defp shared_labels_write(%{operation: :create}, {:ok, []}), do: []
+
+  defp shared_labels_write(shared, {:ok, values}) do
+    collection = AtMcp.Network.identity_collection(:profile, true)
+
+    record =
+      shared.value
+      |> with_self_labels({:ok, values})
+      |> Map.put("$type", collection)
+
+    [{shared.operation, collection, "self", record}]
   end
 
   defp selected_presentation(_session, %{value: %{"presentation" => true}} = town, _shared),

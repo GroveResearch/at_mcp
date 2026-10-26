@@ -1751,7 +1751,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:labels, {:array, :string},
       description:
-        "Labels the account gives itself, such as bot for an automated account, replacing those it has. [] removes them all."
+        "Labels the account gives itself, such as bot for an automated account, replacing those it has. [] removes them all. On Delvetown they go on the shared app.bsky.actor.profile record."
     )
 
     run(fn a, state ->
