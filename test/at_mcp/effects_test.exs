@@ -15,7 +15,7 @@ defmodule AtMcp.EffectsTest do
     assert {:ok, %{count: 1}} = AtMcp.Effects.list_notifications(effects)
 
     assert {:ok, %{cid: "bafyTHREADCID"}} =
-             AtMcp.Effects.get_thread(effects, "at://did:plc:x/app.bsky.feed.post/1")
+             AtMcp.Effects.get_thread(effects, "at://did:plc:x/app.bsky.feed.post/3k22222222222")
 
     # A second login reuses the session rather than counting again.
     assert {:ok, %{status: :already_connected, login_count: 1}} = AtMcp.Effects.login(effects)
@@ -34,7 +34,7 @@ defmodule AtMcp.EffectsTest do
     assert {:ok, %{count: 2}} = AtMcp.Effects.get_profiles(effects, ["a", "b"])
 
     assert {:ok, %{count: 1}} =
-             AtMcp.Effects.get_posts(effects, ["at://did:plc:x/app.bsky.feed.post/1"])
+             AtMcp.Effects.get_posts(effects, ["at://did:plc:x/app.bsky.feed.post/3k22222222222"])
 
     assert {:ok, %{query: "elixir"}} = AtMcp.Effects.search_posts(effects, "elixir")
     assert {:ok, %{count: 1, items: [%{uri: uri}]}} = AtMcp.Effects.get_suggested_feeds(effects)
@@ -54,12 +54,20 @@ defmodule AtMcp.EffectsTest do
     assert {:ok, _} = AtMcp.Effects.login(effects)
 
     assert {:ok, %{action: :like}} =
-             AtMcp.Effects.like(effects, "at://did:plc:mock/app.bsky.feed.post/1", "cid1")
+             AtMcp.Effects.like(
+               effects,
+               "at://did:plc:mock/app.bsky.feed.post/3k22222222222",
+               "cid1"
+             )
 
     assert {:ok, %{action: :unlike}} = AtMcp.Effects.unlike(effects, "at://like")
 
     assert {:ok, %{action: :repost}} =
-             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid1")
+             AtMcp.Effects.repost(
+               effects,
+               "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+               "cid1"
+             )
 
     assert {:ok, %{action: :unrepost}} = AtMcp.Effects.unrepost(effects, "at://rp")
     assert {:ok, %{action: :follow}} = AtMcp.Effects.follow(effects, "alice.bsky.social")
@@ -79,7 +87,10 @@ defmodule AtMcp.EffectsTest do
   test "flatten_query repeats list keys so URI.encode_query does not raise" do
     flat =
       AtMcp.ATProto.flatten_query(%{
-        uris: ["at://did:plc:a/app.bsky.feed.post/1", "at://did:plc:b/app.bsky.feed.post/2"],
+        uris: [
+          "at://did:plc:a/app.bsky.feed.post/3k22222222222",
+          "at://did:plc:b/app.bsky.feed.post/3k22222222223"
+        ],
         actor: "alice.bsky.social"
       })
 

@@ -39,7 +39,7 @@ defmodule AtMcp.FeedProfileWritesTest do
   end
 
   @feed "at://did:plc:mock/app.bsky.feed.generator/gliders"
-  @post "at://did:plc:mock/app.bsky.feed.post/p"
+  @post "at://did:plc:mock/app.bsky.feed.post/3kp2222222222"
 
   describe "through the tools, over the mock backend" do
     test "like takes a post, a feed or a labeler, and refuses anything else" do
@@ -263,7 +263,7 @@ defmodule AtMcp.FeedProfileWritesTest do
             {"feed_feedback",
              %{
                "feed" => "at://did:plc:f/town.delve.feed.generator/k",
-               "uri" => "at://did:plc:f/town.delve.feed.post/p",
+               "uri" => "at://did:plc:f/town.delve.feed.post/3kp2222222222",
                "kind" => "show_more"
              }, "town.delve.feed.sendInteractions"}
           ] do
@@ -292,14 +292,21 @@ defmodule AtMcp.FeedProfileWritesTest do
     test "a repost of a post named with a handle names it in DID form" do
       %{effects: effects, pds: pds} = pds()
 
-      assert {:ok, %{subject_uri: "at://did:plc:alice/town.delve.feed.post/p"}} =
-               AtMcp.Effects.repost(effects, "at://alice.test/town.delve.feed.post/p", "bafyp")
+      assert {:ok, %{subject_uri: "at://did:plc:alice/town.delve.feed.post/3kp2222222222"}} =
+               AtMcp.Effects.repost(
+                 effects,
+                 "at://alice.test/town.delve.feed.post/3kp2222222222",
+                 "bafyp"
+               )
 
       assert [%{body: %{"record" => record, "collection" => "town.delve.feed.repost"}}] =
                FakePDS.sent(pds, "com.atproto.repo.createRecord")
 
       assert record["subject"] ==
-               %{"uri" => "at://did:plc:alice/town.delve.feed.post/p", "cid" => "bafyp"}
+               %{
+                 "uri" => "at://did:plc:alice/town.delve.feed.post/3kp2222222222",
+                 "cid" => "bafyp"
+               }
     end
 
     test "save_feed migrates the first-version preference, keeps every other one, and adds to the old one" do
@@ -536,7 +543,7 @@ defmodule AtMcp.FeedProfileWritesTest do
               "presentation" => true,
               "pronouns" => "it/its",
               "pinnedPost" => %{
-                "uri" => "at://did:plc:self/town.delve.feed.post/p",
+                "uri" => "at://did:plc:self/town.delve.feed.post/3kp2222222222",
                 "cid" => "bafyp"
               }
             }
@@ -888,7 +895,7 @@ defmodule AtMcp.FeedProfileWritesTest do
                AtMcp.Effects.feed_feedback(
                  effects,
                  discover,
-                 "at://did:plc:a/app.bsky.feed.post/p",
+                 "at://did:plc:a/app.bsky.feed.post/3kp2222222222",
                  "show_more"
                )
 
@@ -952,11 +959,12 @@ defmodule AtMcp.FeedProfileWritesTest do
           }
         )
 
-      assert {:ok, %{kind: "show_less", uri: "at://did:plc:alice/app.bsky.feed.post/p"}} =
+      assert {:ok,
+              %{kind: "show_less", uri: "at://did:plc:alice/app.bsky.feed.post/3kp2222222222"}} =
                AtMcp.Effects.feed_feedback(
                  effects,
                  "at://alice.test/app.bsky.feed.generator/k",
-                 "at://alice.test/app.bsky.feed.post/p",
+                 "at://alice.test/app.bsky.feed.post/3kp2222222222",
                  "show_less",
                  feed_context: "t-gliders"
                )
@@ -970,7 +978,7 @@ defmodule AtMcp.FeedProfileWritesTest do
                "feed" => "at://did:plc:alice/app.bsky.feed.generator/k",
                "interactions" => [
                  %{
-                   "item" => "at://did:plc:alice/app.bsky.feed.post/p",
+                   "item" => "at://did:plc:alice/app.bsky.feed.post/3kp2222222222",
                    "event" => "app.bsky.feed.defs#requestLess",
                    "feedContext" => "t-gliders"
                  }
@@ -990,7 +998,7 @@ defmodule AtMcp.FeedProfileWritesTest do
       result =
         call(%{effects: effects}, "feed_feedback", %{
           "feed" => "at://did:plc:alice/app.bsky.feed.generator/k",
-          "uri" => "at://did:plc:alice/app.bsky.feed.post/p",
+          "uri" => "at://did:plc:alice/app.bsky.feed.post/3kp2222222222",
           "kind" => "show_more"
         })
 
@@ -1005,7 +1013,10 @@ defmodule AtMcp.FeedProfileWritesTest do
           ProtoRune.Case.snakelize_enum(%{
             "feed" => [
               %{
-                "post" => %{"uri" => "at://did:plc:a/app.bsky.feed.post/p", "record" => %{}},
+                "post" => %{
+                  "uri" => "at://did:plc:a/app.bsky.feed.post/3kp2222222222",
+                  "record" => %{}
+                },
                 "feedContext" => "t-gliders",
                 "reqId" => "r1"
               }

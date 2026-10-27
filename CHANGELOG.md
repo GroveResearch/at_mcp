@@ -16,6 +16,11 @@ itself.
 - On Delvetown, the refusal of `get_notifications` with `grouped: true` now
   adds that the same tool without `grouped` reads the notifications one at a
   time.
+- A tool argument that names a post by a record key that can't be a post's
+  key is refused as `invalid_arguments` before anything is read. A post's key
+  is a TID of 13 characters, as the post lexicon declares. Before, such a URI
+  was read, and the service's `RecordNotFound` came back saying the post was
+  deleted, taken down or never existed.
 
 ### Upgrade
 
