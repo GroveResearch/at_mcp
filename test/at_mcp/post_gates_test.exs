@@ -69,7 +69,8 @@ defmodule AtMcp.PostGatesTest do
     test "a post or reply with every optional argument empty is sent without them", ctx do
       for {name, arguments} <- [
             {"post", %{"text" => "t"}},
-            {"reply", %{"uri" => "at://did:plc:x/app.bsky.feed.post/1", "text" => "t"}},
+            {"reply",
+             %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222", "text" => "t"}},
             # The link card a caller named with `uri`, as the record does.
             {"post", %{"text" => "t", "link" => %{"uri" => "", "thumb" => %{"data" => ""}}}}
           ] do
@@ -150,7 +151,10 @@ defmodule AtMcp.PostGatesTest do
 
     test "a reply cannot set who may reply to the thread", ctx do
       assert {:error, {:invalid_argument, "reply_rule", _}} =
-               AtMcp.Effects.reply(ctx.effects, "at://did:plc:x/app.bsky.feed.post/1", "t",
+               AtMcp.Effects.reply(
+                 ctx.effects,
+                 "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+                 "t",
                  reply_rule: [:mention]
                )
 
@@ -160,7 +164,7 @@ defmodule AtMcp.PostGatesTest do
     test "set_post_interactions refuses another account's post", ctx do
       result =
         call(ctx.state, "set_post_interactions", %{
-          "uri" => "at://did:plc:other/app.bsky.feed.post/1",
+          "uri" => "at://did:plc:other/app.bsky.feed.post/3k22222222222",
           "quotes" => "disabled"
         })
 
@@ -171,7 +175,7 @@ defmodule AtMcp.PostGatesTest do
     test "get_thread with include_hidden reads the replies left out, and why", ctx do
       result =
         call(ctx.state, "get_thread", %{
-          "uri" => "at://did:plc:mock/app.bsky.feed.post/1",
+          "uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222",
           "include_hidden" => true
         })
 
@@ -180,7 +184,11 @@ defmodule AtMcp.PostGatesTest do
       assert text =~ "[left out 1] @muted.test"
       assert text =~ "Hidden by the thread's author"
 
-      plain = call(ctx.state, "get_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"})
+      plain =
+        call(ctx.state, "get_thread", %{
+          "uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"
+        })
+
       refute Map.has_key?(plain.structuredContent, "hidden_replies")
       refute Enum.find(plain.content, &(&1.type == "text")).text =~ "left out"
     end
@@ -213,9 +221,9 @@ defmodule AtMcp.PostGatesTest do
       %{effects: effects, pds: pds, state: %{effects: effects}}
     end
 
-    @mine "at://did:plc:self/app.bsky.feed.post/mine"
-    @threadgate "at://did:plc:self/app.bsky.feed.threadgate/mine"
-    @postgate "at://did:plc:self/app.bsky.feed.postgate/mine"
+    @mine "at://did:plc:self/app.bsky.feed.post/3kmine2222222"
+    @threadgate "at://did:plc:self/app.bsky.feed.threadgate/3kmine2222222"
+    @postgate "at://did:plc:self/app.bsky.feed.postgate/3kmine2222222"
     @list "at://did:plc:self/app.bsky.graph.list/friends"
     @at "2026-10-01T00:00:00.000Z"
 
@@ -384,7 +392,7 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "self-labels and a link card beside a quote, with the card's thumbnail uploaded" do
-      quoted = "at://did:plc:other/app.bsky.feed.post/q"
+      quoted = "at://did:plc:other/app.bsky.feed.post/3kq2222222222"
       %{effects: effects, pds: pds} = pds(%{quoted => post("quoted")})
 
       assert {:ok, _} =
@@ -477,7 +485,7 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "set_post_interactions replaces both rules and keeps hidden replies and createdAt" do
-      hidden = "at://did:plc:other/app.bsky.feed.post/rude"
+      hidden = "at://did:plc:other/app.bsky.feed.post/3krude2222222"
 
       %{effects: effects, pds: pds} =
         pds(%{
@@ -579,7 +587,10 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "a reply takes a quote rule, and a reply rule is refused for it" do
-      root = %{"uri" => "at://did:plc:other/app.bsky.feed.post/root", "cid" => "bafyroot"}
+      root = %{
+        "uri" => "at://did:plc:other/app.bsky.feed.post/3kroot2222222",
+        "cid" => "bafyroot"
+      }
 
       %{effects: effects, pds: pds} =
         pds(%{@mine => post("a reply", %{"reply" => reply_to(root)})})
@@ -603,7 +614,7 @@ defmodule AtMcp.PostGatesTest do
       assert {:error, {:invalid_argument, "uri", _}} =
                AtMcp.Effects.set_post_interactions(
                  effects,
-                 "at://did:plc:other/app.bsky.feed.post/1",
+                 "at://did:plc:other/app.bsky.feed.post/3k22222222222",
                  nil,
                  "disabled"
                )
@@ -612,7 +623,7 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "hide_reply adds the reply to the root's threadgate, keeps its rule, and unhide removes it" do
-      reply = "at://did:plc:other/app.bsky.feed.post/r"
+      reply = "at://did:plc:other/app.bsky.feed.post/3kr2222222222"
       root = %{"uri" => @mine, "cid" => "bafymine"}
 
       %{effects: effects, pds: pds} =
@@ -647,7 +658,7 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "hiding in a thread with no gate creates one, and unhiding the last reply deletes it" do
-      reply = "at://did:plc:other/app.bsky.feed.post/r"
+      reply = "at://did:plc:other/app.bsky.feed.post/3kr2222222222"
       root = %{"uri" => @mine, "cid" => "bafymine"}
 
       %{effects: effects, pds: pds} =
@@ -666,8 +677,12 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "hide_reply refuses a reply in another account's thread, and a post that is no reply" do
-      theirs = %{"uri" => "at://did:plc:other/app.bsky.feed.post/root", "cid" => "bafyroot"}
-      reply = "at://did:plc:third/app.bsky.feed.post/r"
+      theirs = %{
+        "uri" => "at://did:plc:other/app.bsky.feed.post/3kroot2222222",
+        "cid" => "bafyroot"
+      }
+
+      reply = "at://did:plc:third/app.bsky.feed.post/3kr2222222222"
 
       %{effects: effects, pds: pds} =
         pds(%{reply => post("r", %{"reply" => reply_to(theirs)}), @mine => post("root")})
@@ -685,7 +700,7 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "detach_quote lists the quoting post on the quoted post's postgate, keeping its rule" do
-      quoting = "at://did:plc:other/app.bsky.feed.post/q"
+      quoting = "at://did:plc:other/app.bsky.feed.post/3kq2222222222"
 
       embed = %{
         "$type" => "app.bsky.embed.recordWithMedia",
@@ -724,9 +739,9 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "detach_quote refuses a post quoting another account's post, and one quoting nothing" do
-      quoting = "at://did:plc:other/app.bsky.feed.post/q"
-      plain = "at://did:plc:other/app.bsky.feed.post/p"
-      theirs = %{"uri" => "at://did:plc:third/app.bsky.feed.post/x", "cid" => "bafyx"}
+      quoting = "at://did:plc:other/app.bsky.feed.post/3kq2222222222"
+      plain = "at://did:plc:other/app.bsky.feed.post/3kp2222222222"
+      theirs = %{"uri" => "at://did:plc:third/app.bsky.feed.post/3kx2222222222", "cid" => "bafyx"}
 
       %{effects: effects, pds: pds} =
         pds(%{
@@ -747,10 +762,10 @@ defmodule AtMcp.PostGatesTest do
       assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
     end
 
-    @rude "at://did:plc:other/app.bsky.feed.post/r"
-    @deep "at://did:plc:other/app.bsky.feed.post/deep"
-    @child "at://did:plc:other/app.bsky.feed.post/child"
-    @tagged "at://did:plc:other/app.bsky.feed.post/tagged"
+    @rude "at://did:plc:other/app.bsky.feed.post/3kr2222222222"
+    @deep "at://did:plc:other/app.bsky.feed.post/3kdeep2222222"
+    @child "at://did:plc:other/app.bsky.feed.post/3kchild222222"
+    @tagged "at://did:plc:other/app.bsky.feed.post/3ktagged22222"
 
     defp view(uri, text),
       do: %{
@@ -767,7 +782,7 @@ defmodule AtMcp.PostGatesTest do
         thread: %{
           "$type" => "app.bsky.feed.defs#threadViewPost",
           post: %{
-            uri: "at://did:plc:self/app.bsky.feed.post/mine",
+            uri: "at://did:plc:self/app.bsky.feed.post/3kmine2222222",
             cid: "bafymine",
             author: %{did: "did:plc:self", handle: "self.example"},
             record: %{text: "mine", createdAt: "2026-10-01T00:00:00.000Z"}
@@ -782,17 +797,17 @@ defmodule AtMcp.PostGatesTest do
             },
             %{
               "$type" => "app.bsky.feed.defs#threadViewPost",
-              post: view("at://did:plc:other/app.bsky.feed.post/kind", "kind")
+              post: view("at://did:plc:other/app.bsky.feed.post/3kkind2222222", "kind")
             },
             %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@tagged, "tagged")}
           ]
         },
         threadgate: %{
-          uri: "at://did:plc:self/app.bsky.feed.threadgate/mine",
+          uri: "at://did:plc:self/app.bsky.feed.threadgate/3kmine2222222",
           cid: "bafygate",
           record: %{
             "$type" => "app.bsky.feed.threadgate",
-            post: "at://did:plc:self/app.bsky.feed.post/mine",
+            post: "at://did:plc:self/app.bsky.feed.post/3kmine2222222",
             createdAt: "2026-10-01T00:00:00.000Z",
             hiddenReplies: [@rude]
           }

@@ -228,6 +228,14 @@ defmodule AtMcp.Network do
                      {name, properties}
                    end)
 
+  # The record key type each network's post lexicon declares.
+  @post_keys Map.new(@lexicon_paths, fn {name, path} ->
+               key =
+                 path |> File.read!() |> Jason.decode!() |> get_in(["defs", "main", "key"])
+
+               {@networks |> Map.fetch!(name) |> Map.fetch!(:namespace), key}
+             end)
+
   @limits Map.new(@post_properties, fn {name, properties} ->
             field = Map.fetch!(properties, "text")
 
@@ -414,6 +422,18 @@ defmodule AtMcp.Network do
   def collection?(collection, kind) when is_map_key(@collections, kind) do
     Enum.any?(@networks, fn {_name, network} ->
       collection == network.namespace <> "." <> Map.fetch!(@collections, kind)
+    end)
+  end
+
+  @doc """
+  The record key type the post lexicon declares for `collection`, a post
+  collection on any supported network (`"tid"` on both), or nil for any other
+  collection.
+  """
+  @spec post_key(String.t()) :: String.t() | nil
+  def post_key(collection) do
+    Enum.find_value(@post_keys, fn {namespace, key} ->
+      if collection == namespace <> "." <> Map.fetch!(@collections, :post), do: key
     end)
   end
 

@@ -2488,9 +2488,9 @@ defmodule AtMcp.Effects do
   # `kinds` on either network. Checked before a session is taken; what is wrong
   # is said about the argument by name, so a caller can fix the call.
   defp record_argument(uri, field, kinds, what) when is_binary(uri) do
-    with {:ok, {_repo, collection, _rkey} = parts} <- at_uri_argument(uri, field) do
+    with {:ok, {_repo, collection, rkey} = parts} <- at_uri_argument(uri, field) do
       if Enum.any?(kinds, &AtMcp.Network.collection?(collection, &1)),
-        do: {:ok, parts},
+        do: with(:ok <- post_key(field, collection, rkey), do: {:ok, parts}),
         else:
           invalid(
             field,
@@ -2501,6 +2501,31 @@ defmodule AtMcp.Effects do
 
   defp record_argument(_uri, field, _kinds, what),
     do: invalid(field, "must be the AT URI of #{what}")
+
+  # A post's record key is a TID, as the post lexicon declares. A URI whose key
+  # is not one was most likely copied wrong, and a read of it comes back as the
+  # service's RecordNotFound, which reads as a deleted post. So it is refused
+  # here, before anything is read, naming the key. Any other collection's key is
+  # left to the service. A service that skips lexicon checks can hold a post
+  # under some other key; AtMcp refuses to name that record as a post.
+  defp post_key(field, collection, rkey) do
+    cond do
+      AtMcp.Network.post_key(collection) != "tid" or AtMcp.ATProto.tid?(rkey) ->
+        :ok
+
+      String.length(rkey) != 13 ->
+        invalid(
+          field,
+          "must be the AT URI of a post; its record key #{rkey} is #{String.length(rkey)} characters, and a post's record key is a TID of 13 characters"
+        )
+
+      true ->
+        invalid(
+          field,
+          "must be the AT URI of a post; its record key #{rkey} is not a TID, and a post's record key is a TID: 13 characters of 2-7 and a-z, the first one 2-7 or a-j"
+        )
+    end
+  end
 
   # A URI that names one record, checked before anything is sent or counted.
   defp at_uri_argument(uri, field) do
@@ -2781,7 +2806,7 @@ defmodule AtMcp.Effects do
     case AtMcp.ATProto.parse_uri(uri) do
       {:ok, {repo, collection, rkey}} ->
         if AtMcp.Network.collection?(collection, :post),
-          do: {:ok, {repo, rkey}},
+          do: with(:ok <- post_key(field, collection, rkey), do: {:ok, {repo, rkey}}),
           else: invalid(field, "must be the AT URI of a post; #{uri} is a #{collection} record")
 
       {:error, _} ->

@@ -15,10 +15,16 @@ defmodule AtMcp.ReplyReferenceTest do
   """
   use ExUnit.Case, async: false
 
-  @readable "at://did:plc:other/app.bsky.feed.post/readable"
-  @gone "at://did:plc:other/app.bsky.feed.post/gone"
-  @broken "at://did:plc:other/app.bsky.feed.post/broken"
-  @no_repo "at://did:plc:nobody/app.bsky.feed.post/norepo"
+  @readable "at://did:plc:other/app.bsky.feed.post/3kreadable222"
+  @gone "at://did:plc:other/app.bsky.feed.post/3kgonegone222"
+  @broken "at://did:plc:other/app.bsky.feed.post/3kbroken22222"
+  @no_repo "at://did:plc:nobody/app.bsky.feed.post/3knorepo22222"
+
+  # A post's key with two characters dropped: 11 characters, where a post's
+  # key is a TID of 13. The service answers it as it answers any key it does
+  # not hold.
+  @short_key "3myrzn2372g"
+  @short "at://did:plc:other/app.bsky.feed.post/#{@short_key}"
 
   defmodule PDS do
     @moduledoc false
@@ -48,16 +54,16 @@ defmodule AtMcp.ReplyReferenceTest do
     # an error name, not a 200 with an empty body.
     defp response("com.atproto.repo.getRecord", conn) do
       case conn.query_params["rkey"] do
-        "gone" ->
+        rkey when rkey in ["3kgonegone222", "3myrzn2372g"] ->
           {400, %{error: "RecordNotFound", message: "Could not locate record"}}
 
         # The AppView's answer for a repository it does not know.
-        "norepo" ->
+        "3knorepo22222" ->
           {400, %{error: "InvalidRequest", message: "Could not find repo: did:plc:nobody"}}
 
         # The service is having a bad day. The record it was asked about may be
         # perfectly fine.
-        "broken" ->
+        "3kbroken22222" ->
           {500, %{error: "InternalServerError", message: "upstream is down"}}
 
         rkey ->
@@ -198,6 +204,44 @@ defmodule AtMcp.ReplyReferenceTest do
 
     assert Agent.get(calls, & &1) == []
     assert AtMcp.Effects.quota_status(effects).used == 0
+  end
+
+  # A post's record key is a TID (the post lexicon's `"key": "tid"`), so a key
+  # that is not one says from the URI alone that no read will find the post.
+  # The service would answer RecordNotFound, and "deleted" is the wrong thing
+  # to tell a caller holding a URI it copied wrong.
+  test "a reply or a quote naming a post by a key that cannot be a TID is refused before anything is read",
+       %{calls: calls, effects: effects, state: state} do
+    for {tool, arguments, path} <- [
+          {"reply", %{"uri" => @short, "text" => "hello"}, "uri"},
+          {"post", %{"text" => "hello", "quote" => @short}, "quote"}
+        ] do
+      assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(tool, arguments, state)
+      assert result.structuredContent.code == "invalid_arguments"
+      assert [%{path: ^path}] = result.structuredContent.problems
+
+      text = Enum.find(result.content, &(&1.type == "text")).text
+      assert text =~ @short_key
+      assert text =~ "11 characters"
+      assert text =~ "TID of 13 characters"
+      refute text =~ "deleted"
+    end
+
+    assert Agent.get(calls, & &1) == []
+    assert AtMcp.Effects.quota_status(effects).used == 0
+  end
+
+  test "a post key of 13 characters that a TID cannot have is refused the same way",
+       %{calls: calls, state: state} do
+    # 13 characters, but a TID's first character is 2-7 or a-j.
+    uri = "at://did:plc:other/app.bsky.feed.post/zzzzzzzzzzzzz"
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool("reply", %{"uri" => uri, "text" => "hello"}, state)
+
+    assert result.structuredContent.code == "invalid_arguments"
+    assert Enum.find(result.content, &(&1.type == "text")).text =~ "zzzzzzzzzzzzz is not a TID"
+    assert Agent.get(calls, & &1) == []
   end
 
   # The app renders `embed.record` for a feed, a list, a starter pack or a

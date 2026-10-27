@@ -60,7 +60,7 @@ defmodule AtMcp.LanguageLimitTest do
       opts = [
         langs: langs,
         images: [%{data: "fixture", mime_type: "image/png", alt: "image"}],
-        quote: "at://did:plc:other/app.bsky.feed.post/quote"
+        quote: "at://did:plc:other/app.bsky.feed.post/3kquote222222"
       ]
 
       assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
@@ -75,7 +75,7 @@ defmodule AtMcp.LanguageLimitTest do
       assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
                AtMcp.Effects.reply(
                  ctx.effects,
-                 "at://did:plc:other/app.bsky.feed.post/parent",
+                 "at://did:plc:other/app.bsky.feed.post/3kparent22222",
                  "reply",
                  opts
                )
