@@ -299,8 +299,7 @@ defmodule AtMcp.MCP.HTTPTest do
     # never removed). If upstream renames it, this fails rather than passing on
     # :undefined.
     table = :ex_mcp_cancelled_requests
-    before = :ets.info(table, :size)
-    assert is_integer(before)
+    assert is_integer(:ets.info(table, :size))
 
     for n <- 1..50 do
       response =
@@ -317,7 +316,17 @@ defmodule AtMcp.MCP.HTTPTest do
       assert response.status in 200..299
     end
 
-    assert :ets.info(table, :size) == before
+    # Only these ids are checked, so other rows (requests in flight, upstream's
+    # sweep) cannot move the result. Keys are a bare id up to 1.6.1 and
+    # {scope, id} after.
+    left_behind =
+      for row <- :ets.tab2list(table),
+          key = elem(row, 0),
+          id = if(is_tuple(key), do: elem(key, tuple_size(key) - 1), else: key),
+          is_binary(id) and String.starts_with?(id, "never-sent-"),
+          do: id
+
+    assert left_behind == []
   end
 
   defp post(headers, tool, arguments \\ %{}) do

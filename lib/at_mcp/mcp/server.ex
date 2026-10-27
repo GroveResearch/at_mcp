@@ -36,10 +36,12 @@ defmodule AtMcp.MCP.Server do
   @doc """
   Accepts an MCP `logging/setLevel` and changes nothing.
 
-  ExMCP's default applies the level with `Logger.configure/1`, which would let
-  any client set the log level of the whole node, beyond its own connection
-  (GHSA-5vm6-rrjx-3496). AtMcp sends no MCP log notifications, so there is no
-  per-client level to keep: a valid level is acknowledged, anything else refused.
+  Up to ex_mcp 1.7.2 the default applied the level with `Logger.configure/1`,
+  so any client could set the log level of the whole node (GHSA-5vm6-rrjx-3496).
+  ex_mcp 1.7.3's default does what this does; AtMcp keeps its own so the node's
+  log level never depends on which default a dependency ships. AtMcp sends no
+  MCP log notifications, so there is no per-client level to keep: a valid level
+  is acknowledged, anything else refused.
   """
   @impl true
   def handle_set_log_level(level, state) when level in @mcp_log_levels, do: {:ok, state}
