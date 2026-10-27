@@ -7,13 +7,21 @@ itself.
 
 ## Unreleased
 
-- `get_thread_chain` accepts `include_replies: false` to read only the
-  ancestors and requested post, without fetching direct replies. The default
-  still includes replies. Moderation reads only labelers needed by the
-  returned posts, so a labeler needed only by an excluded reply no longer
-  makes the chain's moderation unavailable or triggers authentication recovery.
-  Settings and chain-relevant labeler failures keep their existing handling.
-  Upgrade the server before clients start sending this optional argument.
+## 0.2.17
+
+- `get_thread_chain` takes `include_replies`. Given `false`, at_mcp reads the
+  ancestors and the requested post without fetching the replies under it.
+  Left out, the tool returns the replies as before. When at_mcp leaves the
+  replies out, it also skips the labelers that only those replies needed, so
+  such a labeler failing can't break the chain's moderation or start a new
+  login.
+- The old header `x-kite-account-did` and annotation `kite/publicWrite` still
+  work. 0.2.18 drops them.
+
+### Upgrade
+
+Upgrade the server before any client sends `include_replies`, because 0.2.16
+doesn't know the argument. To roll back, move clients back first.
 
 ## 0.2.16
 
@@ -31,7 +39,7 @@ itself.
   the annotation marking writes counted against the quota is
   `at_mcp/publicWrite`. The service still accepts the old header,
   `x-kite-account-did`, and write tools still carry the old annotation,
-  `kite/publicWrite`. The next release drops both.
+  `kite/publicWrite`.
 - New grants start with `at_mcp-`. at_mcp looks up a grant by its hash, so
   existing grants keep working.
 - at_mcp stops looking for data in the default folders of the project's
@@ -42,7 +50,7 @@ itself.
 
 ### Upgrade
 
-Move clients to the new header and annotation before 0.2.17. Upgrade an
+Move clients to the new header and annotation before 0.2.18. Upgrade an
 installation older than 0.2.15 to 0.2.15 first.
 
 ## 0.2.15
