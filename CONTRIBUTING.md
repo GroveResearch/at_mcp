@@ -96,6 +96,13 @@ runs it this way in the merge queue, split across parallel jobs with
 interoperability test can't pass for a success. A pull request gets a quick
 check first: formatting, compiling with warnings as errors and the async tests.
 
+To rerun the one partition that failed in the queue, say `suite (2)` of four,
+give it the same number and the variables above:
+
+```sh
+MIX_TEST_PARTITION=2 mix test --partitions 4
+```
+
 Two scripts install a built release under a scratch folder and run it against
 a local server:
 
