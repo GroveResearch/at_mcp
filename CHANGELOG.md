@@ -7,6 +7,14 @@ itself.
 
 ## Unreleased
 
+- `get_thread_chain` accepts `include_replies: false` to read only the
+  ancestors and requested post, without fetching direct replies. The default
+  still includes replies. Moderation reads only labelers needed by the
+  returned posts, so a labeler needed only by an excluded reply no longer
+  makes the chain's moderation unavailable or triggers authentication recovery.
+  Settings and chain-relevant labeler failures keep their existing handling.
+  Upgrade the server before clients start sending this optional argument.
+
 ## 0.2.16
 
 - `update_profile` takes `labels`, the account's self-labels, such as `bot`:

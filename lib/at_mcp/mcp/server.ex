@@ -168,6 +168,11 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.thread_chain())
     param(:uri, :string, required: true, description: "AT URI of the post")
 
+    param(:include_replies, :boolean,
+      description:
+        "Whether to read direct replies as well as the ancestor chain. Defaults to true. Set false when only the conversation leading to the post is needed; replies are not fetched or returned. Older pages read with before never include replies."
+    )
+
     param(:before, :string,
       description:
         "AT URI from a previous call's chain_before. Given it, the chain ends at that post instead of at uri, which is how a conversation taller than one chain is read upward without repeating or skipping a post. A page read this way carries no replies."
@@ -177,7 +182,10 @@ defmodule AtMcp.MCP.Server do
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_thread_chain(e, Map.fetch!(a, :uri), before: Map.get(a, :before)),
+        AtMcp.Effects.get_thread_chain(e, Map.fetch!(a, :uri),
+          before: Map.get(a, :before),
+          include_replies: Map.get(a, :include_replies, true)
+        ),
         state,
         :chain
       )
