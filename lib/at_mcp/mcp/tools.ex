@@ -59,6 +59,25 @@ defmodule AtMcp.MCP.Tools do
         %{method: nsid}
       )
 
+  # The same refusal, followed by what the caller can use instead.
+  def respond({:error, {:not_served, nsid, evidence, :ungrouped_notifications}}, state),
+    do:
+      error(
+        state,
+        "not_served",
+        cat([
+          ~L"error: ",
+          ident(AtMcp.Network.label()),
+          ~L" does not serve ",
+          ident(nsid),
+          ~L": ",
+          literal(evidence),
+          ~L". Nothing was sent and nothing was counted against the write quota. ",
+          ~L"get_notifications without grouped reads the same notifications one at a time."
+        ]),
+        %{method: nsid}
+      )
+
   # A refusal whose message AtMcp composed elsewhere, from its own words and,
   # for a partial deletion, the service's: the message is one literal.
   def respond(

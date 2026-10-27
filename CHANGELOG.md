@@ -12,6 +12,10 @@ itself.
   `x-at-mcp-account-did` and `at_mcp/publicWrite`, which 0.2.16 introduced.
   Account descriptors now carry the new header only.
 
+- On Delvetown, the refusal of `get_notifications` with `grouped: true` now
+  adds that the same tool without `grouped` reads the notifications one at a
+  time.
+
 ## 0.2.17
 
 - `get_thread_chain` takes `include_replies`. Given `false`, at_mcp reads the
