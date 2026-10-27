@@ -21,9 +21,9 @@ import threading
 release = Path(sys.argv[1]).resolve()
 repo = Path(__file__).resolve().parent.parent
 version = (release / "releases/start_erl.data").read_text().split()[1]
-section = (repo / "README.md").read_text().split("### Fetch a release\n", 1)[1].split("## Connect a first account", 1)[0]
+section = (repo / "README.md").read_text().split("### Fetch a release\n", 1)[1].split("### Connect Claude Code", 1)[0]
 blocks = re.findall(r"```sh\n(.*?)```", section, re.S)
-assert len(blocks) == 4, "expected Mac, Linux, download and install command blocks"
+assert len(blocks) == 1, "expected one download and install command block"
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -41,19 +41,17 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-download-") as scratch:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), partial(Quiet, directory=str(root / "assets")))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        platform_block = blocks[0] if target == "macos-arm64" else blocks[1]
-        assert "PLATFORM=" + target in platform_block
-        platform_block, replacements = re.subn(r"^VERSION=[^\n]+$", "VERSION=" + version,
-                                               platform_block, flags=re.M)
+        assert "PLATFORM=" + target in blocks[0]
+        commands, replacements = re.subn(r"^VERSION=[^\n]+$", "VERSION=" + version,
+                                         blocks[0], flags=re.M)
         assert replacements == 1, "expected one README version assignment"
-        commands = platform_block + "\n" + blocks[2].replace(
+        commands = commands.replace(
             "BASE_URL=https://github.com/GroveResearch/at_mcp/releases/download",
             "BASE_URL=http://127.0.0.1:" + str(server.server_port))
-        install = blocks[3]
         home = root / "home"
         home.mkdir()
         env = {"PATH": os.environ["PATH"], "HOME": str(home), "TMPDIR": str(root)}
-        subprocess.run(["sh", "-ec", commands + "\n" + install], env=env, check=True)
+        subprocess.run(["sh", "-ec", commands], env=env, check=True)
         downloaded = home / "at_mcp/current"
         assert (downloaded / "LICENSE").read_bytes() == (repo / "LICENSE").read_bytes()
         for source in (repo / "licenses").rglob("*"):
@@ -69,11 +67,11 @@ with tempfile.TemporaryDirectory(prefix="at-mcp-download-") as scratch:
         shutil.rmtree(home / "at_mcp")
         checksum_file = assets / (name + ".sha256")
         checksum_file.unlink()
-        missing = subprocess.run(["sh", "-ec", commands + "\n" + install], env=env, capture_output=True)
+        missing = subprocess.run(["sh", "-ec", commands], env=env, capture_output=True)
         assert missing.returncode != 0 and not (home / "at_mcp").exists(), "missing checksum must stop installation"
         checksum_file.write_text(f"{checksum}  {name}\n")
         archive.write_bytes(archive.read_bytes() + b"tampered")
-        bad = subprocess.run(["sh", "-ec", commands + "\n" + install], env=env, capture_output=True)
+        bad = subprocess.run(["sh", "-ec", commands], env=env, capture_output=True)
         assert bad.returncode != 0 and not (home / "at_mcp").exists()
     finally:
         server.shutdown()

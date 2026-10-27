@@ -5,6 +5,6 @@
 #
 # `:e2e` marks the round trips against a local reference network
 # (test/e2e/), which needs Node, Postgres, Redis and a built atproto
-# checkout. Run them with scripts/e2e.sh (docs/operations.md, "End-to-end
+# checkout. Run them with scripts/e2e.sh (CONTRIBUTING.md, "End-to-end
 # round trips").
 ExUnit.start(exclude: [:goal, :e2e])

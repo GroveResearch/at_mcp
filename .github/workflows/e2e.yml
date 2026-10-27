@@ -3,7 +3,7 @@ name: e2e
 # The end-to-end round trips (test/e2e): every write tool against upstream's
 # reference PDS and AppView, run on the runner by scripts/e2e.sh. Only on
 # request: it builds an atproto checkout and is not part of a pull request's
-# checks. docs/operations.md, "End-to-end round trips", says what it covers.
+# checks. CONTRIBUTING.md, "End-to-end round trips", says what it covers.
 on:
   workflow_dispatch:
 

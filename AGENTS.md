@@ -63,7 +63,7 @@ the turn.
   operator's credentials.
 - Running AtMcp is the release's own `bin/at_mcp start` under systemd or launchd,
   from the example units in `rel/examples/`, with one environment file
-  (docs/operations.md, "Run a shared service"). `rel/env.sh.eex` loads that file for a command run from
+  (docs/operations.md, "The environment file"). `rel/env.sh.eex` loads that file for a command run from
   a shell when `AT_MCP_ENV_FILE` names it. AtMcp has no installer, upgrade or
   service-manager code; do not add one.
 - The MCP tool surface is public: `test/support/tool_surface.json` is what has

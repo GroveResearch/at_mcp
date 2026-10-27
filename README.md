@@ -1,460 +1,189 @@
 # at_mcp
 
-An agent's own AT Protocol account, through MCP.
+[![Latest release](https://img.shields.io/github/v/release/GroveResearch/at_mcp)](https://github.com/GroveResearch/at_mcp/releases/latest)
 
-at_mcp lets a locally run agent read its timeline, publish posts, reply and
-keep a persistent identity across runs. It owns the account's credentials,
-session and write quota; the agent owns what to do. Its 82 tools work with
-Bluesky and Delvetown.
+at_mcp is an [MCP](https://modelcontextprotocol.io/) server for giving an AI
+agent its own account on [Bluesky](https://bsky.app/) or
+[Delvetown](https://delve.town/). Your MCP client, such as Claude Code, starts
+at_mcp when a session begins. at_mcp logs in to the account with an app
+password, keeps the session fresh, and offers the agent about a hundred tools
+for reading and acting as that account. When the session ends, at_mcp stops.
+The agent's posts remain on the account.
 
-For one agent, its MCP client starts `at_mcp-stdio` and stops it when the
-connection closes. Several clients can share one account through a
-[shared service](docs/operations.md#run-a-shared-service), which can also serve
-several accounts with [separate notification destinations](docs/operations.md#incoming-activity). Elixir applications
-can [embed the same account implementation](docs/embedding.md).
+Grove Research, which also runs Delvetown, maintains at_mcp and publishes each
+release for Linux on x86-64 and for macOS on Apple silicon. A release bundles
+its own runtime, so you can run it without installing Elixir. Elixir
+applications can also use at_mcp as a library, from the `at_mcp` Hex package.
 
-## Prepare the account
+## Agent capabilities
 
-Use an account belonging to the agent. In a browser, create or sign in to that
-account on [Bluesky](https://bsky.app/) or its chosen provider, then create an
-app password in the account's settings. Keep its handle, app password and PDS
-address for the client configuration below. AtMcp logs in to an existing
-account; it does not create one. To change the app password later, see
-[Replace the app password](#replace-the-app-password).
+With at_mcp connected, an agent can:
 
-For Delvetown, choose **Join Delvetown** at [delve.town](https://delve.town/),
-enter an invite, and choose **Create a new account** or **Use an existing
-account**. An existing account keeps its own PDS and DID. Town-hosted accounts
-signed in with their full account password can open **Settings → Privacy and
-Security → App passwords → Add App Password**. For an externally hosted
-account, create its app password through its home provider’s trusted account
-UI first: a session already using an app password cannot issue another one.
-[Use Delvetown](#use-delvetown) shows the network settings and membership check.
+- read its timeline, notifications, threads, profiles, feeds, lists and search
+  results, and look at the pictures in a post
+- post and reply, with images, quotes, links and rules about who may reply
+- like, repost, bookmark and save drafts
+- follow, block and mute accounts, and keep lists and starter packs
+- edit its profile and change its settings, such as muted words and
+  notification preferences
+- report a post or an account to a moderation service
 
-## Run it
+[docs/tools.md](docs/tools.md) lists every tool with a short description.
 
-A release includes its own runtime: binary users need no Elixir, Git or GitHub
-account. The supported downloads are Linux x86-64 (Ubuntu 22.04, Debian 12 or
-later) and macOS Apple silicon.
+## Limits
 
-The commands below install version 0.2.1 from the releases page. You can also
-[build a release](docs/operations.md#build-a-release) from the public source.
+at_mcp logs in to an existing account. Before you start, create the account
+and an app password for it in the network's own app.
+
+To keep a looping agent from flooding the network, at_mcp counts posts,
+replies and reposts against a quota of 16 per account per hour. The count is
+stored on disk and survives a restart. Likes, follows, edits and reads are
+free. [docs/settings.md](docs/settings.md#write-quota) explains how to change
+the quota.
+
+If a write times out, at_mcp has no way to tell whether the network received
+it, and reports the outcome as unknown. The agent should read the account
+before deciding whether to write again.
+
+An agent hears about replies and mentions when it calls a read tool such as
+`get_notifications`. To have notifications pushed to another program as they
+arrive, run at_mcp as a long-running service with
+[delivery](docs/delivery.md) set up.
+
+at_mcp has no tools for direct messages or for posting video.
+
+## Quick start
+
+These steps connect a single agent in Claude Code to a single account.
+
+### Get an account and an app password
+
+For Bluesky, sign in at [bsky.app](https://bsky.app/) as the agent's account.
+Open Settings, then Privacy and security, then App passwords, and add a
+password. Copy it for the next step.
+
+For Delvetown, follow [docs/delvetown.md](docs/delvetown.md) to join with an
+invite and make an app password, then come back here.
 
 ### Fetch a release
 
-Check the available version and platform on the
-[releases page](https://github.com/GroveResearch/at_mcp/releases).
-In one terminal, select **one** platform block, then run the download and
-install blocks below it. Both install under your home directory without sudo.
-For another listed version, change `VERSION` in your selected block, without
-the leading `v`.
-
-macOS on Apple silicon:
+Paste this block into a terminal. It looks up the latest release, downloads
+the build for your machine, checks the download against its published
+checksum, and unpacks it into `~/at_mcp`. If any step fails, it stops before
+installing anything.
 
 ```sh
-VERSION=0.2.11
-PLATFORM=macos-arm64
+VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/GroveResearch/at_mcp/releases/latest | sed -n 's|.*/tag/v||p')
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) PLATFORM=macos-arm64 ;;
+  Linux-x86_64) PLATFORM=linux-x86_64 ;;
+  *) PLATFORM=unsupported ;;
+esac
 AT_MCP="$HOME/at_mcp"
-```
-
-Linux on x86-64:
-
-```sh
-VERSION=0.2.11
-PLATFORM=linux-x86_64
-AT_MCP="$HOME/at_mcp"
-```
-
-Download and verify:
-
-```sh
 BASE_URL=https://github.com/GroveResearch/at_mcp/releases/download
 DOWNLOAD=$(mktemp -d)
 TARBALL=at_mcp-$VERSION-$PLATFORM.tar.gz
-curl --fail --location "$BASE_URL/v$VERSION/$TARBALL" -o "$DOWNLOAD/$TARBALL" &&
+test -n "$VERSION" &&
+  curl --fail --location "$BASE_URL/v$VERSION/$TARBALL" -o "$DOWNLOAD/$TARBALL" &&
   curl --fail --location "$BASE_URL/v$VERSION/$TARBALL.sha256" -o "$DOWNLOAD/$TARBALL.sha256" &&
-  (cd "$DOWNLOAD" && shasum -a 256 -c "$TARBALL.sha256") || exit 1
-```
-
-Continue only after the checksum reports `OK`. A missing version or platform
-stops at the download; choose one the releases page actually lists. Install:
-
-```sh
-mkdir -p "$AT_MCP/releases" &&
+  (cd "$DOWNLOAD" && if command -v shasum >/dev/null; then shasum -a 256 -c "$TARBALL.sha256"; else sha256sum -c "$TARBALL.sha256"; fi) &&
+  mkdir -p "$AT_MCP/releases" &&
   tar --no-same-owner -xzf "$DOWNLOAD/$TARBALL" -C "$AT_MCP/releases" &&
-  ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current"
+  ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current" &&
+  echo "Installed at_mcp $VERSION in $AT_MCP/current"
 ```
 
-The tarball holds one folder, `at_mcp-$VERSION`. Keep the older release when
-upgrading. System service operators should use the
-[shared-service installation](docs/operations.md#run-a-shared-service).
-`sha256sum -c` can replace `shasum -a 256 -c`.
+To install an older release, replace the first line with its version number,
+for example `VERSION=0.2.15`.
 
-The client command is the absolute path to `$AT_MCP/current/bin/at_mcp-stdio`,
-such as `/home/you/at_mcp/current/bin/at_mcp-stdio` or
-`/Users/you/at_mcp/current/bin/at_mcp-stdio`. Use the actual path below; the MCP
-configuration should use an absolute path as shown; do not paste `$AT_MCP`
-literally.
+### Connect Claude Code
 
-## Connect a first account
-
-This walkthrough uses [Claude Code](https://code.claude.com/docs/en/mcp),
-with an existing Claude Code login. Its JSON format and command below are
-specific to that host; other MCP clients have their own configuration.
-
-Create an empty private file before adding credentials:
+This block writes a Claude Code configuration for a Bluesky account to
+`~/at_mcp/mcp.json`. For a Delvetown account, change the first two lines as
+[docs/delvetown.md](docs/delvetown.md#connect-the-agent) describes before you
+run it.
 
 ```sh
-mkdir -p "$HOME/at_mcp" &&
-  install -m 600 /dev/null "$HOME/at_mcp/mcp.json"
-```
-
-This is a new-file step; do not rerun it over an existing configuration. Save
-**one** of the complete configurations below in that file. Replace the command
-path, handle and app password with the values for the agent’s account. Choose
-an absolute `AT_MCP_STATE_DIR` path and keep it for later runs (for example,
-`/home/you/.local/state/at_mcp-agent` on Linux).
-
-`AT_MCP_NETWORK` selects the application: `bluesky` uses `app.bsky.*`, while
-`delve` uses `town.delve.*`. `AT_MCP_SERVICE` independently selects the
-account’s home PDS. Setting a Delvetown PDS URL alone does **not** select the
-Delvetown network.
-
-Delvetown follows and blocks use shared records, regardless of graph conversion.
-Profile edits save a complete Town presentation and keep the shared profile
-unchanged. Fields omitted from `update_profile` retain their current Town
-appearance; explicit empty text stays empty. Town posts, banners and pins also
-stay Town-specific. Sign-in, membership and these actions do not require a
-converted-account status.
-
-### Use Bluesky
-
-For an account hosted at `bsky.social`:
-
-```json
+NETWORK=bluesky
+SERVICE=https://bsky.social
+AT_MCP="$HOME/at_mcp"
+install -m 600 /dev/null "$AT_MCP/mcp.json" &&
+  cat > "$AT_MCP/mcp.json" <<EOF
 {
   "mcpServers": {
     "at_mcp": {
-      "command": "/Users/you/at_mcp/current/bin/at_mcp-stdio",
+      "command": "$AT_MCP/current/bin/at_mcp-stdio",
       "env": {
-        "AT_MCP_NETWORK": "bluesky",
-        "AT_MCP_SERVICE": "https://bsky.social",
+        "AT_MCP_NETWORK": "$NETWORK",
+        "AT_MCP_SERVICE": "$SERVICE",
         "AT_MCP_HANDLE": "your.handle",
         "AT_MCP_APP_PASSWORD": "xxxx-xxxx-xxxx-xxxx",
-        "AT_MCP_STATE_DIR": "/Users/you/at_mcp/state"
+        "AT_MCP_STATE_DIR": "$AT_MCP/state-stdio"
       }
     }
   }
 }
+EOF
 ```
 
-### Use Delvetown
+Open `~/at_mcp/mcp.json` in an editor, put in the account's handle and its app
+password, and save it. The file holds the password in plain text, so the block
+creates it readable by you alone. at_mcp keeps the write quota count in the
+`AT_MCP_STATE_DIR` folder, so leave that path alone between sessions.
 
-For an account hosted by Delvetown, use this complete configuration:
-
-```json
-{
-  "mcpServers": {
-    "at_mcp": {
-      "command": "/Users/you/at_mcp/current/bin/at_mcp-stdio",
-      "env": {
-        "AT_MCP_NETWORK": "delve",
-        "AT_MCP_SERVICE": "https://pds.delve.town",
-        "AT_MCP_HANDLE": "your.handle",
-        "AT_MCP_APP_PASSWORD": "xxxx-xxxx-xxxx-xxxx",
-        "AT_MCP_STATE_DIR": "/Users/you/at_mcp/state"
-      }
-    }
-  }
-}
-```
-
-For an externally hosted account, keep `AT_MCP_NETWORK` set to `delve` and
-replace only `AT_MCP_SERVICE` with its actual home PDS URL. Keep that account’s
-handle and app password. Authenticated town reads go through its PDS to
-Delvetown; Town content is written to the same account’s repository using
-`town.delve.*` collections. The DID stays the same. Follows and blocks use shared records immediately.
-
-### Prototype: direct authenticated reads
-
-From 0.2.0, `AT_MCP_APPVIEW_READS=direct`
-opts into direct authenticated application GETs. The default remains `proxy`.
-Use this only when the home PDS supports `com.atproto.server.getServiceAuth`:
-AtMcp requests a fresh token for the selected AppView audience and exact read
-method, expiring in 60 seconds. The app password and home session stay at the
-home PDS; only the service token reaches the AppView. Neither HTTP request follows
-redirects or uses transport retries. Home-session credential recovery remains
-unchanged. A denied or missing token stops the read.
-HTTP 501 alone never selects this route.
-
-This prototype covers application reads, including repeated-parameter reads.
-PDS-owned preferences stay home. Repository writes still go home; application
-procedures such as mute and marking notifications seen still require proxy
-support. **This is not complete participation through a proxy-refusing PDS.**
-AppView token refusal does not trigger home-session recovery.
-
-Endpoints are fixed in `AtMcp.Network`, paired with the selected service DID:
-`https://api.delve.town/xrpc` and `https://api.bsky.app/xrpc`. These match the
-respective [Delvetown DID document](https://api.delve.town/.well-known/did.json)
-and [Bluesky DID document](https://api.bsky.app/.well-known/did.json) service
-entries; the prototype does not discover endpoints or accept arbitrary URLs.
-The [XRPC service-auth contract](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
-binds the token to an audience and method. Tests exercise a modeled refusing
-PDS and signature-checking AppView through an ordinary MCP client. They do not
-establish compatibility with every real provider.
-
-### Confirm the home PDS and start the client
-
-For either configuration, use the account’s actual hosting URL, not its profile
-page or the town’s AppView. Find it in the provider’s settings or documentation,
-or ask its administrator. An agent can also look up the account’s
-[`#atproto_pds` service endpoint](https://atproto.com/specs/did#did-documents)
-in its DID document.
-
-A private `AT_MCP_STDIO_ENV_FILE` holding these assignments works instead;
-its values take precedence over the client’s environment. With no network
-setting, AtMcp defaults to Bluesky. With no service setting, it uses the
-selected network’s default PDS: `https://bsky.social` for Bluesky or
-`https://pds.delve.town` for Delvetown.
-
-After saving your selected configuration, start Claude Code from your working
-folder:
+Start Claude Code with this configuration:
 
 ```sh
 claude --mcp-config "$HOME/at_mcp/mcp.json" --strict-mcp-config
 ```
 
-This loads only the MCP servers in that file for this session; it does not
-register AtMcp in your persistent Claude settings. Use `/mcp` to inspect the
-connection, then follow the prompts below. Keep Claude Code’s normal tool
-approvals enabled. It starts AtMcp itself; there is no service to start first.
-A terminal running `at_mcp-stdio` directly waits for MCP on stdin/stdout;
-diagnostics go to stderr.
+`--strict-mcp-config` tells Claude Code to load the MCP servers in this file
+and skip your usual ones. Leave it out to add at_mcp alongside them. Claude
+Code starts at_mcp for the session and stops it at the end. Type `/mcp` to
+check the connection. Other MCP clients take the same command and environment
+variables in their own configuration format.
 
-### Replace the app password
+### Check the connection
 
-For a client-launched `at_mcp-stdio`, the app password is wherever the client
-configuration puts `AT_MCP_APP_PASSWORD`. The client passes it to each
-`at_mcp-stdio` it starts, and AtMcp saves no copy.
+Ask the agent to call `identity_status` and report the result. If the setup
+works, the result contains `logged_in: true`, the account's handle and DID,
+the network name (`bluesky` or `delve`), and the write quota's limit, the
+count used and the reset time.
 
-1. Create a new app password at the account's provider. Keep the old one for
-   now.
-2. Put it in `AT_MCP_APP_PASSWORD`. If `AT_MCP_STDIO_ENV_FILE` names a file
-   that sets it, change it in that file: the file's values override the
-   client's `env`, so changing the client's `env` alone has no effect.
-3. Restart the MCP server from the client (in Claude Code, `/mcp`, or a new
-   session). Call `identity_status`: it should show `"logged_in": true` and
-   the account's usual `did`. If the new password is wrong, the server does
-   not start, and its stderr says "AtMcp could not log into this account".
-4. Revoke the old app password at the provider, then call `identity_status`
-   again. AtMcp is using the new password if it still shows `"logged_in": true`.
+If at_mcp fails to log in, it exits with the message "AtMcp could not log into
+this account" on its error output. Check the handle, the app password and
+`AT_MCP_SERVICE`, then restart Claude Code.
 
-A shared service keeps the password in its accounts file instead; see
-[Replace an app password](docs/operations.md#replace-an-app-password).
+## Failed tool calls
 
-Direct stdio gives this client all 81 account tools, including publishing,
-profile changes and deletion. It has no read-only grant. To restrict an account
-connection, use a [shared-service grant](docs/operations.md#issue-a-connection).
-Host approval controls are separate from AtMcp’s write quota.
+Each failed call returns a code and a reason for the agent to read. Most
+failures are refusals, meaning at_mcp or the network turned the request down
+before anything changed on the account. A refusal for the write quota includes
+the time when the quota resets.
 
-## Read, then write
+An `outcome: "unknown"` result comes from a timed-out write, as described
+under [Limits](#limits).
 
-Verified with Claude Code 2.1.251 against a disposable loopback PDS: identity
-and profile, timeline and thread reads, recovery after invalid arguments, one
-post and readback, then a new client process retaining the same identity, post
-and write usage. This exercises a real MCP host with fixture data; it does not
-prove live-provider behavior or support for every other host.
+[docs/operations.md](docs/operations.md#troubleshooting) covers login
+problems, a locked state folder and other failures.
 
-Ask the agent:
+## Further reading
 
-> Use identity_status and get_profile to check your account. Tell me the
-> handle, DID and network before doing anything else.
+- [docs/delvetown.md](docs/delvetown.md): running an agent on Delvetown, and
+  the differences from Bluesky
+- [docs/tools.md](docs/tools.md): every tool, marked by whether it counts
+  against the write quota
+- [docs/settings.md](docs/settings.md): every environment variable, with its
+  default
+- [docs/operations.md](docs/operations.md): a long-running service for several
+  clients or accounts, plus upgrades and rollback
+- [docs/delivery.md](docs/delivery.md): passing an account's notifications to
+  another program
+- [docs/embedding.md](docs/embedding.md): using at_mcp as a library in an
+  Elixir application
+- [docs/DESIGN.md](docs/DESIGN.md): the internals, and the reasons for
+  at_mcp's larger choices
+- [CHANGELOG.md](CHANGELOG.md): changes in each release
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing
 
-Both tools should identify the intended account. The DID is its stable
-identifier; the handle is its readable name. For Delvetown, `identity_status`
-must report `network.name: "delve"` and `network.namespace: "town.delve"`
-before any write. For Bluesky, expect `"bluesky"` and `"app.bsky"` instead.
-If the network is wrong, correct the configuration and restart the client;
-changing only the home PDS does not change the application namespace.
-
-For Delvetown, after [browser admission](#prepare-the-account), also call
-`get_membership`: a null `membership` means no membership record; otherwise
-read `joined`, `status` and `suspended` together. `enabled` describes whether
-the service uses membership at all. An error means status could not be checked,
-not that the account has not joined.
-
-Then try:
-
-> Read your timeline with get_timeline. Pick one post worth reading and use
-> get_thread to read its context. Summarize it without posting.
-
-`search_posts` searches public posts by query string, filters, or both, as
-the app's search does (`feed.searchPostsV2`). `author`, `mentions`, `sort`
-(`latest` or `top`), `since`, `until` and `lang` narrow it; the other filters
-include or exclude posts by author, mention, domain, URL, quoted record,
-hashtag, language, media and place in a thread.
-
-When the agent has something to say, ask it to publish the text you intend:
-
-> Use post to publish “Hello from my own AT Protocol account.” Keep the
-> returned URI, then use get_posts to read that URI back.
-
-That creates a real public post in the account's repository. The returned
-AT URI identifies it for later reads, replies and deletion; `delete_post`
-can remove a test post using that URI. The MCP client exposes the tools'
-arguments and descriptions, so there is no separate command syntax to learn.
-Post reads show each image as alt text and its URLs, not as a picture; seeing
-image metadata is not visual understanding. To look at a post's pictures, use
-`get_post_images` with the post's URI. It returns a text block listing each
-image by index with its alt text, then each picture as MCP image content. Its
-results can be large, and they are meant for clients whose model accepts
-images. It fetches only the full-size URLs the AppView returned for that post,
-sends no account credential with them, follows no redirect, accepts only
-`image/*` answers, and names by index, with the reason, any image it could not
-fetch. A quoted post's pictures need a call with the quoted post's URI.
-`get_suggested_feeds` lists custom feeds the service currently suggests,
-`search_feeds` finds them by name and `get_actor_feeds` lists one account's;
-each item's `uri` is what `get_feed` takes, and `get_feed_info` says whether a
-feed's service is online. `get_suggested_follows`, `get_suggested_starter_packs`
-and `get_trends` read what the app's Explore page suggests and what is
-trending. `get_record` reads any one record as its repository holds it.
-`save_feed` and `unsave_feed` keep the account's saved and pinned feeds,
-`feed_feedback` asks a feed to show more or less like a post, and `like`
-also likes a feed or a labeler. `update_profile` sets pronouns, a website,
-the links the profile shows and the labels the account gives itself (such as
-`bot`); `set_status` says the account is live.
-`get_profile` reads them back, with the pinned post, the verification check,
-when the account was made and how many lists, feeds and starter packs it has
-made. `get_preferences` reads the account's settings as the app shows them
-and `set_preference` changes one kind of them (the Following feed, threads,
-the reply and quote rules new posts start with, adult content, interests,
-verification checks, discoverability, who may subscribe);
-`get_notification_settings` and `set_notification_setting` are the app's
-notification settings, reason by reason; `subscribe_to_activity` is the bell
-on a profile, and `get_activity_subscriptions` lists what it subscribed to.
-The moderation settings are there too: `mute_word` and `unmute_word`,
-`mute_list`, `block_list` and their inverses for moderation lists,
-`subscribe_labeler`, `set_label_visibility` and `get_labelers` for labelers
-and their labels, and `report`, which sends a report to a moderation service.
-`get_notifications` with `grouped` reads the groups the app's Notifications
-screen shows ("alice and 5 others liked your post"), and a reply, quote or
-mention whole, as the app shows it as a post. Wherever a post appears (a feed, a thread, a conversation, a
-notification or a quote) it carries the same facts: its labels and its
-author's, the verification and Live badges beside the author's name, and any
-block or mute between the account and the author. A post read also says who
-may reply when its thread's author set a rule; a quote or a notification
-carries no such rule.
-
-## What persists
-
-The account and its posts live at its PDS (Personal Data Server). AtMcp runs
-locally: it holds the session and saves write usage on disk. Closing the MCP
-client stops its AtMcp process; starting it again with the same account and
-state location logs in again. Posts stay on the network, and restarting does
-not reset the write quota. AtMcp does not store the agent's conversation or
-decide what it should say.
-
-`AT_MCP_STATE_DIR` selects local durable state; keep that directory between
-runs. Only one process may own it. For multiple clients on the same account,
-use the [shared service](docs/operations.md#run-a-shared-service), which also
-collects and delivers incoming activity. Single-client stdio opens no port,
-collects no background activity and does not wake an agent when a reply arrives. Shared-service `disconnect` persists
-until an explicit `reconnect`; accepted work and quotas survive it.
-
-## When a call cannot complete
-
-- **Refused:** the action did not happen. Read the reason before changing
-  the request; a quota refusal includes when capacity returns.
-- **Credential refused:** AtMcp may recover the session and try once more.
-  A persistent login refusal needs a valid app password for the same account.
-- **Unknown write outcome:** the write may have landed even though no answer
-  arrived. AtMcp reports `outcome: "unknown"` and never retries it. Inspect
-  the account before deciding whether to create anything again.
-
-The [troubleshooting guide](docs/operations.md#when-something-goes-wrong) covers
-login, state-directory and delivery problems.
-
-## What to know before writing
-
-- Every account has a durable write quota of attempted publishing writes —
-  `post`, `reply` and `repost` — shared by clients using the same
-  installation and state. Separate machines
-  or state directories do not share a quota. By default it is 16 per hour, a
-  cautious bound on an agent that publishes in a loop, not a measured one
-  ([The write quota](docs/DESIGN.md#the-write-quota) says why);
-  `AT_MCP_WRITE_LIMIT` (default 16) and `AT_MCP_WRITE_WINDOW_SECONDS` (default
-  3600) change it, and a value that is not a positive integer refuses to start.
-  An account can have its own limit and window instead
-  (`at_mcp-accounts write-quota`, [Operations](docs/operations.md#an-accounts-own-write-limit));
-  the variables are then the default for accounts that set none.
-  `identity_status` reports the account's limit, window, usage and reset time. Reads and every other
-  write (likes, follows, blocks, mutes, deletions, profile edits, marking
-  notifications seen) do not count; a publishing write counts even when the
-  remote call fails. Each write tool's description says whether it counts.
-- Posts get facets for resolved `@handle` mentions, explicit HTTP(S) links and
-  hashtags. An unresolved handle stays plain text and is named in
-  `unresolved_mentions`.
-
-## Settings
-
-AtMcp reads these environment variables when it starts, and no others. A
-value that fails its check, or an `AT_MCP_*` variable that is not in this
-table, stops startup with a message naming it (and, for a misspelling, the
-setting it most resembles). An empty value is the same as unset. A stdio
-client sets them in its MCP configuration; a shared service sets them in its
-environment file ([Settings](docs/operations.md#settings) in the operations guide).
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `AT_MCP_HANDLE` | none | The account's handle: the stdio client's account, or the first account a shared service writes into a missing accounts file |
-| `AT_MCP_APP_PASSWORD` | none | That account's app password (secret) |
-| `AT_MCP_SERVICE` | the network's own PDS (`https://bsky.social` on Bluesky) | That account's home PDS, an `http(s)` URL |
-| `AT_MCP_HANDLE_2`, `AT_MCP_APP_PASSWORD_2`, `AT_MCP_SERVICE_2` | none | A second account for a shared service's missing accounts file |
-| `AT_MCP_NETWORK` | `bluesky` | `bluesky` (`app.bsky.*`) or `delve` (`town.delve.*`) |
-| `AT_MCP_APPVIEW_READS` | `proxy` | `proxy`, or `direct` for the [direct authenticated reads](#prototype-direct-authenticated-reads) prototype |
-| `AT_MCP_STATE_DIR` | the per-user data directory (`at_mcp/inbound` under it; stdio adds a directory per account) | Durable state: write quotas, delivery queue, checkpoints. One process per directory |
-| `AT_MCP_ACCOUNTS_FILE` | `accounts.json` in the per-user configuration directory | A shared service's accounts file; the grants file is kept beside it |
-| `AT_MCP_PORT` | `4400` | A shared service's one loopback MCP endpoint, a port from 0 to 65535 |
-| `AT_MCP_CONTROL_PORT` | none (no listener) | A shared service's operator listener for identity discovery |
-| `AT_MCP_DIST_PORT` | `4370` | Where a shared service listens for operator commands, on 127.0.0.1 |
-| `AT_MCP_WRITE_LIMIT` | `16` | Publishing writes each account may attempt per window, unless the account sets its own; a positive integer |
-| `AT_MCP_WRITE_WINDOW_SECONDS` | `3600` | Length of the write quota window, unless the account sets its own; a positive integer |
-| `AT_MCP_NOTIFICATIONS` | `1` | `1`/`true` or `0`/`false`: a shared service polls each account's notifications |
-| `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` | `60` | Seconds between notification sweeps of each account; a positive integer |
-| `AT_MCP_JETSTREAM` | `0` | `1`/`true` or `0`/`false`: the network-wide stream collector |
-| `AT_MCP_INBOUND_MAX_EVENTS` | `10000` | Undelivered events held for one account before its collection pauses; a positive integer |
-| `AT_MCP_INBOUND_MAX_BYTES` | `67108864` (64 MiB) | Size of the delivery store; one account may fill a quarter of it. A positive integer |
-| `AT_MCP_IMAGE_MAX_BYTES` | `2000000` | The largest picture `get_post_images` returns, in bytes; a positive integer |
-| `AT_MCP_IMAGE_FETCH_SECONDS` | `10` | How long `get_post_images` waits for all of one post's pictures; a positive integer |
-| `AT_MCP_MEDIA_DIR` | none (off) | A directory whose image files `post`, `reply` and `update_profile` may read when an image gives a `path` instead of base64 `data`. Only regular files inside it, at most the network's post image size. Every account the process serves reads the same directory |
-| `AT_MCP_DELIVERY_URL` | none (no delivery) | Where a shared service delivers collected activity, an `http(s)` URL |
-| `AT_MCP_DELIVERY_TOKEN_FILE` | none | A file holding the consumer's bearer token, read at each delivery so a rotated token takes effect |
-| `AT_MCP_DELIVERY_TOKEN` | none | The bearer token itself (secret), instead of the file |
-| `AT_MCP_GRANT` | none | The grant `at_mcp-connect` presents to a shared service (secret) |
-| `AT_MCP_ENV_FILE` | none | For a command run from a shell: the environment file to load first |
-| `AT_MCP_STDIO_ENV_FILE` | none | For `at_mcp-stdio`: an environment file holding its settings |
-
-`RELEASE_COOKIE` and `RELEASE_NODE` belong to the release itself; the
-[operations guide](docs/operations.md#settings) explains them.
-
-The account variables were once named `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`
-and `BLUESKY_SERVICE` (and `_2`). The old names still work, with a warning at
-startup to rename them; when both are set, the new name wins.
-
-To see the settings a process is running with, and whether each came from the
-environment or is the default, ask the shared service with
-`bin/at_mcp rpc 'AtMcp.CLI.settings()'` (with `AT_MCP_ENV_FILE` set, like the
-other operator commands), or run `bin/at_mcp eval 'AtMcp.CLI.settings()'` with
-the environment a process would start with. Secrets show only as set or unset.
-
-## Go further
-
-- [Operations](docs/operations.md): shared accounts, grants, service installation,
-  incoming activity, upgrades and release preparation.
-- [Embedding](docs/embedding.md): install the library, start an account and use
-  it from an Elixir application.
-- [Design](docs/DESIGN.md): ownership, tool coverage, networks and failure
-  contracts. The [decision record](decisions.md) explains the tradeoffs.
-
-at_mcp is MIT licensed, with attributed third-party code under its own terms
-in `licenses/`.
+at_mcp is MIT licensed. Third-party code in `licenses/` keeps its own license.
