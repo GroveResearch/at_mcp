@@ -707,12 +707,17 @@ defmodule AtMcp.Effects do
   `feed.getSuggestedFeeds`, which pages; `"unspecced"` reads the newer
   suggestion service, `unspecced.getSuggestedFeeds`, which takes at most 25
   and no cursor.
+
+  A first page also carries `app_pinned_feeds`, the views of the feeds the
+  network's app pins for every account (`AtMcp.Network.app_pinned_feeds/0`),
+  when it pins any. The service's suggestions stay in `items` alone.
   """
   def get_suggested_feeds(effects, opts \\ []) do
     case present(opts[:source]) || "default" do
       "default" ->
         paged(effects, Keyword.take(opts, [:limit, :cursor]), fn backend, session, page ->
-          backend.get_suggested_feeds(session, page)
+          with {:ok, result} <- backend.get_suggested_feeds(session, page),
+               do: with_app_pinned_feeds(backend, session, result, page[:cursor])
         end)
 
       "unspecced" ->
@@ -720,12 +725,25 @@ defmodule AtMcp.Effects do
              :ok <- only_with(opts[:cursor], false, "cursor", "the unspecced source is one page"),
              :ok <- at_most(opts[:limit]) do
           paged(effects, Keyword.take(opts, [:limit]), fn backend, session, page ->
-            backend.get_suggested_feeds(session, Keyword.put(page, :source, :unspecced))
+            with {:ok, result} <-
+                   backend.get_suggested_feeds(session, Keyword.put(page, :source, :unspecced)),
+                 do: with_app_pinned_feeds(backend, session, result, nil)
           end)
         end
 
       _other ->
         invalid("source", "must be default or unspecced")
+    end
+  end
+
+  defp with_app_pinned_feeds(backend, session, result, cursor) do
+    case AtMcp.Network.app_pinned_feeds() do
+      pinned when pinned == [] or is_binary(cursor) ->
+        {:ok, result}
+
+      pinned ->
+        with {:ok, %{items: items}} <- backend.get_feed_info(session, pinned),
+             do: {:ok, Map.put(result, :app_pinned_feeds, items)}
     end
   end
 
@@ -845,6 +863,11 @@ defmodule AtMcp.Effects do
   """
   def get_invite_codes(effects) do
     with_session(effects, fn backend, session -> backend.get_invite_codes(session) end)
+  end
+
+  @doc "One of the network's published policy pages (`AtMcp.Network.policy_url/1`)."
+  def get_policy(effects, page) when is_binary(page) do
+    with_session(effects, fn backend, session -> backend.get_policy(session, page) end)
   end
 
   defp each_record(uris, field, kinds, what) do

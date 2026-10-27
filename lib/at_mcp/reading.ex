@@ -578,7 +578,8 @@ defmodule AtMcp.Reading do
   @doc """
   A page of custom feeds: suggested, searched, an account's, or read by uri.
   Each with its name, maker, likes and whether it takes feedback, then what it
-  is for, and the uri and cid `get_feed` and `like` take.
+  is for, and the uri and cid `get_feed` and `like` take. Suggested feeds end
+  with the feeds the app pins for every account, when the page carries them.
   """
   def feeds(%{"items" => items} = page) when is_list(items) do
     header = cat([count(length(items), ~L"feed", ~L"feeds"), ~L".", next_page(page)])
@@ -597,7 +598,11 @@ defmodule AtMcp.Reading do
           []
       end
 
-    to_text(join([header | blocks] ++ missing, :blank))
+    pinned =
+      for feed <- List.wrap(page["app_pinned_feeds"]),
+          do: feed(feed, ~L"Pinned by the app for every account:")
+
+    to_text(join([header | blocks] ++ missing ++ pinned, :blank))
   end
 
   def feeds(_other), do: nil
@@ -735,6 +740,29 @@ defmodule AtMcp.Reading do
   def invite_codes(_other), do: nil
 
   @doc """
+  One of the network's policy pages: its title and address, then its text,
+  fenced as a post's is, since the words are the town's.
+  """
+  def policy(%{"text" => text} = page) when is_binary(text) do
+    to_text(
+      join(
+        [
+          cat([
+            shown(page["title"]),
+            ~L", published at ",
+            url(page["url"]),
+            ~L". Its text, quoted:"
+          ]),
+          fence(text)
+        ],
+        :line
+      )
+    )
+  end
+
+  def policy(_other), do: nil
+
+  @doc """
   The account's settings, one line per kind, as `get_preferences` returns
   them.
   """
@@ -864,23 +892,15 @@ defmodule AtMcp.Reading do
               ~L"Saved feeds: none"
 
             feeds ->
+              join([~L"Saved feeds:" | Enum.map(feeds, &saved_feed/1)], :line)
+          end,
+          case List.wrap(p["app_pinned_feeds"]) do
+            [] ->
+              nil
+
+            feeds ->
               join(
-                [
-                  ~L"Saved feeds:"
-                  | Enum.map(feeds, fn feed ->
-                      cat([
-                        ~L"- ",
-                        join(
-                          [
-                            ident(feed["value"]),
-                            ident(feed["type"]),
-                            if(feed["pinned"] == true, do: ~L"pinned")
-                          ],
-                          :dot
-                        )
-                      ])
-                    end)
-                ],
+                [~L"Pinned by the app for every account:" | Enum.map(feeds, &saved_feed/1)],
                 :line
               )
           end
@@ -891,6 +911,20 @@ defmodule AtMcp.Reading do
   end
 
   def preferences(_other), do: nil
+
+  defp saved_feed(feed) do
+    cat([
+      ~L"- ",
+      join(
+        [
+          ident(feed["value"]),
+          ident(feed["type"]),
+          if(feed["pinned"] == true, do: ~L"pinned")
+        ],
+        :dot
+      )
+    ])
+  end
 
   # A list of identifiers as JSON writes one: `["following", "at://…"]`.
   defp ident_list(values) when is_list(values),

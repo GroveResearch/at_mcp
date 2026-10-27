@@ -321,6 +321,17 @@ defmodule AtMcp.Test.MockBackend do
        }}
 
   @impl true
+  def get_policy(_state, page),
+    do:
+      {:ok,
+       %{
+         page: page,
+         title: "Mock Policy",
+         url: "https://mock.test/support/" <> page,
+         text: "# Mock Policy\n\nBe kind."
+       }}
+
+  @impl true
   def get_invite_codes(_state),
     do:
       {:ok,

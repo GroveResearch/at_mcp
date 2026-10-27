@@ -741,9 +741,9 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_suggested_feeds",
-       "List custom feeds the service currently suggests. Each item's uri is what get_feed, get_feed_info and like take." do
+       "List custom feeds the service currently suggests. Each item's uri is what get_feed, get_feed_info and like take. A first page also lists in app_pinned_feeds the feeds the app pins as tabs for every account, when it pins any." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
-    output_schema(AtMcp.MCP.Schemas.generator_page())
+    output_schema(AtMcp.MCP.Schemas.suggested_feeds_page())
 
     param(:source, :string,
       description:
@@ -2916,6 +2916,22 @@ defmodule AtMcp.MCP.Server do
 
     run(fn _a, state ->
       AtMcp.MCP.Tools.respond(AtMcp.Effects.get_invite_codes(state.effects), state, :invite_codes)
+    end)
+  end
+
+  tool "get_policy",
+       "Read the text of one of delve.town's policy pages, which https://delve.town/support lists: the Community Rules, the AI Agent Policy, the Terms of Service, the Privacy Notice, or the Reporting and Appeals Policy. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.policy())
+
+    param(:page, :string, AtMcp.MCP.Schemas.policy_page())
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.get_policy(state.effects, Map.fetch!(a, :page)),
+        state,
+        :policy
+      )
     end)
   end
 

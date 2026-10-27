@@ -912,6 +912,20 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
+  # The network's policy pages are web pages, read with no credential of the
+  # account (`AtMcp.PolicyPage`).
+  @impl true
+  def get_policy(_session, page) do
+    case AtMcp.Network.policy_url(page) do
+      nil ->
+        {:error, AtMcp.Effects.Failure.new(:refused, detail: :policies_not_published)}
+
+      url ->
+        with {:ok, %{title: title, text: text}} <- AtMcp.PolicyPage.read(url),
+             do: {:ok, %{page: page, title: title, url: url, text: text}}
+    end
+  end
+
   defp invite_codes(response) do
     with {:ok, page} <- page(response, :codes, &AtMcp.Summary.extract(:invite_code, &1)) do
       # Whether the town issues earned codes. Read when it is there and never
@@ -3110,6 +3124,7 @@ defmodule AtMcp.Effects.ProtoRune do
        |> AtMcp.Preferences.view()
        |> Map.merge(%{
          saved_feeds: saved_feed_view(preferences),
+         app_pinned_feeds: app_pinned_feed_view(),
          discoverable: AtMcp.Preferences.record_view("discoverable", discoverable),
          activity_subscriptions:
            AtMcp.Preferences.record_view("activity_subscriptions", subscriptions)
@@ -3129,6 +3144,12 @@ defmodule AtMcp.Effects.ProtoRune do
     for %{} = item <- items,
         do: %{type: item["type"], value: item["value"], pinned: item["pinned"] == true}
   end
+
+  # The feeds the network's app pins for every account, in the saved feeds'
+  # shape. They come from `AtMcp.Network`, not from the preferences read.
+  defp app_pinned_feed_view,
+    do:
+      for(uri <- AtMcp.Network.app_pinned_feeds(), do: %{type: "feed", value: uri, pinned: true})
 
   # One of the account's declaration records, as stored, and its CID; nil and
   # nil when the account has none.

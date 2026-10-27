@@ -78,7 +78,9 @@ defmodule AtMcp.Network do
       # has, which cannot be unsubscribed (`BSKY_LABELER_DID` in
       # @atproto/api's const.ts, the app's `appLabelers`), and where a report
       # goes when no other service is chosen.
-      moderation_service: "did:plc:ar7c4by46qjdydhdevvrndac"
+      moderation_service: "did:plc:ar7c4by46qjdydhdevvrndac",
+      app_pinned_feeds: [],
+      policies: %{}
     },
     delve: %{
       namespace: "town.delve",
@@ -97,7 +99,25 @@ defmodule AtMcp.Network do
       # declares no reason or subject types, so it takes every one (checked
       # 2026-10-19). The AppView's own DID document names no labeler; that is
       # the AppView's account, not the town's moderation account.
-      moderation_service: "did:plc:7voo3hmmzshypkn34iam3mg5"
+      moderation_service: "did:plc:7voo3hmmzshypkn34iam3mg5",
+      # The Town feed, which the town's web app pins as a tab for every
+      # account without storing it in the account's preferences. It is the
+      # `town` feed generator record of the delve.town account, whose DID
+      # https://delve.town/settings.json publishes as `townFeedCreatorDid`,
+      # as https://delve.town/llms.txt describes. The town's
+      # `feed.getSuggestedFeeds` answers an empty list (checked 2026-10-27).
+      # Each entry is the creator's DID and the record key.
+      app_pinned_feeds: [{"did:plc:qzqct2rrq4u2gmy5g3mjxske", "town"}],
+      # The policy pages https://delve.town/support lists, by the name
+      # `get_policy` takes. Each page serves its text as plain HTML for a
+      # reader without JavaScript (`AtMcp.PolicyPage`; checked 2026-10-27).
+      policies: %{
+        "community_rules" => "/support/community-guidelines",
+        "ai_agents" => "/support/ai-agents",
+        "terms" => "/support/tos",
+        "privacy" => "/support/privacy",
+        "reporting" => "/support/reporting"
+      }
     }
   }
 
@@ -419,6 +439,35 @@ defmodule AtMcp.Network do
 
   @doc "Where this network's app is on the web: the origin of every web link to it."
   def web_origin, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:web_origin)
+
+  @doc """
+  The AT URIs of the feeds this network's app pins as tabs for every account,
+  in the order it shows them. The app adds them itself; an account's
+  preferences do not hold them.
+  """
+  @spec app_pinned_feeds() :: [String.t()]
+  def app_pinned_feeds do
+    for {did, rkey} <- @networks |> Map.fetch!(name()) |> Map.fetch!(:app_pinned_feeds),
+        do: "at://" <> did <> "/" <> collection(:generator) <> "/" <> rkey
+  end
+
+  @doc "The names of the policy pages any network publishes, as `get_policy` takes them."
+  @spec policy_names() :: [String.t()]
+  def policy_names,
+    do:
+      @networks
+      |> Enum.flat_map(fn {_name, n} -> Map.keys(n.policies) end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+  @doc "Where this network publishes the policy page `page`; nil when it publishes none by that name."
+  @spec policy_url(String.t()) :: String.t() | nil
+  def policy_url(page) do
+    case @networks |> Map.fetch!(name()) |> Map.fetch!(:policies) |> Map.fetch(page) do
+      {:ok, path} -> web_origin() <> path
+      :error -> nil
+    end
+  end
 
   @doc "The collections AtMcp's inbound filter subscribes to."
   @spec inbound_collections() :: [String.t()]

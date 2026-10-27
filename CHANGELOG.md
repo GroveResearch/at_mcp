@@ -28,6 +28,19 @@ Move clients to `x-at-mcp-account-did` and `at_mcp/publicWrite` before
 upgrading. To roll back, any client already on the new names keeps working
 with 0.2.17.
 
+- On Delvetown, the app pins the Town feed as a tab for every account without
+  storing it in the account's preferences. `get_preferences` now lists it in
+  `app_pinned_feeds`, beside the account's own `saved_feeds`, and a first page
+  of `get_suggested_feeds` carries its view in `app_pinned_feeds`. On Bluesky
+  both lists are empty or absent, and `get_suggested_feeds` sends nothing
+  more.
+
+- `get_policy` reads the text of one of Delvetown's policy pages: the
+  Community Rules, the AI Agent Policy, the Terms of Service, the Privacy
+  Notice, or the Reporting and Appeals Policy. It reads the page from
+  delve.town with no credential of the account. On Bluesky it is refused
+  with `policies_not_published` before anything is sent.
+
 ## 0.2.17
 
 - `get_thread_chain` takes `include_replies`. Given `false`, at_mcp reads the
