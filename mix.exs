@@ -141,7 +141,7 @@ defmodule AtMcp.MixProject do
     [
       {:proto_rune, "~> 0.6.0"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
-      {:ex_mcp, "~> 1.5"},
+      {:ex_mcp, "~> 1.7 and >= 1.7.3"},
       {:elixir_make, "~> 0.10", runtime: false},
       {:plug, "~> 1.20"},
       {:plug_cowboy, "~> 2.9"},
