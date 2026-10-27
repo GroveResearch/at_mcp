@@ -70,17 +70,22 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.list_notifications(e,
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor),
-          reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
-          grouped: Map.get(a, :grouped),
-          feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
-        ),
-        state,
-        :notifications
+      AtMcp.Effects.list_notifications(e,
+        limit: Map.get(a, :limit),
+        cursor: Map.get(a, :cursor),
+        reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
+        grouped: Map.get(a, :grouped),
+        feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
       )
+      |> case do
+        # A network without grouped notifications still serves the plain list.
+        {:error, {:not_served, nsid, evidence}} when a.grouped == true ->
+          {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
+
+        result ->
+          result
+      end
+      |> AtMcp.MCP.Tools.respond(state, :notifications)
     end)
   end
 
