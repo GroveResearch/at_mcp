@@ -62,7 +62,7 @@ jobs:
   # request, then the async tests: about 200 tests in seconds, while the rest
   # of the suite, almost all of it synchronous, waits for the merge queue. On
   # every other run, then the production release the release-gated tests run
-  # against, built once and handed to every suite partition and package.
+  # against, built once and handed to every suite partition.
   build:
     if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
@@ -121,11 +121,11 @@ jobs:
           MIX_ENV: prod
 
       # Packed, because an artifact does not keep the executable bits.
-      - name: Pack the release for the suite and package
+      - name: Pack the release for the suite
         if: github.event_name != 'pull_request'
         run: tar -C _build/prod/rel -czf "$RUNNER_TEMP/test-release.tar.gz" at_mcp
 
-      - name: Hand the release to the suite and package
+      - name: Hand the release to the suite
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
@@ -226,10 +226,12 @@ jobs:
 
   # The documentation, the Hex package used from a separate application (its
   # consumer compiles every dependency from nothing), and the README's download
-  # and install commands run against the release build made. The package
-  # carries its version in VERSION, as the hex job writes it.
+  # and install commands run against a production release. The package
+  # carries its version in VERSION, as the hex job writes it. It does not wait
+  # for build: the documentation and the consumer take longer than a suite
+  # partition, so this job builds its own release (seconds, from the cache)
+  # rather than start a minute later with build's.
   package:
-    needs: build
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -271,21 +273,15 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
 
-      - uses: actions/download-artifact@v8
-        with:
-          name: test-release
-          path: ${{ runner.temp }}
-
-      - name: Unpack the release build made
-        run: |
-          mkdir -p "$RUNNER_TEMP/rel"
-          tar -C "$RUNNER_TEMP/rel" -xzf "$RUNNER_TEMP/test-release.tar.gz"
+      - run: mix release
+        env:
+          MIX_ENV: prod
 
       - name: Download without credentials and use the installed release
         env:
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
-        run: python3 scripts/download_release_check.py "$RUNNER_TEMP/rel/at_mcp"
+        run: python3 scripts/download_release_check.py _build/prod/rel/at_mcp
 
   # The required check. Branch protection requires `test` (and `release`), so
   # this job carries that name and passes only when everything that ran for
