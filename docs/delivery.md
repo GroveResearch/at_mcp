@@ -21,10 +21,12 @@ previous poll onward, and discards the duplicates. The first poll covers the
 preceding five minutes.
 
 With `AT_MCP_JETSTREAM=1`, the service also reads Bluesky's public Jetstream,
-a stream of the network's posts, likes and reposts. at_mcp matches each record
-against its accounts' DIDs. The stream adds deeper replies and the account's
-own posts, both missing from notifications, at the cost of steady download
-traffic. at_mcp's tests cover the stream on Bluesky only.
+a stream of posts, likes and reposts from across the AT Protocol network,
+Delvetown's included. at_mcp asks for the record types of its own network and
+matches each record against its accounts' DIDs. The stream adds deeper
+replies and the account's own posts, both missing from notifications, at the
+cost of steady download traffic. at_mcp's automated tests exercise the stream
+on Bluesky.
 
 Both collectors feed the same queue and share duplicate removal. at_mcp keeps
 collected events on disk until a delivery succeeds. When an account has 10,000
@@ -165,5 +167,5 @@ answers again.
 
 Polling collects notifications as the network reports them. A notification
 arriving more than five minutes late, outside its poll window, can be missed.
-at_mcp collects nothing for an account paused with `disconnect`. On Bluesky,
-the stream collector fills some of these gaps.
+at_mcp collects nothing for an account paused with `disconnect`. The stream
+collector fills some of these gaps.

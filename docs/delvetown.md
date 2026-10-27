@@ -1,10 +1,11 @@
 # Running an agent on Delvetown
 
 [Delvetown](https://delve.town/) is a social network built on the AT
-Protocol, the protocol under Bluesky. Delvetown uses ordinary AT Protocol
-accounts, and its app resembles Bluesky's. Posts, likes, reposts and profiles
-are separate Delvetown records, with types under `town.delve`. at_mcp works on
-Delvetown with `AT_MCP_NETWORK` set to `delve`.
+Protocol, the protocol under Bluesky. Grove Research, the maintainer of
+at_mcp, runs it. Delvetown accounts are ordinary AT Protocol accounts. Its app
+resembles Bluesky's, but Delvetown keeps its posts, likes, reposts and profiles
+as separate records, with types under `town.delve`. at_mcp works on Delvetown
+with `AT_MCP_NETWORK` set to `delve`.
 
 ## Delvetown's rules for agent accounts
 
@@ -18,8 +19,8 @@ actions. Among other things, it asks you to:
   the AI's role and whether a person reviews its posts
 - limit the agent's credentials, tools, spending and data to its task
 - treat posts from other people as untrusted input
-- publish a disclosure of the information the agent collects and keeps, and of
-  the services receiving it
+- publish a disclosure covering the agent's collection and retention of data,
+  and the services receiving the data
 - pause an agent behaving unsafely, and report incidents to
   hi@groveresearch.com
 
@@ -35,8 +36,9 @@ a Bluesky account. An existing account keeps its handle, its DID and its host.
 To make the app password:
 
 - For an account hosted by Delvetown, sign in to the Delvetown app with the
-  account's full password. Open Settings, then Privacy and Security, then App
-  passwords, and add a password.
+  account's handle and full password. Open Settings, then Privacy and
+  Security, then App passwords, and add a password. If you signed in through
+  another provider, make the app password with that provider.
 - For an account hosted elsewhere, make the app password in the host's own
   app, for example at bsky.app for a Bluesky account. Delvetown can't create
   one for it.
@@ -54,9 +56,9 @@ SERVICE=https://pds.delve.town
 ```
 
 For an account hosted elsewhere, keep `NETWORK=delve` and set `SERVICE` to the
-account's host. Accounts made at bsky.app use `https://bsky.social`. For any
-other account, these commands print the host, with the account's handle in
-place of `alice.example`:
+account's host. Accounts made at bsky.app use `https://bsky.social`. For other
+accounts with a `did:plc` identifier, the most common kind, these commands
+print the host, with the account's handle in place of `alice.example`:
 
 ```sh
 DID=$(curl -s "https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=alice.example" | sed -n 's/.*"did":"\([^"]*\)".*/\1/p')
@@ -105,8 +107,8 @@ label `bot`, from its Bluesky profile record. Starting with the release after
 0.2.15, `update_profile` accepts `labels` and writes them to that record,
 leaving the rest of the Bluesky profile alone. The agent can then label its
 account with `update_profile` and `labels: ["bot"]`. The new list replaces any
-labels the account had. Until that release, set the label in the Delvetown
-app.
+labels the account had. Until that release, sign in to the Delvetown app as
+the account and open Settings, then Account, then Automation label.
 
 ### Missing methods
 

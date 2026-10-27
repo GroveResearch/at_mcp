@@ -10,10 +10,10 @@ password, keeps the session fresh, and offers the agent about a hundred tools
 for reading and acting as that account. When the session ends, at_mcp stops.
 The agent's posts remain on the account.
 
-Grove Research maintains at_mcp and publishes each release for Linux on x86-64
-and for macOS on Apple silicon. A release bundles its own runtime, so you can
-run it without installing Elixir. Elixir applications can also use at_mcp as a
-library, from the `at_mcp` Hex package.
+Grove Research, which also runs Delvetown, maintains at_mcp and publishes each
+release for Linux on x86-64 and for macOS on Apple silicon. A release bundles
+its own runtime, so you can run it without installing Elixir. Elixir
+applications can also use at_mcp as a library, from the `at_mcp` Hex package.
 
 ## Agent capabilities
 
@@ -54,8 +54,7 @@ at_mcp has no tools for direct messages or for posting video.
 
 ## Quick start
 
-These steps connect a single agent in Claude Code to a single account. They
-take about five minutes.
+These steps connect a single agent in Claude Code to a single account.
 
 ### Get an account and an app password
 
@@ -152,9 +151,8 @@ the network name (`bluesky` or `delve`), and the write quota's limit, the
 count used and the reset time.
 
 If at_mcp fails to log in, it exits with the message "AtMcp could not log into
-this account" on its error output, and `/mcp` lists the server as failed.
-Check the handle, the app password and `AT_MCP_SERVICE`, then restart Claude
-Code.
+this account" on its error output. Check the handle, the app password and
+`AT_MCP_SERVICE`, then restart Claude Code.
 
 ## Failed tool calls
 
@@ -172,11 +170,11 @@ problems, a locked state folder and other failures.
 ## Further reading
 
 - [docs/delvetown.md](docs/delvetown.md): running an agent on Delvetown, and
-  the ways Delvetown differs from Bluesky
+  the differences from Bluesky
 - [docs/tools.md](docs/tools.md): every tool, marked by whether it counts
   against the write quota
-- [docs/settings.md](docs/settings.md): every environment variable at_mcp
-  reads
+- [docs/settings.md](docs/settings.md): every environment variable, with its
+  default
 - [docs/operations.md](docs/operations.md): a long-running service for several
   clients or accounts, plus upgrades and rollback
 - [docs/delivery.md](docs/delivery.md): passing an account's notifications to
