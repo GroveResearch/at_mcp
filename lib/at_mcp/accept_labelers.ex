@@ -29,7 +29,9 @@ defmodule AtMcp.AcceptLabelers do
   alone.
 
   The list is kept in a table owned by this process, by DID and the account's
-  service (aliases of one DID share it; every test PDS has its own).
+  service (aliases of one DID share it). A service started where another one
+  was, as a local test server reusing a port, is a different service:
+  `forget_service/1` drops what the earlier one left.
   """
   use GenServer
 
@@ -77,6 +79,15 @@ defmodule AtMcp.AcceptLabelers do
   end
 
   def remember(_session, _preferences), do: :ok
+
+  @doc """
+  Forget the labelers kept for every account at `service_url`, so the next
+  read there reads the account's preferences first.
+  """
+  def forget_service(service_url) when is_binary(service_url) do
+    if table?(), do: :ets.match_delete(@table, {{:_, service_url}, :_})
+    :ok
+  end
 
   @doc """
   The header's value: the network's own labelers with `;redact`, then the

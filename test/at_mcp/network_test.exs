@@ -67,7 +67,11 @@ defmodule AtMcp.NetworkTest do
       id: {:pds, ref}
     )
 
-    {:ranch.get_port(ref), paths}
+    port = :ranch.get_port(ref)
+    # A port an earlier test's PDS used may come back here, with the labelers
+    # that PDS answered still kept for its URL.
+    AtMcp.AcceptLabelers.forget_service(session_against(port).service_url)
+    {port, paths}
   end
 
   describe "the declaration" do

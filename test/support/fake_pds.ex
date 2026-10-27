@@ -74,6 +74,10 @@ defmodule AtMcp.Test.FakePDS do
       service_url: "http://127.0.0.1:#{:ranch.get_port(ref)}/xrpc"
     }
 
+    # The port may be one an earlier test's PDS had, with what it answered for
+    # the account's labelers still kept for this URL.
+    AtMcp.AcceptLabelers.forget_service(session.service_url)
+
     {session, state}
   end
 
