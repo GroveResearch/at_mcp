@@ -75,7 +75,7 @@ defmodule AtMcp.MCP.SharedStdio do
              url: url,
              headers: [
                {"authorization", "Bearer " <> grant},
-               {"x-kite-account-did", expected_did}
+               {"x-at-mcp-account-did", expected_did}
              ],
              reconnect: false,
              retry_policy: [max_attempts: 1],

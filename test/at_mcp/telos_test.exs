@@ -63,7 +63,11 @@ defmodule AtMcp.TelosTest do
     # One endpoint for every identity, and the address the service is actually
     # listening on rather than the one it was configured with.
     assert url == "http://127.0.0.1:#{:ranch.get_port(:at_mcp_http)}/mcp"
-    assert %{"name" => "x-kite-account-did", "value" => "did:plc:telos"} = hd(headers)
+    # The DID goes under both header names until the earlier one is removed.
+    assert [
+             %{"name" => "x-at-mcp-account-did", "value" => "did:plc:telos"},
+             %{"name" => "x-kite-account-did", "value" => "did:plc:telos"}
+           ] = headers
 
     # And no credential. Discovery is served to any local process; handing one a
     # grant for any identity on request would undo what the grant is for.
@@ -159,7 +163,7 @@ defmodule AtMcp.TelosTest do
   test "one endpoint serves every identity" do
     # One listener serves every identity, and what distinguishes two attachments
     # is the credential each presents — not the address, and not a header the
-    # caller chose. `x-kite-account-did` confirms only.
+    # caller chose. `x-at-mcp-account-did` confirms only.
     url = "http://127.0.0.1:#{:ranch.get_port(:at_mcp_http)}/mcp"
 
     for id <- ["one-endpoint-a", "one-endpoint-b"] do
@@ -180,7 +184,7 @@ defmodule AtMcp.TelosTest do
 
       body =
         Req.post!(url,
-          headers: headers ++ [{"x-kite-account-did", did}],
+          headers: headers ++ [{"x-at-mcp-account-did", did}],
           json: %{
             jsonrpc: "2.0",
             id: System.unique_integer([:positive]),

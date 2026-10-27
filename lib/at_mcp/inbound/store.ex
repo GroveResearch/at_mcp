@@ -98,8 +98,12 @@ defmodule AtMcp.Inbound.Store do
   def stalls(server \\ __MODULE__), do: GenServer.call(server, :stalls)
 
   def default_dir do
-    Application.get_env(:at_mcp, :inbound_state_dir) || AtMcp.Rename.default_state_path()
+    Application.get_env(:at_mcp, :inbound_state_dir) || default_state_path()
   end
+
+  @doc "The per-user state folder, under the platform's user data directory, with `suffix` joined on."
+  def default_state_path(suffix \\ []),
+    do: Path.join([to_string(:filename.basedir(:user_data, ~c"at_mcp")), "inbound" | suffix])
 
   @impl true
   def init(opts) do

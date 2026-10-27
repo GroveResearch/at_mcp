@@ -123,7 +123,7 @@ defmodule AtMcp.Inbound.StoreTest do
     pid = store(dir)
     assert {:ok, [_]} = Store.accept(pid, [event(1)], 100)
     # Every delivery says which network it happened on. A DID does not say where it
-    # lives, so without this a host tells an inhabitant on one network it is on
+    # lives, so without this a host tells an agent on one network it is on
     # another — and AtMcp is the only party that knows.
     assert_receive {:http_delivery,
                     %{

@@ -881,7 +881,7 @@ defmodule AtMcp.Effects do
   # The write quota bounds what an account publishes: its own words, and another
   # account's words put in front of its followers. A like, a follow, a block,
   # a deletion or a profile edit is an ordinary gesture and does not spend it.
-  # Each MCP tool's description and its `kite/publicWrite` annotation derive
+  # Each MCP tool's description and its `at_mcp/publicWrite` annotation derive
   # from this list (`AtMcp.MCP.DSL`), so a host reads the same classification.
   @publishing [:post, :reply, :repost]
 

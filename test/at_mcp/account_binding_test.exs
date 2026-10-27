@@ -1,10 +1,12 @@
 defmodule AtMcp.AccountBindingTest do
   @moduledoc """
-  `x-kite-account-did` confirms and never selects.
+  `x-at-mcp-account-did` confirms and never selects.
 
   The header is checked against the account the grant resolved to, so a host
   configured with a stale DID is refused rather than served the wrong identity,
-  and a caller that sends a DID it likes gets nothing for it.
+  and a caller that sends a DID it likes gets nothing for it. The header's
+  earlier name, `x-kite-account-did`, is checked the same way until the release
+  after next.
   """
   use ExUnit.Case, async: false
 
@@ -36,19 +38,41 @@ defmodule AtMcp.AccountBindingTest do
     assert status(Grant.token("unbound"), nil) == 200
   end
 
+  test "the earlier header name x-kite-account-did still confirms and still refuses" do
+    start("earlier", expected_did: "did:plc:earlier")
+    token = Grant.token("earlier")
+
+    assert status(token, "did:plc:earlier", "x-kite-account-did") == 200
+
+    assert refused(token, "did:plc:other", "x-kite-account-did") ==
+             %{"error" => "account_identity_mismatch"}
+  end
+
+  test "a request carrying both header names is refused if either names another account" do
+    start("both", expected_did: "did:plc:both")
+    token = Grant.token("both")
+    both = fn new, old -> [{"x-at-mcp-account-did", new}, {"x-kite-account-did", old}] end
+
+    assert status_with(Grant.session!(token) ++ both.("did:plc:both", "did:plc:both")) == 200
+
+    for headers <- [
+          both.("did:plc:both", "did:plc:other"),
+          both.("did:plc:other", "did:plc:both")
+        ] do
+      assert post(Grant.headers(token) ++ headers).body ==
+               %{"error" => "account_identity_mismatch"}
+    end
+  end
+
   test "a malformed binding header is refused before any account is reached" do
     start("malformed", expected_did: "did:plc:malformed")
     token = Grant.token("malformed")
 
-    response =
-      Req.post!(Grant.url(),
-        headers: Grant.headers(token) ++ [{"x-kite-account-did", ""}],
-        json: status_request(),
-        retry: false
-      )
-
-    assert response.status == 400
-    assert response.body == %{"error" => "invalid_account_binding"}
+    for header <- ["x-at-mcp-account-did", "x-kite-account-did"] do
+      response = post(Grant.headers(token) ++ [{header, ""}])
+      assert response.status == 400, header
+      assert response.body == %{"error" => "invalid_account_binding"}
+    end
   end
 
   test "an identity whose owner is gone is unavailable, not mismatched" do
@@ -86,24 +110,19 @@ defmodule AtMcp.AccountBindingTest do
     on_exit(fn -> AtMcp.Identities.stop_identity(id) end)
   end
 
-  defp status(token, did) do
-    Req.post!(Grant.url(),
-      headers: Grant.session!(token) ++ binding_header(did),
-      json: status_request(),
-      retry: false
-    ).status
-  end
+  defp status(token, did, header \\ "x-at-mcp-account-did"),
+    do: status_with(Grant.session!(token) ++ binding_header(header, did))
 
-  defp refused(token, did) do
-    Req.post!(Grant.url(),
-      headers: Grant.headers(token) ++ binding_header(did),
-      json: status_request(),
-      retry: false
-    ).body
-  end
+  defp status_with(headers), do: post(headers).status
 
-  defp binding_header(nil), do: []
-  defp binding_header(did), do: [{"x-kite-account-did", did}]
+  defp refused(token, did, header \\ "x-at-mcp-account-did"),
+    do: post(Grant.headers(token) ++ binding_header(header, did)).body
+
+  defp post(headers),
+    do: Req.post!(Grant.url(), headers: headers, json: status_request(), retry: false)
+
+  defp binding_header(_header, nil), do: []
+  defp binding_header(header, did), do: [{header, did}]
 
   defp status_request,
     do: %{

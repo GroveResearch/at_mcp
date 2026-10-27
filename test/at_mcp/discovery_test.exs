@@ -109,8 +109,8 @@ defmodule AtMcp.DiscoveryTest do
 
       refused(call(state, "search_posts", %{"sort" => "top"}), "query")
 
-      assert %{"filters" => %{"hashtags" => ["kites"], "replies" => "only"}} =
-               call(state, "search_posts", %{"hashtags" => ["#kites"], "replies" => "only"}).structuredContent
+      assert %{"filters" => %{"hashtags" => ["gliders"], "replies" => "only"}} =
+               call(state, "search_posts", %{"hashtags" => ["#gliders"], "replies" => "only"}).structuredContent
 
       %{graphemes: graphemes} = AtMcp.Effects.hashtag_limits()
 
@@ -132,10 +132,10 @@ defmodule AtMcp.DiscoveryTest do
       assert feeds =~ "uri: #{@feed} · cid: bafyGEN"
 
       trends = hd(call(state, "get_trends", %{"kind" => "topics"}).content).text
-      assert trends =~ "[1] \"Kites\" · hot · sports · 12 posts · since 2026-10-18T00:00:00Z"
+      assert trends =~ "[1] \"Gliders\" · hot · sports · 12 posts · since 2026-10-18T00:00:00Z"
       assert trends =~ ~s|Posting: "Alice" (@alice.test)|
-      assert trends =~ "link: /search?q=kites"
-      assert trends =~ ~s(Suggested beside them: "Kites" · /search?q=kites)
+      assert trends =~ "link: /search?q=gliders"
+      assert trends =~ ~s(Suggested beside them: "Gliders" · /search?q=gliders)
 
       codes = hd(call(state, "get_invite_codes", %{}).content).text
       assert codes =~ "1 invitation code. Earned codes: enabled."
@@ -208,13 +208,13 @@ defmodule AtMcp.DiscoveryTest do
           cid: "bafygen",
           did: "did:web:feeds.example",
           creator: %{did: "did:plc:alice", handle: "alice.test"},
-          displayName: "Kites",
+          displayName: "Gliders",
           acceptsInteractions: true,
           indexedAt: "2026-10-18T00:00:00.000Z"
         }
       end
 
-      one = "at://did:plc:alice/town.delve.feed.generator/kites"
+      one = "at://did:plc:alice/town.delve.feed.generator/gliders"
       two = "at://did:plc:alice/town.delve.feed.generator/gone"
 
       %{effects: effects, pds: pds} =
@@ -226,7 +226,7 @@ defmodule AtMcp.DiscoveryTest do
 
       assert {:ok, %{items: [item], not_found: []}} =
                AtMcp.Effects.get_feed_info(effects, [
-                 "at://alice.test/town.delve.feed.generator/kites"
+                 "at://alice.test/town.delve.feed.generator/gliders"
                ])
 
       assert %{uri: ^one, is_online: false, is_valid: true, accepts_interactions: true} = item
@@ -254,7 +254,7 @@ defmodule AtMcp.DiscoveryTest do
         })
 
       assert {:ok, %{count: 0}} = AtMcp.Effects.get_actor_feeds(effects, "alice.test", limit: 5)
-      assert {:ok, _} = AtMcp.Effects.search_feeds(effects, "kites")
+      assert {:ok, _} = AtMcp.Effects.search_feeds(effects, "gliders")
       assert {:ok, _} = AtMcp.Effects.search_feeds(effects, " ")
       assert {:ok, _} = AtMcp.Effects.get_suggested_feeds(effects, cursor: "c")
       assert {:ok, _} = AtMcp.Effects.get_suggested_starter_packs(effects, limit: 3)
@@ -263,7 +263,7 @@ defmodule AtMcp.DiscoveryTest do
       assert [%{query: %{"actor" => "alice.test", "limit" => "5"}}] =
                FakePDS.sent(pds, "town.delve.feed.getActorFeeds")
 
-      assert [%{query: %{"query" => "kites"}}, %{query: popular}] =
+      assert [%{query: %{"query" => "gliders"}}, %{query: popular}] =
                FakePDS.sent(pds, "town.delve.unspecced.getPopularFeedGenerators")
 
       refute Map.has_key?(popular, "query")
@@ -281,9 +281,12 @@ defmodule AtMcp.DiscoveryTest do
       %{effects: effects, pds: pds} = pds(%{"town.delve.feed.getFeed" => {200, %{feed: []}}})
 
       assert {:ok, _} =
-               AtMcp.Effects.get_feed(effects, "at://alice.test/town.delve.feed.generator/kites")
+               AtMcp.Effects.get_feed(
+                 effects,
+                 "at://alice.test/town.delve.feed.generator/gliders"
+               )
 
-      assert [%{query: %{"feed" => "at://did:plc:alice/town.delve.feed.generator/kites"}}] =
+      assert [%{query: %{"feed" => "at://did:plc:alice/town.delve.feed.generator/gliders"}}] =
                FakePDS.sent(pds, "town.delve.feed.getFeed")
     end
 
@@ -292,12 +295,12 @@ defmodule AtMcp.DiscoveryTest do
         pds(%{"town.delve.feed.searchPostsV2" => {200, %{posts: [], cursor: "next"}}})
 
       assert {:ok, %{cursor: "next"}} =
-               AtMcp.Effects.search_posts(effects, "kites",
+               AtMcp.Effects.search_posts(effects, "gliders",
                  author: "alice.test",
                  sort: "latest",
                  lang: "en",
                  exclude_authors: ["bob.test", "carol.test"],
-                 hashtags: ["#kites"],
+                 hashtags: ["#gliders"],
                  reply_to: "at://alice.test/town.delve.feed.post/p",
                  replies: "only",
                  has_media: true,
@@ -307,11 +310,11 @@ defmodule AtMcp.DiscoveryTest do
       assert [%{query: query, raw: raw}] = FakePDS.sent(pds, "town.delve.feed.searchPostsV2")
 
       assert %{
-               "query" => "kites",
+               "query" => "gliders",
                "authors" => "alice.test",
                "sort" => "recent",
                "languages" => "en",
-               "hashtags" => "kites",
+               "hashtags" => "gliders",
                "replyParentUri" => "at://did:plc:alice/town.delve.feed.post/p",
                "repliesOnly" => "true",
                "hasMedia" => "true"
@@ -335,8 +338,10 @@ defmodule AtMcp.DiscoveryTest do
       %{effects: effects, pds: pds} =
         pds(%{"town.delve.feed.searchPostsV2" => {200, %{posts: []}}})
 
-      assert {:ok, _} = AtMcp.Effects.search_posts(effects, "kites")
-      assert {:ok, _} = AtMcp.Effects.search_posts(effects, "kites", sort: "top", all_time: false)
+      assert {:ok, _} = AtMcp.Effects.search_posts(effects, "gliders")
+
+      assert {:ok, _} =
+               AtMcp.Effects.search_posts(effects, "gliders", sort: "top", all_time: false)
 
       assert [%{query: default}, %{query: narrowed}] =
                FakePDS.sent(pds, "town.delve.feed.searchPostsV2")
@@ -442,9 +447,9 @@ defmodule AtMcp.DiscoveryTest do
              %{
                trends: [
                  %{
-                   topic: "kites",
-                   displayName: "Kites",
-                   link: "/profile/did:plc:x/feed/kites",
+                   topic: "gliders",
+                   displayName: "Gliders",
+                   link: "/profile/did:plc:x/feed/gliders",
                    startedAt: "2026-10-18T00:00:00.000Z",
                    postCount: 9,
                    actors: [%{did: "did:plc:alice", handle: "alice.test"}]
@@ -452,13 +457,13 @@ defmodule AtMcp.DiscoveryTest do
                ]
              }},
           "app.bsky.unspecced.getTrendingTopics" =>
-            {200, %{topics: [%{topic: "kites", link: "/search?q=kites"}], suggested: []}}
+            {200, %{topics: [%{topic: "gliders", link: "/search?q=gliders"}], suggested: []}}
         })
 
       assert {:ok, %{items: [%{post_count: 9, actors: [%{handle: "alice.test"}]}]}} =
                AtMcp.Effects.get_trends(effects, "trends", limit: 5)
 
-      assert {:ok, %{items: [%{topic: "kites"}], suggested: []}} =
+      assert {:ok, %{items: [%{topic: "gliders"}], suggested: []}} =
                AtMcp.Effects.get_trends(effects, "topics")
 
       assert [%{query: %{"limit" => "5"}}] = FakePDS.sent(pds, "app.bsky.unspecced.getTrends")

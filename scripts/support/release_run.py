@@ -162,16 +162,7 @@ class Install:
             # Its own node name, so it can run beside another AtMcp here.
             "RELEASE_NODE": "at_mcp_check_%d" % os.getpid(),
         }
-
-        if self.legacy:
-            settings = {("KITE_MCP_PORT" if key == "AT_MCP_PORT" else key.replace("AT_MCP_", "KITE_")): value
-                        for key, value in settings.items()}
         return settings
-
-    @property
-    def legacy(self):
-        # Explicit old-release comparison, never production fallback behavior.
-        return not (pathlib.Path(self.current) / "bin" / "at_mcp").exists()
 
     def lay_out(self, quote=True):
         """The environment file and the state folder."""
@@ -197,21 +188,15 @@ class Install:
 
     def repoint(self, name):
         self.manager.run(["ln", "-sfn", "releases/" + name, self.current])
-        self.manager.release_command = "kite" if self.legacy else "at_mcp"
 
     def command(self, args, check=True, timeout=120, stdin=None, release=None):
         """A command of the current release, or of the unpacked `release` named,
         run from a shell as Operations says."""
         if release is None:
             release = os.path.realpath(self.current)
-            legacy = self.legacy
         else:
             release = str(self.manager.prefix / "releases" / release)
-            legacy = not (pathlib.Path(release) / "bin" / "at_mcp").exists()
-        prefix = "KITE_ENV_FILE=" if legacy else "AT_MCP_ENV_FILE="
-        if legacy:
-            args = [arg.replace("bin/at_mcp", "bin/kite").replace("AtMcp.", "Kite.") for arg in args]
-        argv = ["env", prefix + str(self.env_path), os.path.join(release, args[0])] + args[1:]
+        argv = ["env", "AT_MCP_ENV_FILE=" + str(self.env_path), os.path.join(release, args[0])] + args[1:]
         p = self.manager.as_service_user(argv, timeout=timeout, stdin=stdin)
         if check and p.returncode:
             raise RuntimeError((args, p.returncode, p.stderr[-4000:], p.stdout[-2000:]))
@@ -341,7 +326,6 @@ class Foreground:
     def unit_argv(self):
         """ProgramArguments of rel/examples/li.example.at_mcp.plist, with its paths."""
         plist = (self.examples / "li.example.at_mcp.plist").read_text()
-        plist = plist.replace("bin/at_mcp", "bin/" + getattr(self, "release_command", "at_mcp"))
         assert plist.count("<string>/bin/sh</string>") == 1, plist
         start = plist.index("<key>ProgramArguments</key>")
         body = plist[plist.index("<array>", start) + len("<array>"):plist.index("</array>", start)]
@@ -442,7 +426,6 @@ class Systemd:
 
     def install_unit(self):
         unit = (self.examples / "at_mcp.service").read_text()
-        unit = unit.replace("bin/at_mcp", "bin/" + getattr(self, "release_command", "at_mcp"))
         pathlib.Path("/etc/systemd/system/at_mcp.service").write_text(unit)
         subprocess.run(["systemctl", "daemon-reload"], check=True)
 
@@ -542,7 +525,6 @@ class Launchd:
         # Operations: sed "s|/Users/you|$HOME|g" ... > ~/Library/LaunchAgents/li.example.at_mcp.plist
         self.plist.parent.mkdir(parents=True, exist_ok=True)
         text = (self.examples / "li.example.at_mcp.plist").read_text()
-        text = text.replace("bin/at_mcp", "bin/" + getattr(self, "release_command", "at_mcp"))
         self.plist.write_text(text.replace("/Users/you", str(pathlib.Path.home())))
 
     def launchctl(self, *args, check=True):

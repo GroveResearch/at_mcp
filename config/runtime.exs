@@ -11,8 +11,6 @@ import Config
 # A test run configures AtMcp in config/test.exs and the tests themselves, so it
 # never depends on the environment of whoever runs it.
 if config_env() != :test do
-  AtMcp.Rename.check_environment!()
-
   invalid = fn name, value, expected ->
     raise ArgumentError, "#{name} must be #{expected}, got #{inspect(value)}"
   end

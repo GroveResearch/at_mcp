@@ -25,8 +25,8 @@ name: check
 # not on main or has no passing run of this workflow in the merge queue (or a
 # requested run on main), before anything is built. Both advertised platforms must pass before a
 # release can be created or updated.
-# macOS runs only on a tag or on request because macOS runner minutes on this
-# private repository bill at ten times Linux's.
+# macOS runs only on a tag or on request because macOS runner minutes cost ten
+# times Linux's.
 #
 # `test` keeps compiled dependencies between runs, keyed on mix.lock, because
 # compiling them three times was most of its run. `release`, and the Hex
@@ -241,9 +241,6 @@ jobs:
       - name: Upgrade from the newest published release and roll back, under the example systemd unit
         run: |
           old=$(python3 scripts/published_release.py linux-x86_64 "$RUNNER_TEMP/old")
-          if [ -x "$old/bin/kite" ]; then
-            python3 scripts/rename_defaults_check.py "$old" "$RUNNER_TEMP/at_mcp-release"
-          fi
           sudo --preserve-env=CI python3 scripts/upgrade_rollback_check.py --systemd \
             "$old" "$RUNNER_TEMP/at_mcp-release"
 
@@ -371,9 +368,6 @@ jobs:
       - name: Upgrade from the newest published release and roll back, under the example launchd plist
         run: |
           old=$(python3 scripts/published_release.py macos-arm64 "$RUNNER_TEMP/old")
-          if [ -x "$old/bin/kite" ]; then
-            python3 scripts/rename_defaults_check.py "$old" "$RUNNER_TEMP/at_mcp-release"
-          fi
           python3 scripts/upgrade_rollback_check.py --launchd "$old" "$RUNNER_TEMP/at_mcp-release"
 
       # As on Linux. bsdtar spells root ownership --uid/--gid; COPYFILE_DISABLE

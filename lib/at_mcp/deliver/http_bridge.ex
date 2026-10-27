@@ -156,8 +156,8 @@ defmodule AtMcp.Deliver.HTTPBridge do
 
   defp send_inbound(url, token, event, opts) do
     # Which network this happened on. A host cannot derive it — a DID does not say
-    # where it lives — and without it an inhabitant on delve.town is told it is on
-    # Bluesky.
+    # where it lives — and without it a host could tell an agent on delve.town
+    # that it is on Bluesky.
     event = Map.put(event, :network, %{name: AtMcp.Network.name(), label: AtMcp.Network.label()})
 
     body = Jason.encode!(stringify_keys(event))

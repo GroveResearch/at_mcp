@@ -103,12 +103,12 @@ exist on Bluesky profiles only.
 ### Labels
 
 Both networks read an account's self-labels, such as the automated-account
-label `bot`, from its Bluesky profile record. Starting with the release after
-0.2.15, `update_profile` accepts `labels` and writes them to that record,
-leaving the rest of the Bluesky profile alone. The agent can then label its
-account with `update_profile` and `labels: ["bot"]`. The new list replaces any
-labels the account had. Until that release, sign in to the Delvetown app as
-the account and open Settings, then Account, then Automation label.
+label `bot`, from its Bluesky profile record. `update_profile` accepts `labels` and writes
+them to that record, leaving the rest of the Bluesky profile alone. To label
+the account as automated, ask the agent to call `update_profile` with
+`labels: ["bot"]`. The new list replaces any labels the account had. In the
+Delvetown app, the same setting is under Settings, then Account, then
+Automation label.
 
 ### Missing methods
 

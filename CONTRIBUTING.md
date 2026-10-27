@@ -156,12 +156,13 @@ MCP_CLIENT_PATH="$probe_dir/node_modules/@modelcontextprotocol/client" \
 ## Evidence for a change
 
 Back each claim about behavior with a test failing when you revert the
-change. Test what a caller can observe, such as the account chosen, the
+change. Test behavior visible to a caller, such as the account chosen, the
 result returned, or the state after a restart, rather than wording or
 internal structure. When a check needs credentials, a network or a particular
 machine, mark the test `@tag skip:` with the reason, and give CI the
 environment for it. When a live check finds a problem missed by the fixtures,
-add a test failing without the fix, and say in the pull request what you ran.
+add a test failing without the fix, and list your commands in the pull
+request.
 
 CI compares the documentation with the code:
 
@@ -205,14 +206,3 @@ tag the next patch.
 Add a [CHANGELOG](CHANGELOG.md) entry under "Unreleased" in the same pull
 request as each change worth telling users about. Before tagging, rename
 "Unreleased" to the new version.
-
-### The upgrade check's starting release
-
-The upgrade check needs an earlier release to start from.
-`scripts/published_release.py` picks the newest published release. A new copy
-of the repository with no releases falls back to a 0.1.2 build listed in
-`scripts/legacy_baseline.json` and published as a prerelease. The script
-checks each archive's SHA-256 and its `BUILD` file against that list.
-`scripts/repack_legacy_baseline.py` rebuilds those archives with license
-notices added, and `scripts/published_release_test.py` tests the fallback in
-CI.

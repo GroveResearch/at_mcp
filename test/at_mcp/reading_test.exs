@@ -544,7 +544,7 @@ defmodule AtMcp.ReadingTest do
       "handle" => "a.test",
       "displayName" => "Ada",
       "pronouns" => "she/her",
-      "description" => "Writes about kites.\nAnd wind.",
+      "description" => "Writes about gliders.\nAnd wind.",
       "website" => "https://a.example",
       "links" => [%{"url" => "https://a.example/blog", "title" => "Blog"}],
       "followersCount" => 10,
@@ -597,7 +597,7 @@ defmodule AtMcp.ReadingTest do
              """
              Profile "Ada" (@a.test, verified, trusted verifier, live) · "she/her" · runs a labeler
              You follow them: at://did:plc:me/app.bsky.graph.follow/f · Follows you
-             > Writes about kites.
+             > Writes about gliders.
              > And wind.
              10 followers · 1 following · joined 2024-01-02T03:04:05.000Z
              Made: 2 lists · 1 starter pack
@@ -638,7 +638,7 @@ defmodule AtMcp.ReadingTest do
              ~s|\n[1] "Ada" (@a.test, verified, trusted verifier, live) · "she/her" · runs a labeler\n|
 
     # A page's description is on one line, as the app's account lists show it.
-    assert text =~ ~s(\n"Writes about kites. And wind."\n)
+    assert text =~ ~s(\n"Writes about gliders. And wind."\n)
 
     assert String.ends_with?(
              text,
@@ -862,13 +862,13 @@ defmodule AtMcp.ReadingTest do
 
     card = %{
       "uri" => "https://blog.example.test/post",
-      "title" => "On kites",
+      "title" => "On gliders",
       "description" => "Why they fly",
       "createdAt" => "2026-09-01T00:00:00.000Z",
       "readingTime" => 7,
       "source" => %{
         "uri" => "https://blog.example.test",
-        "title" => "Kite Notes",
+        "title" => "Glider Notes",
         "description" => "A blog",
         "icon" => "https://cdn.example.test/icon"
       },
@@ -890,8 +890,8 @@ defmodule AtMcp.ReadingTest do
     end
 
     line =
-      ~s|[link: "On kites" — "Why they fly" (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · | <>
-        ~s|7 min read · publication "Kite Notes" (https://blog.example.test) · by @writer.test]|
+      ~s|[link: "On gliders" — "Why they fly" (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · | <>
+        ~s|7 min read · publication "Glider Notes" (https://blog.example.test) · by @writer.test]|
 
     for {_read, text} <- Map.delete(every_read(post.(card)), :quote) do
       assert text =~ line
@@ -899,14 +899,14 @@ defmodule AtMcp.ReadingTest do
 
     # Inside a quote the card leaves out its description, as a quote does.
     assert every_read(post.(card)).quote =~
-             ~s|[link: "On kites" (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · 7 min read · publication "Kite Notes"|
+             ~s|[link: "On gliders" (https://blog.example.test/post) · published 2026-09-01T00:00:00.000Z · 7 min read · publication "Glider Notes"|
 
     assert %{
              "published_at" => "2026-09-01T00:00:00.000Z",
              "reading_time" => 7,
              "publication" => %{
                "uri" => "https://blog.example.test",
-               "title" => "Kite Notes",
+               "title" => "Glider Notes",
                "description" => "A blog"
              },
              "author" => %{
@@ -931,7 +931,7 @@ defmodule AtMcp.ReadingTest do
     # time on it, and no author; the structured content keeps what was sent.
     plain = Map.drop(card, ["associatedRefs", "associatedProfiles", "source"])
     text = AtMcp.Reading.posts(%{"items" => [json(Summary.extract(:post, post.(plain)))]})
-    assert text =~ ~s|[link: "On kites" — "Why they fly" (https://blog.example.test/post)]|
+    assert text =~ ~s|[link: "On gliders" — "Why they fly" (https://blog.example.test/post)]|
 
     assert json(Summary.extract(:post, post.(plain)))["link"]["published_at"] ==
              "2026-09-01T00:00:00.000Z"

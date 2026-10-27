@@ -4,7 +4,7 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
   Writes `docs/tools.md`, the list of every MCP tool, from what
   `AtMcp.MCP.Server` declares: each tool's name, the first sentence of its
   description, whether it counts against the write quota (its
-  `kite/publicWrite` annotation) and the smallest grant scope that reaches it
+  `at_mcp/publicWrite` annotation) and the smallest grant scope that reaches it
   (`AtMcp.Grants.permits_scope?/2`).
 
       mix at_mcp.tools_doc
@@ -71,7 +71,7 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
   end
 
   defp write_row(tool) do
-    publishes = if tool.annotations[:"kite/publicWrite"] == true, do: "yes", else: ""
+    publishes = if tool.annotations[:"at_mcp/publicWrite"] == true, do: "yes", else: ""
     "| `#{tool.name}` | #{publishes} | #{scope(tool.name)} | #{summary(tool)} |"
   end
 

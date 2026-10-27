@@ -166,11 +166,13 @@ defmodule AtMcp.MCP.DSL do
   defmacro write_description(verb, description) when is_atom(verb) and is_binary(description),
     do: description <> " " <> quota_sentence(AtMcp.Effects.counts_against_quota?(verb))
 
-  # `kite/publicWrite` is what a host counting the account's writes reads: a
+  # `at_mcp/publicWrite` is what a host counting the account's writes reads: a
   # host can spend a turn's write allowance only on a tool that does not set it
-  # false. Its name is from at_mcp's earlier name, Kite, and stays because hosts
-  # already read it (decisions.md, "Current name").
+  # false. Each write tool also carries the same value as `kite/publicWrite`,
+  # the annotation's earlier name, until the release after next.
   @doc false
-  defmacro write_annotations(verb, {:%{}, meta, pairs}) when is_atom(verb),
-    do: {:%{}, meta, pairs ++ [{:"kite/publicWrite", AtMcp.Effects.counts_against_quota?(verb)}]}
+  defmacro write_annotations(verb, {:%{}, meta, pairs}) when is_atom(verb) do
+    counts? = AtMcp.Effects.counts_against_quota?(verb)
+    {:%{}, meta, pairs ++ [{:"at_mcp/publicWrite", counts?}, {:"kite/publicWrite", counts?}]}
+  end
 end

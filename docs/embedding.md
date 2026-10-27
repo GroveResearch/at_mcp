@@ -111,8 +111,7 @@ first to compare with your own copy before uploading an image or changing
 text.
 
 On Delvetown, `update_profile` writes the account's Delvetown profile. It
-leaves the Bluesky profile alone, apart from labels, starting with the release
-after 0.2.15. If the profile changed after your read, at_mcp refuses the edit.
+leaves the Bluesky profile alone, apart from labels. If the profile changed after your read, at_mcp refuses the edit.
 A write without an answer has an unknown outcome, and at_mcp leaves it for you
 to check.
 

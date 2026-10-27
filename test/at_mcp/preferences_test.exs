@@ -417,9 +417,9 @@ defmodule AtMcp.PreferencesTest do
                AtMcp.Effects.set_preference(effects, "interests", %{tags: ["art", "knitting"]})
 
       assert {:error, {:invalid_argument, "tags", message}} =
-               AtMcp.Effects.set_preference(effects, "interests", %{tags: ["art", "kites"]})
+               AtMcp.Effects.set_preference(effects, "interests", %{tags: ["art", "gliders"]})
 
-      assert message =~ "kites"
+      assert message =~ "gliders"
       assert FakePDS.sent(pds, "app.bsky.actor.putPreferences") == []
 
       assert {:ok, %{changed: ["tags"], now: %{tags: ["knitting", "science"]}}} =
@@ -701,7 +701,7 @@ defmodule AtMcp.PreferencesTest do
         %{
           "$type" => "app.bsky.feed.defs#postView",
           "uri" => "at://did:plc:self/app.bsky.feed.post/p",
-          "record" => %{"text" => "a kite"}
+          "record" => %{"text" => "a glider"}
         },
         %{
           "$type" => "app.bsky.feed.defs#postView",
@@ -717,7 +717,7 @@ defmodule AtMcp.PreferencesTest do
               "root" => %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "cid" => "bafyp"},
               "parent" => %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "cid" => "bafyp"}
             },
-            "text" => "nice kite @self.test",
+            "text" => "nice wing @self.test",
             "facets" => [
               %{
                 "index" => %{"byteStart" => 10, "byteEnd" => 20},
@@ -765,7 +765,7 @@ defmodule AtMcp.PreferencesTest do
                  %{"did" => "did:plc:bob", "handle" => nil}
                ],
                "posts" => [
-                 %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "text" => "a kite"}
+                 %{"uri" => "at://did:plc:self/app.bsky.feed.post/p", "text" => "a glider"}
                ]
              } = like
 
@@ -775,7 +775,7 @@ defmodule AtMcp.PreferencesTest do
                "actors" => [%{"did" => "did:plc:alice", "handle" => "alice.test"}],
                "parent" => "at://did:plc:self/app.bsky.feed.post/p",
                # The mention reads with the DID it links to, as in any post.
-               "posts" => [%{"text" => "nice kite @self.test <did:plc:self>", "post" => whole}]
+               "posts" => [%{"text" => "nice wing @self.test <did:plc:self>", "post" => whole}]
              } = reply
 
       # The app shows a reply as a full post (#139), so the group carries it
@@ -804,13 +804,13 @@ defmodule AtMcp.PreferencesTest do
       assert text =~ "alice.test, did:plc:bob and 1 other liked your post"
 
       assert text =~
-               ~s(at://did:plc:self/app.bsky.feed.post/p · link: https://bsky.app/profile/did:plc:self/post/p · "a kite")
+               ~s(at://did:plc:self/app.bsky.feed.post/p · link: https://bsky.app/profile/did:plc:self/post/p · "a glider")
 
       assert text =~ "alice.test replied"
 
       # The reply reads as a post reads in any other read.
       assert text =~
-               "\nThe post: @alice.test · 2026-10-17T00:00:00.000Z · replying to at://did:plc:self/app.bsky.feed.post/p\n> nice kite @self.test <did:plc:self>\n"
+               "\nThe post: @alice.test · 2026-10-17T00:00:00.000Z · replying to at://did:plc:self/app.bsky.feed.post/p\n> nice wing @self.test <did:plc:self>\n"
 
       assert text =~ "uri: at://did:plc:alice/app.bsky.feed.post/r"
       assert text =~ "cid: bafyreply"

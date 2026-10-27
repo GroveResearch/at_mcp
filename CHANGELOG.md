@@ -7,6 +7,21 @@ itself.
 
 ## Unreleased
 
+- The header for confirming an account's DID is `x-at-mcp-account-did`, and
+  the annotation marking writes counted against the quota is
+  `at_mcp/publicWrite`. The service still accepts the old header,
+  `x-kite-account-did`, and write tools still carry the old annotation,
+  `kite/publicWrite`. The release after this one drops both.
+- New grants start with `at_mcp-`. at_mcp looks up a grant by its hash, so
+  existing grants keep working.
+- at_mcp stops looking for data in the default folders of the project's
+  earlier name.
+
+### Upgrade
+
+Move clients to the new header and annotation before the following release.
+Upgrade an installation older than 0.2.15 to 0.2.15 first.
+
 - `update_profile` takes `labels`, the account's self-labels, such as `bot`:
   - a list replaces the account's labels
   - `[]` removes them all
@@ -43,7 +58,7 @@ and `block` also depend on an account check dropped in 0.2.15.
 - Each account on a service can have its own write limit, with
   `at_mcp-accounts write-quota`.
 - On Delvetown, before writing a profile, a follow or a block, at_mcp asks
-  Delvetown which records the account uses, and stops if Delvetown fails to
+  Delvetown for the account's record types, and stops if Delvetown fails to
   answer.
 - For embedding: `post` and `reply` accept `facets: :none`, which posts the
   text exactly as given, with no mentions, links or tags detected.
