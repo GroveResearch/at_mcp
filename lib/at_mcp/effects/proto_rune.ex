@@ -335,6 +335,10 @@ defmodule AtMcp.Effects.ProtoRune do
   it was written, what it replied to, whether this account wrote it, and the
   destinations its facets point at.
 
+  `include_replies: false` reads only that chain using native depth zero.
+  The default also reads direct replies. A chain-only result carries no
+  replies even if a service returns them despite the requested depth.
+
   The chain always ends at the post it was asked for. It begins at the thread
   root whenever the read can reach it; when it cannot, the first element names
   the uri where reading stopped and `chain_truncated` is true, rather than a
@@ -372,9 +376,11 @@ defmodule AtMcp.Effects.ProtoRune do
     # clause is still here because a cursor comes back from whoever holds it,
     # and a backend that raises on a bad argument is a harder failure than one
     # that refuses it.
-    case Keyword.get(opts, :before) do
-      nil -> chain_ending_at(session, uri, @chain_depth, :with_replies)
-      before when is_binary(before) -> chain_ending_at(session, before, 0, :chain_only)
+    case {Keyword.get(opts, :before), Keyword.get(opts, :include_replies, true)} do
+      {_, include} when not is_boolean(include) -> {:error, :invalid_include_replies}
+      {nil, false} -> chain_ending_at(session, uri, 0, :chain_only)
+      {nil, true} -> chain_ending_at(session, uri, @chain_depth, :with_replies)
+      {before, _} when is_binary(before) -> chain_ending_at(session, before, 0, :chain_only)
       _other -> {:error, :invalid_before}
     end
   end

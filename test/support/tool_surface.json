@@ -438,6 +438,7 @@
     "get_thread_chain": {
       "arguments": {
         "before": "string",
+        "include_replies": "boolean",
         "uri": "string"
       },
       "required": [

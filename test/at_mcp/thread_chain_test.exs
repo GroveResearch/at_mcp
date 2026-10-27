@@ -28,6 +28,16 @@ defmodule AtMcp.ThreadChainTest do
 
   @leaf_text "see example.com/a-very-long… and ask @alice.test"
   @leaf_link "https://example.com/a-very-long-path?ref=full"
+  @labeler "did:plc:threadlabeler"
+
+  defmodule Moderation do
+    def moderation_preferences(session), do: session.preferences
+
+    def labeler_definitions(session, dids) do
+      send(session.test, {:labelers_read, dids})
+      session.labelers
+    end
+  end
 
   # An HTTP stub, not a PDS: the claims here are about what AtMcp sends and what
   # it makes of what comes back, and both are visible at this seam.
@@ -75,6 +85,15 @@ defmodule AtMcp.ThreadChainTest do
   end
 
   # --- fixture bodies ---
+
+  def body(:reply_label, uri) do
+    update_in(body(:whole_thread, uri), ["thread", "replies"], fn [first | rest] ->
+      [put_in(first, ["post", "labels"], [label()]) | rest]
+    end)
+  end
+
+  def body(:chain_label, uri),
+    do: put_in(body(:whole_thread, uri), ["thread", "post", "labels"], [label()])
 
   # root <- mid (this account) <- leaf (the requested post), with two direct
   # replies under the requested post.
@@ -400,6 +419,8 @@ defmodule AtMcp.ThreadChainTest do
 
   def reply_uri(n), do: "at://did:plc:replier/app.bsky.feed.post/reply#{n}"
 
+  defp label, do: %{"src" => @labeler, "val" => "custom", "uri" => @leaf}
+
   defp leaf_post(opts \\ []) do
     post(
       @leaf,
@@ -510,6 +531,100 @@ defmodule AtMcp.ThreadChainTest do
     assert String.ends_with?(path, "getPostThread")
     assert query["parentHeight"] == to_string(@max_elements)
     assert query["depth"] == "1"
+  end
+
+  test "the MCP chain-only read requests depth zero and preserves complete consumed context" do
+    {:ok, effects} =
+      AtMcp.Test.QuotaFixture.start_effects(backend: Backend, backend_state: session())
+
+    state = %{effects: effects}
+
+    for fixture <- [
+          :whole_thread,
+          :taller_than_one_call,
+          :missing_ancestors,
+          :many_replies,
+          :tall
+        ] do
+      shape(fixture)
+
+      assert {:ok, manual, ^state} =
+               AtMcp.MCP.Server.handle_call_tool("get_thread_chain", %{"uri" => @leaf}, state)
+
+      refute manual[:isError]
+      assert_receive {:request, _, %{"depth" => "1", "parentHeight" => "100"}}
+      requested_uris()
+
+      assert {:ok, automatic, ^state} =
+               AtMcp.MCP.Server.handle_call_tool(
+                 "get_thread_chain",
+                 %{"uri" => @leaf, "include_replies" => false},
+                 state
+               )
+
+      refute automatic[:isError]
+      assert_receive {:request, _, %{"depth" => "0", "parentHeight" => "100"}}
+      requested_uris()
+      assert automatic.structuredContent["replies"] == []
+      assert automatic.structuredContent["replies_omitted"] == 0
+
+      assert Map.drop(automatic.structuredContent, ["replies", "replies_omitted"]) ==
+               Map.drop(manual.structuredContent, ["replies", "replies_omitted"])
+
+      if fixture in [:whole_thread, :many_replies],
+        do: assert(manual.structuredContent["replies"] != [])
+    end
+  end
+
+  test "chain-only reads exclude reply-only labeler failures but keep chain and settings failures" do
+    preferences = [
+      %{"$type" => AtMcp.Network.type(:labelers_pref), "labelers" => [%{"did" => @labeler}]}
+    ]
+
+    for kind <- [:refused, :auth_refused] do
+      failure = %AtMcp.Effects.Failure{
+        kind: kind,
+        status: if(kind == :refused, do: 500, else: 401)
+      }
+
+      moderation = %{test: self(), preferences: {:ok, preferences}, labelers: {:error, failure}}
+
+      mark = fn result, settings ->
+        AtMcp.ModerationMarks.mark(Moderation, settings, "did:plc:self", {:ok, result}, :chain)
+      end
+
+      shape(:reply_label)
+      assert {:ok, manual} = Backend.get_thread_chain(session(), @leaf)
+      assert {:ok, automatic} = Backend.get_thread_chain(session(), @leaf, include_replies: false)
+
+      assert_moderation_failure(mark.(manual, moderation), failure)
+      assert_receive {:labelers_read, [@labeler]}
+      assert {:ok, marked} = mark.(automatic, moderation)
+      refute Map.has_key?(marked, :moderation_unread)
+      refute_receive {:labelers_read, _}
+      assert marked.chain == automatic.chain
+
+      shape(:chain_label)
+      assert {:ok, chain} = Backend.get_thread_chain(session(), @leaf, include_replies: false)
+      assert_moderation_failure(mark.(chain, moderation), failure)
+      assert_receive {:labelers_read, [@labeler]}
+
+      assert_moderation_failure(
+        mark.(automatic, %{moderation | preferences: {:error, failure}}),
+        failure
+      )
+
+      refute_receive {:labelers_read, _}
+      requested_uris()
+    end
+  end
+
+  defp assert_moderation_failure(result, %{kind: :auth_refused} = failure),
+    do: assert(result == {:error, failure})
+
+  defp assert_moderation_failure(result, %{kind: :refused}) do
+    assert {:ok, %{moderation_unread: why}} = result
+    assert why =~ "could not be read"
   end
 
   test "link and mention facets are rendered into each element's text" do
@@ -850,6 +965,26 @@ defmodule AtMcp.ThreadChainTest do
     assert length(chain.replies) == 20
     assert chain.replies_omitted == @reply_count - 20
     assert Enum.map(chain.replies, & &1.uri) == Enum.map(1..20, &reply_uri/1)
+  end
+
+  test "include_replies must be a boolean before a read is made" do
+    shape(:whole_thread)
+
+    {:ok, effects} =
+      AtMcp.Test.QuotaFixture.start_effects(backend: Backend, backend_state: session())
+
+    assert {:error, :invalid_include_replies} =
+             AtMcp.Effects.get_thread_chain(effects, @leaf, include_replies: "false")
+
+    assert {:ok, result, _} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_thread_chain",
+               %{"uri" => @leaf, "include_replies" => "false"},
+               %{effects: effects}
+             )
+
+    assert result.structuredContent.code == "invalid_arguments"
+    assert requested_uris() == []
   end
 
   test "the tool takes before, describes paging rather than a frozen number, and returns chain_before" do

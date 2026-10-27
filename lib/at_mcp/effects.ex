@@ -402,7 +402,8 @@ defmodule AtMcp.Effects do
   end
 
   def get_thread_chain(effects, uri, opts \\ []) when is_binary(uri) and is_list(opts) do
-    with :ok <- validate_before(Keyword.get(opts, :before)) do
+    with :ok <- validate_before(Keyword.get(opts, :before)),
+         :ok <- validate_include_replies(Keyword.get(opts, :include_replies, true)) do
       with_session(effects, fn backend, session ->
         session |> backend.get_thread_chain(uri, opts) |> moderated(backend, session, :chain)
       end)
@@ -414,6 +415,9 @@ defmodule AtMcp.Effects do
   # input checks, so a malformed one costs no session and no read.
   defp validate_before(before) when is_nil(before) or is_binary(before), do: :ok
   defp validate_before(_before), do: {:error, :invalid_before}
+
+  defp validate_include_replies(value) when is_boolean(value), do: :ok
+  defp validate_include_replies(_value), do: {:error, :invalid_include_replies}
 
   def get_timeline(effects, opts \\ []) do
     with {:ok, opts} <- page_options(opts) do
