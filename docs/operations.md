@@ -1,21 +1,26 @@
-# Operating at_mcp
+# Running at_mcp as a service
 
-This guide is for people who run at_mcp for a while: a shared service that
-several MCP clients use, that serves several accounts, or that collects
-incoming activity and sends it to another program. It also covers settings,
-upgrades and rollback for any installation. To connect one agent to one
-account, the [README](../README.md) is enough. Building and testing at_mcp is in
-[CONTRIBUTING.md](../CONTRIBUTING.md).
+The [quick start](../README.md#quick-start) runs at_mcp inside a single MCP
+client, for a single account. This guide covers the other arrangement: at_mcp
+running as a long-lived service on a machine, under systemd on Linux or
+launchd on a Mac. Run a service when you need any of these:
 
-## Run a shared service
+- several MCP clients sharing an account, with a shared write quota
+- several accounts served from a single installation
+- each client limited to the tools for its job, such as reading only
+- an account's notifications passed to another program as they arrive
+  ([delivery.md](delivery.md))
+
+Each client of a service holds a grant, a secret token issued by at_mcp for a
+single account. The client sends the grant with every request, and at_mcp
+uses it to pick the account and the set of tools the client may call.
+
+## Install
 
 On a Mac, install a release with the README's
-[Fetch a release](../README.md#fetch-a-release) block. On Linux, the service
-runs from `/opt/at_mcp`. This block downloads the latest release, checks its
-checksum and installs it there as root, so the service user cannot rewrite the
-executables. To install another version, set `VERSION` to it. To install a
-release you built from source, follow
-[Build a release](../CONTRIBUTING.md#build-a-release) instead.
+[Fetch a release](../README.md#fetch-a-release) block. On Linux, run this
+block. It installs the latest release under `/opt/at_mcp`, owned by root, so
+the service's own user has no way to change the program it runs.
 
 ```sh
 VERSION=$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/GroveResearch/at_mcp/releases/latest | sed -n 's|.*/tag/v||p')
@@ -33,315 +38,235 @@ test -n "$VERSION" &&
   sudo ln -sfn "releases/at_mcp-$VERSION" "$AT_MCP/current"
 ```
 
-Run a shared service when several clients share an account, or when another
-program should receive the account's incoming activity. `bin/at_mcp start` runs
-the service in the foreground, and systemd or launchd keeps it running.
-
-Each client of a shared service holds a grant: a token that at_mcp issues and
-the client sends with every request. The grant decides which account the
-client acts as and its scope, meaning which tools the client may call (`read`,
-`write` or `manage`). [Issue a connection](#issue-a-connection) explains both.
-
-Where things go, as the example units expect them (change both together to
-put them elsewhere):
-
-| | Linux (systemd) | Mac (launchd) |
-| --- | --- | --- |
-| `AT_MCP`: releases, and `current`, the one in use | `/opt/at_mcp` | `~/at_mcp` |
-| The environment file | `/etc/at_mcp/at_mcp.env` | `~/at_mcp/at_mcp.env` |
-| `STATE`: the accounts file, the grants file, the stores | `/var/lib/at_mcp` | `~/at_mcp/state` |
-| Logs | the journal | `~/Library/Logs/AtMcp/at_mcp.log` |
-
-On Linux the service runs as its own user, and the commands below that write
-to `/opt` or `/etc` run as root:
+Then create a system user for the service:
 
 ```sh
 sudo useradd --system --home-dir /var/lib/at_mcp --shell /usr/sbin/nologin at_mcp
 ```
 
-### The environment file
+The example service files in the release expect these locations:
 
-Everything that differs between installations is in one environment file of
-`NAME=value` lines, with no `export` and no `$`, backslash or backtick in a
-value. A value with a space in it is double-quoted
-(`AT_MCP_ACCOUNTS_FILE="/Users/you/Library/Application Support/AtMcp/accounts.json"`):
-unquoted, the shell reads the part after the space as a command. Written this
-way, systemd's `EnvironmentFile=` (which strips the double quotes, as
-systemd.exec(5) says), the shell in the launchd plist and the release's own commands
-all read the file the same way; the plist's shell stops the start at a line
-that fails, rather than run with that setting unset. The file holds secrets,
-so create it readable by the service alone before writing anything in it
-(Linux: `sudo mkdir -p /etc/at_mcp && sudo install -m 640 -g at_mcp /dev/null
-/etc/at_mcp/at_mcp.env`; Mac: `install -m 600 /dev/null ~/at_mcp/at_mcp.env`), then
-edit it.
+| | Linux | Mac |
+| --- | --- | --- |
+| Releases, and `current` pointing at the active one | `/opt/at_mcp` | `~/at_mcp` |
+| Environment file | `/etc/at_mcp/at_mcp.env` | `~/at_mcp/at_mcp.env` |
+| State folder, holding accounts, grants and stored data | `/var/lib/at_mcp` | `~/at_mcp/state` |
+| Logs | the systemd journal | `~/Library/Logs/AtMcp/at_mcp.log` |
 
-```sh
-AT_MCP_ACCOUNTS_FILE=/var/lib/at_mcp/accounts.json
-AT_MCP_STATE_DIR=/var/lib/at_mcp
-RELEASE_COOKIE=
-AT_MCP_DIST_PORT=4370
-AT_MCP_PORT=4400
-```
-
-On a Mac the paths are `/Users/you/at_mcp/state/accounts.json` and
-`/Users/you/at_mcp/state`, written out: nothing expands `~` there. Fill
-`RELEASE_COOKIE` with the output of `openssl rand -hex 32`; the service and
-the operator commands refuse to run with it empty.
-
-- `AT_MCP_ACCOUNTS_FILE` is the accounts file, which `at_mcp-accounts` writes
-  (below); the grants file is kept beside it. `AT_MCP_STATE_DIR` holds the write
-  quotas, the delivery queue and the collection checkpoints. Both must be
-  writable by the service's user, so they live in the state folder.
-- `RELEASE_COOKIE` lets the operator commands connect to the service. Every
-  published release carries a cookie that anyone who downloads it can read,
-  and a new one with every release, so set your own; kept here, it also stays
-  the same across upgrades. The release passes the cookie to the VM on its
-  command line; the example unit's `ProtectProc=invisible` keeps the service
-  and what it runs from reading other services' command lines. On a machine
-  with other login accounts, also mount /proc with `hidepid=invisible`.
-- `AT_MCP_DIST_PORT` is where the service listens for the operator commands, on
-  127.0.0.1 only; no port mapper (epmd) is needed. 4370 is the default.
-- `AT_MCP_PORT` is the one loopback MCP endpoint every client connects to
-  (`http://127.0.0.1:4400/mcp`); the grant a client presents selects the
-  account.
-- To deliver incoming activity to another program, set `AT_MCP_DELIVERY_URL`
-  to the address it receives on and `AT_MCP_DELIVERY_TOKEN_FILE` to a file
-  holding its token, readable by the service
-  ([Incoming activity](#incoming-activity)). `AT_MCP_NETWORK=delve` serves
-  Delvetown accounts. [Settings](#settings) lists every variable.
-
-A second installation on the same machine, such as one per network, is a
-second copy of all of this: its own prefix, environment file, state folder and
-unit, and its own `AT_MCP_DIST_PORT`, `AT_MCP_PORT` and `RELEASE_NODE` (the
-node name; the first is `at_mcp`). For example, on a Mac, `AT_MCP=~/at_mcp-delve`
-with `AT_MCP_NETWORK=delve`, `AT_MCP_DIST_PORT=4371`, `AT_MCP_PORT=4402` and
-`RELEASE_NODE=at_mcp_delve`, and the plist's label, paths and log renamed to
-match (`li.example.at_mcp.delve`, `at_mcp-delve.log`).
-
-The state folder must be private to the service. On Linux the unit's
-`StateDirectory=` creates `/var/lib/at_mcp` that way when the service first
-starts. On a Mac:
+On a Mac, create the state and log folders, readable by you alone:
 
 ```sh
 mkdir -m 700 -p ~/at_mcp/state ~/Library/Logs/AtMcp
 ```
 
-### Install the service
+On Linux, systemd creates `/var/lib/at_mcp` with the right permissions when
+the service first starts.
 
-The example units are in the release, under `examples/`.
+## The environment file
 
-Linux:
+The service takes its settings from an environment file. The file holds
+secrets, so create it empty with tight permissions before writing anything in
+it:
+
+```sh
+# Linux
+sudo mkdir -p /etc/at_mcp && sudo install -m 640 -g at_mcp /dev/null /etc/at_mcp/at_mcp.env
+# Mac
+install -m 600 /dev/null ~/at_mcp/at_mcp.env
+```
+
+Then fill it in. On Linux:
+
+```sh
+AT_MCP_ACCOUNTS_FILE=/var/lib/at_mcp/accounts.json
+AT_MCP_STATE_DIR=/var/lib/at_mcp
+RELEASE_COOKIE=paste-the-output-of-openssl-rand-hex-32
+AT_MCP_DIST_PORT=4370
+AT_MCP_PORT=4400
+```
+
+On a Mac, write the paths out in full, such as
+`/Users/you/at_mcp/state/accounts.json`, because launchd leaves `~`
+unexpanded.
+
+Write each line as `NAME=value`, without `export`. Put double quotes around a
+value containing a space. Leave out `$`, backslashes and backticks, so that
+systemd, the launchd wrapper and at_mcp's own commands all read the file the
+same way.
+
+`RELEASE_COOKIE` is the password for operator commands such as
+`at_mcp-accounts`. Every published release carries a default cookie, readable
+by anyone with the download, so set your own with `openssl rand -hex 32`. The
+service and its commands refuse to run with an empty cookie. The cookie
+goes on the service's command line, where other local users could read it.
+On a machine with other login users, mount `/proc` with `hidepid=invisible`
+to hide it from them.
+
+[settings.md](settings.md) lists every other variable. For notifications, add
+the delivery settings described in [delivery.md](delivery.md).
+
+## Start the service
+
+The release includes example service files under `examples/`. On Linux:
 
 ```sh
 sudo cp /opt/at_mcp/current/examples/at_mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now at_mcp
-journalctl -u at_mcp -f                  # its logs
+journalctl -u at_mcp -f
 ```
 
-Mac, where launchd does not expand `~`:
+On a Mac:
 
 ```sh
 mkdir -p ~/Library/LaunchAgents
 sed "s|/Users/you|$HOME|g" ~/at_mcp/current/examples/li.example.at_mcp.plist \
   > ~/Library/LaunchAgents/li.example.at_mcp.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/li.example.at_mcp.plist
-tail -f ~/Library/Logs/AtMcp/at_mcp.log    # its logs
+tail -f ~/Library/Logs/AtMcp/at_mcp.log
 ```
 
-Each runs `bin/at_mcp start` in the foreground with the environment file
-loaded. systemd restarts it when it fails; launchd restarts it when it exits
-with an error, and starts it at login. To stop it: `sudo systemctl stop at_mcp`,
-or `launchctl bootout "gui/$(id -u)/li.example.at_mcp"`.
+systemd restarts the service after a failure. launchd starts it at login and
+restarts it after an exit with an error. To stop it, run
+`sudo systemctl stop at_mcp` on Linux or
+`launchctl bootout "gui/$(id -u)/li.example.at_mcp"` on a Mac.
 
-## Settings
+## Add accounts
 
-AtMcp reads these environment variables when it starts, and no others. A
-value that fails its check, or an `AT_MCP_*` variable that is not in this
-table, stops startup with a message that gives its name (and, for a misspelling, the
-setting it most resembles). An empty value is the same as unset. A stdio
-client sets them in its MCP configuration; a shared service sets them in its
-[environment file](#the-environment-file).
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `AT_MCP_HANDLE` | none | The account's handle: the stdio client's account, or the first account a shared service writes into a missing accounts file |
-| `AT_MCP_APP_PASSWORD` | none | That account's app password (secret) |
-| `AT_MCP_SERVICE` | the network's own PDS: `https://bsky.social` on Bluesky, `https://pds.delve.town` on Delvetown | That account's home PDS, an `http(s)` URL |
-| `AT_MCP_HANDLE_2`, `AT_MCP_APP_PASSWORD_2`, `AT_MCP_SERVICE_2` | none | A second account for a shared service's missing accounts file |
-| `AT_MCP_NETWORK` | `bluesky` | `bluesky` (`app.bsky.*`) or `delve` (`town.delve.*`) |
-| `AT_MCP_APPVIEW_READS` | `proxy` | `proxy`, or `direct` for the experimental [direct authenticated reads](#direct-authenticated-reads-experimental) |
-| `AT_MCP_STATE_DIR` | the per-user data directory (`at_mcp/inbound` under it; stdio adds a directory per account) | Durable state: write quotas, delivery queue, checkpoints. One process per directory |
-| `AT_MCP_ACCOUNTS_FILE` | `accounts.json` in the per-user configuration directory | A shared service's accounts file; the grants file is kept beside it |
-| `AT_MCP_PORT` | `4400` | A shared service's one loopback MCP endpoint, a port from 0 to 65535 |
-| `AT_MCP_CONTROL_PORT` | none (no listener) | A shared service's operator listener for identity discovery |
-| `AT_MCP_DIST_PORT` | `4370` | Where a shared service listens for operator commands, on 127.0.0.1 |
-| `AT_MCP_WRITE_LIMIT` | `16` | Publishing writes each account may attempt per window, unless the account sets its own; a positive integer |
-| `AT_MCP_WRITE_WINDOW_SECONDS` | `3600` | Length of the write quota window, unless the account sets its own; a positive integer |
-| `AT_MCP_NOTIFICATIONS` | `1` | `1`/`true` or `0`/`false`: a shared service polls each account's notifications |
-| `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` | `60` | Seconds between notification sweeps of each account; a positive integer |
-| `AT_MCP_JETSTREAM` | `0` | `1`/`true` or `0`/`false`: the network-wide stream collector |
-| `AT_MCP_INBOUND_MAX_EVENTS` | `10000` | Undelivered events held for one account before its collection pauses; a positive integer |
-| `AT_MCP_INBOUND_MAX_BYTES` | `67108864` (64 MiB) | Size of the delivery store; one account may fill a quarter of it. A positive integer |
-| `AT_MCP_IMAGE_MAX_BYTES` | `2000000` | The largest picture `get_post_images` returns, in bytes; a positive integer |
-| `AT_MCP_IMAGE_FETCH_SECONDS` | `10` | How long `get_post_images` waits for all of one post's pictures; a positive integer |
-| `AT_MCP_MEDIA_DIR` | none (off) | A directory whose image files `post`, `reply` and `update_profile` may read when an image gives a `path` instead of base64 `data`. Only regular files inside it, at most the network's post image size. Every account the process serves reads the same directory |
-| `AT_MCP_DELIVERY_URL` | none (no delivery) | Where a shared service delivers collected activity, an `http(s)` URL |
-| `AT_MCP_DELIVERY_TOKEN_FILE` | none | A file holding the consumer's bearer token, read at each delivery so a rotated token takes effect |
-| `AT_MCP_DELIVERY_TOKEN` | none | The bearer token itself (secret), instead of the file |
-| `AT_MCP_GRANT` | none | The grant `at_mcp-connect` presents to a shared service (secret) |
-| `AT_MCP_ENV_FILE` | none | For a command run from a shell: the environment file to load first |
-| `AT_MCP_STDIO_ENV_FILE` | none | For `at_mcp-stdio`: an environment file holding its settings |
-
-`BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD` and `BLUESKY_SERVICE` (and `_2`), older
-names for the account variables, still work with a warning; the new name wins
-when both are set.
-
-The accounts file says which accounts an installation serves. The
-environment sets where things are and what is switched on. To print what a
-running service has, with each value's source (secrets show only as set or
-unset):
+`at_mcp-accounts` manages the service's accounts. It reads the environment
+file given in `AT_MCP_ENV_FILE` and talks to the running service over
+127.0.0.1. On a Mac:
 
 ```sh
 export AT_MCP_ENV_FILE=~/at_mcp/at_mcp.env
-~/at_mcp/current/bin/at_mcp rpc 'AtMcp.CLI.settings()'
-```
-
-On Linux, as with `at_mcp-accounts`:
-`cd / && sudo -u at_mcp env AT_MCP_ENV_FILE=/etc/at_mcp/at_mcp.env /opt/at_mcp/current/bin/at_mcp rpc 'AtMcp.CLI.settings()'`.
-`bin/at_mcp eval 'AtMcp.CLI.settings()'` prints what a process would start with
-in the current environment.
-
-The release itself reads two more: `RELEASE_COOKIE`, the cookie the operator
-commands present (set one per installation, since a published release's own is
-readable by anyone who downloads it), and `RELEASE_NODE`, the service's Erlang
-node name. A second installation on one machine needs its own node name. A
-name without a host is given `@localhost`, or `@127.0.0.1` under
-`RELEASE_DISTRIBUTION=name`; a host given there must resolve to loopback.
-
-`.env.example` is the template for the environment file.
-
-On first run, an installation with
-`AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` set (and optionally the `_2` pair and
-`AT_MCP_SERVICE`) and no accounts file
-writes itself one at startup, with the accounts called `default` and `second`. This
-happens once; with a file present these variables are not consulted, and
-changing them afterwards does nothing.
-
-`AT_MCP_NETWORK` applies to the whole installation, so
-reaching Bluesky and Delvetown at once is two services, each with its own
-unit, environment file, accounts file, `AT_MCP_STATE_DIR`, ports and
-`RELEASE_NODE` ([The environment file](#the-environment-file)). Two releases
-with the same node name or distribution port cannot both run.
-
-## Accounts and operator commands
-
-`at_mcp-accounts` and the release's own `bin/at_mcp rpc EXPR`, `remote`, `stop`
-and `pid` read the same environment file when `AT_MCP_ENV_FILE` points to it, and
-connect to the running service over 127.0.0.1:
-
-```sh
-export AT_MCP_ENV_FILE=~/at_mcp/at_mcp.env
-~/at_mcp/current/bin/at_mcp-accounts add grug --handle grug.example   # asks for an app password
+~/at_mcp/current/bin/at_mcp-accounts add grug --handle grug.example
 ~/at_mcp/current/bin/at_mcp-accounts reload
 ~/at_mcp/current/bin/at_mcp-accounts status
-~/at_mcp/current/bin/at_mcp-accounts connection grug                 # a grant, for an MCP client
 ```
 
-On Linux, run it as the service's user, which holds the accounts file. Run it from a
-directory that user can read, such as `/`: the command starts in the current
-directory, and your home is usually closed to the `at_mcp` user.
+On Linux, run each command as the service's user, from a folder that user can
+read:
 
 ```sh
 cd / && sudo -u at_mcp env AT_MCP_ENV_FILE=/etc/at_mcp/at_mcp.env /opt/at_mcp/current/bin/at_mcp-accounts status
 ```
 
-`add` verifies the login before saving anything; `reload` tells the running
-service. [Account options](#account-options) covers
-`update`, `remove`, `disconnect`, `reconnect`, grants and scopes. Leave a
-`remote` session with Ctrl-C twice: when its input ends, as piped input does,
-the service it is attached to halts.
+The rest of this guide writes `at_mcp-accounts` for short. Put the same prefix
+in front of each command.
 
-### Account options
+`add` asks for the app password, logs in to check it, and saves the account
+under the local name you gave, `grug` here. To pipe the password in from a
+script, add `--password-stdin`. at_mcp never takes a password as a
+command-line argument. For an account hosted outside the network's own
+server, add `--service URL`. `reload` tells the running service to start any
+new accounts, and `status` shows each account's state. `list` shows the saved
+configuration without asking the service.
 
-In the remaining examples, replace `at_mcp-accounts` with the same absolute
-command and user/environment prefix you used above.
+The accounts file holds app passwords, so at_mcp writes it with mode 600.
 
-For an account on another PDS, use `add NAME --handle HANDLE --service URL`.
-`at_mcp-accounts list` shows saved configuration; `status` shows the running service.
+## Connect a client
 
-`--password-stdin` reads the password from stdin for automation; passwords are
-never command-line arguments. The accounts file holds app passwords and
-verified DIDs with mode 0600; the environment file points to it
-(`AT_MCP_ACCOUNTS_FILE`), and every command given that file uses it.
-`--file PATH` selects another one for one command. Duplicate names and DIDs
-are rejected.
-
-There is one MCP endpoint for the whole installation, `AT_MCP_PORT` (4400).
-Which identity a client acts as follows from the grant it presents.
-
-### Issue a connection
+To issue a grant for a client, run:
 
 ```sh
 at_mcp-accounts connection grug
-at_mcp-accounts connection grug --transport stdio
+```
+
+The command prints a JSON object. Its `mcp` field gives the details a client
+needs: the URL `http://127.0.0.1:4400/mcp`, an `Authorization: Bearer` header
+carrying the new grant, and a header with the account's DID. at_mcp stores
+only a hash of each grant, so copy the grant now, because nothing can print it
+again.
+
+Claude Code takes these values in an `mcp.json` file like this one, with your
+grant and DID filled in:
+
+```json
+{"mcpServers": {"at_mcp": {
+  "type": "http",
+  "url": "http://127.0.0.1:4400/mcp",
+  "headers": {"authorization": "Bearer YOUR_GRANT",
+              "x-at-mcp-account-did": "YOUR_ACCOUNT_DID"}}}}
+```
+
+Start Claude Code with `claude --mcp-config /path/to/mcp.json
+--strict-mcp-config`, then ask the agent to call `identity_status` and check
+the handle.
+
+For a client limited to stdio, add `--transport stdio` to the `connection`
+command. The client then runs `at_mcp-connect`, which carries the grant in
+`AT_MCP_GRANT` and passes the client's requests to the service. Clients on
+HTTP and on stdio share the account's session and write quota.
+
+### Limit a client's tools
+
+Every grant has a scope, set with `--scope` when you issue it:
+
+| Scope | Tools allowed |
+| --- | --- |
+| `read` | reads only |
+| `write` | reads, plus writes adding to the account, such as posting, following or editing the profile |
+| `manage` | every tool, including deleting, unfollowing, blocking, muting and changing settings. This is the default. |
+
+```sh
 at_mcp-accounts connection grug --scope read
 ```
 
-Each run of `connection` issues a new grant and prints a descriptor an MCP
-client consumes: the shared URL, an `Authorization: Bearer` header carrying the
-grant, and the account's DID in `x-kite-account-did`, which confirms the
-binding and selects nothing. Tokens are stored only as digests, so a grant
-cannot be recovered later.
+A client sees only the tools in its scope, and at_mcp refuses calls to any
+others. [tools.md](tools.md) gives the scope of each tool.
 
-`--scope` limits the tools the grant allows: `read` is every tool that declares
-`readOnlyHint`, `write` adds writes that destroy nothing, and `manage` (the
-default) adds the destructive ones. [tools.md](tools.md) gives each tool's
-scope. A client's tool list holds only the tools its grant allows, and at_mcp
-refuses a call to any other tool. The client's own approvals are separate. The
-stdio descriptor's `at_mcp-connect` command connects to the same running account through HTTP, carries the grant in `AT_MCP_GRANT` (never
-argv) and holds no account password, so HTTP and stdio clients share the
-session, write quota and disconnect control.
+A grant works like a password on the local machine. Any process able to read
+a client's configuration can use its grant, so keep those files private.
+
+### Revoke a grant
 
 ```sh
 at_mcp-accounts grants
 at_mcp-accounts revoke GRANT_ID
 ```
 
-Revocation takes effect on the next request. Grants live in
-`accounts.grants.json` beside the accounts file; deleting that file revokes
-every grant and keeps every identity. Removing an
-account revokes its grants.
+The client loses access on its next request. at_mcp keeps grants in
+`accounts.grants.json` next to the accounts file. Deleting that file revokes
+every grant and leaves the accounts in place. Removing an account revokes its
+grants.
 
-### Manage accounts
+## Change accounts
 
 ```sh
-at_mcp-accounts update grug        # new password; --handle, --service
+at_mcp-accounts update grug        # new password, or --handle, --service
 at_mcp-accounts remove reader
 at_mcp-accounts reload
-at_mcp-accounts status
+```
+
+`update` logs in with the new details and checks the DID against the saved
+one before saving. If the login fails, the file stays as it was. After `add`,
+`update` or `remove`, run `reload`. The service restarts only the accounts
+whose configuration changed, and reports each as `ready`, `disconnected` or
+`unavailable`. If a changed account fails to log in, it shows as
+`unavailable` and `reload` exits with an error. Fix the file and run `reload`
+again.
+
+`remove` deletes the saved password and keeps the account's write quota count
+and undelivered notifications. The app password stays valid at the network,
+so revoke it there too once you're done with it.
+
+### Pause an account
+
+```sh
 at_mcp-accounts disconnect grug
 at_mcp-accounts reconnect grug
 ```
 
-`update` verifies the saved DID before replacing credentials; a failed login
-leaves the file unchanged. After `add`, `update` or `remove`, run `reload`: it
-reads the file the service was started with, leaves unchanged accounts running,
-replaces changed ones, and keeps disconnected accounts disconnected, write
-quotas and delivery history. Each changed account is reported `ready`,
-`disconnected` or `unavailable`; a replacement that cannot log in is
-`unavailable` and `reload` exits nonzero;
-correct the file and reconnect explicitly. `remove` deletes saved credentials
-and keeps the account's history and its disconnected state. Neither `remove` nor `disconnect`
-revokes the app password at the PDS.
+`disconnect` stops the account's tool calls, notification collection and
+delivery, and saves the paused state, so the account stays paused across
+restarts. Notifications already collected stay queued. `reconnect` logs in
+again and resumes. If the login fails, the account stays paused.
+Notifications arriving during the pause may be missed.
 
-### An account's own write limit
+### Give an account its own write limit
 
-Each account's publishing writes (posts, replies and reposts) are limited per
-window. `AT_MCP_WRITE_LIMIT` and `AT_MCP_WRITE_WINDOW_SECONDS` (16 per 3600
-seconds) are the limit for every account that does not set its own. Accounts
-on one service are often different agents with different needs, so an account
-can have its own:
+Accounts on a service often belong to different agents with different needs.
+To give an account its own limit:
 
 ```sh
 at_mcp-accounts write-quota grug --limit 40 --window-seconds 3600
@@ -350,501 +275,190 @@ at_mcp-accounts write-quota grug --default
 at_mcp-accounts reload
 ```
 
-The limit is saved as an optional `write_quota` field on the account in the
-accounts file (`{"limit": 40, "window_seconds": 3600}`), and `list` shows it.
-Each command replaces the account's whole limit: a value it does not give
-(`--window-seconds` above, for `reader`) is the service's, and `--default`
-removes the field, so the account uses the service's limit and window again.
-Values are positive integers. `reload` applies the change by replacing that
-account, as it does for any changed account; other accounts keep running.
+Each command replaces the account's whole setting. A value left out, such as
+the window for `reader` above, falls back to the service's default from
+[settings.md](settings.md#write-quota). `--default` removes the account's own
+setting. `list` shows each account's setting.
 
-The count belongs to the account's DID and survives the change. A new limit
-applies to the window already open, so lowering it below what the account has
-used in that window refuses its writes until the window ends. A shorter window
-applies to the open one too: it ends that much sooner after it opened (a day's
-window opened an hour ago, cut to an hour, ends now). A longer window applies
-from the next window. `identity_status` reports the limit and window the
-account is held to, with its usage and the time the open window ends.
+The count already used carries over. A lower limit applies to the current
+window straight away, so an account above the new limit waits for the window
+to end. A shorter window also applies straight away, and a longer one starts
+with the next window. `identity_status` reports the limit, the window, the
+count used and the reset time.
 
-### Replace an app password
+## Replace an app password
 
-An app password is the account's credential at its PDS. Three other things
-look like credentials but are not it. The saved copy of the password in the
-accounts file belongs to AtMcp. A grant is how an MCP client connects to the
-service, and grants stay valid when the password changes. `remove` and
-`disconnect` stop AtMcp using the account. Replacing the password means
-writing the new one where AtMcp reads it, checking that AtMcp is using it,
-then revoking the old one at the PDS.
+The app password lives in the accounts file. Grants are separate, so clients
+keep working through the change.
 
-1. Create a new app password in the account's settings at its home provider
-   (on Bluesky, Settings, then Privacy and security, then App passwords). Keep the
-   old one for now.
-2. Save it, then apply it:
+1. Create a new app password in the account's settings on its host, such as
+   Settings, then Privacy and security, then App passwords on Bluesky. Keep
+   the old one for now.
+2. Save and apply the new password:
 
    ```sh
-   at_mcp-accounts update grug        # asks for the new app password
+   at_mcp-accounts update grug
    at_mcp-accounts reload
    ```
 
-   `update` logs in with the new password and checks it logs in as the saved DID
-   before saving it. If the login fails, or logs in as another DID, the file is
-   unchanged. `reload` replaces the account, and the account must be reported
-   `"status": "ready"`. `unavailable` means the new login failed, and `reload`
-   exits nonzero. Restarting the service applies the file too.
-3. Check: `at_mcp-accounts status` shows the account with `"ready": true`
-   and its usual `did`.
-4. Revoke the old app password at the provider (on Bluesky, delete it from the
-   same list), then run `status` again. AtMcp is using the new password if the
-   account is still `ready`.
+   `update` refuses the password if it fails to log in, or logs in as a
+   different DID.
+3. Run `at_mcp-accounts status` and check for `"ready": true` with the usual
+   DID.
+4. Revoke the old app password on the host, then run `status` again. A
+   `ready` account at this point is running on the new password.
 
-The environment file's `AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` are read
-once, to write an accounts file when none exists.
-After that, changing them changes nothing. Clients attached through
-`at_mcp-connect` or HTTP hold a grant and never the password, so they need no
-change. To also cut off a client, revoke its grant (`at_mcp-accounts revoke`,
-above). The app password stays valid.
+The environment file's `AT_MCP_HANDLE` and `AT_MCP_APP_PASSWORD` serve only to
+write the first accounts file. Changing them later has no effect.
 
-For an `at_mcp-stdio` that an MCP client starts, follow
-[Replace the app password of a stdio client](#replace-the-app-password-of-a-stdio-client).
+For an `at_mcp-stdio` started by a client, the password lives in the client's
+configuration, or in the file given in `AT_MCP_STDIO_ENV_FILE`, which takes
+priority. Change it there, restart the client, and ask the agent to call
+`identity_status` before you revoke the old password.
 
-`status`, `reload`, `disconnect` and `reconnect` connect to the running service over
-the release's Erlang distribution, which listens on 127.0.0.1 only, at
-`AT_MCP_DIST_PORT`, with no port mapper (epmd). They find it when
-`AT_MCP_ENV_FILE` points to the service's environment file, which carries its
-cookie, port and node name.
+## List a service's accounts
 
-### Replace the app password of a stdio client
-
-For a client-launched `at_mcp-stdio`, the app password is wherever the client
-configuration puts `AT_MCP_APP_PASSWORD`. The client passes it to each
-`at_mcp-stdio` it starts, and AtMcp saves no copy.
-
-1. Create a new app password at the account's provider. Keep the old one for
-   now.
-2. Put it in `AT_MCP_APP_PASSWORD`. If `AT_MCP_STDIO_ENV_FILE` points to a file
-   that sets it, change it in that file: the file's values override the
-   client's `env`, so changing the client's `env` alone has no effect.
-3. Restart the MCP server from the client (in Claude Code, `/mcp`, or a new
-   session). Call `identity_status`: it should show `"logged_in": true` and
-   the account's usual `did`. If the new password is wrong, the server does
-   not start, and its stderr says "AtMcp could not log into this account".
-4. Revoke the old app password at the provider, then call `identity_status`
-   again. AtMcp is using the new password if it still shows `"logged_in": true`.
-
-A shared service keeps the password in its accounts file instead
-([Replace an app password](#replace-an-app-password)).
-
-A client that starts `at_mcp-stdio` can call every tool, including publishing,
-profile changes and deletion. To give a client fewer tools, attach it to a
-shared service with a grant ([Issue a connection](#issue-a-connection)). The
-client's own tool approvals are separate from at_mcp's write quota.
-
-## Attach a client over HTTP
-
-The endpoint is `http://127.0.0.1:4400/mcp`. at_mcp refuses a request with no
-grant with `401`. `at_mcp-accounts connection NAME` prints a JSON object whose
-`mcp` field tells a client how to attach:
-
-```json
-{"name":"at_mcp-grug","type":"http","url":"http://127.0.0.1:4400/mcp",
- "headers":[{"name":"authorization","value":"Bearer kite-..."},
-            {"name":"x-kite-account-did","value":"did:plc:..."}]}
-```
-
-Other clients take the same values in their own formats. Claude Code takes the
-headers as an object, so put the returned values into a private `mcp.json`
-file like this one:
-
-```json
-{"mcpServers":{"at_mcp":{"type":"http","url":"http://127.0.0.1:4400/mcp",
- "headers":{"authorization":"Bearer YOUR_RETURNED_GRANT",
-            "x-kite-account-did":"YOUR_RETURNED_DID"}}}}
-```
-
-Start it with `claude --mcp-config /absolute/path/to/mcp.json --strict-mcp-config`.
-Then ask the agent to call `identity_status` and `get_profile`, and check that
-both show the intended account.
-
-A grant is a bearer token on loopback with no TLS and no binding to the process
-holding it: any process that can read a client's environment or configuration
-can use it. It keeps apart what each client was given. It does not stop a
-process from taking another client's grant. The host's own tool-approval controls still govern whether an
-action is approved; the account's write quota only says whether capacity is left.
-
-## Incoming activity
-
-The service polls each account's notifications every 60 seconds
-(`AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS`) through its PDS, without changing their read state. Configure where to deliver:
-
-```sh
-AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
-AT_MCP_DELIVERY_TOKEN_FILE=/absolute/private/path/consumer-token
-```
-
-The environment destination above is a single consumer for every account.
-For separate agents on the same machine, save a destination for each account:
-
-```sh
-at_mcp-accounts delivery alice --url http://127.0.0.1:4420/inbound --token-file /private/alice/consumer-token
-at_mcp-accounts delivery bob --url http://127.0.0.1:4421/inbound --token-file /private/bob/consumer-token
-at_mcp-accounts reload
-```
-
-Each token file contains that receiver's bearer token. It is neither a PDS app
-password nor an MCP grant. Keep it private and readable by the service user. Tokens are
-read again on each attempt, so token rotation does not require a reload.
-An empty or unreadable token file, or one whose contents are more than one
-header value, fails that attempt and is retried; AtMcp never sends that
-account's activity without its token, and the failure it reports mentions
-neither the token nor its file.
-The destination and token file are saved in the named account's `delivery`
-field in the existing accounts file; the command never changes its credentials.
-The first destination command explicitly disables delivery for the other saved
-accounts; configure each receiver before reloading. While any account remains
-in this configuration, accounts added later start with delivery disabled too.
-If you remove every account, configure each new destination before reloading
-again: an empty accounts file does not retain the delivery mode. This workflow
-covers the shared service. An embedding host registers callbacks instead.
-If editing JSON directly, every account must have
-`"delivery"` set to its destination or `null`; a partial migration is rejected.
-Use `delivery alice --disable` followed by `reload` to hold Alice's incoming
-activity without disconnecting her account or discarding queued events.
-
-When switching from the single consumer, remove `AT_MCP_DELIVERY_URL` and its
-`AT_MCP_DELIVERY_TOKEN` / `AT_MCP_DELIVERY_TOKEN_FILE` from the service environment,
-configure each account, then restart the service. Combining the global URL with
-account destinations is rejected rather than guessing where notifications go.
-Once account destinations are configured, an account without a destination
-holds its events; there is no fallback to another agent or global credentials.
-The existing one-consumer configuration remains supported without changes.
-
-Reloading a changed destination cancels that account's current delivery attempt
-before applying the new route; retained events then go to the new receiver.
-An interrupted HTTP attempt may already have been accepted by the old receiver,
-so changing receivers requires the same deduplication care as other retries.
-Removing an account disconnects it and retains its pending events. A restart
-loads the saved destinations again. One unavailable receiver holds only its
-own account's queue.
-
-The URL belongs to the receiving application (for example, an agent host
-that accepts each event into its agent's work queue). The token is re-read for every delivery, so rotation
-needs no restart.
-
-What a receiver must do, in full in `AtMcp.Deliver.HTTPBridge`: AtMcp POSTs the normalized
-event as JSON (`matched_did`, `uri`, reasons, author, text, thread context,
-`network`). The receiver must durably accept before returning 2xx and must
-deduplicate recipient DID plus source URI. A non-2xx, redirect, transport error
-or timeout leaves the event pending for retry, so delivery is at least once.
-AtMcp supplies no route, character or conversation.
-
-Each account's events are delivered in order, so an event the consumer keeps
-refusing holds that account's later events behind it. `at_mcp-accounts status`
-shows such an account with `delivery` set: `"state": "stalled"`, the consumer's
-last answer in `reason` (its form, with any text in it left out; the log line
-shows the text), `since` (when that event first failed), `attempts` (counted up to 20)
-and the account's `pending` count. `delivery` is `null` while delivery flows.
-
-Thread context is `thread_root_uri` and `thread_parent_uri`: the thread to read
-to answer, and the post being answered. Both collectors publish them under the
-same names, and only when the delivered record is itself a post, that is,
-for a mention, a reply or a quote. They are absent on every other event: a
-like or a repost, whose `uri` is the like or repost record rather than a post,
-and the stream's copy of a record the account itself wrote.
-
-`thread_root_uri` is always present on those three. It is the record's declared
-reply root; failing that the declared reply parent, which is the nearest
-ancestor the record refers to; failing both the record's own `uri`. A top-level post
-is therefore the case `thread_root_uri == uri`. A host recognizes one by that
-comparison. The absence of `thread_parent_uri` does not tell it.
-`thread_parent_uri` is absent whenever the record declared no reply parent,
-which happens both on a top-level post and on a reply that declared only a
-root.
-
-The two uris are what the record declared, resolved against each other only to
-the extent above: AtMcp does not fetch either one, so neither is known to exist,
-to be a post, or to belong to one thread. The single check AtMcp does make is for
-self-reference: a record giving its own `uri` as its parent or its root has
-that ref dropped, so `thread_parent_uri` never equals `uri`.
-
-`subject_uri` is the record a like, a repost or a quote addresses: the liked or
-reposted post, or the quoted post. Both collectors send it: the notifications
-collector from the application's `reasonSubject`, the Jetstream collector from
-the record itself. It is the only pointer to a post on a like or a repost. On a
-quote it is also the only pointer to the quoted post, because a quote that is
-itself a reply has a `thread_root_uri` for the thread it was posted into,
-which need not contain what it quoted.
-
-The older `reply_root_uri` and `reply_parent_uri` still report what the record
-itself declared, unresolved. The notifications collector also sends the author's
-handle as `author`; the Jetstream collector sends only `author_did`, because a
-repo commit carries no handle and resolving one would be a network call per
-event.
-
-Collection revisits five minutes before its checkpoint and deduplicates; the
-first poll looks back only five minutes. Pending events are
-never evicted: when an account has 10,000 pending events
-(`AT_MCP_INBOUND_MAX_EVENTS`) or a quarter of the store's 64 MiB
-(`AT_MCP_INBOUND_MAX_BYTES`), that account's collection holds until delivery
-makes room. Late arrivals outside the overlap, and activity the provider never
-puts in the inbox, are not covered.
-
-`AT_MCP_JETSTREAM=1` adds the network-wide stream collector. It downloads every
-post, like and repost and filters recipients locally, so expect continuous
-bandwidth; it receives the account's own writes and deeper replies that notifications omit.
-Both collectors share delivery and deduplication.
-
-## When the service starts
-
-A login the PDS does not answer is not a failed startup. The service starts,
-`at_mcp-accounts status` shows the account configured and not running, and the
-login is retried with backoff (one second, doubling to thirty) until it
-succeeds. A credential the PDS refuses would be refused again, so it is
-reported once in the service log and left alone until `at_mcp-accounts reconnect
-NAME`, or a `reload` after the file is corrected. What does fail startup is a
-runtime that cannot start any account: an unreadable accounts file, or a state
-directory another process holds.
-
-Account controls for the running service:
-
-```sh
-at_mcp-accounts status
-at_mcp-accounts disconnect grug
-at_mcp-accounts reconnect grug
-```
-
-Disconnect is persisted first, then stops tool calls, polling, stream tracking
-and delivery for every alias of that DID in this runtime; accepted pending
-events, receipts and write quotas stay. Reconnect logs in before resuming the
-delivery it stopped; a failed login leaves the account disconnected. Activity during the interval is not promised on
-reconnect. A configured delivery bridge attaches whether any account is running
-or not, so the service stays available for reconnect. A programmatic identity
-whose configuration the service no longer has reports `configuration_required` until
-it is supplied again.
-
-## Ask an installation which identities it holds
-
-With `AT_MCP_CONTROL_PORT` set, a loopback listener answers what a host would
-otherwise be told by hand:
+With `AT_MCP_CONTROL_PORT` set, the service answers a local request listing
+its accounts:
 
 ```sh
 curl -s http://127.0.0.1:4410/identities
 ```
 
-Each entry carries the account's public fields, a descriptor with the shared
-URL and `x-kite-account-did` (no credential; add the grant from
-`at_mcp-accounts connection`), and a `runtime` object. `runtime: null` means the
-service has not loaded the account (reload fixes it); `running: false` means it
-is loaded and down (reload will not); `ready: true` means it is logged in and
-serving tool calls and delivery; `disconnected: true` means its owner
-disconnected it. An unreadable configuration answers
-`503 configuration_unreadable`. This is deliberately not an MCP tool.
+Each entry gives the account's handle and DID, the connection details without
+a grant, and a `runtime` object:
 
-## Direct authenticated reads (experimental)
+- `runtime: null`: the service has yet to load the account. Run `reload`.
+- `running: false`: the account is loaded and stopped. Check the log.
+- `ready: true`: the account is logged in and serving.
+- `disconnected: true`: someone paused the account with `disconnect`.
 
-This is an experiment. It may change or go away in a later release.
+## Run a second installation
 
-From 0.2.0, `AT_MCP_APPVIEW_READS=direct`
-opts into direct authenticated application GETs. The default remains `proxy`.
-Use this only when the home PDS supports `com.atproto.server.getServiceAuth`:
-AtMcp requests a fresh token for the selected AppView audience and exact read
-method, expiring in 60 seconds. The app password and home session stay at the
-home PDS; only the service token reaches the AppView. Neither HTTP request follows
-redirects or uses transport retries. When the home PDS refuses the session,
-at_mcp logs in again as before. A denied or missing token stops the read.
-HTTP 501 alone never selects this route.
+A service handles a single network. To serve Bluesky and Delvetown from the
+same machine, run a second installation with its own folder, environment file,
+state folder and service file. Give it different values for
+`AT_MCP_DIST_PORT`, `AT_MCP_PORT` and `RELEASE_NODE`, the service's internal
+node name. For example, on a Mac:
 
-This prototype covers application reads, including repeated-parameter reads.
-Preferences, which the PDS keeps, are still read from the home PDS. Repository writes still go home; application
-procedures such as mute and marking notifications seen still require proxy
-support. With it, an account on a PDS that refuses to proxy still cannot do everything.
-When the AppView refuses a token, at_mcp does not log in again.
+- `AT_MCP=~/at_mcp-delve`
+- `AT_MCP_NETWORK=delve`
+- `AT_MCP_DIST_PORT=4371`
+- `AT_MCP_PORT=4402`
+- `RELEASE_NODE=at_mcp_delve`
 
-Endpoints are fixed in `AtMcp.Network`, paired with the selected service DID:
-`https://api.delve.town/xrpc` and `https://api.bsky.app/xrpc`. These match the
-respective [Delvetown DID document](https://api.delve.town/.well-known/did.json)
-and [Bluesky DID document](https://api.bsky.app/.well-known/did.json) service
-entries; the prototype does not discover endpoints or accept arbitrary URLs.
-The [XRPC service authentication rules](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
-binds the token to an audience and method. Tests exercise a modeled refusing
-PDS and signature-checking AppView through an ordinary MCP client. They do not
-establish compatibility with every real provider.
+Rename the launchd label, paths and log file to match, such as
+`li.example.at_mcp.delve` and `at_mcp-delve.log`.
 
-## When something goes wrong
+## Troubleshooting
 
-- The stdio command waits silently: an MCP client must start it and talk MCP
-  over stdin and stdout. Its messages go to stderr.
-- The state directory is already in use: another at_mcp process holds it. Close that
-  client or share one service; do not create extra state directories to bypass
-  a write quota.
-- Login fails: check handle, app password and PDS URL. The PDS URL is the
-  address of the server that hosts the account. A profile page address does
-  not work. The account's DID document
-  lists it as the [`#atproto_pds` service](https://atproto.com/specs/did#did-documents). The service's
-  `AT_MCP_ENV_FILE` and a stdio client's `AT_MCP_STDIO_ENV_FILE` are separate. In
-  the shared service a PDS that did not answer is retried on its own; a refused
-  credential is in the service log, and `at_mcp-accounts status` shows the account
-  configured and not running until it is reconnected or reloaded.
-- The write quota is used up: `identity_status` reports the reset time.
-  Restarting clients does not replenish it.
-- A write timed out: it may have reached the PDS. Check the account before
-  creating again.
-- State cannot be read: AtMcp refuses damaged state rather than resetting
-  policy. Preserve the directory and read the diagnostics; do not delete it to
-  make startup succeed.
-- Startup reports `delivery_bridge_unready`: delivery is configured but no
-  collector is enabled.
-- An inbound event is delayed: check the account is connected, collection
-  is enabled, the consumer routes that DID, and the destination is not paused.
-  Accepted work stays queued through consumer outages.
+### At startup
 
-A tool call that cannot complete says which of three things happened:
+If an account's server fails to answer, the service starts anyway and keeps
+trying to log in, waiting a second at first and up to thirty seconds between
+tries. `status` shows the account as configured and stopped until a login
+works.
 
-- Refused: the action did not happen. Read the reason before changing the
-  request. A quota refusal says when capacity returns.
-- Credential refused: at_mcp may recover the session and try once more. A
-  login refused again needs a valid app password for the same account.
-- Unknown outcome: the write may have gone through although no answer arrived.
-  at_mcp reports `outcome: "unknown"` and never retries it. Read the account
-  before creating anything again.
+If the server rejects the password, at_mcp logs the rejection once and stops
+trying. Fix the password with `update`, then run `reload`, or run `reconnect`.
+
+The service refuses to start when it can't read the accounts file, or when
+another process is using the state folder.
+
+### Common problems
+
+- **`at_mcp-stdio` waits without printing anything.** It expects an MCP client
+  on its input and output, so start it from an MCP client. Its messages go to
+  standard error.
+- **The state folder is in use.** Another at_mcp process holds it. Close the
+  other client, or connect both clients to a single service. A separate state
+  folder would give the account a second, separate write quota.
+- **Login fails.** Check the handle, the app password and the server address.
+  Use the address of the account's host. A profile page address fails. The
+  account's DID document lists the host as the
+  [`#atproto_pds` service](https://atproto.com/specs/did#did-documents).
+- **The write quota is used up.** `identity_status` gives the reset time.
+  Restarting leaves the count unchanged.
+- **A write timed out.** The network may have received it. Read the account
+  before writing again.
+- **at_mcp reports damaged state.** Keep the state folder as it is and read
+  the error. at_mcp refuses to reset its stored state on its own, so deleting
+  the folder to get past the error would also reset the write quota.
+- **Startup reports `delivery_bridge_unready`.** A delivery address is set,
+  and notification collection is off. Turn collection on or remove the
+  address.
+- **A notification is late.** Check that the account is connected, collection
+  is on, and the receiving program is up. [delivery.md](delivery.md#when-delivery-stalls)
+  covers stalled delivery.
+
+### Failed tool calls
+
+A tool call fails in one of these ways:
+
+- **Refused.** Nothing happened. The reason says why, and a quota refusal
+  gives the reset time.
+- **Credential refused.** at_mcp logs in again and retries once. If the
+  network refuses the login too, the account needs a valid app password.
+- **Unknown outcome.** The write may have gone through, and at_mcp reports
+  `outcome: "unknown"` without retrying. Read the account before writing
+  again.
+
+## Direct reads
+
+This feature is experimental, and later releases may change or remove it.
+
+By default, at_mcp sends reads through the account's host, which passes them
+on to the network's app server. With `AT_MCP_APPVIEW_READS=direct`, at_mcp
+asks the host for a token valid for 60 seconds and a single read method, then
+sends the read straight to the app server with that token. The app password
+and session stay with the host. Use this setting only with a host supporting
+`com.atproto.server.getServiceAuth`.
+
+Direct mode covers reads only. Writes still go to the host, and so do
+preferences and actions such as muting or marking notifications seen. If the
+host refuses the token, the read fails.
+
+at_mcp uses fixed app server addresses, `https://api.bsky.app/xrpc` for
+Bluesky and `https://api.delve.town/xrpc` for Delvetown, matching the
+networks' published DID documents.
 
 ## Upgrade
 
-Read the notes below for every release between yours and the new one. Then run
-the install block again ([Run a shared service](#run-a-shared-service) on
-Linux, the README's [Fetch a release](../README.md#fetch-a-release) on a Mac).
-It unpacks the new release beside the one running and points `current` at it.
-Then restart the service:
+1. Read the [CHANGELOG](../CHANGELOG.md) entries for every release between
+   yours and the new one, and follow any upgrade steps listed there.
+2. Run the install block again: the Linux block above, or the README's
+   [Fetch a release](../README.md#fetch-a-release) on a Mac. It unpacks the new
+   release next to the old one and points `current` at the new one.
+3. Restart the service:
 
-```sh
-sudo systemctl restart at_mcp            # Mac: launchctl kickstart -k "gui/$(id -u)/li.example.at_mcp"
-```
+   ```sh
+   sudo systemctl restart at_mcp
+   # Mac: launchctl kickstart -k "gui/$(id -u)/li.example.at_mcp"
+   ```
 
-and check `at_mcp-accounts status`. Activity collected and not yet delivered is
-delivered after the restart. A write running at the restart may or may not
-have gone through, as with any interrupted write, and nothing retries it: check
-the account before writing again.
+4. Run `at_mcp-accounts status`.
 
-at_mcp keeps its data in the accounts file, the grants file and the state
-directory (write quotas, the delivery queue and collection checkpoints). The
-next release changes none of them. Version 0.2.14 added an optional field to
-the accounts file, which older releases refuse; its notes below say what to
-remove before rolling back. CI's upgrade check writes each of these files under
-the older release and the newer one and reads them back under the other, so it
-fails when a release changes one. A release that changes their format will
-copy what it changes when it starts, and say here how to put the copy back.
+Notifications collected and still undelivered go out after the restart. A
+write in progress during the restart has an unknown outcome, so read the
+account before writing again.
 
-### From 0.2.15 to the next release
-
-`update_profile` takes `labels`, the labels the account gives itself, such as
-`bot` for an automated account. A list replaces the labels the account has,
-`[]` removes them, and leaving `labels` out keeps them. On Bluesky they go on
-the account's profile record. On Delvetown they go on the profile record that
-Bluesky reads, `app.bsky.actor.profile`, and only its `labels` field changes.
-If the account has no such record, at_mcp creates one holding only the labels.
-When a call gives profile fields and labels together, both change or neither
-does. The result lists the labels written. at_mcp refuses more than 10 labels,
-an empty or repeated one, or one longer than 128 bytes, before it sends
-anything.
-
-### From 0.2.14 to 0.2.15
-
-This release changes no local stored data.
-
-- On Delvetown, `follow` and `block` write the same follow and block records
-  Bluesky uses, for every account. `unfollow` and `unblock` remove that record
-  and any older Delvetown-only record for the same account together. If the
-  account's repository changes before they finish, they refuse and remove
-  nothing. A record that is already gone reports nothing deleted.
-- On Delvetown, `update_profile` saves the account's whole Delvetown profile,
-  including fields left empty on purpose, and leaves its Bluesky profile and
-  its labels as they were. A first edit that gives only some fields keeps the
-  avatar and the banner the account shows.
-- An embedding application reads that same profile with
-  `AtMcp.Effects.get_own_profile/1`. Upgrade it to the 0.2.15 Hex package
-  before switching its running release.
-
-Do not roll a Delvetown installation back to 0.2.14. Its `update_profile` can
-change the account's Bluesky profile, and its `follow` and `block` depend on a
-Delvetown account check that 0.2.15 no longer makes.
-
-### From 0.2.13 to 0.2.14
-
-The accounts file changes only if you give an account its own write limit.
-The write quota file also records when each account's window opened, a field
-0.2.13 reads past.
-
-- On Delvetown, before it writes a profile, a follow or a block, 0.2.14 asks
-  Delvetown (`town.delve.identity.getState`) whether the account uses the
-  profile, follow and block records Bluesky uses. If Delvetown does not
-  answer, the write stops before anything is sent. Releases before 0.2.14 do
-  not ask, and can report success for writes that no longer change such an
-  account. Installing this release changes no account.
-
-- Each account can have its own write limit (#159):
-  `at_mcp-accounts write-quota NAME --limit N [--window-seconds S]`, then
-  `reload` ([An account's own write limit](#an-accounts-own-write-limit)). It
-  is saved as an optional `write_quota` field on that account in the accounts
-  file. An account without one keeps `AT_MCP_WRITE_LIMIT` and
-  `AT_MCP_WRITE_WINDOW_SECONDS`, so upgrading changes no account's limit until
-  you set one. Embedding hosts pass `write_limit:` and `write_window_seconds:`
-  to `AtMcp.Identities.start_identity/1`.
-
-  Rolling back after setting one needs one step first. 0.2.13 and older
-  refuse an accounts file holding a field they do not know: the service does
-  not start (its log ends with `AtMcp account configuration:
-  :config_corrupt`), and their `at_mcp-accounts` refuses the file too, so it
-  cannot take the field out. Before rolling back, while the newer release is
-  still installed, run `at_mcp-accounts write-quota NAME --default` for every
-  account that has a `write_quota` (`list` shows them), then `reload`; the
-  accounts then use the service's limit, as 0.2.13 does. If you have already
-  rolled back, put the newer release back and do this, or delete each
-  `"write_quota"` entry from the accounts file by hand. A service that never
-  ran `write-quota` rolls back as before. CI's upgrade check takes this step.
-
-- An embedding host can post text exactly as given (#163):
-  `AtMcp.Effects.post(effects, text, facets: :none)`, and the same option on
-  `AtMcp.Effects.reply/4`, write a record whose `text` is the text given, byte
-  for byte, with no `facets`: no handle is resolved, and nothing in the text
-  becomes a mention, a link or a tag, so nobody it names is notified. This is
-  for a program that quotes text it did not write. Without the option, or
-  with `facets: :detect`, posts are built as before; any other value is
-  refused as an invalid argument before anything is sent or counted. Replies,
-  quotes and link cards (`link:`, which is given, not detected) work as
-  without it; a `reply_rule` of `"mentioned"` then lets nobody in by mention,
-  since the post mentions nobody. The MCP `post` and `reply` tools do not take
-  it: the app publishes facets detected from the text, and the tools offer
-  what the app does.
-
-- A grouped read's reply, quote or mention carries its post whole (#139):
-  each entry of its `posts` has a `post` holding the post as `get_posts`
-  reads one (time, counts, attachments, labels, this account's like, repost
-  and bookmark), without `moderation` marks, and the text a model reads
-  shows it as any read shows a post. Other groups' `post` is null.
-
-- Reads carry the labels of the labelers the account subscribes to (#83):
-  every read sends `atproto-accept-labelers` as the app does, so posts and
-  accounts carry labels from those labelers, not only from the network's own.
-  An account's first read after a start reads its preferences first.
-
-- A post whose text holds an escaped `<` or backslash (#147) reads, in the
-  text a model reads, with one line under it saying that `\<` and `\\` are
-  the author's `<` and `\`, and that an unescaped `<…>` is where a link or
-  mention points.
-
-### Older releases
-
-[docs/upgrades.md](upgrades.md) keeps the notes for 0.1.3 through 0.2.13.
+at_mcp stores its data in the accounts file, the grants file and the state
+folder. Before each release, CI writes these files with the previous release,
+reads them with the new one, and the other way round, so a release changing
+their format fails the check. When a release does change them, its CHANGELOG
+entry says how to roll back.
 
 ## Roll back
 
-Stop the service, point `current` at the release you left and start it (on
-Linux, `ln` with `sudo`):
+Stop the service, point `current` at the older release, and start it again:
 
 ```sh
-sudo systemctl stop at_mcp               # Mac: launchctl bootout "gui/$(id -u)/li.example.at_mcp"
-ln -sfn releases/at_mcp-OLDVERSION "$AT_MCP/current"
-sudo systemctl start at_mcp              # Mac: launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/li.example.at_mcp.plist
+sudo systemctl stop at_mcp
+sudo ln -sfn releases/at_mcp-OLDVERSION /opt/at_mcp/current
+sudo systemctl start at_mcp
 ```
 
-The older release starts on the accounts, grants and state the newer one
-left.
+On a Mac, use `launchctl bootout` and `launchctl bootstrap` as in
+[Start the service](#start-the-service), and `ln` without `sudo`. The older
+release reads the accounts, grants and state left by the newer one. Check the
+CHANGELOG entries for any steps to take first.

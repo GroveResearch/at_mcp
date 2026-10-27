@@ -1,466 +1,353 @@
 # Design
 
-at_mcp gives locally run agents their own persistent AT Protocol identity. It
-owns credentials, sessions, account policy and durable delivery of incoming
-activity. MCP exposes the tools to agent clients; an Elixir application can use
-the same account implementation directly. The dated record of each decision,
-with the test that holds it, is [decisions.md](../decisions.md). A glossary of
-the terms used here is at the end.
+This document explains how at_mcp works inside and the reasons for its
+larger choices. It is for contributors, and for anyone deciding how far to
+rely on at_mcp's behavior. [decisions.md](../decisions.md) records individual
+decisions with the tests holding them in place.
 
-## Parts and ownership
+## Division of work
 
-The application supervisor starts two registries, the inbound store, the write quota,
-the shared `AtMcp.Inbound` stream collector, the `AtMcp.Identities`
-DynamicSupervisor and the `AtMcp.Accounts` lifecycle coordinator. Each
-`AtMcp.Identity` owns its Effects session, its notification poller and an
-optional stream registration. One MCP HTTP listener is shared across
-identities, and `start_mcp: false` is what keeps the single-account stdio
-launcher from binding one at all; `AtMcp.Control` is a separate operator
-listener, started only when a control port is configured.
+at_mcp handles an account's side of an agent's life on the network: logging
+in, keeping the session alive, limiting how fast the agent posts, offering
+tools, and collecting incoming activity. The agent and its host handle the
+rest.
 
-`AtMcp.Effects` is the one process that owns an account. It holds the session,
-verifies identity, reserves writes and recovers sessions, and it runs every
-call on the account in a task it owns, under the call's deadline: writes one at
-a time in the order they arrive, reads alongside them, and at most one login or
-refresh at a time. The work stops when the owner stops. `AtMcp.Effects.ProtoRune`
-is the backend behind it.
-`AtMcp.Summary` declares each record shape once: the backend builds summaries
-with it and `AtMcp.MCP.Server` derives its output schemas from it, so a tool
-cannot describe a field it does not return. `AtMcp.AccountConfig` owns the
-private accounts file and `AtMcp.Accounts` reconciles it with supervised
-processes and the durable record of which accounts are disconnected.
+| Part | Responsible for |
+| --- | --- |
+| ProtoRune, the AT Protocol client library | Sessions and requests to the network |
+| at_mcp | Account configuration, login, tools, the write quota, collection and delivery |
+| MCP | The connection between the agent's client and at_mcp's tools |
+| A receiving program, when present | Routing delivered events, queues, conversations and permissions |
+| The agent | Choosing which tools to call |
 
-| Layer | Owns | Does not own |
-| --- | --- | --- |
-| ProtoRune | AT Protocol sessions and XRPC transport | The records AtMcp writes, or the namespace it writes them to |
-| AtMcp | Account configuration, readiness, tools, write quota, collection and delivery | Agent turns or conversational instructions |
-| MCP | The client's tool connection to AtMcp | The agent's execution lifecycle |
-| Consumer (a program that receives delivered activity) | Routing, queues, conversations, mediated permissions | Account passwords or tool implementation |
-| Agent | Tool selection under its instructions | AtMcp's durable account state |
+An MCP client can use at_mcp with no receiving program at all.
 
-ACP is the host-to-agent connection; MCP is the agent-to-tool connection. An
-independent MCP client needs neither ACP nor a consumer.
+## Processes
 
-## Accounts and identities
+When at_mcp starts, its supervisor starts the write quota, the store for
+incoming events, the stream collector, `AtMcp.Identities` (a
+`DynamicSupervisor` for accounts), and `AtMcp.Accounts`, which coordinates
+account changes. For each account, `AtMcp.Identities` starts an `AtMcp.Identity`, which in turn runs the account's session process,
+its notification poller and, when enabled, its place in the stream.
 
-An account is identified by its DID; a local name such as `personal` selects
-its saved configuration in the accounts file. Login uses an app password; there is no
-OAuth. Saved accounts retain the expected DID, and login, refresh and
-replacement sessions must match it before the account is ready.
+`AtMcp.Effects` runs every call against an account. It holds the session,
+checks the account's DID after each login, takes write quota slots, and
+recovers expired sessions. It runs each call in a task under the call's
+deadline. Writes go one at a time in arrival order, reads run alongside them,
+and only one login or refresh runs at a time. When the account stops, its
+tasks stop with it.
 
-Login and runtime transitions run as supervised operations that report back
-with an operation reference. Disconnect and configuration changes invalidate
-the affected operations across every known alias of the DID, and discovery of
-another alias checks the policy generation before binding it, so a late login
-cannot undo a newer disconnect. A concurrent replacement or disconnect cancels a
-pending start, reconnect or reload with `account_runtime_unavailable`, and the
-newer configuration or disconnect stays in force.
+`AtMcp.Summary` describes each kind of record once. The network code builds
+results from those descriptions, and `AtMcp.MCP.Server` derives each tool's
+output schema from them, so a tool's schema always matches the result it
+returns.
 
-Disconnect is persisted and stops tool calls and collection; reconnect is
-explicit. Reload validates the whole plan first and replaces only affected
-owners; stale credentials never become the fallback.
+A long-running service runs a single MCP listener for all its accounts. The
+stdio launcher runs a single account and starts no listener.
 
-`at_mcp-stdio` owns a single-account runtime and stops on EOF. `at_mcp-connect` is a
-stdio front onto the shared service: it owns a client connection, not an
-account session, so HTTP and stdio clients on one account share the session,
-the write quota and disconnect control.
+## Accounts
+
+at_mcp identifies an account by its DID. The local name in the accounts file,
+such as `grug`, picks out the saved configuration. at_mcp logs in with an app
+password, and checks after every login and refresh that the session belongs
+to the saved DID.
+
+Account changes, such as a login, a reload or a disconnect, run as supervised
+operations. A disconnect or a configuration change cancels any older operation
+still running for the same DID, so a slow login from before a disconnect
+finishes without undoing it. A cancelled start, reconnect or reload reports
+`account_runtime_unavailable`.
+
+at_mcp saves a disconnect to disk before acting on it, and only an explicit
+reconnect undoes it. A reload checks the whole new configuration first, then
+restarts only the accounts whose configuration changed.
+
+`at_mcp-connect` gives a stdio client access to a running service's account.
+It carries the client's grant and holds no account password, so stdio and
+HTTP clients on the same account share its session and write quota.
 
 ## Grants and scopes
 
-One endpoint serves every identity, and `Authorization: Bearer <grant>` decides
-which one a client acts as. A grant names one account and one scope. A request
-with no grant is refused with `401`: a mode in which an uncredentialed caller is
-served is the mode in which nothing is separated. `x-kite-account-did` confirms
-the binding and selects nothing. It, the `kite-` prefix of a grant token and
-the `kite/publicWrite` annotation below keep a name from before the project was
-called at_mcp, because clients, grants and hosts made before the rename use
-them (`decisions.md`, "Current name"). Revocation is removing the grant, and takes
-effect on the next request.
+A long-running service has a single MCP endpoint for every account. A client
+sends `Authorization: Bearer GRANT`, and at_mcp looks the grant up to find
+the account and the scope. A request without a grant gets `401`, because
+serving anonymous requests would leave accounts unseparated. The
+`x-at-mcp-account-did` header lets a client confirm the account it expects.
+at_mcp answers a mismatch with `409`, and ignores the header when choosing
+the account.
 
-`AtMcp.Grants` alone answers which identity a request acts as and how much of the
-surface it may reach; `AtMcp.MCP.HTTP` resolves, and nothing else reads the
-grants file. Grants live in `accounts.grants.json` beside the accounts file,
-which holds a SHA-256 digest of each token and never the token itself.
+`AtMcp.Grants` alone decides which account and tools a request may use. It
+stores a SHA-256 hash of each grant in `accounts.grants.json`, never the grant
+itself. Revoking a grant deletes its entry, and the next request with it
+fails.
 
-The three scopes are ordered, and each is derived from what the tools declare
-about themselves rather than from a verb list kept in step by hand:
+Scopes come from the annotations each tool declares, so a new tool falls into
+the right scope without a separate list to update:
 
-- `read`: every tool whose `readOnlyHint` is true.
-- `write`: those, plus tools that write without destroying anything.
-- `manage`: those, plus every tool whose `destructiveHint` is true.
+- `read` covers every tool with `readOnlyHint` set.
+- `write` adds the writes without `destructiveHint`.
+- `manage` adds the tools with `destructiveHint`.
 
-A tool AtMcp does not declare is permitted by no scope, so a renamed tool fails
-closed instead of inheriting its last classification.
+A tool missing from at_mcp's own declarations belongs to no scope, so a
+renamed tool loses access until its declaration catches up.
 
-A grant is a bearer token on loopback, unbound to the holding process; it
-separates what each client was given, not what each process could obtain. It is
-not a sandbox. Bearer is kept as the shape so an issuer-signed token can arrive
-later without a client changing. The host's permission decision and the
-account's write quota answer different questions: whether an action is approved,
-and whether the account has capacity left.
+A grant is a bearer token on the local machine, without TLS or any tie to a
+process. It keeps each client to what it was given, and offers no protection
+against a process able to read another client's configuration. Bearer tokens
+leave room for signed tokens later, without changes to clients. The client's
+own approval settings and at_mcp's write quota answer separate questions:
+whether a person allows an action, and whether the account has capacity left.
 
-## The MCP tool surface
+## Tools
 
 [tools.md](tools.md) lists every tool. `mix at_mcp.tools_doc` writes it from
-`AtMcp.MCP.Server`, and a test fails when the list is out of date. Handlers
-call `AtMcp.Effects` and never reimplement account policy. Every tool declares
-an output schema derived from `AtMcp.Summary` and returns its summary as
-structured content beside a text block for the model.
+`AtMcp.MCP.Server`, and a test fails when the file falls out of date. Tool
+handlers call `AtMcp.Effects` and leave account rules to it. Every tool
+returns its result as structured content, checked against its output schema,
+plus a text block for the model.
 
-### What a model reads
+### The text a model reads
 
-The text is the summary's JSON, except for reads made of posts (notifications,
-feeds, searches, bookmarks, `get_posts`, `get_thread`, `get_thread_chain`), where it is
-`AtMcp.Reading`'s text: each post's author, time, what it replies to, its
-text, attachments, the like, repost, reply and quote counts and the post's and
-author's labels when the service sent them, and the uri and cid the write tools
-take, with no `null`s and none of the fields only a program uses. Lists and
-starter packs read the same way, and so do accounts: the name with the badges
-the app puts beside it, how the account relates to this one, the description,
-counts, links, pinned post and what the account has made. A post is one view
-whichever read shows it: a feed, a thread, a chain, a notification and a quote
-each say its author's badges, labels and any block or mute with its author in
-the same words, and a gated post says who may reply. Its time is the one the
-app shows, when the service first saw it (`indexed_at`), with the author's own
-`created_at` beside it as "archived from" when that is more than a day earlier.
-A mention facet reads with the DID it links to, `@alice.test <did:plc:…>`, so
-it is told apart from an `@word` with no facet.
+For most tools, the text block is the result's JSON. For reads made of posts,
+such as feeds, notifications, searches and threads, `AtMcp.Reading` writes
+readable text: each post's author, time, the post it replies to, its text,
+attachments, counts and labels, plus the `uri` and `cid` the write tools take.
+Accounts, lists and starter packs read the same way. A post reads the same
+in every tool showing it.
 
-What someone else wrote cannot read as AtMcp's own words. A post's text is
-fenced, each of its lines after `> `, and every other string an author or
-another account controls (names, quoted text, alt text, card and publication
-titles, descriptions) is one quoted literal on one line, `"` and backslash
-escaped. An identifier is bare only when it is nothing but an identifier's
-characters, and a web address is percent-encoded so it cannot close a bracket.
-`AtMcp.Reading` builds its text only from `AtMcp.Reading.Text` pieces, which
-only those renderers make; a raw string given to its joiners fails under test
-and is quoted elsewhere. Most MCP clients give a model `content` and validate
-`structuredContent` against the output schema; the specification's own
-examples pair readable text with structured results, while its text asks for
-the serialized JSON for older clients (`decisions.md`).
+at_mcp marks text written by other people, so a model can tell it apart from
+at_mcp's own words. It fences a post's text, each line after `> `. It puts
+every other string written by someone else, such as names, alt text and
+titles, in double quotes, with `"` and backslashes escaped. It leaves an identifier bare only when the
+identifier holds nothing but identifier characters, and percent-encodes web
+addresses. `AtMcp.Reading` builds its text only from `AtMcp.Reading.Text`
+pieces made by its own renderers, and a test fails when a raw string slips
+into the output.
 
-Post and chain summaries keep `raw_text` exactly as written. `text` writes each
-link's destination and each mention facet's DID after its span as `<…>`, with
-the author's own `<` and backslash escaped so that only those markers are
-unescaped. Images, link cards, videos and quotes are projections of what the
-server already returned: no blob URLs are guessed, so a raw record's card image
-and video URLs are null, and a quote inside a quote stays a `nested_uri` rather
-than expanding. `get_post_images` is the one read that fetches pictures, one
-post at a time, as MCP image content. Putting pictures in every page read would
-make each one many megabytes for images most readers never look at.
+A post's time is the time the network first saw it, as the app shows it. When
+the author's own date is more than a day earlier, the text adds it as
+"archived from". A mention reads with the DID it links to, so a real mention
+differs from a bare `@word`.
 
-Every post, account, list, feed, starter pack and labeler a read shows carries
-`web_url`, the link a person opens and shares, built as the app's share actions
-build it (`AtMcp.WebLink`). The way back holds too: wherever a tool takes an AT
-URI, handle or DID, it takes the web link instead (`AtMcp.MCP.WebLinks`), and
-says what it resolved the link to. A link to the wrong kind of thing, or to
-another network, is refused before anything is sent.
+`raw_text` keeps a post's text exactly as written. `text` adds each link's
+destination and each mention's DID in angle brackets, and escapes the
+author's own `<` and backslashes, so the only unescaped brackets come from
+at_mcp.
 
-Summaries keep the viewer's like, repost, follow and block record URIs, so an
-agent can undo without the original receipt, and the states the service
-reports with no record of the account's behind them (`blocked_by`, `muted`,
-`reply_disabled` and the like). A state the service did not mention is left
-out, never reported as `false`. A missing viewer object is distinct from an
-empty one.
+Images, link cards, videos and quotes come from the network's own response.
+at_mcp guesses no image addresses, and a quote inside a quote stays a
+reference. `get_post_images` fetches a single post's pictures as MCP image
+content. Pictures in every feed read would make each read many megabytes,
+mostly unused.
 
-### Annotations and scopes
+Every post, account, list, feed and starter pack carries `web_url`, the link
+a person would share, built as the app builds it. Every tool taking an AT URI,
+handle or DID also takes such a link, and reports what it resolved the link
+to.
 
-Each tool's `readOnlyHint` and `destructiveHint` annotations are the only
-definition of what a scope reaches. Every write tool also carries
-`"kite/publicWrite"`, true for the three that count against the write quota
-(`post`, `reply`, `repost`) and false for every other write, and its
-description ends with the matching sentence. Both derive from
-`AtMcp.Effects.publishing/0`, the list the reservation reads, so a host
-counting an account's publishing reads the same classification AtMcp enforces.
+Results keep the account's own like, repost, follow and block record
+addresses, so an agent can undo an action without having kept the original
+result. A state left unmentioned by the network stays out of the result,
+rather than appearing as `false`.
+
+### Annotations
+
+Each tool's `readOnlyHint` and `destructiveHint` decide its scope. Each write
+tool also carries `at_mcp/publicWrite`, set for `post`, `reply` and `repost`,
+the writes counted against the write quota. Its description ends with a
+matching sentence. Both come from `AtMcp.Effects.publishing/0`, the same list
+the quota uses, so a host reading the annotation counts exactly what at_mcp
+counts.
 
 ### Writes
 
-An edit reads the record first and keeps every field it does not change, and
-is written only if the record is still the one read (`swapRecord`); a write
-built from several reads names the repository's commit from before them
-(`swapCommit`). A refused swap is `changed_meanwhile`: nothing was written. An
-edit that changes nothing writes nothing and says `unchanged`. A starter pack
-is its list, the list's items and the pack record, written in one
-`applyWrites` and deleted the same way.
+An edit reads the record, keeps every field it leaves alone, and writes back
+only if the record is still the one it read (`swapRecord`). A write built from
+several reads checks the repository's commit from before them
+(`swapCommit`). If the check fails, at_mcp writes nothing and reports
+`changed_meanwhile`. An edit changing nothing writes nothing and reports
+`unchanged`.
 
-A post's reply and quote rules are a `feed.threadgate` and a `feed.postgate`
-under the post's record key, and `post` writes them with the post in one
-`applyWrites` commit, so the post never exists without them; it counts once.
-`hide_reply` and `detach_quote` are separate tools because each is a choice
-about someone else's post. A link card's title and description come from the
-agent: at_mcp does not fetch the page. A post whose author said nothing about
-its language carries no `langs` at all rather than a default `["en"]`.
+`post` writes the post and its reply and quote rules in a single commit, so
+the post never exists without its rules. A link card's title and description
+come from the agent, and at_mcp leaves the page unfetched. A post without a
+stated language carries no `langs` field.
 
-A tool that takes one of the account's own posts or lists refuses another
-account's before anything is sent, naming the argument. A service that does
-not serve a method answers 501, which is reported as `upstream_not_implemented`
-and not as an unknown outcome. A read that a deployment is known not to serve
-(`AtMcp.Endpoints.deployments/0`: on delve.town, trends and two of the
-suggestion methods) is refused with `not_served` before anything is sent,
-naming the method and the evidence. Saving to a draft id the account does not
-have is refused, because the service would ignore the update without saying so.
+A tool taking the account's own post or list refuses another account's before
+sending anything. A method the network leaves unimplemented, answering 501,
+reports `upstream_not_implemented`. A read known to be missing on a network,
+listed in `AtMcp.Endpoints.deployments/0`, fails with `not_served` before
+anything is sent.
 
-Preferences are read and written as raw JSON, not through the XRPC client's
-key renaming, so every preference a tool does not change is kept byte for byte.
-`actor.putPreferences` has no compare-and-swap, so a change another client
-makes between the read and the write is lost; the description and the result
-say so. Settings the app ignores or keeps about itself are left out, the birth
-date is never written or read out, and adult content is turned on only for an
-account whose declared age the app would show it to.
+at_mcp reads and writes preferences as raw JSON, so every preference a tool
+leaves alone stays byte for byte. The network offers no compare-and-swap for
+preferences, so a change made by another client between the read and the
+write is lost, and the tool's description and result say so. at_mcp never
+reads out or writes the birth date, and turns on adult content only for an
+account old enough for the app to show it.
 
-An image `path` is read by the server, so a model need not copy the bytes as
-base64, which it can get wrong partway through. It is off unless
-`AT_MCP_MEDIA_DIR` names a directory, and then reads only regular files inside
-it (`AtMcp.MediaFile`).
-
-`search_posts` calls `feed.searchPostsV2`, the version the app calls. A call
-that gives neither `sort` nor `all_time` is sent as `sort=recent&allTime=true`,
-which is what the first version's lexicon default and handler gave it, so an
-existing call means what it did.
+When an image argument gives a `path`, at_mcp reads the file itself, so a
+model avoids copying base64 bytes and getting them wrong. This works only
+inside the folder in `AT_MCP_MEDIA_DIR`.
 
 ### Threads
 
-The two thread reads answer different questions. `get_thread` is what is
-*around* a post: two levels of parents and two of replies, nested, with what it
-left out reported. `get_thread_chain` is what was said *before* a post: every
-ancestor from the thread root down to it, flat and in order, plus the replies
-directly underneath. A chain that cannot reach the root names in its first
-element the uri where reading stopped and sets `chain_truncated`; a
-conversation taller than one chain keeps the elements nearest the requested
-post and counts the rest in `chain_omitted`. A chain cut by that cap names in
-`chain_before` the uri to read from next, and passing it back as `before`
-returns the page above it, so a conversation of any height is readable upward
-without repeating or skipping a post. `chain_before` is null wherever the next
-uri would be one the page already holds: at the root, at a head that could not
-be read, and at a walk that turned back on itself. So null means nowhere to
-resume, and `chain_truncated` says whether anything is missing. The caps are
-module attributes, not numbers in a tool description that go stale when they
-move.
+`get_thread` shows the area around a post: two levels of parents and two of
+replies, nested, with counts of anything left out. `get_thread_chain` shows
+the conversation leading to a post: every ancestor from the root down, flat
+and in order, plus the direct replies.
 
-### Moderation and identity
+A chain too tall for a single read keeps the posts nearest the requested one
+and counts the rest in `chain_omitted`. It gives the address to continue from
+in `chain_before`, and passing it back as `before` returns the next page up,
+with no repeats or gaps. `chain_before` is null at the root, at an unreadable
+post, and at a loop. `chain_truncated` says whether any posts are missing.
 
-The moderation tools do what the app's moderation settings and Report menu do
-(`AtMcp.Moderation`). A report reaches the people who run that moderation
-service and cannot be withdrawn. Muted words, labeler subscriptions and label
-settings are preferences. The app applies them on the device, so at_mcp's reads
-still return muted posts and labeled content as served. Every read asks the
-AppView for the labels the app asks for (`atproto-accept-labelers`): the
-network's own moderation service, then each labeler the account subscribes to
-(`AtMcp.AcceptLabelers`).
+### Moderation
 
-`identity_status` corresponds to nothing a person does: a person has no write
-quota to read. It exists because an agent acts faster than a person while the
-account outlives the run. There is no tool for declining to act; an agent that
-ends its turn without calling a write tool has not posted.
+The moderation tools match the app's moderation settings and report menu.
+Muted words, labeler subscriptions and label settings are preferences, and
+the app applies them on the device, so at_mcp's reads still return muted and
+labeled content as the network serves it. Each read asks for labels from the
+network's moderation service and every labeler the account subscribes to, as
+the app does.
 
-Absent from the surface: posting video and direct messages. An agent reads a
-video by its alt text and a link card by its text, without the video or the
-card's image.
+`identity_status` has no counterpart in the app, because a person has no
+write quota. An agent acts faster than a person, and its account outlasts its
+session, so it needs a way to check both.
 
 ## The write quota
 
-Every account has one durable write quota: 16 attempted publishing writes per
-hour by default, shared by every client, alias and reconnect. The default
-guards against an agent publishing faster than a person would notice and stop
-it. The number is the per-turn budget an earlier version had, kept when the
-bound moved to the hour, and has not been measured; `AtMcp.WriteQuota`'s
-moduledoc gives the reasoning, and `AT_MCP_WRITE_LIMIT` changes it. Accounts on
-one service are different agents with different needs, so each account can
-have its own limit and window, saved on the account
-([Operations](operations.md#an-accounts-own-write-limit)) or given by an
-embedding host; the service's numbers are the default for an account that
-sets none. The quota bounds
-what the account publishes, so only `post`, `reply` and `repost` count
-(`AtMcp.Effects.publishing/0`); a like, a follow, a block, a mute, a deletion, a
-profile edit and marking notifications seen do not. A publishing write counts
-even when the remote call fails; reads do not count. `identity_status` reports
-the limit the account is held to, its window, usage and the reset time. The ledger is monotonic, so a clock moved backwards
-cannot open a fresh window.
+Each account has a durable quota on posts, replies and reposts: 16 attempts
+per hour by default, shared by every client of the account and kept across
+restarts. The default guards against an agent posting faster than a person
+would notice and stop it. Nobody has measured the right number. The figure
+came from an earlier per-turn limit, kept when the limit moved to the hour,
+and `AtMcp.WriteQuota` explains the reasoning. Each account on a service can
+have its own limit.
 
-An attempted publishing write takes a slot in the write quota before dispatch. Refusals
-of an account that is not ready, and validation failures, occur before that: posts and replies are checked against
-the configured network's grapheme and byte limits, and batch reads against
-their own limits (pages 1 to 50, `get_posts` and `get_profiles` 1 to 25), before
-anything is reserved or sent. So is the read a reply or a quote needs: a strong
-reference carries a CID the uri does not, so the referenced record is fetched
-first, and a record the service refuses to hand over is refused as
-`referenced_record_unreadable` with the uri and without touching the write
-quota. The refusal says what the service said: `RecordNotFound` as `cause:
-"not_found"`, any other refusal with the service's error name and message. A
-reply to a uri whose collection is not a post, or a quote of one that is not
-a post, feed, list, starter pack or labeler, is refused as an invalid argument
-before anything is read. A transport failure or an outage during
-that read keeps its own kind instead: it says nothing about the record, and a
-caller told a live post may be deleted stops trying. A write that was actually sent is still never refunded:
-its outcome is unknown, and an unknown outcome that costs nothing is a retry
-loop.
+The quota bounds what an account publishes, so likes, follows, blocks,
+deletions, profile edits and reads go uncounted. at_mcp takes a slot before
+sending a publishing write, and the slot stays used even when the write fails.
+Refusing to refund a sent write keeps an agent from retrying an unknown
+outcome at no cost. The quota's clock only moves forward, so setting the
+system clock back opens no new window.
 
-Rich text preserves the supplied text and adds mention, explicit HTTP(S) link
-and hashtag facets over UTF-8 byte offsets; an unresolved handle stays plain
-and is named in `unresolved_mentions`. Bare domains and cashtags are not
-detected.
+at_mcp checks everything it can before taking a slot. A post over the
+network's length limit, an account not yet ready, or a reply to a record the
+network refuses to show fails before counting. A reply or quote needs the
+target's CID, so at_mcp reads the target first, and an unreadable target
+fails as `referenced_record_unreadable`. A network outage during that read
+keeps its own error, because the outage leaves the target's state unknown.
 
-## Inbound
+at_mcp adds mention, link and hashtag facets to a post's text using UTF-8 byte
+offsets, and lists any handle it failed to resolve in
+`unresolved_mentions`. Bare domains and cashtags stay plain text.
 
-`AtMcp.Notifications` is the ordinary collector. It polls each account every 60
-seconds through the account's own PDS with a private per-DID checkpoint, a
-five-minute overlap and durable deduplication; the first poll starts from the
-recent window. The account's read state is neither a checkpoint nor changed by
-collection.
+## Collection and delivery
 
-`AtMcp.Inbound` is the opt-in stream collector, sharing one Jetstream connection
-across accounts. It subscribes to the post, like and repost collections with an
-empty `wanted_dids` filter and matches recipients locally in
-`AtMcp.Inbound.Match`, because incoming interactions are records in somebody
-else's repository: a DID filter cannot be the inbox. It persists the cursor its
-adapter reports and resumes from it. The stream sees own writes and deeper
-replies that notifications omit, at the cost of steady commit volume.
+`AtMcp.Notifications` polls each account's notifications through the
+account's host every 60 seconds. It keeps a private position per DID, looks
+back five minutes past it, and drops duplicates. It leaves the account's read
+state alone.
 
-`AtMcp.Stream` is the adapter boundary: an adapter owns its service's options,
-message shape and event fields, and `AtMcp.Inbound` and `AtMcp.Inbound.Match` see
-only `AtMcp.Stream.Event`. The current adapter is Jetstream v1 through
-ProtoRune's client. Another service is another module implementing that
-behavior, not a change to collection, matching, the store or delivery.
+`AtMcp.Inbound`, the optional stream collector, follows a single Jetstream
+connection for all accounts. Incoming likes, replies and reposts live in other
+people's repositories, so filtering the stream by the account's DID would miss
+them. The collector subscribes with an empty `wanted_dids` filter, takes every
+post, like and repost, and lets
+`AtMcp.Inbound.Match` pick out the ones addressed to an account. It saves the
+stream position and resumes from it. `AtMcp.Stream` hides the stream service's
+format from the rest of the code, so another stream service would need only a
+new adapter.
 
-Both collectors persist into the same store and share delivery and
-deduplication. Pending events are never evicted: when an account has 10,000
-pending events or 16 MiB of them, batches for that account are refused and its
-collection holds until delivery makes room; other accounts keep collecting,
-except that Jetstream's one shared cursor pauses the stream for all of them.
-The notification poller accepts each sweep oldest first, since the provider
-pages newest first. Delivery runs outside collection.
-Each account is a lane: its events are delivered in the order the store
-accepted them, one at a time, and a failed event keeps its place and holds the
-events behind it through a capped exponential backoff. Lanes deliver
-concurrently, so one account's slow or failing consumer never delays another
-account's events. A delivery that outlives `AtMcp.Deliver.timeout_ms/0` is
-killed and retried; the HTTP bridge bounds its own request to end before that.
+Both collectors write into a single store. When an account fills its share,
+at_mcp pauses that account's collection rather than dropping events. The
+stream's single position means a full account pauses the stream for every
+account.
 
-`AtMcp.Deliver.HTTPBridge` POSTs the normalized event as JSON to the
-consumer: the one configured for the installation, or the destination saved
-on the event's account. Only a 2xx is acceptance,
-and the consumer must durably accept before returning one and must deduplicate
-on recipient DID plus source URI. Redirects are not followed; a non-2xx,
-redirect, transport error or timeout leaves the event in the durable outbox.
-This is at-least-once delivery with consumer deduplication. It does not make
-account writes exactly-once, and public activity is attributed data that
-supplies no new authority. The bridge attaches whether or not any account is
-logged in; a delivery URL configured with no collector enabled fails startup
-with `delivery_bridge_unready` rather than running silently.
-
-The delivered event and its thread fields are specified in full in
-`AtMcp.Deliver.HTTPBridge`, and the operator's view of them is in
-[operations.md](operations.md#incoming-activity).
+The store delivers each account's events in order, one at a time, and holds
+later events behind a failing one with growing waits. Accounts deliver in
+parallel, so a slow receiver delays only its own account. A delivery running
+past `AtMcp.Deliver.timeout_ms/0` is stopped and retried.
+`AtMcp.Deliver.HTTPBridge` sends each event as an HTTP POST and counts only a
+`2xx` answer as success. This gives at-least-once delivery, and the receiver
+removes repeats. [delivery.md](delivery.md) describes the event.
 
 ## Failure kinds
 
-The backend reports failure as one of three kinds (refused, credential
-refused, indeterminate), and only the backend classifies its service's errors,
-because only the backend knows what its client library and service mean. Any
-reason of another shape is indeterminate. Credential refusal triggers session
-recovery, and the retry after recovery takes its own write quota slot.
+The network code sorts every failure into a kind, because only that code
+knows what its library and the network's errors mean:
 
-A fourth kind is AtMcp's own: `unreadable`, where the service answered but AtMcp's
-parsing in the backend (`AtMcp.Effects.ProtoRune`) could not read the answer. Nothing was applied and
-retrying cannot change that, because the limit is AtMcp's parser.
+- **refused**: the network turned the request down, and nothing happened
+- **credential refused**: at_mcp recovers the session and retries once, and
+  the retry takes its own quota slot
+- **indeterminate**: anything else, including timeouts
 
-Anything indeterminate is an unknown outcome: the action may have happened,
-AtMcp reports `outcome: "unknown"`, and never retries it. A write whose task
-stopped after sending it, at the call's deadline or because the account's
-owner stopped, is the same uncertainty. A call that never started, because it
-was still waiting for the account, changed nothing and says so.
+A further kind, `unreadable`, means the network answered and at_mcp's parser
+failed to read the answer. Nothing was applied, and a retry would fail the
+same way.
 
-Known failures carry stable codes in structured content beside recovery
-guidance. Damaged durable state (quota, checkpoint, outbox, accounts file)
-fails startup rather than resetting policy.
+An indeterminate write has an unknown outcome. at_mcp reports `outcome:
+"unknown"` and leaves the retry decision to the agent. A write stopped after
+sending, by its deadline or by the account stopping, counts as unknown too. A
+call stopped while still waiting for the account never started, and its
+result says so.
 
-The inbound checkpoint is trusted input. AtMcp wrote it itself, mode 0600 inside
-its own 0700 state directory, so it is decoded without `[:safe]` and the
-structural checks on the decoded term (`version: 1`, a pending map, a receipt
-list, well-formed accounts and notification watermarks) are what distinguish a
-damaged checkpoint from a good one. `[:safe]` protects an atom table against
-untrusted input; applied to AtMcp's own file its only effect was to refuse a
-restart, because an event carries whatever keys the collector that produced it
-defined and a fresh VM has not loaded that collector yet.
+at_mcp refuses to start on damaged stored data, such as the quota, a
+collection position, the delivery queue or the accounts file, rather than
+resetting it. at_mcp writes its collection checkpoint itself, with mode 600 in
+a folder with mode 700, and checks its structure on reading it back.
 
-## Which network
+## Networks
 
-The network is a value, `AtMcp.Network`, set by `AT_MCP_NETWORK` or
-`config :at_mcp, network:`. Every NSID, collection, `$type`, facet and embed type
-and post limit derives from it, and `AtMcp.ATProto` builds every record AtMcp
-writes and declares every read it makes, over the session's own service URL. A
-literal namespace anywhere else in `lib/` is a defect; `com.atproto.*` and
-`chat.bsky.*` stay literal because the rename does not touch them. An
-unrecognized network name raises rather than falling back to Bluesky.
+The network is a value in `AtMcp.Network`, set by `AT_MCP_NETWORK` or
+`config :at_mcp, network:`. Every method name, record type and post limit
+comes from it, and `AtMcp.ATProto` builds every record and request from it. A
+literal `app.bsky` anywhere else in `lib/` is a bug. `com.atproto.*` and
+`chat.bsky.*` stay literal, since both networks share them.
 
-`town.delve.*` is a mechanically complete rename of `app.bsky.*`. The
-substantive difference AtMcp enforces is the post record's limits, read at
-compile time from the vendored lexicons: `town.delve.feed.post` allows 100,000
-graphemes and 500,000 bytes where `app.bsky.feed.post` allows 300 and 3,000.
-The batch limit of 25 is a literal because both namespaces declare the same 25.
-Delvetown also has methods of its own, such as `town.delve.membership.*`, and
-on Delvetown a follow, a block and the profile's labels use the `app.bsky.*`
-records Bluesky reads.
+Delvetown's `town.delve.*` lexicons mirror Bluesky's `app.bsky.*` ones. The
+difference at_mcp enforces is the post length: 100,000 characters and 500,000
+bytes on Delvetown, against 300 and 3,000 on Bluesky, read from the lexicons
+at compile time. Delvetown adds its own methods, such as
+`town.delve.membership.*`, and uses Bluesky's records for follows, blocks and
+self-labels. [delvetown.md](delvetown.md#delvetowns-record-types) links to
+the published lexicons.
 
-Delvetown publishes its lexicons through AT Protocol lexicon resolution. The
-`_lexicon` DNS records under delve.town point to
-`did:plc:qzqct2rrq4u2gmy5g3mjxske` (the delve.town account, hosted at
-pds.delve.town), whose repository holds each lexicon as a
-`com.atproto.lexicon.schema` record. A browser shows them at
-[pdsls.dev](https://pdsls.dev/at://did:plc:qzqct2rrq4u2gmy5g3mjxske/com.atproto.lexicon.schema),
-for example
-[`town.delve.membership.join`](https://pdsls.dev/at://did:plc:qzqct2rrq4u2gmy5g3mjxske/com.atproto.lexicon.schema/town.delve.membership.join).
+`AT_MCP_NETWORK` applies to a whole installation. Pointing an account at
+another host changes where the account lives, and leaves the network's tools
+as they were. Supporting a further network means adding its tools and rules
+deliberately.
 
-`AT_MCP_NETWORK` is installation-wide. Selecting another PDS changes account
-hosting, not the application surface; supporting a further application means
-deliberate tools and matching rules, not arbitrary records under a Bluesky
-interface.
+## Left to the host
 
-## Embedding in an Elixir application
+at_mcp keeps to the account's side of the work. These belong to the agent's
+host:
 
-The [embedding guide](embedding.md) covers the dependency, configuration, first
-account and restart handling. The API reference describes each call.
-
-## What AtMcp never does
-
-- Own conversations, agent behavior, permission decisions or an agent's
-  character. A host decides whether an action is approved; AtMcp decides whether
-  the account has capacity left.
-- Bound a turn. AtMcp bounds writes per account per hour; anything that bounds a
-  turn belongs to the host that owns the turn.
-- Retry an uncertain write, or reset a write quota on request.
-- Serve a request that presents no grant, or let an account id arrive from
-  anywhere but a resolved grant.
-- Enumerate an installation's identities through an MCP tool. That is the
-  operator listener's answer, and it carries no credential.
-- Reset damaged durable state to make startup succeed.
-- Share credentials between identities. Tracking a DID for collection grants no
-  write access.
-- Supply a route, a character or a conversation to the consumer it delivers to.
+- conversations, the agent's character and its instructions
+- approving or refusing an action, which the host decides before at_mcp's
+  quota applies
+- limits on an agent's turn, since at_mcp limits writes per account per hour
+- routing delivered events, since at_mcp sends each event to the receiver
+  configured for its account and nothing more
 
 ## Glossary
 
-- Account: one AT Protocol repository AtMcp holds credentials for,
-  identified by its DID and given a local name in the accounts file.
-- Identity: the running process tree that owns an account's session,
-  poller and stream registration.
-- Grant: a bearer token AtMcp issues that names one account and one scope,
-  stored only as a digest.
-- Scope: how much of the tool surface a grant reaches: `read`, `write` or
-  `manage`, derived from the tools' own annotations.
-- Connection: a client's attachment to an account's tools, over HTTP or
-  through `at_mcp-connect` on stdio, established by presenting a grant.
-- Network: which AT Protocol namespace an installation talks
-  (`bluesky` or `delve`), a value every NSID derives from.
-- Inbound: activity arriving from the network, gathered by the
-  notification poller or the Jetstream collector.
-- Delivery: the at-least-once HTTP POST of a collected event to the
-  configured consumer, retried from a durable outbox.
-- Consumer: a program an installation delivers inbound events to, one for
-  every account or one per account. It decides routing and must deduplicate.
-- Write quota: the durable per-account limit on attempted publishing
-  writes (post, reply, repost) per hour, shared by every client on that account.
-- Ready: an account that is logged in, verified as its DID and not
-  disconnected, so it serves tool calls and receives delivery.
-- Disconnected: an account its owner stopped with `disconnect`; it stays
-  stopped across restarts until `reconnect`.
+- **Account**: an AT Protocol repository at_mcp holds a password for,
+  identified by its DID, with a local name in the accounts file.
+- **Identity**: the running processes for an account: its session, poller and
+  stream registration.
+- **Grant**: a token issued by at_mcp for a single account and scope, stored
+  as a hash.
+- **Scope**: the tools a grant allows: `read`, `write` or `manage`.
+- **Network**: the AT Protocol application an installation talks to,
+  `bluesky` or `delve`.
+- **Collection**: gathering an account's incoming activity, by polling or from
+  the stream.
+- **Delivery**: sending a collected event to a receiving program by HTTP POST,
+  retried until accepted.
+- **Write quota**: the per-account limit on posts, replies and reposts in a
+  time window.
+- **Ready**: logged in, checked against its DID, and not paused.
+- **Disconnected**: paused with `disconnect`, until `reconnect`.

@@ -5,7 +5,7 @@ defmodule Mix.Tasks.AtMcp.Server do
 
       mix at_mcp.server
 
-  Settings come from the environment; docs/operations.md, "Settings", lists them.
+  Settings come from the environment; docs/settings.md lists them.
   """
 
   use Mix.Task

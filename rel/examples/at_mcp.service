@@ -1,4 +1,4 @@
-# AtMcp as a systemd service. docs/operations.md, "Run a shared service", says where each path comes
+# AtMcp as a systemd service. docs/operations.md, "Install", says where each path comes
 # from; change them to match this machine. Install as
 # /etc/systemd/system/at_mcp.service, then:
 #
