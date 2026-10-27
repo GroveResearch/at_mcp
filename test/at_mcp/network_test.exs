@@ -343,9 +343,9 @@ defmodule AtMcp.NetworkTest do
   end
 
   # A host receiving an event has no other way to know which network it happened
-  # on: a namespace is a lexicon prefix, and a DID does not say where it lives. An
-  # installation that told an inhabitant "on Bluesky" while it was on delve.town
-  # would be lying to it.
+  # on: a namespace is a lexicon prefix, and a DID does not say where it lives. A
+  # host that told an agent it was "on Bluesky" while it was on delve.town would
+  # tell it something false.
   test "each network has a name a reader recognises" do
     assert AtMcp.Network.label() == "Bluesky"
 
