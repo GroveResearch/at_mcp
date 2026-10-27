@@ -12,7 +12,11 @@ defmodule AtMcp.MCP.ToolsTest do
     assert {:ok, _} = AtMcp.Effects.login(effects)
 
     assert {:ok, %{action: :repost}} =
-             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+             AtMcp.Effects.repost(
+               effects,
+               "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+               "cid"
+             )
 
     assert AtMcp.Effects.quota_status(effects).used == 1
 
@@ -41,7 +45,12 @@ defmodule AtMcp.MCP.ToolsTest do
     assert {:ok, %{write_quota: %{limit: 4, window_seconds: 60, resets_at: nil, used: 0}}} =
              AtMcp.MCP.Tools.identity_status(effects)
 
-    assert {:ok, _} = AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+    assert {:ok, _} =
+             AtMcp.Effects.repost(
+               effects,
+               "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+               "cid"
+             )
 
     assert {:ok, %{write_quota: %{used: 1, resets_at: "1970-01-01T00:02:00Z"}}} =
              AtMcp.MCP.Tools.identity_status(effects)
@@ -147,10 +156,10 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_unread_count", %{}},
     {"get_timeline", %{}},
     {"get_author_feed", %{"actor" => "alice.test"}},
-    {"get_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"get_thread_chain", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"get_posts", %{"uris" => ["at://did:plc:mock/app.bsky.feed.post/1"]}},
-    {"get_post_images", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"get_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"get_thread_chain", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"get_posts", %{"uris" => ["at://did:plc:mock/app.bsky.feed.post/3k22222222222"]}},
+    {"get_post_images", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
     {"get_profile", %{}},
     {"get_profiles", %{"actors" => ["alice.test"]}},
     {"search_posts", %{"query" => "at_mcp"}},
@@ -162,9 +171,9 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_blocks", %{}},
     {"get_mutes", %{}},
     {"get_relationships", %{"actor" => "alice.test", "others" => ["bob.test"]}},
-    {"get_likes", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"get_reposted_by", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"get_quotes", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"get_likes", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"get_reposted_by", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"get_quotes", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
     {"get_actor_likes", %{"actor" => "alice.test"}},
     {"get_feed", %{"feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
     {"get_suggested_feeds", %{}},
@@ -173,7 +182,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"search_feeds", %{"query" => "cats"}},
     {"get_suggested_starter_packs", %{"context" => "onboarding"}},
     {"get_trends", %{"kind" => "topics"}},
-    {"get_record", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"get_record", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
     {"get_invite_codes", %{}},
     {"get_list_feed", %{"list" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
     {"get_list", %{"uri" => "at://did:plc:mock/app.bsky.graph.list/friends"}},
@@ -195,10 +204,13 @@ defmodule AtMcp.MCP.ToolsTest do
     {"set_list_opt_out",
      %{"list" => "at://did:plc:other/app.bsky.graph.starterpack/p1", "opted_out" => true}},
     {"post", %{"text" => "café 日本語 🪁"}},
-    {"reply", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "text" => "reply"}},
-    {"like", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "cid" => "bafyfixture"}},
+    {"reply",
+     %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222", "text" => "reply"}},
+    {"like",
+     %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222", "cid" => "bafyfixture"}},
     {"unlike", %{"uri" => "at://did:plc:mock/app.bsky.feed.like/1"}},
-    {"repost", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1", "cid" => "bafyfixture"}},
+    {"repost",
+     %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222", "cid" => "bafyfixture"}},
     {"unrepost", %{"uri" => "at://did:plc:mock/app.bsky.feed.repost/1"}},
     {"follow", %{"actor" => "alice.test"}},
     {"unfollow", %{"uri" => "at://did:plc:mock/app.bsky.graph.follow/1"}},
@@ -206,7 +218,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"unblock", %{"uri" => "at://did:plc:mock/app.bsky.graph.block/1"}},
     {"mute", %{"actor" => "alice.test"}},
     {"unmute", %{"actor" => "alice.test"}},
-    {"delete_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"delete_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
     {"update_profile",
      %{
        "display_name" => "AtMcp",
@@ -214,19 +226,19 @@ defmodule AtMcp.MCP.ToolsTest do
        "links" => [%{"url" => "https://example.com", "title" => "Home"}]
      }},
     {"update_seen", %{}},
-    {"pin_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"pin_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
     {"unpin_post", %{}},
-    {"mute_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"unmute_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"bookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"unbookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
+    {"mute_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"unmute_thread", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"bookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"unbookmark", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
     {"get_bookmarks", %{}},
     {"get_drafts", %{}},
-    {"set_post_interactions", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"}},
-    {"hide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/reply"}},
-    {"unhide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/reply"}},
-    {"detach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/quote"}},
-    {"reattach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/quote"}},
+    {"set_post_interactions", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"hide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/3kreply222222"}},
+    {"unhide_reply", %{"uri" => "at://did:plc:other/app.bsky.feed.post/3kreply222222"}},
+    {"detach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/3kquote222222"}},
+    {"reattach_quote", %{"uri" => "at://did:plc:other/app.bsky.feed.post/3kquote222222"}},
     {"save_feed", %{"uri" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
     {"unsave_feed", %{"uri" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
     {"set_status",
@@ -234,7 +246,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"feed_feedback",
      %{
        "feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot",
-       "uri" => "at://did:plc:mock/app.bsky.feed.post/1",
+       "uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222",
        "kind" => "show_more"
      }},
     {"save_draft", %{"text" => "later"}},
@@ -246,7 +258,11 @@ defmodule AtMcp.MCP.ToolsTest do
     {"subscribe_to_activity", %{"actor" => "alice.test", "posts" => true, "replies" => true}},
     {"get_activity_subscriptions", %{}},
     {"report",
-     %{"subject" => "at://alice.test/app.bsky.feed.post/1", "reason" => "spam", "details" => "x"}},
+     %{
+       "subject" => "at://alice.test/app.bsky.feed.post/3k22222222222",
+       "reason" => "spam",
+       "details" => "x"
+     }},
     {"mute_word", %{"value" => "#spoilers", "duration" => "7d", "tags_only" => true}},
     {"unmute_word", %{"value" => "spoilers"}},
     {"mute_list", %{"uri" => "at://did:plc:alice/app.bsky.graph.list/l1"}},
@@ -341,7 +357,11 @@ defmodule AtMcp.MCP.ToolsTest do
     {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
     schema = fn name -> Enum.find(tools, &(&1.name == name)).outputSchema end
 
-    page = %{"count" => 1, "items" => [%{"uri" => "at://did:plc:x/app.bsky.feed.post/1"}]}
+    page = %{
+      "count" => 1,
+      "items" => [%{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"}]
+    }
+
     status = %{"logged_in" => true, "login_count" => 1}
 
     assert Schema.valid?(page, schema.("get_timeline"))
@@ -500,7 +520,8 @@ defmodule AtMcp.MCP.ToolsTest do
         :invalid_post_text,
         :post_text_too_long,
         :write_quota_unavailable,
-        {:referenced_record_unreadable, "at://did:plc:x/app.bsky.feed.post/1", :not_found},
+        {:referenced_record_unreadable, "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+         :not_found},
         {:write_quota_exhausted, 1_788_800_000}
       ]
       |> Enum.map(fn reason ->

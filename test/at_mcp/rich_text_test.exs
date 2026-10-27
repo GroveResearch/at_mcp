@@ -34,18 +34,21 @@ defmodule AtMcp.RichTextTest do
           "/xrpc/com.atproto.repo.getRecord" ->
             {200,
              %{
-               uri: "at://did:plc:parent/app.bsky.feed.post/parent",
+               uri: "at://did:plc:parent/app.bsky.feed.post/3kparent22222",
                cid: "parent-cid",
                value: %{
                  text: "parent",
                  reply: %{
-                   root: %{uri: "at://did:plc:root/app.bsky.feed.post/root", cid: "root-cid"}
+                   root: %{
+                     uri: "at://did:plc:root/app.bsky.feed.post/3kroot2222222",
+                     cid: "root-cid"
+                   }
                  }
                }
              }}
 
           "/xrpc/com.atproto.repo.createRecord" ->
-            {200, %{uri: "at://did:plc:owner/app.bsky.feed.post/new", cid: "new-cid"}}
+            {200, %{uri: "at://did:plc:owner/app.bsky.feed.post/3knew22222222", cid: "new-cid"}}
 
           # The parent as the AppView shows it: no reply rule shuts this
           # account out.
@@ -119,7 +122,7 @@ defmodule AtMcp.RichTextTest do
 
     assert {:ok, result} =
              AtMcp.Effects.ProtoRune.post(session, text,
-               reply: "at://did:plc:parent/app.bsky.feed.post/parent"
+               reply: "at://did:plc:parent/app.bsky.feed.post/3kparent22222"
              )
 
     assert result.unresolved_mentions == ["missing.test"]
@@ -133,11 +136,11 @@ defmodule AtMcp.RichTextTest do
 
     assert record["reply"] == %{
              "root" => %{
-               "uri" => "at://did:plc:root/app.bsky.feed.post/root",
+               "uri" => "at://did:plc:root/app.bsky.feed.post/3kroot2222222",
                "cid" => "root-cid"
              },
              "parent" => %{
-               "uri" => "at://did:plc:parent/app.bsky.feed.post/parent",
+               "uri" => "at://did:plc:parent/app.bsky.feed.post/3kparent22222",
                "cid" => "parent-cid"
              }
            }
@@ -147,7 +150,7 @@ defmodule AtMcp.RichTextTest do
        %{calls: calls, session: session} do
     text = "@alice.test said: see https://example.com #tag"
 
-    for opts <- [[], [reply: "at://did:plc:parent/app.bsky.feed.post/parent"]] do
+    for opts <- [[], [reply: "at://did:plc:parent/app.bsky.feed.post/3kparent22222"]] do
       Agent.update(calls, fn _ -> [] end)
 
       assert {:ok, result} =

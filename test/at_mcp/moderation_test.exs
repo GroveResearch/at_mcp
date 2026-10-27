@@ -328,7 +328,7 @@ defmodule AtMcp.ModerationTest do
             )
         )
 
-      uri = "at://did:plc:alice/app.bsky.feed.post/p"
+      uri = "at://did:plc:alice/app.bsky.feed.post/3kp2222222222"
       assert {:ok, _} = AtMcp.Effects.get_posts(effects, [uri])
       assert {:ok, _} = AtMcp.Effects.get_posts(effects, [uri])
 
@@ -778,7 +778,7 @@ defmodule AtMcp.ModerationTest do
     end
 
     test "a record is reported by a strong reference, and a service that takes only the first reasons gets the first" do
-      post = "at://did:plc:alice/app.bsky.feed.post/p1"
+      post = "at://did:plc:alice/app.bsky.feed.post/3kp2222222223"
 
       subscribed = %{
         "$type" => "app.bsky.actor.defs#labelersPref",
@@ -800,7 +800,10 @@ defmodule AtMcp.ModerationTest do
         )
 
       reported =
-        AtMcp.Effects.report(effects, "at://alice.test/app.bsky.feed.post/p1", "harassment_troll",
+        AtMcp.Effects.report(
+          effects,
+          "at://alice.test/app.bsky.feed.post/3kp2222222223",
+          "harassment_troll",
           labeler: "labeler.test"
         )
 
@@ -838,7 +841,7 @@ defmodule AtMcp.ModerationTest do
       for {subject, opts, field} <- [
             {"self.example", [], "subject"},
             {"also-self.test", [], "subject"},
-            {"at://did:plc:self/app.bsky.feed.post/p", [], "subject"},
+            {"at://did:plc:self/app.bsky.feed.post/3kp2222222222", [], "subject"},
             {"alice.test", [labeler: @labeler], "labeler"},
             {"at://did:plc:alice/app.bsky.feed.like/l", [], "subject"}
           ] do

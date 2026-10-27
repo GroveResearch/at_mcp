@@ -822,6 +822,13 @@ defmodule AtMcp.ATProto do
     for i <- 12..0//-1, into: "", do: <<Enum.at(@tid_alphabet, n >>> (5 * i) &&& 31)>>
   end
 
+  @doc """
+  Whether `key` has the TID form: 13 characters of sortable base32, the first
+  of them 2-7 or a-j because a TID's top bit is zero. A post's record key is
+  one (the post lexicon's `"key": "tid"`).
+  """
+  def tid?(key) when is_binary(key), do: key =~ ~r/\A[234567a-j][234567a-z]{12}\z/
+
   @doc "Delete one record from a repository."
   def delete_record(session, params),
     do: procedure(session, "com.atproto.repo.deleteRecord", @repo_delete, params)

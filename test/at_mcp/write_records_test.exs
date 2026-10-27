@@ -79,17 +79,17 @@ defmodule AtMcp.WriteRecordsTest do
     # Parents whose writers named their thread's root by handle, or by DID
     # with a CID the root no longer has, or by DID in a repository that is
     # gone.
-    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "under-" <> root}}) do
+    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "3kunder" <> root}}) do
       declared =
         case root do
-          "unresolvable" -> "at://nobody.example/town.delve.feed.post/root"
-          "handle" -> "at://other.example/town.delve.feed.post/root"
-          "stale" -> "at://did:plc:other/town.delve.feed.post/root"
-          "gone" -> "at://did:plc:gone/town.delve.feed.post/root"
+          "unres2" -> "at://nobody.example/town.delve.feed.post/3kroot2222222"
+          "handle" -> "at://other.example/town.delve.feed.post/3kroot2222222"
+          "stale2" -> "at://did:plc:other/town.delve.feed.post/3kroot2222222"
+          "gone22" -> "at://did:plc:gone/town.delve.feed.post/3kroot2222222"
         end
 
       %{
-        uri: "at://did:plc:other/town.delve.feed.post/under-#{root}",
+        uri: "at://did:plc:other/town.delve.feed.post/3kunder#{root}",
         cid: "bafyreiparent",
         value: %{text: "parent", reply: %{root: %{uri: declared, cid: "bafyreideclared"}}}
       }
@@ -100,8 +100,12 @@ defmodule AtMcp.WriteRecordsTest do
     defp response("com.atproto.repo.getRecord", %{query_params: %{"repo" => "did:plc:gone"}}),
       do: {400, %{error: "InvalidRequest", message: "Could not find repo: did:plc:gone"}}
 
-    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "root"}}),
-      do: %{uri: "at://did:plc:other/town.delve.feed.post/root", cid: "bafyreiroot", value: %{}}
+    defp response("com.atproto.repo.getRecord", %{query_params: %{"rkey" => "3kroot2222222"}}),
+      do: %{
+        uri: "at://did:plc:other/town.delve.feed.post/3kroot2222222",
+        cid: "bafyreiroot",
+        value: %{}
+      }
 
     defp response("com.atproto.repo.getRecord", conn) do
       %{
@@ -184,7 +188,11 @@ defmodule AtMcp.WriteRecordsTest do
     text = "[[ ## completed ##]]"
 
     assert {:ok, _} =
-             AtMcp.Effects.reply(effects, "at://did:plc:other/town.delve.feed.post/1", text)
+             AtMcp.Effects.reply(
+               effects,
+               "at://did:plc:other/town.delve.feed.post/3k22222222222",
+               text
+             )
 
     assert written(ctx.calls).body["record"]["text"] == text
     refute Map.has_key?(written(ctx.calls).body["record"], "facets")
@@ -256,7 +264,7 @@ defmodule AtMcp.WriteRecordsTest do
       calls: calls,
       session: session
     } do
-      subject = "at://did:plc:other/town.delve.feed.post/1"
+      subject = "at://did:plc:other/town.delve.feed.post/3k22222222222"
 
       assert {:ok, _} = AtMcp.Effects.ProtoRune.post(session, "hello")
       assert {:ok, _} = AtMcp.Effects.ProtoRune.like(session, subject, "bafyreisubject")
@@ -442,7 +450,7 @@ defmodule AtMcp.WriteRecordsTest do
       calls: calls,
       session: session
     } do
-      uri = "at://did:plc:other/town.delve.feed.post/1"
+      uri = "at://did:plc:other/town.delve.feed.post/3k22222222222"
       assert {:ok, _} = AtMcp.Effects.ProtoRune.post(session, "see this", quote: uri)
 
       embed = written(calls).body["record"]["embed"]
@@ -458,7 +466,7 @@ defmodule AtMcp.WriteRecordsTest do
     } do
       assert {:ok, _} =
                AtMcp.Effects.ProtoRune.post(session, "both",
-                 quote: "at://did:plc:other/town.delve.feed.post/1",
+                 quote: "at://did:plc:other/town.delve.feed.post/3k22222222222",
                  images: [%{data: <<1>>, mime_type: "image/png", alt: ""}]
                )
 
@@ -578,7 +586,7 @@ defmodule AtMcp.WriteRecordsTest do
       calls: calls,
       session: session
     } do
-      parent = "at://did:plc:other/town.delve.feed.post/1"
+      parent = "at://did:plc:other/town.delve.feed.post/3k22222222222"
       assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
 
       assert result.reply_to == parent
@@ -596,26 +604,26 @@ defmodule AtMcp.WriteRecordsTest do
     defp root_reads(calls) do
       calls
       |> sent("com.atproto.repo.getRecord")
-      |> Enum.reject(&String.starts_with?(&1.query["rkey"], "under-"))
+      |> Enum.reject(&String.starts_with?(&1.query["rkey"], "3kunder"))
     end
 
     test "names the root by DID with the declared CID, and says the parent did not", %{
       calls: calls,
       session: session
     } do
-      parent = "at://did:plc:other/town.delve.feed.post/under-handle"
+      parent = "at://did:plc:other/town.delve.feed.post/3kunderhandle"
       assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
 
       assert written(calls).body["record"]["reply"] == %{
                "root" => %{
-                 "uri" => "at://did:plc:other/town.delve.feed.post/root",
+                 "uri" => "at://did:plc:other/town.delve.feed.post/3kroot2222222",
                  "cid" => "bafyreideclared"
                },
                "parent" => %{"uri" => parent, "cid" => "bafyreiparent"}
              }
 
       assert result.warning ==
-               "The parent names its thread's root as at://other.example/town.delve.feed.post/root, not by DID; the app may not show the parent in that thread. This reply names the root as at://did:plc:other/town.delve.feed.post/root."
+               "The parent names its thread's root as at://other.example/town.delve.feed.post/3kroot2222222, not by DID; the app may not show the parent in that thread. This reply names the root as at://did:plc:other/town.delve.feed.post/3kroot2222222."
 
       assert root_reads(calls) == []
     end
@@ -624,11 +632,11 @@ defmodule AtMcp.WriteRecordsTest do
       calls: calls,
       session: session
     } do
-      parent = "at://did:plc:other/town.delve.feed.post/under-stale"
+      parent = "at://did:plc:other/town.delve.feed.post/3kunderstale2"
       assert {:ok, result} = AtMcp.Effects.ProtoRune.post(session, "agreed", reply: parent)
 
       assert written(calls).body["record"]["reply"]["root"] == %{
-               "uri" => "at://did:plc:other/town.delve.feed.post/root",
+               "uri" => "at://did:plc:other/town.delve.feed.post/3kroot2222222",
                "cid" => "bafyreideclared"
              }
 
@@ -640,11 +648,11 @@ defmodule AtMcp.WriteRecordsTest do
       calls: calls,
       session: session
     } do
-      parent = "at://did:plc:other/town.delve.feed.post/under-gone"
+      parent = "at://did:plc:other/town.delve.feed.post/3kundergone22"
       assert {:ok, _} = AtMcp.Effects.ProtoRune.post(session, "still here", reply: parent)
 
       assert written(calls).body["record"]["reply"]["root"] == %{
-               "uri" => "at://did:plc:gone/town.delve.feed.post/root",
+               "uri" => "at://did:plc:gone/town.delve.feed.post/3kroot2222222",
                "cid" => "bafyreideclared"
              }
     end
@@ -652,12 +660,12 @@ defmodule AtMcp.WriteRecordsTest do
     test "a root whose handle does not resolve is refused before anything is written, at no cost",
          %{calls: calls, session: session} do
       effects = post_effects(session)
-      parent = "at://did:plc:other/town.delve.feed.post/under-unresolvable"
+      parent = "at://did:plc:other/town.delve.feed.post/3kunderunres2"
 
       assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} =
                AtMcp.Effects.reply(effects, parent, "agreed")
 
-      assert message =~ "at://nobody.example/town.delve.feed.post/root"
+      assert message =~ "at://nobody.example/town.delve.feed.post/3kroot2222222"
       assert message =~ "Nothing was sent"
       assert sent(calls, "com.atproto.repo.createRecord") == []
       assert AtMcp.Effects.quota_status(effects).used == 0
@@ -665,7 +673,7 @@ defmodule AtMcp.WriteRecordsTest do
 
     test "bookmarking such a parent does not need its root", %{calls: calls, session: session} do
       effects = post_effects(session)
-      parent = "at://did:plc:other/town.delve.feed.post/under-unresolvable"
+      parent = "at://did:plc:other/town.delve.feed.post/3kunderunres2"
 
       assert {:ok, %{action: :bookmark, uri: ^parent}} = AtMcp.Effects.bookmark(effects, parent)
       assert sent(calls, "com.atproto.identity.resolveHandle") == []
@@ -718,11 +726,11 @@ defmodule AtMcp.WriteRecordsTest do
       assert {:ok, opts} =
                AtMcp.MCP.Tools.post_options(%{
                  text: "hallo",
-                 quote: "at://did:plc:x/app.bsky.feed.post/1",
+                 quote: "at://did:plc:x/app.bsky.feed.post/3k22222222222",
                  langs: ["en"]
                })
 
-      assert opts[:quote] == "at://did:plc:x/app.bsky.feed.post/1"
+      assert opts[:quote] == "at://did:plc:x/app.bsky.feed.post/3k22222222222"
       assert opts[:langs] == ["en"]
     end
 

@@ -34,7 +34,9 @@ defmodule AtMcp.PinsBookmarksTest do
   describe "through the tools, over the mock backend" do
     test "pin_post refuses another account's post by naming the argument" do
       state = mock()
-      result = call(state, "pin_post", %{"uri" => "at://did:plc:other/app.bsky.feed.post/1"})
+
+      result =
+        call(state, "pin_post", %{"uri" => "at://did:plc:other/app.bsky.feed.post/3k22222222222"})
 
       assert result.isError
       assert %{code: "invalid_arguments", problems: [%{path: "uri"}]} = result.structuredContent
@@ -46,24 +48,24 @@ defmodule AtMcp.PinsBookmarksTest do
       state = mock()
 
       for repo <- ["did:plc:mock", "mock.test"] do
-        uri = "at://#{repo}/app.bsky.feed.post/1"
+        uri = "at://#{repo}/app.bsky.feed.post/3k22222222222"
         result = call(state, "pin_post", %{"uri" => uri})
         refute result[:isError], inspect(result)
 
         assert %{
                  "action" => "pin_post",
-                 "subject_uri" => "at://did:plc:mock/app.bsky.feed.post/1"
+                 "subject_uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"
                } = result.structuredContent
       end
     end
 
     test "unpin_post names the post it unpinned, so pin_post can put it back" do
-      state = mock(%{pinned: "at://did:plc:mock/app.bsky.feed.post/old"})
+      state = mock(%{pinned: "at://did:plc:mock/app.bsky.feed.post/3kold22222222"})
       result = call(state, "unpin_post", %{})
 
       assert %{
                "action" => "unpin_post",
-               "replaced_uri" => "at://did:plc:mock/app.bsky.feed.post/old"
+               "replaced_uri" => "at://did:plc:mock/app.bsky.feed.post/3kold22222222"
              } =
                result.structuredContent
     end
@@ -80,10 +82,12 @@ defmodule AtMcp.PinsBookmarksTest do
     end
 
     test "mute_thread mutes the thread's root, whichever post names it" do
-      root = "at://did:plc:a/app.bsky.feed.post/root"
+      root = "at://did:plc:a/app.bsky.feed.post/3kroot2222222"
       state = mock(%{thread_root: root})
 
-      result = call(state, "mute_thread", %{"uri" => "at://did:plc:b/app.bsky.feed.post/reply"})
+      result =
+        call(state, "mute_thread", %{"uri" => "at://did:plc:b/app.bsky.feed.post/3kreply222222"})
+
       assert %{"action" => "mute_thread", "uri" => ^root} = result.structuredContent
     end
 
@@ -99,7 +103,7 @@ defmodule AtMcp.PinsBookmarksTest do
     test "none of them spends the write quota" do
       %{effects: effects} = state = mock()
       assert {:ok, _} = AtMcp.Effects.post(effects, "spends the only write")
-      uri = "at://did:plc:mock/app.bsky.feed.post/1"
+      uri = "at://did:plc:mock/app.bsky.feed.post/3k22222222222"
 
       for {name, args} <- [
             {"pin_post", %{"uri" => uri}},
@@ -139,8 +143,8 @@ defmodule AtMcp.PinsBookmarksTest do
     end
 
     @profile "at://did:plc:self/town.delve.actor.profile/self"
-    @mine "at://did:plc:self/town.delve.feed.post/mine"
-    @before "at://did:plc:self/town.delve.feed.post/before"
+    @mine "at://did:plc:self/town.delve.feed.post/3kmine2222222"
+    @before "at://did:plc:self/town.delve.feed.post/3kbefore22222"
 
     defp profile(extra \\ %{}) do
       Map.merge(
@@ -195,7 +199,7 @@ defmodule AtMcp.PinsBookmarksTest do
     end
 
     test "pin_post by a handle-form address pins the DID form the service answered with" do
-      by_handle = "at://self.example/town.delve.feed.post/mine"
+      by_handle = "at://self.example/town.delve.feed.post/3kmine2222222"
       %{effects: effects, pds: pds} = pds(%{@profile => profile(), @mine => post("pin me")})
 
       assert {:ok, %{subject_uri: @mine}} = AtMcp.Effects.pin_post(effects, by_handle)
@@ -262,8 +266,8 @@ defmodule AtMcp.PinsBookmarksTest do
     end
 
     test "mute_thread sends the thread's root to the network's method" do
-      root = "at://did:plc:other/town.delve.feed.post/root"
-      reply = "at://did:plc:other/town.delve.feed.post/reply"
+      root = "at://did:plc:other/town.delve.feed.post/3kroot2222222"
+      reply = "at://did:plc:other/town.delve.feed.post/3kreply222222"
       ref = %{"uri" => root, "cid" => "bafyroot"}
 
       %{effects: effects, pds: pds} =
@@ -283,7 +287,7 @@ defmodule AtMcp.PinsBookmarksTest do
     end
 
     test "mute_thread on a handle-form address mutes the DID-form root" do
-      by_handle = "at://self.example/town.delve.feed.post/mine"
+      by_handle = "at://self.example/town.delve.feed.post/3kmine2222222"
       %{effects: effects, pds: pds} = pds(%{@mine => post("a thread")})
 
       assert {:ok, %{uri: @mine}} = AtMcp.Effects.mute_thread(effects, by_handle)
@@ -292,8 +296,8 @@ defmodule AtMcp.PinsBookmarksTest do
 
     @tag network: :bluesky
     test "bookmark and unbookmark by a handle-form address both send the DID form" do
-      uri = "at://did:plc:other/app.bsky.feed.post/1"
-      by_handle = "at://other.example/app.bsky.feed.post/1"
+      uri = "at://did:plc:other/app.bsky.feed.post/3k22222222222"
+      by_handle = "at://other.example/app.bsky.feed.post/3k22222222222"
 
       {session, pds} =
         FakePDS.start(
@@ -319,7 +323,7 @@ defmodule AtMcp.PinsBookmarksTest do
 
     @tag network: :bluesky
     test "bookmark sends the post's strong reference; unbookmark its uri" do
-      uri = "at://did:plc:other/app.bsky.feed.post/1"
+      uri = "at://did:plc:other/app.bsky.feed.post/3k22222222222"
       %{effects: effects, pds: pds} = pds(%{uri => %{"text" => "save"}})
 
       assert {:ok, %{action: :bookmark, uri: ^uri}} = AtMcp.Effects.bookmark(effects, uri)
@@ -335,7 +339,7 @@ defmodule AtMcp.PinsBookmarksTest do
     # delve.town answers 501 for methods it does not serve. A 501 says the
     # method was not run, so the write is refused, not of unknown outcome.
     test "a service that does not implement bookmarks is reported as refusing them" do
-      uri = "at://did:plc:other/town.delve.feed.post/1"
+      uri = "at://did:plc:other/town.delve.feed.post/3k22222222222"
 
       %{effects: effects} =
         pds(%{uri => %{"text" => "save"}}, %{
@@ -354,8 +358,8 @@ defmodule AtMcp.PinsBookmarksTest do
     end
 
     test "get_bookmarks reads posts and the placeholders of posts gone since" do
-      gone = "at://did:plc:other/town.delve.feed.post/gone"
-      kept = "at://did:plc:other/town.delve.feed.post/kept"
+      gone = "at://did:plc:other/town.delve.feed.post/3kgone2222222"
+      kept = "at://did:plc:other/town.delve.feed.post/3kkept2222222"
 
       bookmarks = %{
         bookmarks: [
