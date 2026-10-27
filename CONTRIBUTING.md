@@ -91,8 +91,10 @@ TEST_CONNECT_RELEASE="$PWD/_build/prod/rel/at_mcp/bin/at_mcp-connect" mix check
 ```
 
 With every variable above set, the suite skips nothing. CI's `check` workflow
-runs this way on every pull request, and fails if any test skips, so a
-skipped interoperability test can't pass for a success.
+runs it this way in the merge queue, split across parallel jobs with
+`mix test --partitions`, and fails if any test skips, so a skipped
+interoperability test can't pass for a success. A pull request gets a quick
+check first: formatting, compiling with warnings as errors and the async tests.
 
 Two scripts install a built release under a scratch folder and run it against
 a local server:
