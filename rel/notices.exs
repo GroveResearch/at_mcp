@@ -16,13 +16,25 @@ defmodule AtMcp.ReleaseNotices do
     copy!(release.path, Mix.Project.deps_paths(),
       otp: otp_version,
       elixir: System.version(),
-      openssl: openssl_version
+      openssl: openssl_version,
+      strict: strict?()
     )
 
     release
   end
 
+  # A build for distribution, in CI or with RELEASE_VERSION set, must bundle the
+  # notices for the exact Erlang, Elixir and OpenSSL it carries. A local build
+  # from source runs on whatever versions the machine has, so a missing tree
+  # becomes a pointer to the upstream license instead of a failed build.
+  def strict? do
+    System.get_env("CI") not in [nil, "", "false"] or
+      System.get_env("RELEASE_VERSION") not in [nil, ""]
+  end
+
   def copy!(release_path, deps, versions, notices \\ Path.join(__DIR__, "notices")) do
+    strict = Keyword.get(versions, :strict, true)
+
     target = Path.join(release_path, "licenses/bundled")
     File.rm_rf!(target)
     File.mkdir_p!(target)
@@ -39,10 +51,10 @@ defmodule AtMcp.ReleaseNotices do
           :ok
 
         app in @runtime_apps ->
-          copy_tree!(notices, "otp-#{versions[:otp]}", destination)
+          runtime_tree!(notices, "otp-#{versions[:otp]}", destination, strict)
 
         app in @elixir_apps ->
-          copy_tree!(notices, "elixir-#{versions[:elixir]}", destination)
+          runtime_tree!(notices, "elixir-#{versions[:elixir]}", destination, strict)
 
         true ->
           source = Map.fetch!(deps, String.to_atom(app))
@@ -72,10 +84,11 @@ defmodule AtMcp.ReleaseNotices do
               :ok
 
             app in ["castore", "ecto", "nimble_pool"] and license_section != nil ->
-              File.cp!(
-                Path.join(notices, "elixir-#{versions[:elixir]}/LICENSES/Apache-2.0.txt"),
-                Path.join(destination, "Apache-2.0.txt")
-              )
+              apache = Path.join(notices, "elixir-#{versions[:elixir]}/LICENSES/Apache-2.0.txt")
+
+              if File.exists?(apache) or strict,
+                do: File.cp!(apache, Path.join(destination, "Apache-2.0.txt")),
+                else: upstream_pointer!("elixir-#{versions[:elixir]}", destination)
 
             app == "mint_web_socket" ->
               copy_tree!(notices, entry, destination)
@@ -89,8 +102,8 @@ defmodule AtMcp.ReleaseNotices do
       end
     end)
 
-    copy_tree!(notices, "otp-#{versions[:otp]}", Path.join(target, "erts"))
-    copy_tree!(notices, "openssl-#{versions[:openssl]}", Path.join(target, "openssl"))
+    runtime_tree!(notices, "otp-#{versions[:otp]}", Path.join(target, "erts"), strict)
+    runtime_tree!(notices, "openssl-#{versions[:openssl]}", Path.join(target, "openssl"), strict)
     File.write!(Path.join(target, "APPLICATIONS"), Enum.join(apps, "\n") <> "\n")
     files = Path.wildcard(Path.join(target, "**/*")) |> Enum.filter(&File.regular?/1)
 
@@ -125,6 +138,22 @@ defmodule AtMcp.ReleaseNotices do
     end)
 
     :ok
+  end
+
+  defp runtime_tree!(root, entry, target, strict) do
+    if strict or File.dir?(Path.join(root, entry)),
+      do: copy_tree!(root, entry, target),
+      else: upstream_pointer!(entry, target)
+  end
+
+  defp upstream_pointer!(entry, target) do
+    File.mkdir_p!(target)
+
+    File.write!(
+      Path.join(target, "UPSTREAM-NOTICES.txt"),
+      "This local build does not bundle the license notices for #{entry}. " <>
+        "They are in that project's own distribution.\n"
+    )
   end
 
   defp copy_tree!(root, entry, target) do

@@ -96,6 +96,31 @@ test -n "$VERSION" &&
 To install an older release, replace the first line with its version number,
 for example `VERSION=0.2.15`.
 
+### Build from source instead
+
+If your machine can't download release files, build at_mcp from its source.
+This needs Elixir 1.19 with Erlang/OTP, git, make and a C compiler. The block
+clones the repository into `~/at_mcp-src`, builds a release, and installs it
+into `~/at_mcp` in the same layout as a downloaded one, so the next steps work
+unchanged.
+
+```sh
+git clone --depth 1 https://github.com/GroveResearch/at_mcp.git "$HOME/at_mcp-src" &&
+  cd "$HOME/at_mcp-src" &&
+  mix local.hex --force --if-missing && mix local.rebar --force --if-missing &&
+  mix deps.get &&
+  MIX_ENV=prod mix release --overwrite &&
+  BUILT=$(cut -d' ' -f2 _build/prod/rel/at_mcp/releases/start_erl.data) &&
+  mkdir -p "$HOME/at_mcp/releases" &&
+  rm -rf "$HOME/at_mcp/releases/at_mcp-$BUILT" &&
+  cp -R _build/prod/rel/at_mcp "$HOME/at_mcp/releases/at_mcp-$BUILT" &&
+  ln -sfn "releases/at_mcp-$BUILT" "$HOME/at_mcp/current" &&
+  echo "Built at_mcp $BUILT in $HOME/at_mcp/current"
+```
+
+A source build carries the version `0.0.0-dev`. For a given release, add
+`--branch v0.2.16` to the `git clone` line.
+
 ### Connect Claude Code
 
 This block writes a Claude Code configuration for a Bluesky account to

@@ -74,11 +74,28 @@ defmodule AtMcp.ReleaseNoticesTest do
     end
   end
 
-  defp copy(ctx) do
+  test "a distributed build refuses a runtime with no bundled notices", ctx do
+    File.write!(Path.join(ctx.deps.sample, "LICENSE"), "Copyright Example")
+
+    assert_raise RuntimeError, ~r/Missing upstream release notices: .*openssl-2/, fn ->
+      copy(ctx, openssl: "2")
+    end
+  end
+
+  test "a local build points to the upstream notices of a runtime it has none for", ctx do
+    File.write!(Path.join(ctx.deps.sample, "LICENSE"), "Copyright Example")
+    assert :ok = copy(ctx, openssl: "2", strict: false)
+
+    pointer = Path.join(ctx.release, "licenses/bundled/openssl/UPSTREAM-NOTICES.txt")
+    assert File.read!(pointer) =~ "openssl-2"
+    assert File.exists?(Path.join(ctx.release, "licenses/bundled/erts/LICENSE"))
+  end
+
+  defp copy(ctx, overrides \\ []) do
     AtMcp.ReleaseNotices.copy!(
       ctx.release,
       ctx.deps,
-      [otp: "1", elixir: "1", openssl: "1"],
+      Keyword.merge([otp: "1", elixir: "1", openssl: "1"], overrides),
       ctx.notices
     )
   end
