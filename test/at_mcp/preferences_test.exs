@@ -841,6 +841,12 @@ defmodule AtMcp.PreferencesTest do
       assert %{code: "not_served", method: "town.delve.notification.getGroupedNotifications"} =
                result.structuredContent
 
+      assert hd(result.content).text ==
+               "error: delve.town does not serve town.delve.notification.getGroupedNotifications: " <>
+                 "\"Not in delve.town's lexicons; its AppView answers 501\". " <>
+                 "Nothing was sent and nothing was counted against the write quota. " <>
+                 "get_notifications without grouped reads the same notifications one at a time."
+
       assert FakePDS.methods(pds) == []
     end
   end
