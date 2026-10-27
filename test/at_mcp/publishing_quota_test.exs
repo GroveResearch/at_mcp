@@ -146,8 +146,7 @@ defmodule AtMcp.PublishingQuotaTest do
 
       assert tool.description =~ sentence, "#{tool.name}: #{tool.description}"
       assert tool.annotations[:"at_mcp/publicWrite"] == counts?, tool.name
-      # The annotation's earlier name, kept until the release after next.
-      assert tool.annotations[:"kite/publicWrite"] == counts?, tool.name
+      refute Map.has_key?(tool.annotations, :"kite/publicWrite"), tool.name
     end
 
     assert AtMcp.MCP.DSL.quota_sentence(true) =~ "Counts against"

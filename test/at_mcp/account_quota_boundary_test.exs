@@ -76,7 +76,7 @@ defmodule AtMcp.AccountQuotaBoundaryTest do
     seen = Enum.find(tools, fn tool -> (tool["name"] || tool[:name]) == "update_seen" end)
     annotations = seen["annotations"] || seen[:annotations]
     assert annotations["at_mcp/publicWrite"] == false
-    assert annotations["kite/publicWrite"] == false
+    refute Map.has_key?(annotations, "kite/publicWrite")
     assert annotations["readOnlyHint"] == false
 
     response =

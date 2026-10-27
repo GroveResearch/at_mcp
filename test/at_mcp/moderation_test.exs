@@ -364,6 +364,45 @@ defmodule AtMcp.ModerationTest do
              ]) == "#{@bsky_moderation};redact, #{@labeler}, did:web:labeler.example"
     end
 
+    # A local test server can be given a port an earlier one had. What the
+    # earlier one answered must not stand for the new one's preferences.
+    test "forget_service drops the labelers kept for one service and no other" do
+      session = %ProtoRune.Atproto.Session{
+        access_jwt: "access",
+        refresh_jwt: "refresh",
+        did: "did:plc:forgotten",
+        handle: "forgotten.example",
+        service_url: "http://127.0.0.1:1/xrpc"
+      }
+
+      other = %{session | service_url: "http://127.0.0.1:2/xrpc"}
+
+      subscribed = [
+        %{"$type" => "app.bsky.actor.defs#labelersPref", "labelers" => [%{"did" => @labeler}]}
+      ]
+
+      :ok = AtMcp.AcceptLabelers.remember(session, subscribed)
+      :ok = AtMcp.AcceptLabelers.remember(other, subscribed)
+
+      read = fn ->
+        send(self(), :read_preferences)
+        {:ok, []}
+      end
+
+      with_labeler = %{"atproto-accept-labelers" => "#{@bsky_moderation};redact, #{@labeler}"}
+      assert AtMcp.AcceptLabelers.header(session, read) == with_labeler
+      refute_received :read_preferences
+
+      assert :ok = AtMcp.AcceptLabelers.forget_service(session.service_url)
+
+      assert AtMcp.AcceptLabelers.header(session, read) ==
+               %{"atproto-accept-labelers" => "#{@bsky_moderation};redact"}
+
+      assert_received :read_preferences
+      assert AtMcp.AcceptLabelers.header(other, read) == with_labeler
+      refute_received :read_preferences
+    end
+
     test "subscribe_labeler adds the labeler as addLabeler does; the network's own and a non-labeler are refused unsent" do
       %{effects: effects, pds: pds} =
         pds(preferences: [@odd], answers: services([labeler_view(@labeler)]))
