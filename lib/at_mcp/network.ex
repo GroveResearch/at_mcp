@@ -458,8 +458,8 @@ defmodule AtMcp.Network do
   What to call this network when telling somebody which one they are on.
 
   A host that receives an event has no other way to know: the namespace is a
-  lexicon prefix, not a name a reader recognises, and an installation that told an
-  inhabitant "on Bluesky" while it was on delve.town would be lying to it.
+  lexicon prefix, not a name a reader recognizes, and a host that told an agent
+  it was "on Bluesky" while it was on delve.town would tell it something false.
   """
   def label, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:label)
 end
