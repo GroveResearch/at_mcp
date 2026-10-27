@@ -1,12 +1,11 @@
 # Contributing to at_mcp
 
-This guide covers building at_mcp from source, testing a change, and
-publishing a release. Before changing code, read [AGENTS.md](AGENTS.md) for
+Before changing code, read [AGENTS.md](AGENTS.md) for
 at_mcp's responsibilities and conventions, and [docs/DESIGN.md](docs/DESIGN.md)
 for how the parts fit together. [decisions.md](decisions.md) records past
 decisions and the tests holding them.
 
-Start a change with an issue giving acceptance criteria a test can check.
+Open an issue first, and state its acceptance criteria in testable terms.
 Send the change as a pull request from a topic branch. Every pull request gets
 an independent review before it merges.
 
@@ -22,8 +21,8 @@ mix deps.get
 mix check
 ```
 
-`mix check` formats the code, compiles it with warnings treated as errors, and
-runs the tests.
+`mix check` checks the formatting, compiles with warnings treated as errors,
+and runs the tests. Run `mix format` to fix formatting.
 
 ## Build a release
 
@@ -58,9 +57,9 @@ On Linux, use `AT_MCP=/opt/at_mcp` and run the last three commands with
 `sudo`. Pick a version number not already installed, so the copy leaves a
 running release alone.
 
-A release runs on the Erlang it was built with. Homebrew's Erlang links
-Homebrew's OpenSSL, so a release built with it runs only on Macs with that
-OpenSSL. CI checks that published macOS releases link nothing outside macOS.
+A release includes the Erlang runtime from the build machine. Homebrew's
+Erlang links Homebrew's OpenSSL, so a release built with it runs only on Macs
+with that OpenSSL. CI checks that published macOS releases link nothing outside macOS.
 
 ## Test
 
@@ -120,14 +119,15 @@ scripts/e2e.sh
 scripts/e2e.sh test/e2e/round_trip_test.exs:LINE
 ```
 
-You need git, Node 22.19 or later, and pnpm 11.11.0. The first run builds
+You need git, Node 22.19 or later, pnpm 11.11.0, and `initdb`, `pg_ctl` and
+`redis-server` on your `PATH`. The first run builds
 atproto under `_build/e2e`, taking a minute or two, and later runs take about
 ten seconds. Without `DB_POSTGRES_URL` and `REDIS_HOST`, the script starts a
 private Postgres and Redis and removes them afterwards. CI runs these tests on
 request through `.github/workflows/e2e.yml`.
 
 The suite calls each write tool, reads the result back through the read tools,
-undoes the write, and reads again. A few gaps remain:
+undoes the write, and reads again. The suite leaves these uncovered:
 
 - `feed_feedback` gets only as far as its refusal, because the dev-env feed
   generator ignores feedback.
@@ -138,10 +138,13 @@ undoes the write, and reads again. A few gaps remain:
 
 ### Check a live account
 
-Fixtures prove the mechanics. Only a live network shows what it serves. This
-script connects to a running service, checks that each tool declares an
-output schema, and compares real read results with their text. It calls no
-write tool:
+The fixtures test at_mcp against known responses. To compare its output with
+real network responses, run this script against a running service. It checks
+that each tool declares an output schema, and compares real read results with
+their text. It calls no write tool. `$probe_dir` comes from the
+[interoperability tests](#interoperability-tests) above, and each run of
+`connection` issues a fresh grant, so revoke old ones with
+`at_mcp-accounts revoke`:
 
 ```sh
 MCP_CLIENT_PATH="$probe_dir/node_modules/@modelcontextprotocol/client" \
@@ -150,17 +153,17 @@ MCP_CLIENT_PATH="$probe_dir/node_modules/@modelcontextprotocol/client" \
   /path/to/release/bin/at_mcp-connect http://127.0.0.1:4400/mcp did:plc:...
 ```
 
-## What counts as evidence
+## Evidence for a change
 
-A claim about behavior holds when a test fails after reverting the change
-behind it. Test what a caller can observe, such as the account chosen, the
+Back each claim about behavior with a test failing when you revert the
+change. Test what a caller can observe, such as the account chosen, the
 result returned, or the state after a restart, rather than wording or
 internal structure. When a check needs credentials, a network or a particular
 machine, mark the test `@tag skip:` with the reason, and give CI the
 environment for it. When a live check finds a problem missed by the fixtures,
 add a test failing without the fix, and say in the pull request what you ran.
 
-Two checks keep the documentation accurate:
+CI compares the documentation with the code:
 
 - `mix at_mcp.tools_doc` writes `docs/tools.md` from the server's tools, and
   `test/at_mcp/tool_surface_test.exs` fails when the file is out of date. Run
@@ -171,9 +174,9 @@ Two checks keep the documentation accurate:
 
 ## Publish a release
 
-A maintainer publishes a release by pushing a version tag. A merge to `main`
-publishes nothing, and the repository holds no version number to edit. Tag a
-commit of `main` whose `check` run passed in the merge queue:
+A maintainer publishes a release by pushing a version tag. Only a version tag
+starts a release, and the build takes its version from the tag. Pick a commit
+on `main` with a passing `check` run from the merge queue, and tag it:
 
 ```sh
 git fetch && git tag -a v0.3.0 -m "AtMcp 0.3.0" origin/main && git push origin v0.3.0

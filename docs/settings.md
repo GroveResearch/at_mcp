@@ -7,9 +7,9 @@ reads them from its environment file, as
 [operations.md](operations.md#the-environment-file) describes.
 
 Before starting, at_mcp checks every variable starting with `AT_MCP_`. If a
-value fails its check, or a name matches no setting below, at_mcp stops and
-prints the name, along with the closest setting when the name looks
-misspelled. at_mcp treats an empty value as unset.
+value fails its check, at_mcp stops and prints the variable's name. For a name
+matching no setting below, it stops and suggests the closest setting. at_mcp
+treats an empty value as unset.
 
 ## Account
 
@@ -58,9 +58,9 @@ which take the place of these two
 | `AT_MCP_PORT` | `4400` | The local port for MCP clients, on 127.0.0.1. |
 | `AT_MCP_DIST_PORT` | `4370` | The local port for operator commands, on 127.0.0.1. |
 | `AT_MCP_CONTROL_PORT` | none | A local port for listing the service's accounts ([operations.md](operations.md#list-a-services-accounts)). |
-| `AT_MCP_ENV_FILE` | none | The environment file for a command run from a shell, such as `at_mcp-accounts`. |
+| `AT_MCP_ENV_FILE` | none | The environment file for a command run from a shell, such as `at_mcp-accounts`, as an absolute path. |
 | `AT_MCP_GRANT` | none | The grant `at_mcp-connect` presents to the service. Keep it secret. |
-| `AT_MCP_STDIO_ENV_FILE` | none | An environment file for `at_mcp-stdio`. Its values override the client's. |
+| `AT_MCP_STDIO_ENV_FILE` | none | An environment file for `at_mcp-stdio`, as an absolute path. Its values override the client's. |
 
 The release reads `RELEASE_COOKIE` and `RELEASE_NODE` as well.
 [operations.md](operations.md#the-environment-file) explains both.
@@ -71,11 +71,11 @@ The release reads `RELEASE_COOKIE` and `RELEASE_NODE` as well.
 | --- | --- | --- |
 | `AT_MCP_NOTIFICATIONS` | `1` | `1` or `true` turns on polling of each account's notifications. `0` or `false` turns it off. |
 | `AT_MCP_NOTIFICATIONS_INTERVAL_SECONDS` | `60` | Seconds between polls of each account. |
-| `AT_MCP_JETSTREAM` | `0` | `1` or `true` turns on the network-wide stream collector. |
+| `AT_MCP_JETSTREAM` | `0` | `1` or `true` turns on the stream collector ([delivery.md](delivery.md#collection)). |
 | `AT_MCP_INBOUND_MAX_EVENTS` | `10000` | Undelivered events at_mcp holds per account before it pauses collection for that account. |
 | `AT_MCP_INBOUND_MAX_BYTES` | `67108864` | Size of the store for undelivered events, 64 MiB. A single account may fill a quarter of it. |
 | `AT_MCP_DELIVERY_URL` | none | The address receiving every account's events, an `http` or `https` URL. |
-| `AT_MCP_DELIVERY_TOKEN_FILE` | none | A file holding the bearer token at_mcp sends to the receiver. at_mcp reads the file again before each delivery. |
+| `AT_MCP_DELIVERY_TOKEN_FILE` | none | A file holding the bearer token at_mcp sends to the receiver. at_mcp reads the file again before each delivery. Without a token, at_mcp sends no `Authorization` header. |
 | `AT_MCP_DELIVERY_TOKEN` | none | The bearer token itself, in place of the file. Keep it secret. |
 
 [delivery.md](delivery.md) explains collection and delivery.

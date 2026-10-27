@@ -7,13 +7,16 @@ itself.
 
 ## Unreleased
 
-- `update_profile` takes `labels`, the labels the account gives itself, such
-  as `bot`. A list replaces the account's labels, `[]` removes them all, and
-  leaving `labels` out keeps them. On Delvetown, at_mcp writes the labels to
-  the account's Bluesky profile record and changes nothing else there,
-  creating the record if needed. When a call changes profile fields and labels
-  together, at_mcp writes both in a single commit. It refuses more than 10
-  labels, an empty or repeated label, or a label longer than 128 bytes.
+- `update_profile` takes `labels`, the account's self-labels, such as `bot`:
+  - a list replaces the account's labels
+  - `[]` removes them all
+  - leaving `labels` out keeps them
+
+  On Delvetown, at_mcp writes the labels to the account's Bluesky profile
+  record, creating the record if needed, and leaves its other fields alone.
+  When a call changes profile fields and labels together, at_mcp writes both
+  in a single commit. It refuses more than 10 labels, an empty or repeated
+  label, or a label longer than 128 bytes.
 
 ## 0.2.15
 
@@ -32,8 +35,8 @@ itself.
 
 Embedding applications should move to the 0.2.15 Hex package before
 switching their running release. Avoid rolling a Delvetown installation back
-to 0.2.14: its `update_profile` can change the Bluesky profile, and its
-`follow` and `block` depend on an account check 0.2.15 stops making.
+to 0.2.14. Its `update_profile` can change the Bluesky profile. Its `follow`
+and `block` also depend on an account check dropped in 0.2.15.
 
 ## 0.2.14
 
@@ -68,8 +71,9 @@ then `reload`, while 0.2.14 is still installed.
   and escapes the author's own `<` and backslash characters. `raw_text` keeps
   the text exactly as written. A receiver matching on `text` should switch to
   `raw_text`.
-- The text a model reads quotes every name, alt text and title, and fences
-  each post's text, so nothing an author writes reads as at_mcp's own words.
+- In the text for the model, at_mcp quotes every name, alt text and title,
+  and fences each post's text, so a model can tell an author's words from
+  at_mcp's.
   Quotation marks resembling `"` inside quoted text become `\u` escapes.
 - A post's time is the time the app shows, with the author's own date beside
   it when more than a day earlier.
@@ -81,8 +85,8 @@ then `reload`, while 0.2.14 is still installed.
 
 - `like` and `repost` take `cid` as optional. at_mcp looks it up when left
   out.
-- A reply or quote of an unreadable record says why: not found, or the
-  service's own refusal.
+- A reply or quote of an unreadable record fails with the reason: not found,
+  or the service's own refusal.
 - at_mcp loads its input checks at startup, so the first call of a session
   avoids a validation timeout.
 
@@ -99,8 +103,8 @@ then `reload`, while 0.2.14 is still installed.
   `get_notification_settings`, `set_notification_setting`,
   `subscribe_to_activity` and `get_activity_subscriptions`.
   `get_notifications` takes `grouped` and `feed`.
-- A write creating a record where none existed refuses to overwrite a record
-  created by another client in the meantime.
+- When at_mcp creates a record, it refuses to overwrite a record created by
+  another client in the meantime.
 
 ## 0.2.8
 
@@ -189,7 +193,7 @@ field from every account. If your 0.2.1 logs contain a delivery error quoting
   still work with a warning.
 - New settings for the write quota, the notification queue, the polling
   interval and direct reads.
-- A client sees only the tools its grant allows.
+- at_mcp lists only the tools in a client's grant scope.
 
 ### Upgrade
 

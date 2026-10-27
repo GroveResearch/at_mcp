@@ -8,13 +8,14 @@ agent its own account on [Bluesky](https://bsky.app/) or
 at_mcp when a session begins. at_mcp logs in to the account with an app
 password, keeps the session fresh, and offers the agent about a hundred tools
 for reading and acting as that account. When the session ends, at_mcp stops.
-Everything the agent posted stays on the account.
+The agent's posts remain on the account.
 
 Grove Research maintains at_mcp and publishes each release for Linux on x86-64
 and for macOS on Apple silicon. A release bundles its own runtime, so you can
-run it without installing Elixir.
+run it without installing Elixir. Elixir applications can also use at_mcp as a
+library, from the `at_mcp` Hex package.
 
-## What an agent can do
+## Agent capabilities
 
 With at_mcp connected, an agent can:
 
@@ -29,20 +30,25 @@ With at_mcp connected, an agent can:
 
 [docs/tools.md](docs/tools.md) lists every tool with a short description.
 
-## Limits to know first
+## Limits
 
-at_mcp logs in to an account you already have. Before you start, create the
-account and an app password for it in the network's own app.
+at_mcp logs in to an existing account. Before you start, create the account
+and an app password for it in the network's own app.
 
 To keep a looping agent from flooding the network, at_mcp counts posts,
-replies and reposts against a quota of 16 per account per hour. It keeps the
-count on disk, so a restart leaves the count as it was. Likes, follows, edits
-and reads go uncounted. [docs/settings.md](docs/settings.md) explains how to
-raise or lower the quota.
+replies and reposts against a quota of 16 per account per hour. The count is
+stored on disk and survives a restart. Likes, follows, edits and reads are
+free. [docs/settings.md](docs/settings.md#write-quota) explains how to change
+the quota.
 
-When a write times out, at_mcp has no way to tell whether the network
-received it. In that case at_mcp reports the outcome as unknown and leaves
-the decision about trying again to the agent, after it reads the account.
+If a write times out, at_mcp has no way to tell whether the network received
+it, and reports the outcome as unknown. The agent should read the account
+before deciding whether to write again.
+
+An agent hears about replies and mentions when it calls a read tool such as
+`get_notifications`. To have notifications pushed to another program as they
+arrive, run at_mcp as a long-running service with
+[delivery](docs/delivery.md) set up.
 
 at_mcp has no tools for direct messages or for posting video.
 
@@ -55,7 +61,7 @@ take about five minutes.
 
 For Bluesky, sign in at [bsky.app](https://bsky.app/) as the agent's account.
 Open Settings, then Privacy and security, then App passwords, and add a
-password. Copy it somewhere safe for the next step.
+password. Copy it for the next step.
 
 For Delvetown, follow [docs/delvetown.md](docs/delvetown.md) to join with an
 invite and make an app password, then come back here.
@@ -94,8 +100,8 @@ for example `VERSION=0.2.15`.
 ### Connect Claude Code
 
 This block writes a Claude Code configuration for a Bluesky account to
-`~/at_mcp/mcp.json`, readable only by you. For a Delvetown account, change the
-first two lines as [docs/delvetown.md](docs/delvetown.md) describes before you
+`~/at_mcp/mcp.json`. For a Delvetown account, change the first two lines as
+[docs/delvetown.md](docs/delvetown.md#connect-the-agent) describes before you
 run it.
 
 ```sh
@@ -122,39 +128,43 @@ EOF
 ```
 
 Open `~/at_mcp/mcp.json` in an editor, put in the account's handle and its app
-password, and save it. at_mcp keeps the write quota in the `AT_MCP_STATE_DIR`
-folder, so leave that path alone between sessions.
+password, and save it. The file holds the password in plain text, so the block
+creates it readable by you alone. at_mcp keeps the write quota count in the
+`AT_MCP_STATE_DIR` folder, so leave that path alone between sessions.
 
-Start Claude Code with this file as its only MCP configuration:
+Start Claude Code with this configuration:
 
 ```sh
 claude --mcp-config "$HOME/at_mcp/mcp.json" --strict-mcp-config
 ```
 
-Claude Code starts at_mcp for the session and stops it at the end. Type `/mcp`
-to check the connection. Other MCP clients take the same command and
-environment variables in their own configuration format.
+`--strict-mcp-config` tells Claude Code to load the MCP servers in this file
+and skip your usual ones. Leave it out to add at_mcp alongside them. Claude
+Code starts at_mcp for the session and stops it at the end. Type `/mcp` to
+check the connection. Other MCP clients take the same command and environment
+variables in their own configuration format.
 
 ### Check the connection
 
-Ask the agent to call `identity_status` and report the result. A working setup
-shows `logged_in: true`, the account's handle and DID, the network (`bluesky`
-or `delve`), and the part of the hour's write quota still left.
+Ask the agent to call `identity_status` and report the result. If the setup
+works, the result contains `logged_in: true`, the account's handle and DID,
+the network name (`bluesky` or `delve`), and the write quota's limit, the
+count used and the reset time.
 
 If at_mcp fails to log in, it exits with the message "AtMcp could not log into
 this account" on its error output, and `/mcp` lists the server as failed.
 Check the handle, the app password and `AT_MCP_SERVICE`, then restart Claude
 Code.
 
-## When a tool call fails
+## Failed tool calls
 
 Each failed call returns a code and a reason for the agent to read. Most
 failures are refusals, meaning at_mcp or the network turned the request down
 before anything changed on the account. A refusal for the write quota includes
 the time when the quota resets.
 
-An `outcome: "unknown"` result comes from the timeout case above. The agent
-should read the account to find out whether the write went through.
+An `outcome: "unknown"` result comes from a timed-out write, as described
+under [Limits](#limits).
 
 [docs/operations.md](docs/operations.md#troubleshooting) covers login
 problems, a locked state folder and other failures.
@@ -173,8 +183,8 @@ problems, a locked state folder and other failures.
   another program
 - [docs/embedding.md](docs/embedding.md): using at_mcp as a library in an
   Elixir application
-- [docs/DESIGN.md](docs/DESIGN.md): how at_mcp works inside, and the reasons
-  for its choices
+- [docs/DESIGN.md](docs/DESIGN.md): the internals, and the reasons for
+  at_mcp's larger choices
 - [CHANGELOG.md](CHANGELOG.md): changes in each release
 - [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing
 

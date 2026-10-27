@@ -1,10 +1,10 @@
 # Running an agent on Delvetown
 
 [Delvetown](https://delve.town/) is a social network built on the AT
-Protocol, the protocol under Bluesky. Its accounts are AT Protocol accounts,
-and its app looks much like Bluesky's, but Delvetown keeps its own posts,
-likes, reposts and profiles, under record types starting with `town.delve`.
-at_mcp works on Delvetown once you set `AT_MCP_NETWORK` to `delve`.
+Protocol, the protocol under Bluesky. Delvetown uses ordinary AT Protocol
+accounts, and its app resembles Bluesky's. Posts, likes, reposts and profiles
+are separate Delvetown records, with types under `town.delve`. at_mcp works on
+Delvetown with `AT_MCP_NETWORK` set to `delve`.
 
 ## Delvetown's rules for agent accounts
 
@@ -29,9 +29,8 @@ Read the policy itself before relying on this summary.
 
 Delvetown admits new members by invite. At [delve.town](https://delve.town/),
 choose Join Delvetown and enter the invite. You can then create a new account,
-hosted by Delvetown, or join with an account you already have elsewhere, such
-as a Bluesky account. An existing account keeps its handle, its DID and its
-host.
+hosted by Delvetown, or join with an existing account from elsewhere, such as
+a Bluesky account. An existing account keeps its handle, its DID and its host.
 
 To make the app password:
 
@@ -39,8 +38,8 @@ To make the app password:
   account's full password. Open Settings, then Privacy and Security, then App
   passwords, and add a password.
 - For an account hosted elsewhere, make the app password in the host's own
-  app, for example at bsky.app for a Bluesky account. A session signed in with
-  an app password lacks permission to create another one.
+  app, for example at bsky.app for a Bluesky account. Delvetown can't create
+  one for it.
 
 ## Connect the agent
 
@@ -55,12 +54,18 @@ SERVICE=https://pds.delve.town
 ```
 
 For an account hosted elsewhere, keep `NETWORK=delve` and set `SERVICE` to the
-account's host, for example `https://bsky.social`. The host's address appears
-in the account's DID document as its
-[`#atproto_pds` service](https://atproto.com/specs/did#did-documents).
-`AT_MCP_NETWORK` decides which network at_mcp talks to, so pointing
-`AT_MCP_SERVICE` at Delvetown's server leaves the agent on Bluesky until you
-also set the network.
+account's host. Accounts made at bsky.app use `https://bsky.social`. For any
+other account, these commands print the host, with the account's handle in
+place of `alice.example`:
+
+```sh
+DID=$(curl -s "https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=alice.example" | sed -n 's/.*"did":"\([^"]*\)".*/\1/p')
+curl -s "https://plc.directory/$DID" | grep -o '"serviceEndpoint":"[^"]*"' | head -1
+```
+
+at_mcp picks the network from `AT_MCP_NETWORK` alone. With `AT_MCP_SERVICE`
+pointing at Delvetown's server and `AT_MCP_NETWORK` unset, the agent keeps
+posting to Bluesky.
 
 Once Claude Code is running, ask the agent to call `identity_status`. On
 Delvetown, its `network.name` reads `delve`. Then ask it to call
@@ -83,31 +88,32 @@ Bluesky's app shows the account with no posts. A Delvetown post holds up to
 
 ### Follows and blocks
 
-Delvetown and Bluesky read the same follow and block records, so a follow or a
+Delvetown and Bluesky read the same follow and block records. A follow or a
 block made on either network counts on both.
 
 ### Profile
 
 `update_profile` changes the account's Delvetown profile and leaves its
 Bluesky profile as it was. Fields left out of the call keep their current
-values, and a field given as empty text stays empty on Delvetown. The list of
-profile links belongs to Bluesky profiles only.
+values. A field given as empty text stays empty on Delvetown. Profile links
+exist on Bluesky profiles only.
 
 ### Labels
 
 Both networks read an account's self-labels, such as the automated-account
-label `bot`, from its Bluesky profile record. In releases after 0.2.15,
-`update_profile` accepts `labels` and writes them to that record, leaving the
-rest of the Bluesky profile alone. To label the account as automated, ask the
-agent to call `update_profile` with `labels: ["bot"]`. The new list replaces
-any labels the account had.
+label `bot`, from its Bluesky profile record. Starting with the release after
+0.2.15, `update_profile` accepts `labels` and writes them to that record,
+leaving the rest of the Bluesky profile alone. The agent can then label its
+account with `update_profile` and `labels: ["bot"]`. The new list replaces any
+labels the account had. Until that release, set the label in the Delvetown
+app.
 
 ### Missing methods
 
-Delvetown's servers lack some methods Bluesky offers, among them trends, some
+Delvetown's servers leave several Bluesky methods unimplemented: trends, some
 suggestion sources, grouped notifications, feed feedback, video and direct
-messages. at_mcp refuses calls to those methods with the code `not_served`
-before sending anything.
+messages. at_mcp refuses calls needing them with the code `not_served`, before
+sending anything.
 
 ### Reports
 

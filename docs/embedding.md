@@ -1,13 +1,13 @@
 # Using at_mcp in an Elixir application
 
-The `at_mcp` Hex package gives an Elixir application the same account code
-the MCP server runs, without MCP in between. Your application starts an
-account, then calls functions to read and write as it. This suits an
-application managing its own accounts, such as an agent host, where accounts
-come and go at runtime.
+The `at_mcp` Hex package offers the functions behind the MCP tools as plain
+Elixir calls. Your application starts an account, then calls functions to
+read and write as it. This suits an application managing many accounts at
+runtime, such as an agent host.
 
 The package compiles native code, so you need Elixir 1.19, Erlang/OTP, Make
-and a C compiler.
+and a C compiler. [HexDocs](https://hexdocs.pm/at_mcp) has the full API
+reference.
 
 ## Add the dependency
 
@@ -15,14 +15,14 @@ Add `at_mcp` to `mix.exs`, run `mix deps.get`, and commit the `mix.lock` it
 writes:
 
 ```elixir
-{:at_mcp, "~> 0.2.0"}
+{:at_mcp, "~> 0.2.15"}
 ```
 
 ## Configure it
 
-Put this in `config/config.exs`. It turns off everything at_mcp would
-otherwise start from environment variables, so your application stays in
-charge of its accounts:
+Put this in `config/config.exs`. These settings stop at_mcp from starting
+accounts, listeners or collectors on its own, so your application decides
+when each account runs:
 
 ```elixir
 config :at_mcp,
@@ -64,10 +64,16 @@ effects = AtMcp.Identity.effects_name("social")
 {:ok, _} = AtMcp.Accounts.reconnect("social")
 ```
 
-`id` is your local name for the account. `service` is the address of the
-server hosting it, such as `https://bsky.social`. With `boot_from_env: false`,
-at_mcp reads no environment variables itself, so the example reads them and
-passes the values in.
+The options:
+
+- `id` is your local name for the account.
+- `service` is the address of the server hosting the account, such as
+  `https://bsky.social`.
+- `listen_enabled` decides whether the stream collector tracks this account.
+  It defaults to the `jetstream_enabled` setting.
+
+With `boot_from_env: false`, at_mcp reads no environment variables itself, so
+the example reads them and passes the values in.
 
 `AtMcp.Effects` holds the read and write functions, the same ones behind the
 MCP tools. `AtMcp.Accounts` pauses and resumes accounts.
@@ -78,13 +84,12 @@ Each account starts with the default quota of 16 posts, replies and reposts
 per hour. To change the default for every account, set
 `config :at_mcp, write_quota: [limit: ..., window_seconds: ...]`. To give a
 single account its own limit, pass `write_limit:` and `write_window_seconds:`
-to `start_identity`. Both take positive whole numbers. at_mcp keeps a single
-count per DID, so if you start the same DID under two names, give both the
-same limit.
+to `start_identity`, as positive whole numbers. at_mcp keeps a single count
+per DID. If you start the same DID under two names, give both the same limit.
 
-Calling `start_identity` again for a running account, with a changed option,
-replaces the running account. The new option applies once the call returns,
-and options left out keep their earlier values.
+If you call `start_identity` with changed options for a running account,
+at_mcp restarts that account with the new options. Options left out keep
+their earlier values.
 
 ## After a restart
 
@@ -101,18 +106,32 @@ starting it.
 
 `AtMcp.Effects.get_own_profile(effects)` returns `{:ok, %{value: record}}`,
 the profile record as stored, with string keys. `update_profile` keeps the
-values in this record for any field the call leaves out. Read it first to
-compare with your own copy before uploading an image or changing text.
+values in this record for any field the call leaves out. Read the record
+first to compare with your own copy before uploading an image or changing
+text.
 
-On Delvetown, `update_profile` writes the account's Delvetown profile and
-leaves its Bluesky profile alone, apart from labels in releases after 0.2.15.
-If the profile changed after your read, at_mcp refuses the edit. A write
-without an answer is an unknown outcome, and at_mcp leaves it for you to
-check.
+On Delvetown, `update_profile` writes the account's Delvetown profile. It
+leaves the Bluesky profile alone, apart from labels, starting with the release
+after 0.2.15. If the profile changed after your read, at_mcp refuses the edit.
+A write without an answer has an unknown outcome, and at_mcp leaves it for you
+to check.
 
 ## Notifications
 
-To receive the account's notifications, turn collection on and register a
-callback with `AtMcp.Deliver.set_callback/2`. [delivery.md](delivery.md)
-describes collection and the event fields. [DESIGN.md](DESIGN.md) explains
-how at_mcp divides the work between its processes.
+To collect an account's notifications, set `notifications_enabled: true`,
+either in the application config or as an option to `start_identity`. Then
+register a callback:
+
+- `AtMcp.Deliver.set_callback(fun)` receives events for every account.
+- `AtMcp.Deliver.set_callback(did, fun)` receives events for a single DID,
+  and takes priority over the global callback.
+
+The callback receives each event as a map, in collection order for each
+account, and returns `:ok` once it has stored the event. If it returns
+`{:error, reason}`, raises or exits, at_mcp keeps the event and retries it
+later. The callback has ten seconds to return. Past that, at_mcp stops it and
+retries the event. [delivery.md](delivery.md#events) describes the event fields.
+Embedded callbacks get events without the `network` field, which at_mcp adds
+only for HTTP delivery.
+
+[DESIGN.md](DESIGN.md) explains the processes behind an account.
