@@ -112,7 +112,7 @@ jobs:
         run: |
           mapfile -t files < <(grep -rlE --include='*_test.exs' 'use ExUnit\.Case.*async: true' test | sort)
           test "${#files[@]}" -gt 0
-          mix test "${files[@]}"
+          mix test --warnings-as-errors "${files[@]}"
 
       - name: Build the release the tests run
         if: github.event_name != 'pull_request'
@@ -198,7 +198,7 @@ jobs:
         run: |
           set -o pipefail
           export MIX_TEST_PARTITION=$(( ${{ strategy.job-index }} + 1 ))
-          mix test --partitions ${{ strategy.job-total }} 2>&1 | tee "$RUNNER_TEMP/test.log"
+          mix test --warnings-as-errors --partitions ${{ strategy.job-total }} 2>&1 | tee "$RUNNER_TEMP/test.log"
         env:
           MIX_ENV: test
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
