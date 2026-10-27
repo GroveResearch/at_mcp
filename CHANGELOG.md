@@ -7,6 +7,11 @@ itself.
 
 ## Unreleased
 
+- The service no longer reads the header `x-kite-account-did`, and write
+  tools no longer carry the annotation `kite/publicWrite`. Use
+  `x-at-mcp-account-did` and `at_mcp/publicWrite`, which 0.2.16 introduced.
+  Account descriptors now carry the new header only.
+
 ## 0.2.17
 
 - `get_thread_chain` takes `include_replies`. Given `false`, at_mcp reads the

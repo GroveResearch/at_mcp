@@ -168,11 +168,10 @@ defmodule AtMcp.MCP.DSL do
 
   # `at_mcp/publicWrite` is what a host counting the account's writes reads: a
   # host can spend a turn's write allowance only on a tool that does not set it
-  # false. Each write tool also carries the same value as `kite/publicWrite`,
-  # the annotation's earlier name, until the release after next.
+  # false.
   @doc false
   defmacro write_annotations(verb, {:%{}, meta, pairs}) when is_atom(verb) do
     counts? = AtMcp.Effects.counts_against_quota?(verb)
-    {:%{}, meta, pairs ++ [{:"at_mcp/publicWrite", counts?}, {:"kite/publicWrite", counts?}]}
+    {:%{}, meta, pairs ++ [{:"at_mcp/publicWrite", counts?}]}
   end
 end

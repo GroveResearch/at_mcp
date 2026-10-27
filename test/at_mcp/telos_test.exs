@@ -63,11 +63,7 @@ defmodule AtMcp.TelosTest do
     # One endpoint for every identity, and the address the service is actually
     # listening on rather than the one it was configured with.
     assert url == "http://127.0.0.1:#{:ranch.get_port(:at_mcp_http)}/mcp"
-    # The DID goes under both header names until the earlier one is removed.
-    assert [
-             %{"name" => "x-at-mcp-account-did", "value" => "did:plc:telos"},
-             %{"name" => "x-kite-account-did", "value" => "did:plc:telos"}
-           ] = headers
+    assert [%{"name" => "x-at-mcp-account-did", "value" => "did:plc:telos"}] = headers
 
     # And no credential. Discovery is served to any local process; handing one a
     # grant for any identity on request would undo what the grant is for.

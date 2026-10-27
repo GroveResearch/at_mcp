@@ -41,8 +41,7 @@ defmodule AtMcp.AccountSetupTest do
              url: ^endpoint,
              headers: [
                %{name: "authorization", value: "Bearer " <> reader_token},
-               %{name: "x-at-mcp-account-did", value: "did:plc:reader"},
-               %{name: "x-kite-account-did", value: "did:plc:reader"}
+               %{name: "x-at-mcp-account-did", value: "did:plc:reader"}
              ]
            } = result.mcp
 

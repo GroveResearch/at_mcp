@@ -4,9 +4,7 @@ defmodule AtMcp.AccountBindingTest do
 
   The header is checked against the account the grant resolved to, so a host
   configured with a stale DID is refused rather than served the wrong identity,
-  and a caller that sends a DID it likes gets nothing for it. The header's
-  earlier name, `x-kite-account-did`, is checked the same way until the release
-  after next.
+  and a caller that sends a DID it likes gets nothing for it.
   """
   use ExUnit.Case, async: false
 
@@ -38,41 +36,20 @@ defmodule AtMcp.AccountBindingTest do
     assert status(Grant.token("unbound"), nil) == 200
   end
 
-  test "the earlier header name x-kite-account-did still confirms and still refuses" do
+  test "the header's earlier name, x-kite-account-did, is no longer read" do
     start("earlier", expected_did: "did:plc:earlier")
     token = Grant.token("earlier")
 
-    assert status(token, "did:plc:earlier", "x-kite-account-did") == 200
-
-    assert refused(token, "did:plc:other", "x-kite-account-did") ==
-             %{"error" => "account_identity_mismatch"}
-  end
-
-  test "a request carrying both header names is refused if either names another account" do
-    start("both", expected_did: "did:plc:both")
-    token = Grant.token("both")
-    both = fn new, old -> [{"x-at-mcp-account-did", new}, {"x-kite-account-did", old}] end
-
-    assert status_with(Grant.session!(token) ++ both.("did:plc:both", "did:plc:both")) == 200
-
-    for headers <- [
-          both.("did:plc:both", "did:plc:other"),
-          both.("did:plc:other", "did:plc:both")
-        ] do
-      assert post(Grant.headers(token) ++ headers).body ==
-               %{"error" => "account_identity_mismatch"}
-    end
+    assert status(token, "did:plc:other", "x-kite-account-did") == 200
   end
 
   test "a malformed binding header is refused before any account is reached" do
     start("malformed", expected_did: "did:plc:malformed")
     token = Grant.token("malformed")
 
-    for header <- ["x-at-mcp-account-did", "x-kite-account-did"] do
-      response = post(Grant.headers(token) ++ [{header, ""}])
-      assert response.status == 400, header
-      assert response.body == %{"error" => "invalid_account_binding"}
-    end
+    response = post(Grant.headers(token) ++ [{"x-at-mcp-account-did", ""}])
+    assert response.status == 400
+    assert response.body == %{"error" => "invalid_account_binding"}
   end
 
   test "an identity whose owner is gone is unavailable, not mismatched" do

@@ -68,9 +68,7 @@ defmodule AtMcp.AccountConfig do
 
   The `x-at-mcp-account-did` header names the account's DID, and only confirms
   it: a host is never made to type a DID, and a grant naming a different account
-  than the header claims is refused rather than acted on. The descriptor also
-  carries the same DID under the header's earlier name, `x-kite-account-did`,
-  for clients that still read that one; that copy goes away in a later release.
+  than the header claims is refused rather than acted on.
   """
   def descriptor(account, transport, dependencies \\ [])
 
@@ -87,12 +85,7 @@ defmodule AtMcp.AccountConfig do
          name: "at_mcp-#{account["id"]}",
          type: "http",
          url: endpoint(),
-         headers:
-           credential ++
-             [
-               %{name: "x-at-mcp-account-did", value: account["did"]},
-               %{name: "x-kite-account-did", value: account["did"]}
-             ]
+         headers: credential ++ [%{name: "x-at-mcp-account-did", value: account["did"]}]
        }}
     end
   end
