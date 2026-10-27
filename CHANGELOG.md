@@ -7,14 +7,21 @@ itself.
 
 ## Unreleased
 
+## 0.2.18
+
 - The service no longer reads the header `x-kite-account-did`, and write
   tools no longer carry the annotation `kite/publicWrite`. Use
   `x-at-mcp-account-did` and `at_mcp/publicWrite`, which 0.2.16 introduced.
   Account descriptors now carry the new header only.
-
 - On Delvetown, the refusal of `get_notifications` with `grouped: true` now
   adds that the same tool without `grouped` reads the notifications one at a
   time.
+
+### Upgrade
+
+Move clients to `x-at-mcp-account-did` and `at_mcp/publicWrite` before
+upgrading. To roll back, any client already on the new names keeps working
+with 0.2.17.
 
 ## 0.2.17
 
