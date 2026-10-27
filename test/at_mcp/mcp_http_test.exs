@@ -238,6 +238,97 @@ defmodule AtMcp.MCP.HTTPTest do
     assert version == to_string(Application.spec(:at_mcp, :vsn))
   end
 
+  test "logging/setLevel answers without changing the node's log level" do
+    id = "http_log_level"
+
+    {:ok, _} =
+      AtMcp.Identities.start_identity(
+        id: id,
+        listen_enabled: false,
+        backend: AtMcp.Test.MockBackend,
+        backend_state: %{did: "did:plc:loglevel", mock: true}
+      )
+
+    on_exit(fn -> AtMcp.Identities.stop_identity(id) end)
+    headers = Grant.session!(Grant.token(id))
+    before = Logger.level()
+    on_exit(fn -> Logger.configure(level: before) end)
+
+    # The test runs at a level other than debug, so a change would show.
+    refute before == :debug
+
+    set_level = fn level ->
+      Req.post!(Grant.url(),
+        headers: headers,
+        json: %{
+          jsonrpc: "2.0",
+          id: System.unique_integer([:positive]),
+          method: "logging/setLevel",
+          params: %{level: level}
+        },
+        retry: false
+      )
+    end
+
+    accepted = set_level.("debug")
+    assert accepted.status == 200
+    assert accepted.body["result"] == %{}
+    assert Logger.level() == before
+
+    refused = set_level.("chatty")
+    assert refused.body["error"]
+    assert Logger.level() == before
+  end
+
+  test "a cancellation for a request that never ran leaves nothing behind" do
+    id = "http_cancel_unknown"
+
+    {:ok, _} =
+      AtMcp.Identities.start_identity(
+        id: id,
+        listen_enabled: false,
+        backend: AtMcp.Test.MockBackend,
+        backend_state: %{did: "did:plc:cancelunknown", mock: true}
+      )
+
+    on_exit(fn -> AtMcp.Identities.stop_identity(id) end)
+    headers = Grant.session!(Grant.token(id))
+
+    # ExMCP's private table of cancellable requests (GHSA-22m7-hr37-pxg3: up to
+    # 1.6.1 every cancellation for an unknown id added a row to it that was
+    # never removed). If upstream renames it, this fails rather than passing on
+    # :undefined.
+    table = :ex_mcp_cancelled_requests
+    assert is_integer(:ets.info(table, :size))
+
+    for n <- 1..50 do
+      response =
+        Req.post!(Grant.url(),
+          headers: headers,
+          json: %{
+            jsonrpc: "2.0",
+            method: "notifications/cancelled",
+            params: %{requestId: "never-sent-#{n}"}
+          },
+          retry: false
+        )
+
+      assert response.status in 200..299
+    end
+
+    # Only these ids are checked, so other rows (requests in flight, upstream's
+    # sweep) cannot move the result. Keys are a bare id up to 1.6.1 and
+    # {scope, id} after.
+    left_behind =
+      for row <- :ets.tab2list(table),
+          key = elem(row, 0),
+          id = if(is_tuple(key), do: elem(key, tuple_size(key) - 1), else: key),
+          is_binary(id) and String.starts_with?(id, "never-sent-"),
+          do: id
+
+    assert left_behind == []
+  end
+
   defp post(headers, tool, arguments \\ %{}) do
     Req.post!(Grant.url(), headers: headers, json: request(tool, arguments), retry: false)
   end

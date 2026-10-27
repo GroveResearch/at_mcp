@@ -16,6 +16,10 @@ itself.
   existing grants keep working.
 - at_mcp stops looking for data in the default folders of the project's
   earlier name.
+- Security: an MCP client's `logging/setLevel` no longer changes the server's
+  log level (GHSA-5vm6-rrjx-3496). ex_mcp is now 1.7.3, which also stops
+  `notifications/cancelled` for unknown request ids from accumulating
+  (GHSA-22m7-hr37-pxg3).
 
 ### Upgrade
 

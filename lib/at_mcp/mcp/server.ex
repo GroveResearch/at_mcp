@@ -30,6 +30,25 @@ defmodule AtMcp.MCP.Server do
     {:ok, %{effects: effects, scope: Keyword.get(args, :scope)}}
   end
 
+  # The MCP log levels (RFC 5424 names), as the spec lists them.
+  @mcp_log_levels ~w(debug info notice warning error critical alert emergency)
+
+  @doc """
+  Accepts an MCP `logging/setLevel` and changes nothing.
+
+  Up to ex_mcp 1.7.2 the default applied the level with `Logger.configure/1`,
+  so any client could set the log level of the whole node (GHSA-5vm6-rrjx-3496).
+  ex_mcp 1.7.3's default does what this does; AtMcp keeps its own so the node's
+  log level never depends on which default a dependency ships. AtMcp sends no
+  MCP log notifications, so there is no per-client level to keep: a valid level
+  is acknowledged, anything else refused.
+  """
+  @impl true
+  def handle_set_log_level(level, state) when level in @mcp_log_levels, do: {:ok, state}
+
+  def handle_set_log_level(level, state),
+    do: {:error, "unknown log level: #{inspect(level)}", state}
+
   tool "get_notifications",
        "Read recent notifications on this network for this account. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, a reply, quote or mention carries its post whole as get_posts reads one but without moderation marks, and feed picks the screen's tab." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
