@@ -40,6 +40,45 @@ defmodule AtMcp.MCP.Tools do
           ])
         )
 
+  def respond(
+        {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :policies_not_published}},
+        state
+      ),
+      do:
+        error(
+          state,
+          "policies_not_published",
+          cat([
+            ~L"error: The policy pages are delve.town's, and this account is on ",
+            ident(AtMcp.Network.label()),
+            ~L". Nothing was sent."
+          ])
+        )
+
+  # A web page of the network's, such as a policy page, that could not be
+  # read. The account's service took no part.
+  def respond({:error, %AtMcp.Effects.Failure{detail: {:web_page, address}} = failure}, state) do
+    {code, what} =
+      case failure do
+        %{kind: :unreadable} ->
+          {"page_unreadable",
+           ~L" answered, and its text could not be read from the answer. Retrying will return the same result."}
+
+        %{status: status} when is_integer(status) ->
+          {"page_unavailable", cat([~L" answered HTTP ", int(status), ~L"."])}
+
+        _ ->
+          {"page_unavailable", ~L" did not answer."}
+      end
+
+    error(
+      state,
+      code,
+      cat([~L"error: ", url(address), what, ~L" Nothing else was sent."]),
+      Map.reject(%{http_status: failure.status}, fn {_, v} -> is_nil(v) end)
+    )
+  end
+
   # A method this network's deployment is known not to serve
   # (`AtMcp.Endpoints.deployments/0`), refused before anything was sent.
   def respond({:error, {:not_served, nsid, evidence}}, state),
@@ -518,7 +557,7 @@ defmodule AtMcp.MCP.Tools do
   model reads is `AtMcp.Reading`'s `reading` of it (`:posts`, `:notifications`,
   `:thread`, `:chain`, `:profile`, `:profiles`, `:list`, `:lists`,
   `:starter_pack`, `:starter_packs`, `:feeds`, `:trends`, `:invite_codes`,
-  `:preferences`, `:notification_settings` or `:labelers`)
+  `:preferences`, `:notification_settings`, `:labelers` or `:policy`)
   instead of the serialized JSON. A
   result that reading does not recognize keeps the JSON text.
   """

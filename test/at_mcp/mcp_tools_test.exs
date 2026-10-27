@@ -168,6 +168,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_actor_likes", %{"actor" => "alice.test"}},
     {"get_feed", %{"feed" => "at://did:plc:mock/app.bsky.feed.generator/whats-hot"}},
     {"get_suggested_feeds", %{}},
+    {"get_policy", %{"page" => "ai_agents"}},
     {"get_feed_info", %{"uris" => ["at://did:plc:mock/app.bsky.feed.generator/whats-hot"]}},
     {"get_actor_feeds", %{"actor" => "alice.test"}},
     {"search_feeds", %{"query" => "cats"}},
@@ -299,6 +300,7 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_suggested_starter_packs" => :starter_packs,
     "get_trends" => :trends,
     "get_invite_codes" => :invite_codes,
+    "get_policy" => :policy,
     "get_preferences" => :preferences,
     "get_notification_settings" => :notification_settings,
     "get_activity_subscriptions" => :profiles

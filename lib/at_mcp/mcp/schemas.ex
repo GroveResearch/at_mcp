@@ -43,6 +43,16 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`get_policy`'s `page` parameter: the policy pages any network publishes (`AtMcp.Network`)."
+  defmacro policy_page do
+    Macro.escape(
+      required: true,
+      description:
+        "community_rules, ai_agents (the AI Agent Policy), terms, privacy, or reporting",
+      schema: %{type: "string", enum: AtMcp.Network.policy_names()}
+    )
+  end
+
   @doc """
   The `limit` parameter of a paged read, stated from the limits the account
   enforces (`AtMcp.Effects.page_limits/0`). `noun` names what is counted.
@@ -375,6 +385,10 @@ defmodule AtMcp.MCP.Schemas do
   defmacro draft_result, do: Macro.escape(draft_result_schema())
 
   defmacro generator_page, do: Macro.escape(page(record(:generator)))
+
+  defmacro suggested_feeds_page, do: Macro.escape(suggested_feeds_page_schema())
+
+  defmacro policy, do: Macro.escape(policy_schema())
 
   defmacro feed_info_page, do: Macro.escape(feed_info_page_schema())
 
@@ -917,17 +931,27 @@ defmodule AtMcp.MCP.Schemas do
         "type" => ["array", "null"],
         "description" =>
           "The saved feeds, pinned first, as the app shows them; save_feed and unsave_feed change them",
-        "items" => %{
-          "type" => "object",
-          "properties" => %{
-            "type" => nullable_string("feed, list or timeline"),
-            "value" =>
-              nullable_string("The feed's or list's AT URI, or following for the Following feed"),
-            "pinned" => boolean("Pinned as a home screen tab")
-          }
-        }
+        "items" => saved_feed_schema()
+      },
+      "app_pinned_feeds" => %{
+        "type" => ["array", "null"],
+        "description" =>
+          "Feeds the app pins as home screen tabs for every account on this network. The app adds them itself, and the account's preferences do not hold them",
+        "items" => saved_feed_schema()
       }
     })
+  end
+
+  defp saved_feed_schema do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "type" => nullable_string("feed, list or timeline"),
+        "value" =>
+          nullable_string("The feed's or list's AT URI, or following for the Following feed"),
+        "pinned" => boolean("Pinned as a home screen tab")
+      }
+    }
   end
 
   # A muted word as `get_preferences` and the muted word tools report it.
@@ -1183,29 +1207,54 @@ defmodule AtMcp.MCP.Schemas do
   # Feeds read by AT URI: each as a page of feeds shows it, with whether its
   # service is online, and the uris the service did not know.
   defp feed_info_page_schema do
-    item = record(:generator)
-
-    item =
-      Map.update!(item, "properties", fn props ->
-        Map.merge(props, %{
-          "is_online" => %{
-            "type" => ["boolean", "null"],
-            "description" =>
-              "Whether the feed's service has been online recently. Read only when one feed is asked for; null otherwise"
-          },
-          "is_valid" => %{
-            "type" => ["boolean", "null"],
-            "description" =>
-              "Whether the feed's service matches what its record declares. Read only when one feed is asked for; null otherwise"
-          }
-        })
-      end)
-
-    put_in(page(item), ["properties", "not_found"], %{
+    put_in(page(feed_info_item()), ["properties", "not_found"], %{
       "type" => ["array", "null"],
       "items" => %{"type" => "string"},
       "description" => "AT URIs asked for that the service does not know"
     })
+  end
+
+  defp feed_info_item do
+    Map.update!(record(:generator), "properties", fn props ->
+      Map.merge(props, %{
+        "is_online" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "Whether the feed's service has been online recently. Read only when one feed is asked for; null otherwise"
+        },
+        "is_valid" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "Whether the feed's service matches what its record declares. Read only when one feed is asked for; null otherwise"
+        }
+      })
+    end)
+  end
+
+  # The feeds the service suggests, and on a first page the feeds the app pins
+  # for every account.
+  defp suggested_feeds_page_schema do
+    put_in(page(record(:generator)), ["properties", "app_pinned_feeds"], %{
+      "type" => ["array", "null"],
+      "items" => feed_info_item(),
+      "description" =>
+        "On a first page, the feeds the app pins as home screen tabs for every account on this network, read from the service. Absent on a later page and on a network whose app pins none"
+    })
+  end
+
+  # One of the network's published policy pages.
+  defp policy_schema do
+    %{
+      "page" => nullable_string("The page's name, as get_policy takes it"),
+      "title" => nullable_string("The page's title, as published"),
+      "url" => nullable_string("The page's web address"),
+      "text" =>
+        nullable_string(
+          "The page's text as the site serves it to a reader without JavaScript: # before the title, ## before a section heading, - before a list item, and a link's address in angle brackets after its words"
+        )
+    }
+    |> object()
+    |> promising(["title", "url", "text"])
   end
 
   # Trends, or trending topics with the topics suggested beside them.

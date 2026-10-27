@@ -147,6 +147,9 @@ defmodule AtMcp.Effects.Backend do
   @callback get_record(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback get_invite_codes(state()) :: {:ok, summary()} | {:error, reason()}
 
+  @doc "One of the network's published policy pages, by the name `get_policy` takes."
+  @callback get_policy(state(), page :: String.t()) :: {:ok, summary()} | {:error, reason()}
+
   @doc """
   Read the account's preferences and build them with one feed saved,
   re-pinned or removed: `{:save_feed, uri, pinned}` or `{:unsave_feed, uri,

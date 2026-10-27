@@ -311,6 +311,14 @@
       },
       "required": []
     },
+    "get_policy": {
+      "arguments": {
+        "page": "string"
+      },
+      "required": [
+        "page"
+      ]
+    },
     "get_post_images": {
       "arguments": {
         "uri": "string"

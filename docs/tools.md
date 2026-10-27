@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 100 tools, 46 for reading and 54 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 101 tools, 47 for reading and 54 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client running `at_mcp-stdio` can call every tool. A client of a long-running service holds a grant, and the grant's scope limits its tools: `read` allows the reads, `write` adds the writes marked `write`, and `manage` allows everything ([operations.md](operations.md#limit-a-clients-tools)).
 
@@ -34,6 +34,7 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 | `get_mutes` | List the accounts this account mutes. |
 | `get_notification_settings` | Read this account's notification settings. |
 | `get_notifications` | Read recent notifications on this network for this account. |
+| `get_policy` | Read the text of one of delve.town's policy pages, which https://delve.town/support lists. |
 | `get_post_images` | See the images attached to one post. |
 | `get_posts` | Fetch posts by a list of AT URIs (1-25 per call). |
 | `get_preferences` | Read this account's settings as the app shows them. |
