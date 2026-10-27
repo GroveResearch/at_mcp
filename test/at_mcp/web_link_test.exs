@@ -21,7 +21,7 @@ defmodule AtMcp.WebLinkTest do
   end
 
   @did "did:plc:alice"
-  @post "at://#{@did}/app.bsky.feed.post/3kpost"
+  @post "at://#{@did}/app.bsky.feed.post/3kpost2222222"
   @list "at://#{@did}/app.bsky.graph.list/3klist"
   @feed "at://#{@did}/app.bsky.feed.generator/gliders"
   @pack "at://#{@did}/app.bsky.graph.starterpack/3kpack"
@@ -38,10 +38,12 @@ defmodule AtMcp.WebLinkTest do
     test "on each network's web origin" do
       for {network, origin} <- [bluesky: "https://bsky.app", delve: "https://delve.town"] do
         Application.put_env(:at_mcp, :network, network)
-        post = "at://#{@did}/#{Network.collection(:post)}/3kpost"
+        post = "at://#{@did}/#{Network.collection(:post)}/3kpost2222222"
 
         assert WebLink.profile("alice.test", @did) == origin <> "/profile/alice.test"
-        assert WebLink.record(post, "alice.test") == origin <> "/profile/alice.test/post/3kpost"
+
+        assert WebLink.record(post, "alice.test") ==
+                 origin <> "/profile/alice.test/post/3kpost2222222"
 
         assert WebLink.record("at://#{@did}/#{Network.collection(:list)}/l") ==
                  origin <> "/profile/did:plc:alice/lists/l"
@@ -59,7 +61,7 @@ defmodule AtMcp.WebLinkTest do
                "https://bsky.app/profile/did:plc:alice"
 
       assert WebLink.profile(nil, @did) == "https://bsky.app/profile/did:plc:alice"
-      assert WebLink.record(@post) == "https://bsky.app/profile/did:plc:alice/post/3kpost"
+      assert WebLink.record(@post) == "https://bsky.app/profile/did:plc:alice/post/3kpost2222222"
       assert WebLink.record("at://#{@did}/app.bsky.feed.like/3k") == nil
       assert WebLink.record(@post <> "?x") == nil
     end
@@ -68,12 +70,12 @@ defmodule AtMcp.WebLinkTest do
       assert WebLink.parse("https://bsky.app/profile/alice.test") ==
                {:ok, {:profile, "alice.test"}}
 
-      assert WebLink.parse("https://bsky.app/profile/did:plc:alice/post/3kpost") ==
-               {:ok, {:post, @did, "3kpost"}}
+      assert WebLink.parse("https://bsky.app/profile/did:plc:alice/post/3kpost2222222") ==
+               {:ok, {:post, @did, "3kpost2222222"}}
 
       # The app writes a DID's colons as they are; an encoded one reads the same.
-      assert WebLink.parse("https://bsky.app/profile/did%3Aplc%3Aalice/post/3kpost") ==
-               {:ok, {:post, @did, "3kpost"}}
+      assert WebLink.parse("https://bsky.app/profile/did%3Aplc%3Aalice/post/3kpost2222222") ==
+               {:ok, {:post, @did, "3kpost2222222"}}
 
       assert WebLink.parse("https://bsky.app/profile/alice.test/lists/l") ==
                {:ok, {:list, "alice.test", "l"}}
@@ -130,7 +132,7 @@ defmodule AtMcp.WebLinkTest do
     test "a post, and a post it quotes" do
       quoted = %{
         "$type" => "app.bsky.embed.record#viewRecord",
-        "uri" => "at://did:plc:bob/app.bsky.feed.post/3kq",
+        "uri" => "at://did:plc:bob/app.bsky.feed.post/3kq2222222222",
         "author" => %{"did" => "did:plc:bob", "handle" => "bob.test"},
         "value" => %{"$type" => "app.bsky.feed.post", "text" => "quoted"}
       }
@@ -144,16 +146,16 @@ defmodule AtMcp.WebLinkTest do
       }
 
       summary = Summary.extract(:post, post)
-      assert summary.web_url == "https://bsky.app/profile/alice.test/post/3kpost"
-      assert summary.quote.web_url == "https://bsky.app/profile/bob.test/post/3kq"
+      assert summary.web_url == "https://bsky.app/profile/alice.test/post/3kpost2222222"
+      assert summary.quote.web_url == "https://bsky.app/profile/bob.test/post/3kq2222222222"
 
       {text, data} = text(%{items: [summary]}, :posts)
 
       assert text =~
-               "uri: #{@post} · cid: bafy\nlink: https://bsky.app/profile/alice.test/post/3kpost"
+               "uri: #{@post} · cid: bafy\nlink: https://bsky.app/profile/alice.test/post/3kpost2222222"
 
       assert text =~
-               "[quoting @bob.test, at://did:plc:bob/app.bsky.feed.post/3kq (link: https://bsky.app/profile/bob.test/post/3kq): \"quoted\"]"
+               "[quoting @bob.test, at://did:plc:bob/app.bsky.feed.post/3kq2222222222 (link: https://bsky.app/profile/bob.test/post/3kq2222222222): \"quoted\"]"
 
       assert hd(data["items"])["web_url"] == summary.web_url
     end
@@ -252,11 +254,11 @@ defmodule AtMcp.WebLinkTest do
 
     test "like takes a post's link, its handle resolved, and says what it was read as" do
       state = mock()
-      link = "https://bsky.app/profile/bob.test/post/3kpost"
+      link = "https://bsky.app/profile/bob.test/post/3kpost2222222"
       result = call(state, "like", %{"uri" => link, "cid" => "bafy"})
 
       refute result[:isError], inspect(result)
-      uri = "at://did:plc:bob.test/app.bsky.feed.post/3kpost"
+      uri = "at://did:plc:bob.test/app.bsky.feed.post/3kpost2222222"
 
       assert [%{argument: "uri", link: ^link, value: ^uri}] =
                result.structuredContent[:resolved] || result.structuredContent["resolved"]
@@ -288,13 +290,13 @@ defmodule AtMcp.WebLinkTest do
 
       result =
         call(state, "get_posts", %{
-          "uris" => [@post, "https://bsky.app/profile/mock.test/post/3kmine"]
+          "uris" => [@post, "https://bsky.app/profile/mock.test/post/3kmine2222222"]
         })
 
       refute result[:isError], inspect(result)
 
       assert List.last(result.content).text ==
-               "resolved: uris/1 https://bsky.app/profile/mock.test/post/3kmine is at://did:plc:mock/app.bsky.feed.post/3kmine"
+               "resolved: uris/1 https://bsky.app/profile/mock.test/post/3kmine2222222 is at://did:plc:mock/app.bsky.feed.post/3kmine2222222"
     end
 
     test "every argument said to take a link is an argument of a served tool" do

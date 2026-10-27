@@ -26,10 +26,20 @@ defmodule AtMcp.FalsifyClaimsTest do
     assert {:error, {:write_quota_exhausted, _}} = AtMcp.Effects.post(effects, "second")
 
     assert {:error, {:write_quota_exhausted, _}} =
-             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+             AtMcp.Effects.repost(
+               effects,
+               "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+               "cid"
+             )
 
     # Only publishing counts against the write quota.
-    assert {:ok, _} = AtMcp.Effects.like(effects, "at://did:plc:mock/app.bsky.feed.post/1", "cid")
+    assert {:ok, _} =
+             AtMcp.Effects.like(
+               effects,
+               "at://did:plc:mock/app.bsky.feed.post/3k22222222222",
+               "cid"
+             )
+
     assert {:ok, _} = AtMcp.Effects.update_seen(effects)
   end
 
@@ -142,8 +152,8 @@ defmodule AtMcp.FalsifyClaimsTest do
         record: %{
           "text" => "hey",
           "reply" => %{
-            "parent" => %{"uri" => "at://#{us}/app.bsky.feed.post/p", "cid" => "c"},
-            "root" => %{"uri" => "at://#{us}/app.bsky.feed.post/p", "cid" => "c"}
+            "parent" => %{"uri" => "at://#{us}/app.bsky.feed.post/3kp2222222222", "cid" => "c"},
+            "root" => %{"uri" => "at://#{us}/app.bsky.feed.post/3kp2222222222", "cid" => "c"}
           }
         }
       })
@@ -191,7 +201,12 @@ defmodule AtMcp.FalsifyClaimsTest do
       type: :commit,
       did: "did:plc:other",
       collection: "app.bsky.feed.like",
-      record: %{"subject" => %{"uri" => "at://" <> us <> "/app.bsky.feed.post/p", "cid" => "c"}}
+      record: %{
+        "subject" => %{
+          "uri" => "at://" <> us <> "/app.bsky.feed.post/3kp2222222222",
+          "cid" => "c"
+        }
+      }
     }
 
     assert [{^us, [:like]}] = AtMcp.Inbound.Match.match_dids(like, [us])

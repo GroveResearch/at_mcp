@@ -1,7 +1,7 @@
 defmodule AtMcp.PostValidationTest do
   use ExUnit.Case, async: false
 
-  @parent "at://did:plc:x/app.bsky.feed.post/parent"
+  @parent "at://did:plc:x/app.bsky.feed.post/3kparent22222"
 
   defmodule Backend do
     # References are read before the write quota is charged; nothing here

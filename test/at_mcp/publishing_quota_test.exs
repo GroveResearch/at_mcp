@@ -21,7 +21,11 @@ defmodule AtMcp.PublishingQuotaTest do
     effects = exhausted()
 
     assert {:ok, %{action: :like}} =
-             AtMcp.Effects.like(effects, "at://did:plc:mock/app.bsky.feed.post/1", "cid")
+             AtMcp.Effects.like(
+               effects,
+               "at://did:plc:mock/app.bsky.feed.post/3k22222222222",
+               "cid"
+             )
 
     assert {:ok, %{action: :follow}} = AtMcp.Effects.follow(effects, "alice.example")
     assert AtMcp.Effects.quota_status(effects).used == 1
@@ -33,10 +37,18 @@ defmodule AtMcp.PublishingQuotaTest do
     assert {:error, {:write_quota_exhausted, _}} = AtMcp.Effects.post(effects, "one more")
 
     assert {:error, {:write_quota_exhausted, _}} =
-             AtMcp.Effects.reply(effects, "at://did:plc:x/app.bsky.feed.post/1", "one more")
+             AtMcp.Effects.reply(
+               effects,
+               "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+               "one more"
+             )
 
     assert {:error, {:write_quota_exhausted, _}} =
-             AtMcp.Effects.repost(effects, "at://did:plc:x/app.bsky.feed.post/1", "cid")
+             AtMcp.Effects.repost(
+               effects,
+               "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+               "cid"
+             )
 
     assert AtMcp.Effects.quota_status(effects).used == 1
   end
@@ -50,10 +62,10 @@ defmodule AtMcp.PublishingQuotaTest do
   # not, and each description carries the sentence the classification gives it.
   @arguments %{
     "post" => %{"text" => "t"},
-    "reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1", "text" => "t"},
+    "reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222", "text" => "t"},
     "like" => %{"uri" => "at://u", "cid" => "c"},
     "unlike" => %{"uri" => "at://l"},
-    "repost" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1", "cid" => "c"},
+    "repost" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222", "cid" => "c"},
     "unrepost" => %{"uri" => "at://r"},
     "follow" => %{"actor" => "alice.example"},
     "unfollow" => %{"uri" => "at://f"},
@@ -82,19 +94,19 @@ defmodule AtMcp.PublishingQuotaTest do
       "list" => "at://did:plc:x/app.bsky.graph.starterpack/p",
       "opted_out" => true
     },
-    "pin_post" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
+    "pin_post" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"},
     "unpin_post" => %{},
-    "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "unmute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "bookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "mute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
+    "unmute_thread" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
+    "bookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
+    "unbookmark" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
     "save_draft" => %{"text" => "later"},
     "delete_draft" => %{"id" => "3mockdraft"},
-    "set_post_interactions" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/1"},
-    "hide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "unhide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "detach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
-    "reattach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/1"},
+    "set_post_interactions" => %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"},
+    "hide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
+    "unhide_reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
+    "detach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
+    "reattach_quote" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222"},
     "save_feed" => %{"uri" => "at://did:plc:x/app.bsky.feed.generator/f", "pinned" => true},
     "unsave_feed" => %{"uri" => "at://did:plc:x/app.bsky.feed.generator/f"},
     "set_status" => %{
@@ -104,7 +116,7 @@ defmodule AtMcp.PublishingQuotaTest do
     },
     "feed_feedback" => %{
       "feed" => "at://did:plc:x/app.bsky.feed.generator/f",
-      "uri" => "at://did:plc:x/app.bsky.feed.post/1",
+      "uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222",
       "kind" => "show_less"
     },
     "set_preference" => %{"kind" => "home_feed", "hide_reposts" => true},

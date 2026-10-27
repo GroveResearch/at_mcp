@@ -49,13 +49,14 @@ defmodule AtMcp.CallDeadlineTest do
       do:
         {200,
          %{
-           uri: "at://did:plc:author/app.bsky.feed.post/parent",
+           uri: "at://did:plc:author/app.bsky.feed.post/3kparent22222",
            cid: "bafyreiparent",
            value: %{text: "Hmm", createdAt: "2026-09-24T02:26:18.529Z"}
          }}
 
     defp answer("/xrpc/com.atproto.repo.createRecord", opts),
-      do: {200, %{uri: "at://#{opts[:did]}/app.bsky.feed.post/reply", cid: "bafyreireply"}}
+      do:
+        {200, %{uri: "at://#{opts[:did]}/app.bsky.feed.post/3kreply222222", cid: "bafyreireply"}}
 
     # The AppView has no view of the parent, so no reply rule is in the way.
     defp answer("/xrpc/app.bsky.feed.getPosts", _opts), do: {200, %{posts: []}}
@@ -136,7 +137,9 @@ defmodule AtMcp.CallDeadlineTest do
 
     reader =
       Task.async(fn ->
-        post(headers, "get_thread", %{"uri" => "at://did:plc:author/app.bsky.feed.post/parent"})
+        post(headers, "get_thread", %{
+          "uri" => "at://did:plc:author/app.bsky.feed.post/3kparent22222"
+        })
       end)
 
     assert_receive {:pds, "/xrpc/app.bsky.feed.getPostThread", held}, 2_000
@@ -187,7 +190,7 @@ defmodule AtMcp.CallDeadlineTest do
   end
 
   defp reply,
-    do: %{"uri" => "at://did:plc:author/app.bsky.feed.post/parent", "text" => "Received."}
+    do: %{"uri" => "at://did:plc:author/app.bsky.feed.post/3kparent22222", "text" => "Received."}
 
   defp post(headers, tool, arguments) do
     Req.post!(Grant.url(),

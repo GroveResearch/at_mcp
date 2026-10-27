@@ -12,8 +12,8 @@ defmodule AtMcp.RoundTripFindingsTest do
   alias AtMcp.Test.FakePDS
 
   @me "did:plc:self"
-  @post "at://did:plc:other/app.bsky.feed.post/p"
-  @other_post "at://did:plc:other/app.bsky.feed.post/q"
+  @post "at://did:plc:other/app.bsky.feed.post/3kp2222222222"
+  @other_post "at://did:plc:other/app.bsky.feed.post/3kq2222222222"
 
   defp pds(records \\ %{}, answers \\ %{}) do
     {session, pds} = FakePDS.start(records: records, answers: answers)
@@ -285,8 +285,8 @@ defmodule AtMcp.RoundTripFindingsTest do
         })
 
       for {name, args, uri} <- [
-            {"get_record", %{"uri" => "at://#{@me}/app.bsky.feed.post/gone"},
-             "at://#{@me}/app.bsky.feed.post/gone"},
+            {"get_record", %{"uri" => "at://#{@me}/app.bsky.feed.post/3kgone2222222"},
+             "at://#{@me}/app.bsky.feed.post/3kgone2222222"},
             {"get_list", %{"uri" => list}, list},
             {"get_starter_pack", %{"uri" => pack}, pack}
           ] do
