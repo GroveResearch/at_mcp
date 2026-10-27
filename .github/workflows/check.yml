@@ -138,8 +138,9 @@ jobs:
   # gives each one every Nth test file, in a fixed order, so together they run
   # every file once. Each partition gets every gate's environment: the
   # official MCP client packages, and the release build made, for the tests
-  # that run one. To change the number of partitions, list 1 to N here; each
-  # job reads N from the matrix's size.
+  # that run one. Each job takes its partition from its index in the matrix
+  # and N from the matrix's size, so every partition runs exactly once
+  # whatever the list holds; list 1 to N to change N.
   suite:
     needs: build
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
@@ -196,10 +197,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          export MIX_TEST_PARTITION=$(( ${{ strategy.job-index }} + 1 ))
           mix test --partitions ${{ strategy.job-total }} 2>&1 | tee "$RUNNER_TEMP/test.log"
         env:
           MIX_ENV: test
-          MIX_TEST_PARTITION: ${{ matrix.partition }}
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
           TEST_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
@@ -287,10 +288,11 @@ jobs:
   # this job carries that name and passes only when everything that ran for
   # this event passed: build on a pull request; build, every suite partition
   # and package everywhere else. A failed, cancelled or skipped job it
-  # expected fails it.
+  # expected fails it. It runs even when the run is cancelled (always()):
+  # skipped, it would count as passing, and release may already have passed.
   test:
     needs: [build, suite, package]
-    if: ${{ !cancelled() && github.ref_type != 'tag' }}
+    if: ${{ always() && github.ref_type != 'tag' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
