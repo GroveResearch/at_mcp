@@ -1,41 +1,52 @@
-# Embed AtMcp in an Elixir application
+# Using at_mcp in an Elixir application
 
-Use this path when your application owns account configuration and lifecycle.
-The package contains native source and needs Elixir 1.19, Erlang/OTP, Make
-and a C compiler. Add this dependency and commit the generated `mix.lock`:
+The `at_mcp` Hex package offers the functions behind the MCP tools as plain
+Elixir calls. Your application starts an account, then calls functions to
+read and write as it. This suits an application managing many accounts at
+runtime, such as an agent host.
+
+The package compiles native code, so you need Elixir 1.19, Erlang/OTP, Make
+and a C compiler. [HexDocs](https://hexdocs.pm/at_mcp) has the full API
+reference.
+
+## Add the dependency
+
+Add `at_mcp` to `mix.exs`, run `mix deps.get`, and commit the `mix.lock` it
+writes:
 
 ```elixir
-{:at_mcp, "~> 0.2.0"}
+{:at_mcp, "~> 0.2.15"}
 ```
 
-First [prepare the agent’s account](../README.md#prepare-the-account). Add the
-configuration below to your application’s `config/config.exs` (which imports
-`Config`). Disabling environment boot keeps the host in charge of account
-configuration and inbound integration:
+## Configure it
+
+Put this in `config/config.exs`. These settings stop at_mcp from starting
+accounts, listeners or collectors on its own, so your application decides
+when each account runs:
 
 ```elixir
 config :at_mcp,
   boot_from_env: false,
   inbound_state_dir: "/absolute/private/path/my-app/at_mcp",
-  # One MCP listener serves the whole installation, so this is the switch that
-  # keeps an embedded AtMcp from opening a port at all.
+  # Leaves the MCP listener off, so the application opens no port.
   start_mcp: false,
   jetstream_enabled: false,
   notifications_enabled: false
 
-# ProtoRune otherwise adds a second retry loop around Req.
+# Turns off ProtoRune's own retries. at_mcp decides when to retry.
 config :proto_rune, :retry, false
 ```
 
-For Delvetown, also set `config :at_mcp, network: :delve`; the default is
-`:bluesky`. The network selects the application namespace, while the account’s
-`service:` below selects its actual home PDS. Set `AT_MCP_SERVICE` to that
-hosting URL, such as `https://bsky.social` for an account hosted there. With
-`boot_from_env: false`, these environment variables are read by your code, not
-automatically by AtMcp.
+For Delvetown, also set `config :at_mcp, network: :delve`. The default is
+`:bluesky`.
 
-Once dependencies are started (for example, in `iex -S mix`), add an account
-and read it through the same Effects interface MCP uses:
+`inbound_state_dir` holds the write quota count and any queued notifications.
+Use a single folder per running application, and keep it between restarts.
+
+## Start an account
+
+Once the application has started, for example in `iex -S mix`, start an
+account and read its profile:
 
 ```elixir
 {:ok, _} = AtMcp.Identities.start_identity(
@@ -53,46 +64,73 @@ effects = AtMcp.Identity.effects_name("social")
 {:ok, _} = AtMcp.Accounts.reconnect("social")
 ```
 
-The account uses the durable write quota by default; a host can supply a quota
-server explicitly with `write_quota:`, and `service:` selects another PDS.
-`write_limit:` and `write_window_seconds:` give this account its own limit and
-window (positive integers; anything else is `{:error, :invalid_configuration}`);
-what they leave out is the quota server's, which the application starts from
-`config :at_mcp, write_quota: [limit: ..., window_seconds: ...]`. Aliases of one
-DID share one count, and each is held to its own limit, so give them the same.
-Calling `start_identity` again for a running account with a changed option,
-such as a lower `write_limit:`, replaces that account, so the new limit holds
-from the moment the call returns; an option left out keeps its value. With
-`boot_from_env: false`, AtMcp creates no environment accounts, inherits no host
-credentials and attaches no HTTP delivery callback.
+The options:
 
-Dynamic account configurations live in memory, so the application must supply
-them again after its runtime restarts; durable disconnect state and write
-quotas remain intact. When restoring a configuration,
-`{:error, :account_disconnected}` means the owner disconnected the account on
-purpose: AtMcp has saved the configuration but has not started the
-account, and the right response is to wait for an explicit reconnect rather
-than retry or reconnect it automatically. The success match above is for a first
-connection, not for unconditional restart code. Use one state directory per
-independent BEAM, with several identities inside it.
+- `id` is your local name for the account.
+- `service` is the address of the server hosting the account, such as
+  `https://bsky.social`.
+- `listen_enabled` decides whether the stream collector tracks this account.
+  It defaults to the `jetstream_enabled` setting.
 
-## Next steps
+With `boot_from_env: false`, at_mcp reads no environment variables itself, so
+the example reads them and passes the values in.
 
-Use `AtMcp.Effects` for reads and writes and `AtMcp.Accounts` for lifecycle
-control. [Design](DESIGN.md) explains account ownership, failure kinds and
-network boundaries; [Operations](operations.md#incoming-activity) describes
-the delivery contract if your host needs incoming activity.
+`AtMcp.Effects` holds the read and write functions, the same ones behind the
+MCP tools. `AtMcp.Accounts` pauses and resumes accounts.
 
-## Read the profile before a partial edit
+## Write quota
 
-`AtMcp.Effects.get_own_profile(effects)` returns `{:ok, %{value: record}}`, with
-native string keys and blob references. It reads the presentation that
-`update_profile` will retain for omitted fields. Embedded clients can compare
-that map with their configured profile before deciding whether to upload an
-image or change text. They should not select profile records from graph state
-or read an Effects process's internal session.
+Each account starts with the default quota of 16 posts, replies and reposts
+per hour. To change the default for every account, set
+`config :at_mcp, write_quota: [limit: ..., window_seconds: ...]`. To give a
+single account its own limit, pass `write_limit:` and `write_window_seconds:`
+to `start_identity`, as positive whole numbers. at_mcp keeps a single count
+per DID. If you start the same DID under two names, give both the same limit.
 
-On Delvetown, `update_profile` saves complete Town presentation and preserves
-unrelated Town fields. It leaves the shared profile and its public bot
-declaration unchanged. A stale selected profile or changed repository refuses
-the edit; an unacknowledged write remains an unknown outcome and is not retried.
+If you call `start_identity` with changed options for a running account,
+at_mcp restarts that account with the new options. Options left out keep
+their earlier values.
+
+## After a restart
+
+at_mcp keeps account configurations in memory only. After your application
+restarts, call `start_identity` again for each account. The write quota count
+and the paused state survive on disk.
+
+If `start_identity` returns `{:error, :account_disconnected}`, someone paused
+the account on purpose. at_mcp has saved the configuration and left the
+account stopped. Wait for an explicit `AtMcp.Accounts.reconnect/1` before
+starting it.
+
+## Editing a profile
+
+`AtMcp.Effects.get_own_profile(effects)` returns `{:ok, %{value: record}}`,
+the profile record as stored, with string keys. `update_profile` keeps the
+values in this record for any field the call leaves out. Read the record
+first to compare with your own copy before uploading an image or changing
+text.
+
+On Delvetown, `update_profile` writes the account's Delvetown profile. It
+leaves the Bluesky profile alone, apart from labels. If the profile changed after your read, at_mcp refuses the edit.
+A write without an answer has an unknown outcome, and at_mcp leaves it for you
+to check.
+
+## Notifications
+
+To collect an account's notifications, set `notifications_enabled: true`,
+either in the application config or as an option to `start_identity`. Then
+register a callback:
+
+- `AtMcp.Deliver.set_callback(fun)` receives events for every account.
+- `AtMcp.Deliver.set_callback(did, fun)` receives events for a single DID,
+  and takes priority over the global callback.
+
+The callback receives each event as a map, in collection order for each
+account, and returns `:ok` once it has stored the event. If it returns
+`{:error, reason}`, raises or exits, at_mcp keeps the event and retries it
+later. The callback has ten seconds to return. Past that, at_mcp stops it and
+retries the event. [delivery.md](delivery.md#events) describes the event fields.
+Embedded callbacks get events without the `network` field, which at_mcp adds
+only for HTTP delivery.
+
+[DESIGN.md](DESIGN.md) explains the processes behind an account.

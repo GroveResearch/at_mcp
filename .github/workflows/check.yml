@@ -17,7 +17,7 @@ name: check
 #                  already passed it in the merge queue.
 #   on request     test, release (Linux), macos; nothing is published
 #
-# Publishing is a deliberate act: docs/operations.md's "Publish a release"
+# Publishing is a deliberate act: CONTRIBUTING.md's "Publish a release"
 # says how to push a tag. The tag is the version: a `vX.Y.Z` tag builds and
 # publishes X.Y.Z (scripts/release_version.sh sets RELEASE_VERSION, which
 # mix.exs reads), and nothing in the repository is changed to cut one.
@@ -159,7 +159,7 @@ jobs:
           fi
 
   # The linux-x86_64 release, built the way it is published and run as
-  # README.md's "Run it" says: in the foreground with every operator command
+  # docs/operations.md's "Run a shared service" says: in the foreground with every operator command
   # against it, and under the example systemd unit, upgraded to from the newest
   # published release and rolled back to it. Built on the oldest Ubuntu GitHub
   # still runs, because a release links the glibc it was built against and
@@ -237,7 +237,7 @@ jobs:
 
       # As root, because it installs the example unit in /etc/systemd/system,
       # makes the `at_mcp` user and writes /opt/at_mcp, /etc/at_mcp and
-      # /var/lib/at_mcp, as the README does on a server.
+      # /var/lib/at_mcp, as docs/operations.md does on a server.
       - name: Upgrade from the newest published release and roll back, under the example systemd unit
         run: |
           old=$(python3 scripts/published_release.py linux-x86_64 "$RUNNER_TEMP/old")
@@ -274,7 +274,7 @@ jobs:
           retention-days: 1
 
   # The macos-arm64 release (macos-14 runners are Apple silicon), run as
-  # README.md's "Run it" says: in the foreground with every operator command
+  # docs/operations.md's "Run a shared service" says: in the foreground with every operator command
   # against it, and under the example launchd plist, upgraded to from the
   # newest published release and rolled back to it. On a tag, the tarball that
   # passed is published only when Linux passed too.
