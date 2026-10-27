@@ -13,9 +13,7 @@ defmodule AtMcp.MCP.HTTP do
 
   `x-at-mcp-account-did` confirms and never selects. A host that was told a DID
   may assert it, and a grant naming a different account is refused with `409` —
-  a binding check against a stale or mistyped configuration. The endpoint also
-  accepts the header's earlier name, `x-kite-account-did`, and checks it the
-  same way; that name goes away in a later release.
+  a binding check against a stale or mistyped configuration.
 
   `AtMcp.AccountConfig.descriptor/3` generates a client's configuration, carrying
   the shared URL and a grant together.
@@ -161,21 +159,8 @@ defmodule AtMcp.MCP.HTTP do
     end
   end
 
-  # The earlier header name is accepted until the release after next. A request
-  # may carry both, and then each must name the grant's account.
-  @binding_headers ["x-at-mcp-account-did", "x-kite-account-did"]
-
   defp confirmed_binding(conn, effects) do
-    Enum.reduce_while(@binding_headers, :ok, fn header, :ok ->
-      case confirmed_binding(conn, header, effects) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp confirmed_binding(conn, header, effects) do
-    case get_req_header(conn, header) do
+    case get_req_header(conn, "x-at-mcp-account-did") do
       [] ->
         :ok
 
