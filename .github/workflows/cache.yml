@@ -4,7 +4,7 @@ name: cache
 # (a cache saved in the merge queue belongs to its temporary branch and no
 # other run can read it). check.yml does not run on a push to main: main moves
 # to the commit the merge queue already tested. So this keeps the cache that
-# check.yml's test job reads: when mix.lock changed, it compiles the
+# check.yml's build, suite and package jobs read: when mix.lock changed, it compiles the
 # dependencies for test and prod as test does and saves them under the new
 # key; otherwise the key exists and it stops there.
 on:
@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The key and paths are check.yml's test job's.
+      # The key and paths are check.yml's build job's.
       - id: cache
         uses: actions/cache@v6
         with:

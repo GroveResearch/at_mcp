@@ -40,11 +40,14 @@ class PlatformContractTest(unittest.TestCase):
         workflow = WORKFLOW.read_text()
         parts = re.split(r'^  ([a-z_]+):\n', workflow.split('\njobs:\n', 1)[1], flags=re.M)
         cls.jobs = dict(zip(parts[1::2], parts[2::2]))
+        # A platform is a job that hands a tarball to publish: its upload runs
+        # only on a tag. Other uploads (the release the suite runs) are not.
         cls.platforms = {}
         for name, block in cls.jobs.items():
-            if 'uses: actions/upload-artifact@' in block:
-                upload = block.split('uses: actions/upload-artifact@', 1)[1]
-                cls.platforms[name] = re.search(r'^          name: (\S+)$', upload, re.M)[1]
+            for step in re.split(r'^      - ', block, flags=re.M):
+                if ('uses: actions/upload-artifact@' in step
+                        and "startsWith(github.ref, 'refs/tags/v')" in step):
+                    cls.platforms[name] = re.search(r'^          name: (\S+)$', step, re.M)[1]
         assert len(cls.platforms) == 2, 'This release promises two binary platforms'
         cls.publish = cls.jobs['publish']
         cls.condition = re.search(r'^    if: \$\{\{ (.*) \}\}$', cls.publish, re.M)[1]

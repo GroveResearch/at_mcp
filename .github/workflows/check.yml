@@ -2,20 +2,26 @@ name: check
 
 # What runs, and when:
 #
-#   pull request   test, without its documentation and Hex package steps;
-#                  release reports success without running. This is the
-#                  quick check a pull request needs to join the merge queue.
-#   merge queue    test in full, release (Linux) on the queued pull requests
-#                  merged onto main; nothing is published. Nothing reaches
-#                  main without passing everything here, and main then moves
-#                  to exactly the commit that passed, so main is not tested
-#                  again (cache.yml only keeps main's dependency cache).
+#   pull request   build: the release contract scripts, format, compile with
+#                  warnings as errors and the async tests. test reports what
+#                  build found; release reports success without running.
+#                  This is the quick check a pull request needs to join the
+#                  merge queue, not the evidence that it works.
+#   merge queue    the whole suite, split across the suite jobs, with every
+#                  gate's environment, the documentation and Hex package
+#                  (package), and release (Linux), on the queued pull
+#                  requests merged onto main; nothing is published. test
+#                  passes only when build, every suite partition and package
+#                  passed. Nothing reaches main without passing everything
+#                  here, and main then moves to exactly the commit that
+#                  passed, so main is not tested again (cache.yml only keeps
+#                  main's dependency cache).
 #   push a v* tag  release (Linux) and macos build the tagged commit as the
 #                  tag's version, then publish both tarballs only if both
 #                  passed, then the package goes to Hex only if that GitHub
-#                  release was published. test does not run: the commit
-#                  already passed it in the merge queue.
-#   on request     test, release (Linux), macos; nothing is published
+#                  release was published. build, suite, package and test do
+#                  not run: the commit already passed them in the merge queue.
+#   on request     as in the merge queue, and macos; nothing is published
 #
 # Publishing is a deliberate act: CONTRIBUTING.md's "Publish a release"
 # says how to push a tag. The tag is the version: a `vX.Y.Z` tag builds and
@@ -28,11 +34,11 @@ name: check
 # macOS runs only on a tag or on request because macOS runner minutes cost ten
 # times Linux's.
 #
-# `test` keeps compiled dependencies between runs, keyed on mix.lock, because
-# compiling them three times was most of its run. `release`, and the Hex
-# package's consumer, start from nothing, as someone else running AtMcp would,
-# so a lockfile or vendored patch that only works on a machine that already has
-# the pieces is found before anything reaches main.
+# build, suite and package keep compiled dependencies between runs, keyed on
+# mix.lock, because compiling them three times was most of a run. `release`,
+# and the Hex package's consumer, start from nothing, as someone else running
+# AtMcp would, so a lockfile or vendored patch that only works on a machine
+# that already has the pieces is found before anything reaches main.
 on:
   push:
     tags: ["v*"]
@@ -52,14 +58,17 @@ permissions:
 # Each job has a time limit well above its usual run (macOS takes under five
 # minutes), so a hang fails in minutes instead of holding a runner.
 jobs:
-  # Format, compile with warnings as errors and the whole suite (`mix check`),
-  # with every environment-gated test given its environment: the official MCP
-  # client packages, and a production release for the tests that run one.
-  # A tag's commit already passed it in the merge queue.
-  test:
+  # Format and compile with warnings as errors, as `mix check` does. On a pull
+  # request, then the async tests: about 200 tests in seconds, while the rest
+  # of the suite, almost all of it synchronous, waits for the merge queue. On
+  # every other run, then the production release the release-gated tests run
+  # against, built once and handed to every suite partition and package.
+  build:
     if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    env:
+      MIX_ENV: test
     steps:
       - uses: actions/checkout@v7
 
@@ -79,10 +88,6 @@ jobs:
           elixir-version: "1.19.6"
           otp-version: "28.5.0.7"
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-
       - uses: actions/cache@v6
         with:
           path: |
@@ -97,17 +102,77 @@ jobs:
       # every file and the native lock is built from this checkout.
       - run: rm -rf _build/*/lib/at_mcp
 
-      # The package's consumer compiles every dependency from nothing, so this
-      # runs in the merge queue and on main, not on each pull request push.
-      # The package carries its version in VERSION, as the hex job writes it.
-      - name: Build documentation and the local Hex package
-        if: github.event_name != 'pull_request'
+      - run: mix format --check-formatted
+
+      - run: mix compile --warnings-as-errors
+
+      - name: The async tests
+        if: github.event_name == 'pull_request'
+        shell: bash
         run: |
-          mix docs
-          echo "0.0.0-dev" > VERSION
-          mix hex.build
-          rm VERSION
-          python3 scripts/package_consumer_check.py at_mcp-*.tar
+          mapfile -t files < <(grep -rlE --include='*_test.exs' 'use ExUnit\.Case.*async: true' test | sort)
+          test "${#files[@]}" -gt 0
+          mix test "${files[@]}"
+
+      - name: Build the release the tests run
+        if: github.event_name != 'pull_request'
+        run: mix release
+        env:
+          MIX_ENV: prod
+
+      # Packed, because an artifact does not keep the executable bits.
+      - name: Pack the release for the suite and package
+        if: github.event_name != 'pull_request'
+        run: tar -C _build/prod/rel -czf "$RUNNER_TEMP/test-release.tar.gz" at_mcp
+
+      - name: Hand the release to the suite and package
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-release
+          path: ${{ runner.temp }}/test-release.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  # The whole suite, in partitions that run at once: `mix test --partitions`
+  # gives each one every Nth test file, in a fixed order, so together they run
+  # every file once. Each partition gets every gate's environment: the
+  # official MCP client packages, and the release build made, for the tests
+  # that run one. To change the number of partitions, list 1 to N here; each
+  # job reads N from the matrix's size.
+  suite:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned with build's runtime; see the reason there.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+
+      - run: mix deps.get
+
+      - run: rm -rf _build/*/lib/at_mcp
 
       # The official client packages gate the independent MCP checks. Without
       # them those tests skip, which is the failure this job exists to catch.
@@ -116,25 +181,25 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
 
-      # The release-gated tests run against this build.
-      - name: Build the release the tests run
-        run: mix release
-        env:
-          MIX_ENV: prod
+      - uses: actions/download-artifact@v8
+        with:
+          name: test-release
+          path: ${{ runner.temp }}
 
-      - name: Download without credentials and use the installed release
-        env:
-          MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
-          MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
-        run: python3 scripts/download_release_check.py _build/prod/rel/at_mcp
+      - name: Unpack the release the tests run
+        run: |
+          rm -rf _build/prod/rel/at_mcp
+          mkdir -p _build/prod/rel
+          tar -C _build/prod/rel -xzf "$RUNNER_TEMP/test-release.tar.gz"
 
-      - name: mix check, with every gate's environment
+      - name: This partition of the suite, with every gate's environment
         shell: bash
         run: |
           set -o pipefail
-          mix check 2>&1 | tee "$RUNNER_TEMP/check.log"
+          mix test --partitions ${{ strategy.job-total }} 2>&1 | tee "$RUNNER_TEMP/test.log"
         env:
           MIX_ENV: test
+          MIX_TEST_PARTITION: ${{ matrix.partition }}
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
           TEST_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
@@ -144,18 +209,107 @@ jobs:
       # this job supplies all of it. A skip here means a package did not load
       # or a new gate was added without giving this job its environment. Either
       # way a skipped interoperability check would otherwise read as a pass.
+      # Each partition checks its own tests; test requires every partition.
       - name: No test may have skipped
         shell: bash
         run: |
-          summary=$(grep -E '^[0-9]+ tests?, [0-9]+ failures?' "$RUNNER_TEMP/check.log" | tail -n 1)
+          summary=$(grep -E '^[0-9]+ tests?, [0-9]+ failures?' "$RUNNER_TEMP/test.log" | tail -n 1)
           echo "summary: $summary"
           if [ -z "$summary" ]; then
-            echo "no ExUnit summary line found; the suite did not run to completion"
+            echo "no ExUnit summary line found; the partition did not run to completion"
             exit 1
           fi
           if echo "$summary" | grep -qE '[1-9][0-9]* skipped'; then
             echo "tests skipped; every gate's environment is set here, so a skipped test is a failure"
             exit 1
+          fi
+
+  # The documentation, the Hex package used from a separate application (its
+  # consumer compiles every dependency from nothing), and the README's download
+  # and install commands run against the release build made. The package
+  # carries its version in VERSION, as the hex job writes it.
+  package:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned with build's runtime; see the reason there.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+
+      - run: mix deps.get
+
+      - run: rm -rf _build/*/lib/at_mcp
+
+      - name: Build documentation and the local Hex package
+        run: |
+          mix docs
+          echo "0.0.0-dev" > VERSION
+          mix hex.build
+          rm VERSION
+          python3 scripts/package_consumer_check.py at_mcp-*.tar
+
+      - name: Install the official MCP client packages
+        run: |
+          npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
+            @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: test-release
+          path: ${{ runner.temp }}
+
+      - name: Unpack the release build made
+        run: |
+          mkdir -p "$RUNNER_TEMP/rel"
+          tar -C "$RUNNER_TEMP/rel" -xzf "$RUNNER_TEMP/test-release.tar.gz"
+
+      - name: Download without credentials and use the installed release
+        env:
+          MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
+          MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
+        run: python3 scripts/download_release_check.py "$RUNNER_TEMP/rel/at_mcp"
+
+  # The required check. Branch protection requires `test` (and `release`), so
+  # this job carries that name and passes only when everything that ran for
+  # this event passed: build on a pull request; build, every suite partition
+  # and package everywhere else. A failed, cancelled or skipped job it
+  # expected fails it.
+  test:
+    needs: [build, suite, package]
+    if: ${{ !cancelled() && github.ref_type != 'tag' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Everything this event runs passed
+        env:
+          EVENT: ${{ github.event_name }}
+          BUILD: ${{ needs.build.result }}
+          SUITE: ${{ needs.suite.result }}
+          PACKAGE: ${{ needs.package.result }}
+        run: |
+          echo "build: $BUILD, suite: $SUITE, package: $PACKAGE ($EVENT)"
+          test "$BUILD" = success
+          if [ "$EVENT" != pull_request ]; then
+            test "$SUITE" = success
+            test "$PACKAGE" = success
           fi
 
   # The linux-x86_64 release, built the way it is published and run as
@@ -168,10 +322,10 @@ jobs:
   #
   # Branch protection requires `release`. On a pull request it is skipped, which
   # GitHub counts as passing, and it runs in the merge queue before anything
-  # reaches main.
+  # reaches main. It runs beside the suite rather than after it: the queue
+  # merges only when both pass, and a tag's run has no suite to wait for.
   release:
-    needs: test
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && (needs.test.result == 'success' || github.ref_type == 'tag') }}
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     # actions: read lets a tag's run find the passing run of its commit.
