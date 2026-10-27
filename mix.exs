@@ -161,7 +161,11 @@ defmodule AtMcp.MixProject do
 
   defp aliases do
     [
-      check: ["format --check-formatted", "compile --warnings-as-errors", "test"],
+      check: [
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        "test --warnings-as-errors"
+      ],
       "at_mcp.check": ["check"]
     ]
   end

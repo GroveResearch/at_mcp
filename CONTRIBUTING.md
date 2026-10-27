@@ -22,7 +22,7 @@ mix check
 ```
 
 `mix check` checks the formatting, compiles with warnings treated as errors,
-and runs the tests. Run `mix format` to fix formatting.
+and runs the tests, failing on a warning in a test file too. Run `mix format` to fix formatting.
 
 ## Build a release
 
