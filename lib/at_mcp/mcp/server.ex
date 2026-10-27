@@ -170,7 +170,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:include_replies, :boolean,
       description:
-        "Whether to read direct replies as well as the ancestor chain. Defaults to true. Set false when only the conversation leading to the post is needed; replies are not fetched or returned. Older pages read with before never include replies."
+        "Give false to leave out the replies directly under the post. The chain comes back the same either way."
     )
 
     param(:before, :string,
