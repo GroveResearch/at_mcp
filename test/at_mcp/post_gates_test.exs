@@ -154,7 +154,9 @@ defmodule AtMcp.PostGatesTest do
                AtMcp.Effects.reply(
                  ctx.effects,
                  "at://did:plc:x/app.bsky.feed.post/3k22222222222",
-                 "t", reply_rule: [:mention])
+                 "t",
+                 reply_rule: [:mention]
+               )
 
       refute Map.has_key?(tool_arguments("reply"), :reply_rule)
     end

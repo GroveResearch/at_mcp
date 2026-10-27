@@ -803,7 +803,9 @@ defmodule AtMcp.ModerationTest do
         AtMcp.Effects.report(
           effects,
           "at://alice.test/app.bsky.feed.post/3kp2222222223",
-          "harassment_troll", labeler: "labeler.test")
+          "harassment_troll",
+          labeler: "labeler.test"
+        )
 
       assert {:ok,
               %{id: 7, reason_type: "com.atproto.moderation.defs#reasonRude", subject: ^post}} =
