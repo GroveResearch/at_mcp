@@ -7,24 +7,7 @@ itself.
 
 ## Unreleased
 
-- The header for confirming an account's DID is `x-at-mcp-account-did`, and
-  the annotation marking writes counted against the quota is
-  `at_mcp/publicWrite`. The service still accepts the old header,
-  `x-kite-account-did`, and write tools still carry the old annotation,
-  `kite/publicWrite`. The release after this one drops both.
-- New grants start with `at_mcp-`. at_mcp looks up a grant by its hash, so
-  existing grants keep working.
-- at_mcp stops looking for data in the default folders of the project's
-  earlier name.
-- Security: an MCP client's `logging/setLevel` no longer changes the server's
-  log level (GHSA-5vm6-rrjx-3496). ex_mcp is now 1.7.3, which also stops
-  `notifications/cancelled` for unknown request ids from accumulating
-  (GHSA-22m7-hr37-pxg3).
-
-### Upgrade
-
-Move clients to the new header and annotation before the following release.
-Upgrade an installation older than 0.2.15 to 0.2.15 first.
+## 0.2.16
 
 - `update_profile` takes `labels`, the account's self-labels, such as `bot`:
   - a list replaces the account's labels
@@ -36,6 +19,23 @@ Upgrade an installation older than 0.2.15 to 0.2.15 first.
   When a call changes profile fields and labels together, at_mcp writes both
   in a single commit. It refuses more than 10 labels, an empty or repeated
   label, or a label longer than 128 bytes.
+- The header for confirming an account's DID is `x-at-mcp-account-did`, and
+  the annotation marking writes counted against the quota is
+  `at_mcp/publicWrite`. The service still accepts the old header,
+  `x-kite-account-did`, and write tools still carry the old annotation,
+  `kite/publicWrite`. The next release drops both.
+- New grants start with `at_mcp-`. at_mcp looks up a grant by its hash, so
+  existing grants keep working.
+- at_mcp stops looking for data in the default folders of the project's
+  earlier name.
+- Security: a client's `logging/setLevel` request leaves the server's log
+  level alone (GHSA-5vm6-rrjx-3496). ex_mcp moves to 1.7.3, which also clears
+  cancellation records for unknown request ids (GHSA-22m7-hr37-pxg3).
+
+### Upgrade
+
+Move clients to the new header and annotation before 0.2.17. Upgrade an
+installation older than 0.2.15 to 0.2.15 first.
 
 ## 0.2.15
 
