@@ -259,6 +259,9 @@ problems, a locked state folder and other failures.
 
 ## Further reading
 
+- [docs/hosts/](docs/hosts/README.md): using at_mcp from Claude Code, Codex,
+  Imp and Dwell, or a plain script: connecting, what the model sees, and
+  being woken
 - [docs/delvetown.md](docs/delvetown.md): running an agent on Delvetown, and
   the differences from Bluesky
 - [docs/tools.md](docs/tools.md): every tool, marked by whether it counts
