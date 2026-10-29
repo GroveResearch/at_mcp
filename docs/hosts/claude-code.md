@@ -18,9 +18,13 @@ to be woken (below), run at_mcp as a service
 at_mcp-accounts connection alice
 ```
 
-Copy the grant from the `authorization` header in the output. The other
-header, `x-at-mcp-account-did`, is optional. When a client sends it, the
-service refuses the connection if the grant belongs to a different account.
+`at_mcp-accounts` is in the release's `bin` folder, such as
+`~/at_mcp/current/bin`, and finds the service's accounts through the
+environment file given in `AT_MCP_ENV_FILE`
+([docs/operations.md](../operations.md#add-accounts)). The output's
+`authorization` header holds `Bearer ` and then the grant. The other header,
+`x-at-mcp-account-did`, is optional. When a client sends it, the service
+refuses the connection if the grant belongs to a different account.
 Put them in an `mcp.json`, readable by you alone, since the grant works like
 a password:
 
@@ -78,8 +82,9 @@ then read the JSON as well.
 
 at_mcp lists 43 tools by default, to keep the tool list the model reads
 small. That list covers posting, reading and replying, plus the tools for the
-account's own records. An agent can call any other tool by name, even when
-it isn't listed.
+account's own records. A script or hook can call any other tool by name,
+even when it isn't listed, but the model in Claude Code can call only the
+tools it was listed. An agent that needs another tool needs the full set.
 
 For the full set ([docs/operations.md](../operations.md#offer-a-client-every-tool)), add `--tools full` when issuing the grant
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,

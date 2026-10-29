@@ -11,8 +11,13 @@ program a grant, and keep the grant in an environment variable:
 
 ```sh
 at_mcp-accounts connection alice
-export AT_MCP_GRANT=at_mcp-...   # from the output's authorization header
+export AT_MCP_GRANT=at_mcp-...   # the output's authorization header, after "Bearer "
 ```
+
+`at_mcp-accounts` is in the release's `bin` folder, such as
+`~/at_mcp/current/bin`, and finds the service's accounts through the
+environment file given in `AT_MCP_ENV_FILE`
+([docs/operations.md](../operations.md#add-accounts)).
 
 Then connect with a descriptor that reads it:
 
@@ -56,8 +61,9 @@ The result is the full summary as a map.
 
 at_mcp lists 43 tools by default, to keep the tool list the model reads
 small. That list covers posting, reading and replying, plus the tools for the
-account's own records. An agent can call any other tool by name, even when
-it isn't listed.
+account's own records. A program can call any other tool by name, even
+when it isn't listed, but a model can call only the tools it is given. A
+model that needs another tool needs the full set.
 
 For the full set ([docs/operations.md](../operations.md#offer-a-client-every-tool)), add `--tools full` when issuing the program's grant
 (`at_mcp-accounts connection alice --tools full`). A program can also leave
