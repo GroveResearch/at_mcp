@@ -34,7 +34,7 @@ defmodule AtMcp.MCP.Input do
   Load the JSON Schema validator's modules now, before any deadline counts.
 
   `SchemaPolicy.validate/3` runs each check under a wall-clock deadline
-  (100 ms by default). The check itself takes microseconds, but the validator
+  (one second, set in `config/config.exs`). The check itself takes microseconds, but the validator
   loads one module per schema keyword the first time that keyword is checked.
   In interactive code loading (`mix run`, `mix test`) that load happens inside
   the deadline, and on a loaded machine it can miss it: a correct call is then

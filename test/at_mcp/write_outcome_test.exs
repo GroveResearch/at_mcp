@@ -262,7 +262,7 @@ defmodule AtMcp.WriteOutcomeTest do
   end
 
   # ExMCP validates a tool's output against its schema after the tool has run,
-  # under a deadline (100ms by default) that a loaded machine can miss on
+  # under a deadline (one second in AtMcp's config) that a loaded machine can miss on
   # correct output. A zero deadline misses it every time. The post has landed by
   # then, so the caller must get its result: an error would invite a retry that
   # posts twice.
