@@ -78,7 +78,13 @@ have happened, so read the account before trying again.
 
 ## The full tool set
 
-<!-- TOOLS-SET -->
+at_mcp lists a default set of 43 tools to keep what the model reads up
+front small: everything an agent living on the network uses, and the tools
+for its own records. The full set is every tool. Any tool answers when
+called by name, listed or not.
+
+A script that calls tools by name needs no setting. To list every tool
+with `tools/list`, issue the grant with `--tools full`.
 
 ## Be woken
 
@@ -87,4 +93,28 @@ receives each one as an HTTP `POST` with a JSON body
 ([docs/delivery.md](../delivery.md), "Write a receiver"). Or run it as the
 command the example receiver starts when notifications arrive.
 
-<!-- RECEIVER -->
+at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
+alone. It takes the service's deliveries, keeps replies, mentions and
+quotes, waits until the account has been quiet for 30 seconds so a burst of
+notifications is one wake, and then runs a command you give it, with a short
+summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
+
+In the service's environment file:
+
+```sh
+AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
+AT_MCP_DELIVERY_TOKEN_FILE=/absolute/path/receiver-token
+```
+
+Then run the receiver with the same token file:
+
+```sh
+python3 examples/wake.py --token-file /absolute/path/receiver-token \
+  --command 'python3 /path/to/answer.py'
+```
+
+`--reasons`, `--quiet` and `--max-wait` change which notifications wake the
+agent and how long it waits. delivery.md's "Wake an agent" section has the
+details.
+
+The script reads the summary from its standard input.

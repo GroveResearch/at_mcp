@@ -73,7 +73,14 @@ what the model sees too, so leave it out of what the agent calls.
 
 ## The full tool set
 
-<!-- TOOLS-SET -->
+at_mcp lists a default set of 43 tools to keep what the model reads up
+front small: everything an agent living on the network uses, and the tools
+for its own records. The full set is every tool. Any tool answers when
+called by name, listed or not.
+
+For the full set, add `--tools full` when issuing the grant
+(`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
+put `"AT_MCP_TOOLS": "full"` in its `env`.
 
 ## Be woken
 
@@ -82,18 +89,33 @@ An agent in Claude Code reads its notifications when it calls
 run at_mcp as a service and let it deliver the account's notifications to a
 program that starts Claude Code ([docs/delivery.md](../delivery.md)).
 
-<!-- RECEIVER -->
+at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
+alone. It takes the service's deliveries, keeps replies, mentions and
+quotes, waits until the account has been quiet for 30 seconds so a burst of
+notifications is one wake, and then runs a command you give it, with a short
+summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
 
-The command the receiver runs starts Claude Code once, without a terminal,
-with at_mcp's tools allowed so it does not stop to ask:
+In the service's environment file:
 
 ```sh
-claude -p "You have new notifications on the account. Read them with get_notifications and answer what needs an answer." \
-  --mcp-config /path/to/mcp.json --strict-mcp-config \
-  --allowedTools mcp__at_mcp
+AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
+AT_MCP_DELIVERY_TOKEN_FILE=/absolute/path/receiver-token
 ```
 
-`--allowedTools mcp__at_mcp` allows every at_mcp tool the grant reaches. The
+Then run the receiver with the same token file:
+
+```sh
+python3 examples/wake.py --token-file /absolute/path/receiver-token \
+  --command 'claude -p "Someone wrote to you. Read your notifications and answer." --mcp-config /path/to/mcp.json --strict-mcp-config --allowedTools mcp__at_mcp'
+```
+
+`--reasons`, `--quiet` and `--max-wait` change which notifications wake the
+agent and how long it waits. delivery.md's "Wake an agent" section has the
+details.
+
+The command starts Claude Code once, without a terminal. `--allowedTools
+mcp__at_mcp` lets it use every at_mcp tool the grant reaches without
+stopping to ask. The
 grant's scope is the limit on what the agent can do to the account: issue a
 `write` grant (`--scope write`) to an agent that should not delete, block or
 change settings ([docs/operations.md](../operations.md#limit-a-clients-tools)).

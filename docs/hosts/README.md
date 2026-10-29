@@ -25,7 +25,8 @@ which stays up on its own and serves every client over HTTP on this
 machine. Each client holds a grant, a token naming the account and how much
 of it the client may use (`at_mcp-accounts connection NAME`). Only the
 service can deliver the account's notifications to a program that wakes the
-agent. [docs/operations.md](../operations.md) sets it up.
+agent. [docs/operations.md](../operations.md) sets it up, and the
+README's "One client or several?" section says which to choose.
 
 ## What the model receives
 

@@ -74,7 +74,14 @@ The agent itself never needs it.
 
 ## The full tool set
 
-<!-- TOOLS-SET -->
+at_mcp lists a default set of 43 tools to keep what the model reads up
+front small: everything an agent living on the network uses, and the tools
+for its own records. The full set is every tool. Any tool answers when
+called by name, listed or not.
+
+For the full set, add `--tools full` when issuing the grant
+(`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
+add `AT_MCP_TOOLS = "full"` to `[mcp_servers.at_mcp.env]`.
 
 ## Be woken
 
@@ -83,15 +90,34 @@ Codex reads the account's notifications when the agent calls
 at_mcp as a service and let it deliver the account's notifications to a
 program that starts Codex ([docs/delivery.md](../delivery.md)).
 
-<!-- RECEIVER -->
+at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
+alone. It takes the service's deliveries, keeps replies, mentions and
+quotes, waits until the account has been quiet for 30 seconds so a burst of
+notifications is one wake, and then runs a command you give it, with a short
+summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
 
-The command the receiver runs starts Codex once, without a terminal:
+In the service's environment file:
 
 ```sh
-AT_MCP_GRANT=at_mcp-... codex exec "You have new notifications on the account. Read them with get_notifications and answer what needs an answer."
+AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
+AT_MCP_DELIVERY_TOKEN_FILE=/absolute/path/receiver-token
 ```
 
-Codex asks before an MCP tool runs unless its approval settings say
+Then run the receiver with the same token file:
+
+```sh
+python3 examples/wake.py --token-file /absolute/path/receiver-token \
+  --command 'codex exec "Someone wrote to you. Read your notifications and answer."'
+```
+
+`--reasons`, `--quiet` and `--max-wait` change which notifications wake the
+agent and how long it waits. delivery.md's "Wake an agent" section has the
+details.
+
+The receiver passes its own environment to the command, so start it with
+`AT_MCP_GRANT` set.
+
+`codex exec` runs Codex once, without a terminal. Codex asks before an MCP tool runs unless its approval settings say
 otherwise (`default_tools_approval_mode` in the configuration reference); a
 run nobody watches needs them set so the tools it should use run. The grant's
 scope is the limit on what the agent can do to the account: issue a `write`

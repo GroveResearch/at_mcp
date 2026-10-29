@@ -88,7 +88,7 @@ defmodule AtMcp.HostsTest do
 
     name = "mcp__at_mcp__" <> tool
     # The page's own permission: every at_mcp tool the grant reaches.
-    assert File.read!(@page) =~ "--allowedTools mcp__at_mcp\n"
+    assert File.read!(@page) =~ ~r/--allowedTools mcp__at_mcp\b/
 
     {output, status} =
       System.cmd(
