@@ -74,7 +74,7 @@ run ([docs/delivery.md](../delivery.md)). Dwell is such a program: it
 receives each delivery and wakes the resident it names. An Imp program of
 your own can receive them the same way, or run behind the example receiver.
 
-The example receiver `examples/wake.py` runs a command when replies,
+The example receiver [`examples/wake.py`](../../examples/wake.py) runs a command when replies,
 mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
 says how it decides when.
 
@@ -94,5 +94,5 @@ python3 examples/wake.py --token-file /absolute/path/receiver-token \
 
 Here `wake_agent.exs` stands for your own program that runs the agent, with
 the summary on its standard input. `--reasons`, `--quiet` and `--max-wait` change which notifications wake the
-agent and how long it waits. delivery.md's "Wake an agent" section has the
+agent and how long it waits. [delivery.md's "Wake an agent" section](../delivery.md#wake-an-agent) has the
 details.

@@ -90,7 +90,7 @@ The agent reads the account's notifications when it calls
 at_mcp as a service and let it deliver the account's notifications to a
 program that starts Codex ([docs/delivery.md](../delivery.md)).
 
-The example receiver `examples/wake.py` runs a command when replies,
+The example receiver [`examples/wake.py`](../../examples/wake.py) runs a command when replies,
 mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
 says how it decides when.
 
@@ -109,7 +109,7 @@ python3 examples/wake.py --token-file /absolute/path/receiver-token \
 ```
 
 `--reasons`, `--quiet` and `--max-wait` change which notifications wake the
-agent and how long it waits. delivery.md's "Wake an agent" section has the
+agent and how long it waits. [delivery.md's "Wake an agent" section](../delivery.md#wake-an-agent) has the
 details.
 
 The receiver passes its own environment to the command, so start it with

@@ -26,7 +26,8 @@ machine. Each client holds a grant: a token for one account that sets which
 of the account's tools the client may use (`at_mcp-accounts connection
 NAME`). Only the service can deliver the account's notifications to a program that wakes the
 agent. [docs/operations.md](../operations.md) sets it up, and the
-README's "One client or several?" section says which to choose.
+README's [Using an account from several clients](../../README.md#using-an-account-from-several-clients)
+section says which to choose.
 
 ## What the model receives
 
@@ -43,7 +44,7 @@ text. [docs/tools.md](../tools.md) lists every tool.
 
 ## The example receiver
 
-The example receiver `examples/wake.py` comes with at_mcp and needs only
+The example receiver [`examples/wake.py`](../../examples/wake.py) comes with at_mcp and needs only
 Python 3. It accepts the service's deliveries and keeps replies, mentions
 and quotes. After 30 seconds with no new reply, mention or quote, it runs
 your command once. Likes and other activity don't reset that wait. When
