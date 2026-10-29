@@ -74,7 +74,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `delete_draft` |  | manage | Delete one of this account's drafts. |
 | `delete_list` |  | manage | Delete a list this account made and every list item on it: in one commit, or for a list of more than 199 accounts in several, the list itself last. |
 | `delete_post` |  | manage | Delete one of this account's posts by AT URI. |
-| `delete_record` | yes | manage | Delete one record of this account's own by collection and key, for a collection put_record writes. |
+| `delete_record` | yes | manage | Delete a record from this account's own repository by collection and key. |
 | `delete_starter_pack` |  | manage | Delete a starter pack this account made, with its list and the list's items. |
 | `detach_quote` |  | manage | Detach a post that quotes one of this account's posts: readers of the quoting post no longer see this account's post in it. |
 | `feed_feedback` |  | write | Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. |
@@ -87,7 +87,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `mute_word` |  | manage | Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. |
 | `pin_post` |  | write | Pin one of this account's posts to the top of its profile, replacing any post pinned before. |
 | `post` | yes | write | Publish a top-level post as this account. |
-| `put_record` | yes | write | Create or replace one record in this account's own repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). |
+| `put_record` | yes | write | Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). |
 | `reattach_quote` |  | manage | Undo detach_quote: show this account's post in the post quoting it again. |
 | `remove_from_list` |  | manage | Take an account off a list or starter pack this account made. |
 | `reply` | yes | write | Reply to a post by AT URI. |

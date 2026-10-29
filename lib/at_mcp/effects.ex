@@ -910,9 +910,9 @@ defmodule AtMcp.Effects do
   # a deletion or a profile edit is an ordinary gesture and does not spend it.
   # Each MCP tool's description and its `at_mcp/publicWrite` annotation derive
   # from this list (`AtMcp.MCP.DSL`), so a host reads the same classification.
-  # A record written with `put_record` or deleted with `delete_record` counts
-  # too: AtMcp cannot tell what another application's record means, so it
-  # counts every one rather than guess which are gestures.
+  # put_record and delete_record count against the quota on every call. AtMcp
+  # cannot tell whether another application's record is a public post or a
+  # small action like a like, so it counts all of them.
   @publishing [:post, :reply, :repost, :put_record, :delete_record]
 
   @doc "The write verbs that count against the account's write quota."
@@ -1203,10 +1203,10 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  # The record kinds AtMcp writes through tools of its own, and those tools.
-  # Each makes checks a raw write would skip (a reply's gate, a like made
-  # once, a handle resolved, a profile written over what was read), so
-  # `put_record` and `delete_record` refuse these collections and name them.
+  # Collections that at_mcp writes with its own tools, mapped to those tools.
+  # The tools check things a raw write would not: a reply's gate, a like
+  # made only once, a resolved handle, a profile merged with what was read.
+  # put_record and delete_record refuse these collections and point to the tools.
   @own_tools [
     post: "post, reply and delete_post",
     like: "like and unlike",
@@ -1228,16 +1228,18 @@ defmodule AtMcp.Effects do
   ]
 
   @doc """
-  Create or replace one record in this account's own repository: any
-  collection but those AtMcp writes with tools of its own (`@own_tools`).
+  Creates or replaces a record in this account's own repository. Collections
+  in `@own_tools` are refused.
 
-  Without `rkey` the service picks the key and the record is new. With one,
-  the record there is read first and replaced only if it is still the version
-  read (`swapRecord`); when there is none, only if there still is none. `cid`,
-  given, is the version the caller read: a record that no longer has it is
-  not written over. A record's `$type` is its collection, added when left out.
-  The service checks the record against its lexicon when it knows it; nothing
-  checks one it does not know.
+  - Without `rkey`, the server picks a key and creates a new record.
+  - With `rkey`, AtMcp reads the current record first and writes with
+    `swapRecord` set to that record's CID, or to null when there is no
+    record. If the record changes in between, the server refuses the write.
+  - With `cid`, AtMcp also compares the current CID to `cid` and refuses
+    before sending anything if they differ.
+
+  A missing `$type` is set to the collection. The server validates the record
+  when it knows the collection's lexicon, and stores it unchecked otherwise.
   """
   def put_record(effects, collection, rkey, record, cid \\ nil) do
     with :ok <- writable_collection(collection),
@@ -1248,7 +1250,7 @@ defmodule AtMcp.Effects do
              cid,
              rkey != nil,
              "cid",
-             "names the version of the record at rkey; give rkey too"
+             "applies only to an existing record, so give rkey as well"
            ),
          {:ok, record} <- typed_record(record, collection) do
       take_and_write(
@@ -1263,9 +1265,9 @@ defmodule AtMcp.Effects do
   end
 
   @doc """
-  Delete one record of this account's own, by collection and key, under the
-  same rules as `put_record/5`. A record that is not there is left alone and
-  nothing is counted; one that no longer has `cid`, given, is not deleted.
+  Deletes a record from this account's own repository by collection and key,
+  with the same collection and `cid` checks as `put_record/5`. If there is no
+  record at the key, AtMcp sends nothing and counts nothing.
   """
   def delete_record(effects, collection, rkey, cid \\ nil) do
     with :ok <- writable_collection(collection),
@@ -1298,8 +1300,8 @@ defmodule AtMcp.Effects do
 
         invalid(
           "collection",
-          "#{collection} records are written with at_mcp's own tools (#{tools}), " <>
-            "which make checks a raw write would skip; use those instead"
+          "#{collection} records have their own tools in at_mcp: #{tools}. Use those, " <>
+            "because they check things put_record does not, such as reply gates and duplicate likes"
         )
 
       true ->
@@ -1316,7 +1318,11 @@ defmodule AtMcp.Effects do
   defp record_key(rkey) when is_binary(rkey) do
     if rkey not in [".", ".."] and rkey =~ ~r/\A[A-Za-z0-9._:~-]{1,512}\z/,
       do: :ok,
-      else: invalid("rkey", "must be a record key: 1 to 512 of A-Z a-z 0-9 . _ : ~ -")
+      else:
+        invalid(
+          "rkey",
+          ~s(must be a record key: 1 to 512 characters, each a letter, a digit, or one of . _ : ~ -, and not "." or "..")
+        )
   end
 
   defp record_key(_rkey), do: invalid("rkey", "must be a record key")
@@ -1327,7 +1333,10 @@ defmodule AtMcp.Effects do
         {:ok, Map.put(record, "$type", collection)}
 
       other ->
-        invalid("record", "$type is #{inspect(other)}, and the collection is #{collection}")
+        invalid(
+          "record",
+          "$type must equal the collection, #{collection}, but it is #{inspect(other)}"
+        )
     end
   end
 

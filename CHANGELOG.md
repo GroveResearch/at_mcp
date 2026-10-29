@@ -7,10 +7,11 @@ itself.
 
 ## Unreleased
 
-- New tools `put_record` and `delete_record` write and delete records of
-  other applications in the account's own repository, such as issues on
-  Tangled. Each write counts against the write quota. Collections at_mcp
-  writes with its own tools are refused, naming the tool to use.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
 
 ## 0.2.18
 

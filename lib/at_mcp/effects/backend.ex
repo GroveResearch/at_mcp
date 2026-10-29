@@ -364,13 +364,16 @@ defmodule AtMcp.Effects.Backend do
   @callback delete_post(state(), post_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
 
   @doc """
-  Read the record a `put_record` or `delete_record` would replace or delete,
-  before the write quota is charged. The request is `{:put, collection, rkey,
-  record, cid}` (rkey nil for a new record) or `{:delete, collection, rkey,
-  cid}`, in this account's own repository; `cid`, when not nil, is the version
-  the caller read. A record that no longer has it is refused as changed
-  meanwhile; a delete of a record that is not there answers `{:ok,
-  {:unchanged, summary}}`. Otherwise the answer is what `write_record/2` sends.
+  Reads the record a `put_record` or `delete_record` call would replace or
+  delete, before the write quota is charged. The request is one of:
+
+  - `{:put, collection, rkey, record, cid}`, with `rkey` nil for a new record
+  - `{:delete, collection, rkey, cid}`
+
+  When `cid` is not nil and the current record has a different CID, the
+  answer is a `changed_meanwhile` refusal. A delete with no record at the key
+  answers `{:ok, {:unchanged, summary}}`. Otherwise the answer is what
+  `write_record/2` sends.
   """
   @callback prepare_record_write(state(), request :: tuple()) ::
               {:ok, term()} | {:error, reason()}

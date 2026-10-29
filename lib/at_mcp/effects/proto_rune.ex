@@ -2361,10 +2361,9 @@ defmodule AtMcp.Effects.ProtoRune do
   def delete_post(session, post_uri) when is_binary(post_uri),
     do: delete(session, post_uri, :delete_post, :post)
 
-  # A record of another application's, written by collection and key in the
-  # account's own repository. The record there is read first; the write then
-  # names that version (`swapRecord`), so one changed meanwhile is refused
-  # rather than written over.
+  # put_record and delete_record read the current record first, then send
+  # its CID as swapRecord. The server refuses the write if the record changed
+  # in between.
   @impl true
   def prepare_record_write(_session, {:put, collection, nil, record, nil}),
     do: {:ok, %{op: :create, collection: collection, rkey: nil, record: record}}
@@ -2474,7 +2473,8 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  # A caller that named the version it read writes only over that version.
+  # If the caller passed a cid, the write goes ahead only when the current
+  # record still has that cid.
   defp still_at(_current, nil, _session, _collection, _rkey), do: :ok
   defp still_at(cid, cid, _session, _collection, _rkey), do: :ok
 

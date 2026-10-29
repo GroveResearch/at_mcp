@@ -38,9 +38,9 @@ at_mcp logs in to an existing account. Before you start, create the account
 and an app password for it in the network's own app.
 
 To keep a looping agent from flooding the network, at_mcp counts posts,
-replies, reposts and the records `put_record` and `delete_record` write
-against a quota of 16 per account per hour. The count is
-stored on disk and survives a restart. Likes, follows, edits and reads are
+replies, reposts, and every `put_record` or `delete_record` call against a
+quota of 16 per account per hour. The count is stored on disk and survives a
+restart. Likes, follows, edits and reads are
 free. [docs/settings.md](docs/settings.md#write-quota) explains how to change
 the quota.
 
@@ -200,11 +200,14 @@ reads it back. To file an issue on a Tangled repository, an agent calls:
 }
 ```
 
-The result gives the issue's `uri` and `cid`. Calling `put_record` again with
-the same `rkey` and that `cid` edits the issue, and `delete_record` deletes it.
-at_mcp does not know other applications' record shapes; check the
-application's lexicon for the fields. Posts, likes, follows and the other
-records at_mcp has tools for are refused, naming the tool to use.
+The result gives the issue's `uri` and `cid`. The last part of the `uri` is
+the record's key. To edit the issue, call `put_record` again with that key as
+`rkey` and the `cid` from the result. To remove it, call `delete_record` with
+the same collection and key.
+
+at_mcp writes the record as given, so check the application's lexicon for the
+field names. Posts, likes, follows and the other records at_mcp has its own
+tools for are refused, and the error gives the tool to use.
 
 ## Failed tool calls
 
