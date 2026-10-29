@@ -481,6 +481,8 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro action_result, do: Macro.escape(action_result_schema())
 
+  defmacro record_write_result, do: Macro.escape(record_write_result_schema())
+
   defmacro preferences, do: Macro.escape(preferences_schema())
 
   defmacro notification_settings, do: Macro.escape(notification_settings_schema())
@@ -779,6 +781,24 @@ defmodule AtMcp.MCP.Schemas do
         "type" => ["boolean", "null"],
         "description" =>
           "True when this account already had this like, repost, follow or block (named by the AppView and found in this account's repository with this subject), so nothing was written; uri is that record"
+      }
+    })
+  end
+
+  # A record put_record wrote or delete_record deleted.
+  defp record_write_result_schema do
+    object(%{
+      "ok" => %{"type" => ["boolean", "null"]},
+      "action" => nullable_string("put_record or delete_record"),
+      "uri" => nullable_string("AT URI of the record"),
+      "cid" => nullable_string("CID of the record as written"),
+      "replaced" => %{
+        "type" => ["boolean", "null"],
+        "description" => "put_record: true when a record was already there and was replaced"
+      },
+      "unchanged" => %{
+        "type" => ["boolean", "null"],
+        "description" => "delete_record: true when there was no record to delete"
       }
     })
   end

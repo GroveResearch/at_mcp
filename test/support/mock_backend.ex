@@ -679,6 +679,27 @@ defmodule AtMcp.Test.MockBackend do
   def delete_post(_state, post_uri), do: {:ok, %{ok: true, uri: post_uri, action: :delete_post}}
 
   @impl true
+  def prepare_record_write(state, request) do
+    if pid = Map.get(state, :test_pid), do: send(pid, {:record_write, request})
+    {:ok, request}
+  end
+
+  @impl true
+  def write_record(state, {:delete, collection, rkey, _cid}),
+    do: {:ok, %{ok: true, action: :delete_record, uri: "at://#{state.did}/#{collection}/#{rkey}"}}
+
+  def write_record(state, {:put, collection, rkey, _record, _cid}),
+    do:
+      {:ok,
+       %{
+         ok: true,
+         action: :put_record,
+         uri: "at://#{state.did}/#{collection}/#{rkey || "3mockrecord22"}",
+         cid: "bafymockrecord",
+         replaced: false
+       }}
+
+  @impl true
   def update_profile(_state, updates) do
     {:ok,
      %{

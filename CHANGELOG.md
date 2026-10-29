@@ -18,16 +18,11 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
-- A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
-  `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) is now at most 40,000 characters of text. Claude Code
-  saves a result over 50,000 characters to a file, so a page of long posts
-  never got to the model. When a page would be longer, at_mcp asks the
-  service for fewer posts, says how many it dropped, and returns a cursor
-  that starts with them. A page asked for as JSON keeps every post up to
-  `limit`.
-- The same reads take `detail: "brief"`, which shows one line per post. A
-  recorded 50-post page was 12.5K characters this way, and 35.6K in full.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
 - Every tool error ends with one sentence saying what the agent can do: try
   again now, try again after a stated time, change a named argument, read the
   account first, or not retry; when at_mcp can't classify a failure, it says
@@ -47,46 +42,6 @@ This release is 0.3.0: what read tools return has changed.
 - On a busy machine, a correct tool call is no longer refused as
   `input_validation_unavailable`. The argument and result checks now wait
   up to one second instead of 100 ms.
-
-- `get_thread` reads threads with `getPostThreadV2`, the way the app does (#137).
-  - It returns every parent and sorts replies by the account's thread sort,
-    `top` by default.
-  - By default it follows the account's thread view: the linear view reads
-    10 levels with a single reply under each reply, the tree view 4 levels
-    with 10. Before this change it read 2 levels each way and the first 20
-    replies per post, in the service's order.
-  - New optional arguments: `depth` (0-20 levels) and `breadth` (0-100
-    replies under each reply).
-  - `type` values change from `app.bsky.feed.defs#threadViewPost`,
-    `#notFoundPost` and `#blockedPost` to
-    `app.bsky.unspecced.defs#threadItemPost`, `#threadItemNotFound` and
-    `#threadItemBlocked`.
-  - `context` now holds `depth`, `breadth`, `sort` and `view`.
-    `parent_height` and `max_replies_per_node` are gone.
-  - When the text reading would pass 40,000 characters, it ends after the
-    direct replies that fit, and `replies_cut` gives the count of the rest.
-    JSON output is not cut.
-  - New fields: `op_thread_index` and `op_thread_count` for posts in the
-    original poster's own series, and `other_replies` for hidden replies
-    (read them with `include_hidden`).
-
-- at_mcp remembers how far each account has read in the timeline, list
-  feeds, author feeds and notifications (#204). `get_timeline`,
-  `get_author_feed`, `get_list_feed` and `get_notifications` take `since`
-  and `mark_read`:
-  - `since: "last_read"` returns only the items newer than that point, says
-    how many are new, and moves the point forward. Pass `mark_read: false`
-    to read without moving it.
-  - `since` with a time returns the items newer than that time and leaves
-    the point alone.
-  - A read without `since` moves the point only with `mark_read: true`.
-  - When the new items run past one page, the point moves once the agent
-    follows the cursor back to it, so a page cut short doesn't skip
-    anything.
-
-  The positions live in `read-positions.json` in the state directory, and
-  every client of the account shares them. Custom feeds have no position.
-  The notifications' seen marker (`update_seen`) works as before.
 
 ### Upgrade
 
