@@ -1214,7 +1214,18 @@ defmodule AtMcp.E2E.RoundTripTest do
     end
 
     test "set_notification_setting: get_notification_settings reads it back, then the undo",
-         %{me: me} do
+         %{net: net, me: me} do
+      # The AppView stores these settings through bsync and reads them back
+      # once its bsync subscription has applied the change, so each write
+      # waits for that before the next read or write. A put also merges into
+      # the settings as last applied, so a second put sent too soon would
+      # write the first one's old value back.
+      set = fn arguments ->
+        result = call!(me, "set_notification_setting", arguments)
+        sync(net)
+        result
+      end
+
       setting = fn reason ->
         Enum.find(
           call!(me, "get_notification_settings", %{})["settings"],
@@ -1225,12 +1236,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       initial = setting.("like")
       assert %{"include" => "all", "list" => true, "push" => true} = initial
 
-      result =
-        call!(me, "set_notification_setting", %{
-          "reason" => "like",
-          "include" => "follows",
-          "push" => false
-        })
+      result = set.(%{"reason" => "like", "include" => "follows", "push" => false})
 
       assert result["changed"] == ["include", "push"]
       assert result["now"] == %{"include" => "follows", "list" => true, "push" => false}
@@ -1244,18 +1250,12 @@ defmodule AtMcp.E2E.RoundTripTest do
                "push" => true
              }
 
-      plain =
-        call!(me, "set_notification_setting", %{"reason" => "starterpack_joined", "list" => false})
+      plain = set.(%{"reason" => "starterpack_joined", "list" => false})
 
       assert plain["now"] == %{"include" => nil, "list" => false, "push" => true}
 
-      call!(
-        me,
-        "set_notification_setting",
-        Map.put(Map.take(result["previous"], result["changed"]), "reason", "like")
-      )
-
-      call!(me, "set_notification_setting", %{"reason" => "starterpack_joined", "list" => true})
+      set.(Map.put(Map.take(result["previous"], result["changed"]), "reason", "like"))
+      set.(%{"reason" => "starterpack_joined", "list" => true})
       assert setting.("like") == initial
       assert setting.("starterpack_joined")["list"] == true
     end
