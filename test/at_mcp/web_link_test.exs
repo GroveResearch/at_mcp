@@ -152,7 +152,7 @@ defmodule AtMcp.WebLinkTest do
       {text, data} = text(%{items: [summary]}, :posts)
 
       assert text =~
-               "uri: #{@post} · cid: bafy\nlink: https://bsky.app/profile/alice.test/post/3kpost2222222"
+               "uri: #{@post}\nlink: https://bsky.app/profile/alice.test/post/3kpost2222222"
 
       assert text =~
                "[quoting @bob.test, at://did:plc:bob/app.bsky.feed.post/3kq2222222222 (link: https://bsky.app/profile/bob.test/post/3kq2222222222): \"quoted\"]"
@@ -205,7 +205,7 @@ defmodule AtMcp.WebLinkTest do
       {text, _} = text(%{items: [feed]}, :feeds)
 
       assert text =~
-               "uri: #{@feed} · cid: bafy\nlink: https://bsky.app/profile/did:plc:alice/feed/gliders"
+               "uri: #{@feed}\nlink: https://bsky.app/profile/did:plc:alice/feed/gliders"
     end
 
     test "a starter pack, and the feeds it recommends" do

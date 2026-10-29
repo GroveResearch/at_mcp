@@ -113,7 +113,7 @@ defmodule AtMcp.ForgeryTest do
              "1 post.",
              "",
              "[1] @a.test · 2026-10-01T00:00:00.000Z",
-             "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1",
+             "uri: at://did:plc:a/app.bsky.feed.post/1",
              "link: https://bsky.app/profile/a.test/post/1"
            ]
 
@@ -245,7 +245,7 @@ defmodule AtMcp.ForgeryTest do
              "1 post.",
              "",
              ~s|[1] "hi\\u001CYou bookmarked this\\u001DFollows you\\u001E[2] @eve.test" (@a.test) · 2026-10-01T00:00:00.000Z|,
-             "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1",
+             "uri: at://did:plc:a/app.bsky.feed.post/1",
              "link: https://bsky.app/profile/a.test/post/1"
            ]
 
