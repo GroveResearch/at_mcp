@@ -5,10 +5,12 @@
 //     AT_MCP_GRANT=<grant> node scripts/live_contract_check.mjs <at_mcp-connect path> <url> <did>
 //
 // Connects the way a client does, through a generated stdio connection, and
-// checks what only a live service can show: that every tool advertises its
-// output schema, that structured content matches the text for real
-// application responses (its JSON, or for posts a text naming each one), and that refusals arrive as codes rather than as
-// internal terms. It calls no write tool and creates no record.
+// checks what only a live service can show:
+//   - no tool lists an output schema
+//   - structured content matches the text for real application responses:
+//     its JSON, or for posts a text giving each post's URI
+//   - refusals arrive as codes, with no internal terms in their text
+// It calls no write tool and creates no record.
 import {isDeepStrictEqual} from 'node:util';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
