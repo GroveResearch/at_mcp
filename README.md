@@ -48,9 +48,24 @@ before deciding whether to write again.
 An agent hears about replies and mentions when it calls a read tool such as
 `get_notifications`. To have notifications pushed to another program as they
 arrive, run at_mcp as a long-running service with
-[delivery](docs/delivery.md) set up.
+[delivery](docs/delivery.md) set up. `examples/wake.py` receives those
+deliveries and runs a command to wake your agent when someone replies to,
+mentions or quotes the account.
 
 at_mcp has no tools for direct messages or for posting video.
+
+## Using an account from several clients
+
+The quick start sets up `at_mcp-stdio`. An MCP client starts it, and it stops
+when that client closes. While it runs, it locks the account's state
+directory. A second `at_mcp-stdio` for the same account, started from another
+window or a script, exits with an error.
+
+If you want several clients to use the account at the same time, or you want
+notifications delivered to a program that wakes your agent, run at_mcp as a
+long-running service and give each client its own grant. The clients then
+share the account's session and its write quota. The steps are in
+[docs/operations.md](docs/operations.md).
 
 ## Quick start
 
