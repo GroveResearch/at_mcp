@@ -68,14 +68,23 @@ await new Promise(resolve=>pds.listen(0,'127.0.0.1',resolve));
 const client=new Client({name:'external-identity-proof',version:'1'});
 const transport=new StdioClientTransport({command:process.env.TEST_EXTERNAL_COMMAND,args:JSON.parse(process.env.TEST_EXTERNAL_ARGS||'[]'),stderr:'pipe',env:{PATH:process.env.PATH,LANG:'C',LC_ALL:'C',AT_MCP_NETWORK:'delve',AT_MCP_HANDLE:'external.test',AT_MCP_APP_PASSWORD:'fixture',AT_MCP_SERVICE:`http://127.0.0.1:${pds.address().port}`,AT_MCP_STATE_DIR:join(root,'state')}});
 let diagnostics='';transport.stderr?.on('data',s=>diagnostics+=s);
+// A read answers in text alone unless asked for json, which this proof reads.
+const READS=new Set(['identity_status','get_membership','get_profile','get_timeline','get_posts']);
 async function call(name,args={},error=false) {
-  const result=await client.callTool({name,arguments:args});
+  const read=READS.has(name);
+  const result=await client.callTool({name,arguments:read?{...args,format:'json'}:args});
   assert.equal(Boolean(result.isError),error,JSON.stringify(result));
-  // Reads made of posts or accounts give a model readable text naming each post or account; every other result's text is its JSON.
   const text=result.content.find(x=>x.type==='text').text;
-  if(!error&&['get_timeline','get_posts'].includes(name)) for(const item of result.structuredContent.items) assert.ok(text.includes(item.uri),`${name} text omits ${item.uri}`);
-  else if(!error&&name==='get_profile') assert.ok(text.includes(`@${result.structuredContent.handle}`),`${name} text omits the handle`);
-  else if(!error) assert.deepEqual(JSON.parse(text),result.structuredContent);
+  if(!error) assert.deepEqual(JSON.parse(text),result.structuredContent);
+  if(read&&!error) {
+    // Unasked, a model gets readable text naming each post or account, and nothing structured.
+    const plain=await client.callTool({name,arguments:args});
+    assert.equal(plain.structuredContent,undefined,`${name} returned structured content unasked`);
+    const reading=plain.content.find(x=>x.type==='text').text;
+    if(['get_timeline','get_posts'].includes(name)) for(const item of result.structuredContent.items) assert.ok(reading.includes(item.uri),`${name} text omits ${item.uri}`);
+    else if(name==='get_profile') assert.ok(reading.includes(`@${result.structuredContent.handle}`),`${name} text omits the handle`);
+    else assert.deepEqual(JSON.parse(reading),result.structuredContent);
+  }
   return result.structuredContent;
 }
 try {
@@ -86,7 +95,7 @@ try {
   assert.equal((await call('get_timeline')).count,0);
   timelineUnimplemented=true;
   const before=timelineRequests;
-  const unsupported=await client.callTool({name:'get_timeline',arguments:{}});
+  const unsupported=await client.callTool({name:'get_timeline',arguments:{format:'json'}});
   assert.equal(unsupported.isError,true);
   assert.deepEqual(unsupported.structuredContent,{code:'upstream_not_implemented',http_status:501,upstream_message:'Timeline operation is not implemented'});
   const guidance=unsupported.content.find(x=>x.type==='text').text;

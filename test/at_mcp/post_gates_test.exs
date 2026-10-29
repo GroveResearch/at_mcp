@@ -15,9 +15,17 @@ defmodule AtMcp.PostGatesTest do
   alias AtMcp.Test.FakePDS
   alias AtMcp.Test.Lexicon
 
+  # These tests are about what a program reads: a read's summary.
   defp call(state, name, arguments) do
+    state = Map.put(state, :format, "json")
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
+  end
+
+  # What a model reads: a read's text, as it comes without format.
+  defp text(state, name, arguments) do
+    {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+    hd(result.content).text
   end
 
   defp problem_paths(result), do: Enum.map(result.structuredContent.problems, & &1.path)
@@ -173,13 +181,12 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "get_thread with include_hidden reads the replies left out, and why", ctx do
-      result =
-        call(ctx.state, "get_thread", %{
+      text =
+        text(ctx.state, "get_thread", %{
           "uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222",
           "include_hidden" => true
         })
 
-      text = Enum.find(result.content, &(&1.type == "text")).text
       assert text =~ "Replies under this post left out of the thread: 1."
       assert text =~ "[left out 1] @muted.test"
       assert text =~ "Hidden by the thread's author"
@@ -844,7 +851,7 @@ defmodule AtMcp.PostGatesTest do
       [rude, kind, _tagged] = result.structuredContent["replies"]
       assert rude["hidden_by_threadgate"] == true
       refute kind["hidden_by_threadgate"]
-      assert hd(result.content).text =~ "Hidden by the thread's author"
+      assert text(state, "get_thread", %{"uri" => @mine}) =~ "Hidden by the thread's author"
     end
 
     test "get_thread with include_hidden marks the left-out replies it read, and lists the rest once" do
@@ -880,7 +887,7 @@ defmodule AtMcp.PostGatesTest do
                FakePDS.sent(pds, "app.bsky.unspecced.getPostThreadOtherV2")
 
       text =
-        hd(call(state, "get_thread", %{"uri" => @mine, "include_hidden" => true}).content).text
+        text(state, "get_thread", %{"uri" => @mine, "include_hidden" => true})
 
       # Each reply appears once.
       assert length(String.split(text, "uri: #{@rude}")) == 2
@@ -908,7 +915,7 @@ defmodule AtMcp.PostGatesTest do
       refute result[:isError]
       assert [_, _, _] = result.structuredContent["replies"]
       refute Map.has_key?(result.structuredContent, "hidden_replies")
-      text = hd(result.content).text
+      text = text(state, "get_thread", %{"uri" => @mine, "include_hidden" => true})
       assert text =~ "[this post]"
 
       assert text =~

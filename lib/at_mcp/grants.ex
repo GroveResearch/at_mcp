@@ -45,6 +45,12 @@ defmodule AtMcp.Grants do
   A tool AtMcp does not declare is permitted by no scope, so a renamed tool fails
   closed instead of inheriting the last classification it had.
 
+  ## Format
+
+  A grant can also hold a default `format` for reads (`AtMcp.MCP.Output`). A
+  program that parses results gets `"json"` here, so it does not have to pass
+  `format` on every call. A grant without a format gets text.
+
   Revocation is removing the grant, and takes effect on the next request: this
   module reads the file on each call rather than caching it, the way the
   accounts file already reloads without a restart.
@@ -56,7 +62,13 @@ defmodule AtMcp.Grants do
   @id_pattern ~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\z/
 
   @type scope :: :read | :write | :manage
-  @type grant :: %{id: binary(), account: binary(), scope: scope(), issued_at: binary()}
+  @type grant :: %{
+          id: binary(),
+          account: binary(),
+          scope: scope(),
+          format: binary() | nil,
+          issued_at: binary()
+        }
 
   @doc "Path to the grants file for the accounts file in use."
   def path, do: path_for(AtMcp.AccountConfig.path())
@@ -85,10 +97,12 @@ defmodule AtMcp.Grants do
   @spec issue(binary(), keyword()) :: {:ok, %{required(atom()) => term()}} | {:error, term()}
   def issue(account, opts \\ []) when is_binary(account) do
     scope = Keyword.get(opts, :scope, :manage)
+    format = Keyword.get(opts, :format)
     file = Keyword.get(opts, :path) || path()
 
     with :ok <- valid_account(account),
-         :ok <- valid_scope(scope) do
+         :ok <- valid_scope(scope),
+         :ok <- valid_format(format) do
       # Only the digest is stored and looked up, so a token issued under any
       # earlier prefix still resolves.
       token = "at_mcp-" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
@@ -100,6 +114,8 @@ defmodule AtMcp.Grants do
         "digest" => digest(token),
         "issued_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
       }
+
+      row = if format, do: Map.put(row, "format", format), else: row
 
       case write(file, fn grants -> {:ok, grants ++ [row], row} end) do
         {:ok, saved} -> {:ok, saved |> public() |> Map.put(:token, token)}
@@ -137,9 +153,28 @@ defmodule AtMcp.Grants do
   @spec authorize(binary(), keyword()) ::
           {:ok, binary(), scope()} | {:error, :unknown_grant | :grants_unreadable}
   def authorize(token, opts \\ []) do
-    case find(token, Keyword.get(opts, :path) || path()) do
-      {:ok, row} -> {:ok, row["account"], String.to_existing_atom(row["scope"])}
+    case request(token, opts) do
+      {:ok, %{account: account, scope: scope}} -> {:ok, account, scope}
       error -> error
+    end
+  end
+
+  @doc "`authorize/2` with the grant's read format (`nil` for none), in the same one read."
+  @spec request(binary(), keyword()) ::
+          {:ok, %{account: binary(), scope: scope(), format: binary() | nil}}
+          | {:error, :unknown_grant | :grants_unreadable}
+  def request(token, opts \\ []) do
+    case find(token, Keyword.get(opts, :path) || path()) do
+      {:ok, row} ->
+        {:ok,
+         %{
+           account: row["account"],
+           scope: String.to_existing_atom(row["scope"]),
+           format: row["format"]
+         }}
+
+      error ->
+        error
     end
   end
 
@@ -270,9 +305,10 @@ defmodule AtMcp.Grants do
     end
   end
 
-  defp row?(%{"id" => id, "account" => account, "scope" => scope, "digest" => digest})
+  defp row?(%{"id" => id, "account" => account, "scope" => scope, "digest" => digest} = row)
        when is_binary(id) and is_binary(account) and is_binary(digest) do
-    scope in Enum.map(@scopes, &Atom.to_string(&1)) and byte_size(digest) == 64
+    scope in Enum.map(@scopes, &Atom.to_string(&1)) and byte_size(digest) == 64 and
+      valid_format(Map.get(row, "format")) == :ok
   end
 
   defp row?(_), do: false
@@ -295,6 +331,7 @@ defmodule AtMcp.Grants do
       id: row["id"],
       account: row["account"],
       scope: String.to_existing_atom(row["scope"]),
+      format: row["format"],
       issued_at: row["issued_at"]
     }
   end
@@ -307,6 +344,12 @@ defmodule AtMcp.Grants do
 
   defp valid_scope(scope) do
     if scope in @scopes, do: :ok, else: {:error, :invalid_scope}
+  end
+
+  defp valid_format(format) do
+    if is_nil(format) or format in AtMcp.MCP.Output.formats(),
+      do: :ok,
+      else: {:error, :invalid_format}
   end
 
   @doc """

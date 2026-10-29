@@ -7,4 +7,8 @@
 # (test/e2e/), which needs Node, Postgres, Redis and a built atproto
 # checkout. Run them with scripts/e2e.sh (CONTRIBUTING.md, "End-to-end
 # round trips").
-ExUnit.start(exclude: [:goal, :e2e])
+#
+# `:hosts` marks reads run through a real host (test/at_mcp/hosts_test.exs),
+# which calls a model and needs its credential. The `hosts` job in
+# .github/workflows/check.yml runs them with `mix test --only hosts`.
+ExUnit.start(exclude: [:goal, :e2e, :hosts])

@@ -26,9 +26,17 @@ defmodule AtMcp.PreferencesTest do
     %{effects: effects}
   end
 
+  # These tests are about what a program reads: a read's summary.
   defp call(state, name, arguments) do
+    state = Map.put(state, :format, "json")
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
+  end
+
+  # What a model reads: a read's text, as it comes without format.
+  defp text(state, name, arguments) do
+    {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+    hd(result.content).text
   end
 
   defp refused(result, path) do
@@ -791,15 +799,20 @@ defmodule AtMcp.PreferencesTest do
 
       assert [%{"post" => nil}] = like["posts"]
 
-      {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
-      schema = Enum.find(tools, &(&1.name == "get_notifications")).outputSchema
+      schema = AtMcp.MCP.Server.__output_schemas__()["get_notifications"]
 
       assert AtMcp.Test.Schema.valid?(
                Jason.decode!(Jason.encode!(result.structuredContent)),
                schema
              )
 
-      text = hd(result.content).text
+      text =
+        text(state, "get_notifications", %{
+          "grouped" => true,
+          "feed" => "conversations",
+          "limit" => 5
+        })
+
       assert text =~ "2 notification groups."
       assert text =~ "alice.test, did:plc:bob and 1 other liked your post"
 

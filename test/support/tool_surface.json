@@ -123,6 +123,7 @@
     "get_activity_subscriptions": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
@@ -131,6 +132,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -141,6 +143,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -151,6 +154,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -160,6 +164,7 @@
     "get_blocks": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
@@ -167,6 +172,7 @@
     "get_bookmarks": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
@@ -174,6 +180,7 @@
     "get_drafts": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
@@ -182,6 +189,7 @@
       "arguments": {
         "cursor": "string",
         "feed": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -190,6 +198,7 @@
     },
     "get_feed_info": {
       "arguments": {
+        "format": "string",
         "uris": "array"
       },
       "required": [
@@ -200,6 +209,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -210,6 +220,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -217,13 +228,16 @@
       ]
     },
     "get_invite_codes": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "get_known_followers": {
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": [
@@ -232,13 +246,15 @@
     },
     "get_labelers": {
       "arguments": {
-        "actors": "array"
+        "actors": "array",
+        "format": "string"
       },
       "required": []
     },
     "get_likes": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "uri": "string"
       },
@@ -249,6 +265,7 @@
     "get_list": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "uri": "string"
       },
@@ -259,6 +276,7 @@
     "get_list_feed": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "list": "string"
       },
@@ -271,18 +289,22 @@
         "actor": "string",
         "contains": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "purpose": "string"
       },
       "required": []
     },
     "get_membership": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "get_moderation_lists": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "kind": "string",
         "limit": "integer"
       },
@@ -293,18 +315,22 @@
     "get_mutes": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
     },
     "get_notification_settings": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "get_notifications": {
       "arguments": {
         "cursor": "string",
         "feed": "string",
+        "format": "string",
         "grouped": "boolean",
         "limit": "integer",
         "reasons": "array"
@@ -313,6 +339,7 @@
     },
     "get_policy": {
       "arguments": {
+        "format": "string",
         "page": "string"
       },
       "required": [
@@ -321,6 +348,7 @@
     },
     "get_post_images": {
       "arguments": {
+        "format": "string",
         "uri": "string"
       },
       "required": [
@@ -329,6 +357,7 @@
     },
     "get_posts": {
       "arguments": {
+        "format": "string",
         "uris": "array"
       },
       "required": [
@@ -336,18 +365,22 @@
       ]
     },
     "get_preferences": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "get_profile": {
       "arguments": {
-        "actor": "string"
+        "actor": "string",
+        "format": "string"
       },
       "required": []
     },
     "get_profiles": {
       "arguments": {
-        "actors": "array"
+        "actors": "array",
+        "format": "string"
       },
       "required": [
         "actors"
@@ -356,6 +389,7 @@
     "get_quotes": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "uri": "string"
       },
@@ -365,6 +399,7 @@
     },
     "get_record": {
       "arguments": {
+        "format": "string",
         "uri": "string"
       },
       "required": [
@@ -374,6 +409,7 @@
     "get_relationships": {
       "arguments": {
         "actor": "string",
+        "format": "string",
         "others": "array"
       },
       "required": [
@@ -384,6 +420,7 @@
     "get_reposted_by": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "uri": "string"
       },
@@ -393,6 +430,7 @@
     },
     "get_starter_pack": {
       "arguments": {
+        "format": "string",
         "uri": "string"
       },
       "required": [
@@ -404,6 +442,7 @@
         "actor": "string",
         "contains": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "query": "string"
       },
@@ -412,6 +451,7 @@
     "get_suggested_feeds": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "source": "string"
       },
@@ -423,6 +463,7 @@
         "category": "string",
         "context": "string",
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
@@ -430,12 +471,14 @@
     "get_suggested_starter_packs": {
       "arguments": {
         "context": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
     },
     "get_thread": {
       "arguments": {
+        "format": "string",
         "include_hidden": "boolean",
         "uri": "string"
       },
@@ -446,6 +489,7 @@
     "get_thread_chain": {
       "arguments": {
         "before": "string",
+        "format": "string",
         "include_replies": "boolean",
         "uri": "string"
       },
@@ -456,19 +500,23 @@
     "get_timeline": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer"
       },
       "required": []
     },
     "get_trends": {
       "arguments": {
+        "format": "string",
         "kind": "string",
         "limit": "integer"
       },
       "required": []
     },
     "get_unread_count": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "hide_reply": {
@@ -480,7 +528,9 @@
       ]
     },
     "identity_status": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "like": {
@@ -628,6 +678,7 @@
     "search_actors": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "query": "string"
       },
@@ -638,6 +689,7 @@
     "search_feeds": {
       "arguments": {
         "cursor": "string",
+        "format": "string",
         "limit": "integer",
         "query": "string"
       },
@@ -658,6 +710,7 @@
         "exclude_mentions": "array",
         "exclude_urls": "array",
         "following": "boolean",
+        "format": "string",
         "has_media": "boolean",
         "has_video": "boolean",
         "hashtags": "array",
