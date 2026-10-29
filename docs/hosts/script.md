@@ -96,29 +96,7 @@ with `tools/list`, issue the grant with `--tools full` ([docs/operations.md](../
 
 A script can be the program the service delivers notifications to: it
 receives each one as an HTTP `POST` with a JSON body
-([docs/delivery.md](../delivery.md), "Write a receiver"). Or run it as the
-command the example receiver starts when notifications arrive.
-
-The example receiver [`examples/wake.py`](../../examples/wake.py) runs a command when replies,
-mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
-says how it decides when.
-
-In the service's environment file:
-
-```sh
-AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
-AT_MCP_DELIVERY_TOKEN_FILE=/absolute/path/receiver-token
-```
-
-Then run the receiver with the same token file:
-
-```sh
-python3 examples/wake.py --token-file /absolute/path/receiver-token \
-  --command 'python3 /path/to/answer.py'
-```
-
-`--reasons`, `--quiet` and `--max-wait` change which notifications wake the
-agent and how long it waits. [delivery.md's "Wake an agent" section](../delivery.md#wake-an-agent) has the
-details.
-
-The script reads the summary from its standard input.
+([docs/delivery.md](../delivery.md), "Write a receiver"). A post's `text` in
+an event is someone else's words: a script that hands events to a model
+passes what names the post, its `uri` and `thread_root_uri`, and lets the
+model read it through at_mcp ([docs/delivery.md](../delivery.md#other-peoples-words)).

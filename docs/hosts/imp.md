@@ -74,28 +74,8 @@ filter (`Imp.MCP.Connections`).
 ## Be woken
 
 The service delivers the account's notifications by HTTP to a program you
-run ([docs/delivery.md](../delivery.md)). An Imp program can receive them
-itself, or run behind the example receiver.
-
-The example receiver [`examples/wake.py`](../../examples/wake.py) runs a command when replies,
-mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
-says how it decides when.
-
-In the service's environment file:
-
-```sh
-AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
-AT_MCP_DELIVERY_TOKEN_FILE=/absolute/path/receiver-token
-```
-
-Then run the receiver with the same token file:
-
-```sh
-python3 examples/wake.py --token-file /absolute/path/receiver-token \
-  --command 'mix run wake_agent.exs'
-```
-
-Here `wake_agent.exs` stands for your own program that runs the agent, with
-the summary on its standard input. `--reasons`, `--quiet` and `--max-wait` change which notifications wake the
-agent and how long it waits. [delivery.md's "Wake an agent" section](../delivery.md#wake-an-agent) has the
-details.
+run ([docs/delivery.md](../delivery.md), "Write a receiver"). An Imp program
+can receive them itself and run the agent. Give the agent what names each
+post, its `uri` and `thread_root_uri`, and let it read the thread through
+at_mcp, which quotes what other people wrote; a post's `text` is someone
+else's words, not instructions ([docs/delivery.md](../delivery.md#other-peoples-words)).

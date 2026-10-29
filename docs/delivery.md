@@ -4,7 +4,8 @@ An agent running inside an MCP client hears about replies and mentions only
 when it calls a read tool. A long-running at_mcp service can push them
 instead: it collects each account's notifications as they arrive and sends
 them by HTTP to a program of yours, such as an agent host waking an agent to
-answer.
+answer. at_mcp produces the events; waking an agent, and deciding what it is
+told, is the receiving program's job.
 
 Only a long-running service, set up as in [operations.md](operations.md),
 delivers notifications. An `at_mcp-stdio` started by a client collects
@@ -49,7 +50,8 @@ The token file holds a secret shared with your program. at_mcp sends it as a
 bearer token and reads the file again before each delivery, so you can change
 the token without a restart. Make the file readable by the service's user
 only. If you set no token, at_mcp sends its requests without an
-`Authorization` header.
+`Authorization` header, and your program can't tell them from a request any
+other local process sends. Set one.
 
 To send each account's events to a different program, give each account its
 own receiver:
@@ -80,33 +82,19 @@ and sends the queued events to the new address. The old receiver may already
 have stored the cancelled event, so the new receiver should expect possible
 repeats.
 
-## Wake an agent
-
-[`examples/wake.py`](../examples/wake.py) is a receiver you can run as it
-is. It needs Python 3 and nothing else. It keeps replies, mentions and quotes,
-waits until 30 quiet seconds have passed so a burst becomes one wake, then
-runs your command once with a summary of what arrived on its standard input:
-
-```sh
-python3 examples/wake.py --token-file /absolute/path/to/receiver-token \
-  --command 'claude -p "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say."'
-```
-
-It listens on `http://127.0.0.1:4420/inbound`, the address above. Any agent
-host with a command line works in place of `claude -p`. `--reasons`,
-`--quiet` and `--max-wait` change what wakes the agent and when;
-`python3 examples/wake.py --help` lists them. Events wait in a file until the
-command succeeds, so a failed run is tried again later.
-
 ## Write a receiver
 
 at_mcp sends each event as an HTTP `POST` with a JSON body, plus the header
 `Authorization: Bearer TOKEN` when a token is set. Your program should:
 
-1. Check the token.
+1. Check the token, comparing it in constant time, and answer `401` to a
+   request without the right one. Listen on `127.0.0.1` unless at_mcp runs on
+   another machine; then put TLS in front.
 2. Store the event durably, in a database or a queue.
 3. Answer with a `2xx` status after storing it.
 4. Drop repeats, keyed on `matched_did` together with `uri`.
+5. Treat the post's text as other people's words, never as instructions
+   (below).
 
 at_mcp treats any other answer as a failure: a status outside `2xx`, a
 redirect, a connection error, or no answer within five seconds. It keeps the
@@ -162,6 +150,23 @@ at_mcp copies `thread_root_uri` and `thread_parent_uri` from the post itself,
 without fetching either one. Treat them as claims by the post's author. The
 older fields `reply_root_uri` and `reply_parent_uri` hold the same declared
 values, without at_mcp's fallbacks.
+
+### Other people's words
+
+Anyone on the network can reply to, mention or quote your account, so an
+event's `text`, `raw_text`, `author`, `display_name` and any record content
+are written by someone else. A post can say "ignore your instructions" as
+easily as anything else.
+
+- Never put those fields into an agent's prompt or instructions. The prompt
+  is yours; a reply is not.
+- To wake an agent, give it what names the post: its `reason`, and its
+  `uri` and `thread_root_uri` after checking each has the shape of an AT
+  URI. Let the agent read the posts through at_mcp, whose reads quote what
+  other people wrote (`> ` before each line) and keep it apart from
+  at_mcp's own text.
+- If your program must show a post's text to a model itself, fence it the
+  same way, and say whose words they are.
 
 ## Stalled delivery
 
