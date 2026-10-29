@@ -134,45 +134,44 @@ defmodule AtMcp.PageBoundTest do
 
       assert String.to_integer(kept) + String.to_integer(left) == 50, name
 
-      # Asked for JSON, the page is bound by the JSON it is sent as.
-      {:ok, json, _} =
-        AtMcp.MCP.Server.handle_call_tool(name, Map.put(args, "format", "json"), ctx.state)
-
-      page = json.structuredContent
-      shown = length(page["items"])
-      assert shown > 1 and shown < 50, "#{name} showed #{shown}"
-      assert page["left_out"] == 50 - shown
-      assert String.length(hd(json.content).text) <= AtMcp.Reading.page_chars(), name
+      # Asked for JSON, which programs page by count, the page is whole.
+      page = call(ctx.state, name, Map.put(args, "format", "json")).structuredContent
+      assert length(page["items"]) == 50, name
+      refute Map.has_key?(page, "left_out")
     end
   end
 
   test "a feed whose generator ignores limit is not cut, so no post is skipped", ctx do
-    page =
-      call(ctx.state, "get_feed", %{
-        "feed" => "at://did:plc:gen/town.delve.feed.generator/greedy",
-        "limit" => 50,
-        "format" => "json"
-      }).structuredContent
+    text =
+      text(
+        call(ctx.state, "get_feed", %{
+          "feed" => "at://did:plc:gen/town.delve.feed.generator/greedy",
+          "limit" => 50
+        })
+      )
 
     # The second read's cursor would skip from the cut to post 50, so the
-    # first page is returned whole.
-    assert length(page["items"]) == 50
-    refute Map.has_key?(page, "left_out")
-    assert page["cursor"] == "50"
+    # first page is read whole, saying it is longer than the bound.
+    assert text =~
+             "50 posts. This page reads longer than 40000 characters: the service gave no shorter page that continues it."
+
+    assert text =~ "uri: #{uri(49)}"
+    assert text =~ "pass cursor: 50"
+    refute text =~ "left out"
   end
 
   test "the cursor of a page cut short continues from its first post left out", ctx do
-    first =
-      call(ctx.state, "get_timeline", %{"limit" => 50, "format" => "json"}).structuredContent
-
-    shown = length(first["items"])
+    first = text(call(ctx.state, "get_timeline", %{"limit" => 50}))
+    [_, shown, cursor] = Regex.run(~r/^(\d+) posts\..*pass cursor: (\S+)/, first)
+    shown = String.to_integer(shown)
     assert shown < 50, "the page was not cut"
-    assert List.last(first["items"])["uri"] == uri(shown - 1)
+    assert first =~ "uri: #{uri(shown - 1)}"
+    refute first =~ "uri: #{uri(shown)}"
 
     next =
       call(ctx.state, "get_timeline", %{
         "limit" => 50,
-        "cursor" => first["cursor"],
+        "cursor" => cursor,
         "format" => "json"
       }).structuredContent
 

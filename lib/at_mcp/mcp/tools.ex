@@ -594,12 +594,13 @@ defmodule AtMcp.MCP.Tools do
   """
   def page(fetch, args, state, reading) do
     reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
-    measure = if AtMcp.MCP.DSL.format(args, state) == "json", do: :json, else: reading
     started = System.monotonic_time(:millisecond)
+    result = fetch.(Map.get(args, :limit))
 
-    fetch.(Map.get(args, :limit))
-    |> bounded(fetch, measure, started)
-    |> respond(state, reading)
+    # JSON is for programs, which page by count: only the reading is bounded.
+    if AtMcp.MCP.DSL.format(args, state) == "json",
+      do: respond(result, state, reading),
+      else: result |> bounded(fetch, reading, started) |> respond(state, reading)
   end
 
   # The cut page is the service's second answer, so it is taken only when it
@@ -609,12 +610,25 @@ defmodule AtMcp.MCP.Tools do
   # on unchanged, which would skip every post between the cut and that
   # cursor; a feed that changed between the two reads, or that answers each
   # read differently, gives other posts. Either way the first page is
-  # returned whole.
-  defp bounded({:ok, %{} = page} = result, fetch, measure, started) do
+  # returned whole, saying it is longer than the bound. So is a page whose
+  # second read would not answer before the endpoint stops waiting.
+  defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
     with {:ok, json} <- Jason.encode(page),
          %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
-         fit when fit < length(items) <- fitting(data, items, measure),
-         true <- time_left?(started),
+         fit when fit < length(items) <- fitting(data, items, reading) do
+      case cut(page, fetch, fit, items, started) do
+        {:ok, smaller} -> {:ok, smaller}
+        :error -> {:ok, Map.put(page, :over_bound, true)}
+      end
+    else
+      _ -> result
+    end
+  end
+
+  defp bounded(result, _fetch, _reading, _started), do: result
+
+  defp cut(page, fetch, fit, items, started) do
+    with true <- time_left?(started),
          {:ok, %{items: [_ | _] = shown} = smaller} <- fetch.(fit),
          true <- length(shown) < length(items),
          true <- uris(shown) == uris(Enum.take(page.items, length(shown))),
@@ -622,11 +636,9 @@ defmodule AtMcp.MCP.Tools do
          true <- cursor != page[:cursor] do
       {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
     else
-      _ -> result
+      _ -> :error
     end
   end
-
-  defp bounded(result, _fetch, _measure, _started), do: result
 
   defp uris(items), do: Enum.map(items, &(&1[:uri] || &1["uri"]))
 
@@ -644,18 +656,12 @@ defmodule AtMcp.MCP.Tools do
       AtMcp.MCP.HTTP.handler_call_timeout()
   end
 
-  # How many of the page's first items fit within the bound, measured as the
-  # caller receives them: the reading, or the JSON when it asked for that; at
-  # least one.
-  defp fitting(data, items, measure) do
+  # How many of the page's first items its reading holds within the bound;
+  # at least one.
+  defp fitting(data, items, reading) do
     fits? = fn n ->
       page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
-
-      text =
-        if measure == :json,
-          do: Jason.encode!(page),
-          else: apply(AtMcp.Reading, measure, [page])
-
+      text = apply(AtMcp.Reading, reading, [page])
       not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
     end
 

@@ -20,7 +20,8 @@ This release is 0.3.0: what read tools return has changed.
   `tools/list` is smaller. Write tools are unchanged.
 - A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
   `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) is at most 40,000 characters, as text or as JSON. Claude Code moves a
+  `get_bookmarks`) reads in at most 40,000 characters; a page asked for as
+  JSON is bounded by its `limit` alone. Claude Code moves a
   result over 50,000 characters to a file, so a page of long posts never
   reached the model. A page that would read longer ends early, says how
   many posts it left out, and its cursor continues from the first of them.

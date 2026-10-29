@@ -2290,6 +2290,14 @@ defmodule AtMcp.Reading do
         ~L" characters; the cursor continues from them."
       ])
 
+  defp left_out(%{"over_bound" => true}),
+    do:
+      cat([
+        ~L" This page reads longer than ",
+        int(@page_chars),
+        ~L" characters: the service gave no shorter page that continues it. A smaller limit reads less."
+      ])
+
   defp left_out(_page), do: nil
 
   defp next_page(%{"cursor" => cursor}) when is_binary(cursor),
