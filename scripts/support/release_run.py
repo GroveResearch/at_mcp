@@ -65,8 +65,11 @@ def poll(fn, tries=150, pause=0.4):
 
 
 class FakePDS:
-    """A PDS on loopback that logs in any handle whose password is PASSWORD,
-    holds no saved preferences and accepts any record it is asked to create."""
+    """A PDS on loopback that logs in any handle whose password is PASSWORD and
+    accepts any record it is asked to create.
+
+    It serves no preferences, answering 404 as a service that does not run
+    getPreferences does: a post must still be written there, open to everyone."""
 
     PASSWORD = "fixture-app-password"
     created = 0
@@ -94,9 +97,6 @@ class FakePDS:
                     did = parse_qs(url.query)["actor"][0]
                     self.answer(200, {"did": did, "handle": did.removeprefix("did:plc:"),
                                       "displayName": "Fixture account"})
-                elif url.path == "/xrpc/app.bsky.actor.getPreferences":
-                    # A post reads the account's saved interaction settings first.
-                    self.answer(200, {"preferences": []})
                 else:
                     self.do_POST()
 

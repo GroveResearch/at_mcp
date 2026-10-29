@@ -1827,6 +1827,7 @@ defmodule AtMcp.Effects.ProtoRune do
          rkey: rkey,
          gates: gates,
          saved: Keyword.get(opts, :saved_interactions, []),
+         saved_unserved: Keyword.get(opts, :saved_interactions_unserved),
          link_card: link_card
        }}
     else
@@ -1926,7 +1927,8 @@ defmodule AtMcp.Effects.ProtoRune do
          summary
          |> with_link_card(prepared)
          |> mention_warnings(prepared.unresolved)
-         |> root_warning(Map.get(prepared, :declared_root), record)}
+         |> root_warning(Map.get(prepared, :declared_root), record)
+         |> unserved_warning(Map.get(prepared, :saved_unserved))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -1943,7 +1945,8 @@ defmodule AtMcp.Effects.ProtoRune do
          summary
          |> with_link_card(prepared)
          |> mention_warnings(unresolved)
-         |> root_warning(Map.get(prepared, :declared_root), record)}
+         |> root_warning(Map.get(prepared, :declared_root), record)
+         |> unserved_warning(Map.get(prepared, :saved_unserved))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -4591,7 +4594,7 @@ defmodule AtMcp.Effects.ProtoRune do
     want_quotes? = not Keyword.has_key?(opts, :quotes)
 
     if want_rule? or want_quotes? do
-      with {:ok, saved} <- saved_settings(session),
+      with {:ok, saved} when is_map(saved) <- saved_settings(session),
            {:ok, rule} <- saved_rule(saved.reply_rule),
            {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
         taken =
@@ -4602,6 +4605,12 @@ defmodule AtMcp.Effects.ProtoRune do
          opts
          |> Keyword.merge(taken)
          |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
+      else
+        {:ok, {:unserved, status}} ->
+          {:ok, Keyword.put(opts, :saved_interactions_unserved, status)}
+
+        error ->
+          error
       end
     else
       {:ok, opts}
@@ -4609,8 +4618,11 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   # Kept for a minute after the preferences were last read or written
-  # (`AtMcp.PostDefaults`), else read now. A read that fails keeps the
-  # service's own answer, for `AtMcp.MCP.Tools` to quote as the service's.
+  # (`AtMcp.PostDefaults`), else read now. A service that does not serve
+  # preferences at all (404, 501, MethodNotImplemented) has none saved, so the
+  # post is written open, as before saved settings were read, and says so. A
+  # read that should have worked and failed keeps the service's own answer, for
+  # `AtMcp.MCP.Tools` to quote as the service's.
   defp saved_settings(session) do
     case AtMcp.PostDefaults.known(session) do
       {:ok, saved} ->
@@ -4622,9 +4634,28 @@ defmodule AtMcp.Effects.ProtoRune do
             {:ok, AtMcp.Preferences.kind_view(preferences, "interaction_defaults")}
 
           {:error, reason} ->
-            {:error, {:saved_interactions_unreadable, failure(reason)}}
+            case failure(reason) do
+              %{status: status} = failure when status in [404, 501] ->
+                {:ok, {:unserved, failure.status}}
+
+              %{detail: detail} = failure
+              when detail in [:method_not_implemented, "method_not_implemented"] ->
+                {:ok, {:unserved, failure.status}}
+
+              failure ->
+                {:error, {:saved_interactions_unreadable, failure}}
+            end
         end
     end
+  end
+
+  defp unserved_warning(result, nil), do: result
+
+  defp unserved_warning(result, status) do
+    note =
+      "The account's service does not serve saved preferences (it answered #{status}), so no saved interaction settings were taken: reply_rule and quotes are as given, and open to everyone where left out."
+
+    Map.update(result, :warning, note, &(&1 <> " " <> note))
   end
 
   # A saved rule at_mcp cannot read is not taken as everyone.

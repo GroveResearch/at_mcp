@@ -505,6 +505,40 @@ defmodule AtMcp.PostGatesTest do
       end
     end
 
+    test "a service that does not serve preferences has none saved: the post is sent open, and says so" do
+      for {status, body} <- [
+            {404, %{error: "NotFound"}},
+            {501, %{error: "MethodNotImplemented", message: "Method Not Implemented"}},
+            {400, %{error: "MethodNotImplemented"}}
+          ] do
+        unserved = %{"app.bsky.actor.getPreferences" => {status, body}}
+        %{effects: effects, pds: pds, state: state} = pds(%{}, unserved)
+
+        assert {:ok, result} = AtMcp.Effects.post(effects, "open")
+        assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+        assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+        refute Map.has_key?(result, :from_saved_settings)
+
+        assert result.warning =~
+                 "does not serve saved preferences (it answered #{status}), so no saved interaction settings were taken"
+
+        # A rule given is still written; the note stands beside it.
+        assert {:ok, gated} = AtMcp.Effects.post(effects, "gated", quotes: "disabled")
+        assert [_post, _postgate] = applied(pds)
+        assert gated.warning =~ "does not serve saved preferences"
+        assert AtMcp.Effects.quota_status(effects).used == 2
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            result = call(state, "post", %{"text" => "open, by tool"})
+            refute result[:isError], hd(result.content).text
+            assert result.structuredContent["warning"] =~ "does not serve saved preferences"
+          end)
+
+        refute log =~ "unvalidated"
+      end
+    end
+
     test "the saved settings are read once a minute at most, and a change made here applies at once" do
       %{effects: effects, pds: pds, session: session} = pds(%{}, %{}, @saved)
       reads = fn -> length(FakePDS.sent(pds, "app.bsky.actor.getPreferences")) end

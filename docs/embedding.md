@@ -110,7 +110,9 @@ settings for new posts, as the app does: who may reply and whether it may be
 quoted (`interaction_defaults` in `get_preferences`). A gate option you leave
 out takes the saved one, so pass `reply_rule: ["everyone"], quotes: "allowed"`
 to post open whatever is saved. If the saved settings cannot be read, the post
-is not sent.
+is not sent. A service that does not serve preferences at all (it answers 404,
+501 or `MethodNotImplemented`) has none saved: the post is sent open, with a
+`warning` that says so.
 
 ## Editing a profile
 
