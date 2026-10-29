@@ -172,8 +172,7 @@ defmodule AtMcp.ReplyReferenceTest do
     assert written.(%{"uri" => @japanese, "text" => "はい"})["langs"] == ["ja"]
     assert written.(%{"uri" => @japanese, "text" => "yes", "langs" => ["en"]})["langs"] == ["en"]
 
-    # A parent with no languages gives none, and a reply says nothing about its
-    # own rather than guess.
+    # The parent has no language tags, so the reply is written without a langs field.
     refute Map.has_key?(written.(%{"uri" => @readable, "text" => "hello"}), "langs")
   end
 

@@ -1420,7 +1420,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:langs, {:array, :string},
       description:
-        "BCP-47 language tags for the text, e.g. [\"en\"] or [\"es\"]. Omit to use the parent post's tags, as the app does; a reply to a post with none then carries none."
+        "BCP-47 language tags for the reply text, such as [\"en\"] or [\"es\"]. If you leave this out, the reply gets the parent post's language tags. If the parent post has no tags, the reply has none either."
     )
 
     param(:quote, :string,

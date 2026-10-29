@@ -7,8 +7,9 @@ itself.
 
 ## Unreleased
 
-- A `reply` given no `langs` is tagged with its parent post's languages, as
-  the app tags a reply. A reply to a post with none still carries none.
+- When `reply` is called without `langs`, at_mcp copies the parent post's
+  language tags into the reply. If the parent has no tags, the reply has
+  none.
 
 ## 0.2.18
 

@@ -5100,11 +5100,12 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  # A reply the caller gave no languages is tagged with its parent's, as the
-  # app's composer tags it (Composer.tsx in social-app at 62b95002): a reply
-  # is almost always in the language it answers, and an untagged post is left
-  # out of the feeds and searches that filter by language. Only well-formed
-  # tags, at most as many as a post may carry; nil when the parent has none.
+  # When the caller gives no languages for a reply, the reply gets its parent's
+  # tags. The app's composer does the same (Composer.tsx in social-app at
+  # 62b95002). Replies are usually in the language of the post they answer,
+  # and feeds and searches that filter by language leave out untagged posts.
+  # langs_of/1 keeps the parent's non-empty string tags, up to the network's
+  # limit for a post, and returns nil if none are left.
   defp langs_of(response) do
     with {:ok, value} when is_map(value) <- AtMcp.Response.fetch(response, :value),
          {:ok, langs} when is_list(langs) <- AtMcp.Response.fetch(value, :langs),
