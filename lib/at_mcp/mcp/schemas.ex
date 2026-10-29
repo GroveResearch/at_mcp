@@ -186,6 +186,15 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
+  defmacro read_format do
+    Macro.escape(
+      description:
+        "text (the default) for a reading written for a model; json for the full summary, as structured content and as JSON text",
+      schema: %{type: "string", enum: AtMcp.MCP.Output.formats()}
+    )
+  end
+
   @doc "`set_preference`'s `kind`, from `AtMcp.Preferences.kinds/0`."
   defmacro preference_kind do
     Macro.escape(

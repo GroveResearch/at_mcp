@@ -149,8 +149,8 @@ undoes the write, and reads again. The suite leaves these uncovered:
 
 The fixtures test at_mcp against known responses. To compare its output with
 real network responses, run this script against a running service. It checks
-that each tool declares an output schema, and compares real read results with
-their text. It calls no write tool. `$probe_dir` comes from the
+that each write declares an output schema and no read does, and compares real
+read results, asked for as json, with their text. It calls no write tool. `$probe_dir` comes from the
 [interoperability tests](#interoperability-tests) above, and each run of
 `connection` issues a fresh grant, so revoke old ones with
 `at_mcp-accounts revoke`:

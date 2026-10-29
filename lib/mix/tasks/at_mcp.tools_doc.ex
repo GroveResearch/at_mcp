@@ -55,6 +55,12 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
 
     ## Reads
 
+    A read answers in text written for a model, and nothing else, so every \
+    host's model reads the same thing. A program that parses results passes \
+    `"format": "json"` and gets the full summary as structured content and \
+    as JSON text, or holds a grant issued with `--format json`, which makes \
+    json its default.
+
     | Tool | What it does |
     | --- | --- |
     #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{summary(&1)} |")}

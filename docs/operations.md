@@ -219,6 +219,19 @@ at_mcp-accounts connection alice --scope read
 at_mcp lists only the tools in a client's scope, and refuses calls to tools
 outside it. [tools.md](tools.md) gives the scope of each tool.
 
+### Give a program JSON
+
+A read answers in text written for a model. A program that parses read
+results asks for the summary as JSON, either with `"format": "json"` on each
+call or once, on its grant:
+
+```sh
+at_mcp-accounts connection alice --format json
+```
+
+Its reads then return the summary as `structuredContent` and as the same JSON
+in the text. A call that passes `"format": "text"` still gets text.
+
 A grant works like a password on the local machine. Any process able to read
 a client's configuration can use its grant, so keep those files private.
 

@@ -25,9 +25,17 @@ defmodule AtMcp.ListsTest do
     %{effects: effects}
   end
 
+  # These tests are about what a program reads: a read's summary.
   defp call(state, name, arguments) do
+    state = Map.put(state, :format, "json")
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
+  end
+
+  # What a model reads: a read's text, as it comes without format.
+  defp text(state, name, arguments) do
+    {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+    hd(result.content).text
   end
 
   defp refused(result, path) do
@@ -163,7 +171,7 @@ defmodule AtMcp.ListsTest do
         args = Map.reject(%{"actor" => actor, "contains" => "b.test"}, &is_nil(elem(&1, 1)))
         result = call(state, "get_lists", args)
         assert %{"contains" => "b.test"} = result.structuredContent
-        assert hd(result.content).text =~ "Does not contain the account"
+        assert text(state, "get_lists", args) =~ "Does not contain the account"
       end
 
       # Without contains, the account itself is read when no actor is given.
@@ -195,20 +203,20 @@ defmodule AtMcp.ListsTest do
     test "reads are text a model reads, with every uri a write tool takes" do
       state = mock()
 
-      list = hd(call(state, "get_list", %{"uri" => @list}).content).text
+      list = text(state, "get_list", %{"uri" => @list})
       assert list =~ ~s(List "Mock list" · curate list · 1 account · by @mock.test)
       assert list =~ "uri: #{@list}"
       assert list =~ ~s|[1] "Alice" (@alice.test)|
       assert list =~ "item: at://did:plc:mock/app.bsky.graph.listitem/i1"
 
-      pack = hd(call(state, "get_starter_pack", %{"uri" => @pack}).content).text
+      pack = text(state, "get_starter_pack", %{"uri" => @pack})
       assert pack =~ ~s(Starter pack "Mock pack" · by @mock.test · 1 account)
       assert pack =~ ~s(Feeds: "F" · by @mock.test · at://did:plc:mock/app.bsky.feed.generator/f)
       assert pack =~ ~s|Some of its accounts: "Alice" (@alice.test)|
       assert pack =~ "list: #{@list} (get_list reads every account)"
       assert pack =~ "uri: #{@pack}"
 
-      packs = hd(call(state, "get_starter_packs", %{"contains" => "a.test"}).content).text
+      packs = text(state, "get_starter_packs", %{"contains" => "a.test"})
       assert packs =~ "1 starter pack."
       assert packs =~ "Does not contain the account"
     end

@@ -9,6 +9,8 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 ## Reads
 
+A read answers in text written for a model, and nothing else, so every host's model reads the same thing. A program that parses results passes `"format": "json"` and gets the full summary as structured content and as JSON text, or holds a grant issued with `--format json`, which makes json its default.
+
 | Tool | What it does |
 | --- | --- |
 | `get_activity_subscriptions` | List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription). |

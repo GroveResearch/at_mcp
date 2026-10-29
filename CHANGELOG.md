@@ -7,6 +7,27 @@ itself.
 
 ## Unreleased
 
+This release is 0.3.0: what read tools return has changed.
+
+- Read tools return the text written for a model, and no structured content,
+  unless asked. Claude Code, Codex and VS Code Copilot give a model only a
+  result's structured content when there is any, so an agent in those hosts
+  read every page as JSON: on a 20-post page, 37.7 KB instead of 14.9 KB of
+  text. Every read takes an optional `format`: `"json"` returns the full
+  summary as structured content and as the same JSON in the text. A grant
+  issued with `at_mcp-accounts connection NAME --format json` makes json the
+  default for its client. Reads no longer declare an output schema, so
+  `tools/list` is smaller. Write tools are unchanged.
+
+### Upgrade
+
+Any program that parses read results as JSON must ask for JSON: pass
+`"format": "json"` in each read's arguments, or issue its client a new grant
+with `--format json` and revoke the old one. A program that reads only write
+results needs nothing. To roll back, the `format` argument is not known to
+0.2.18, which ignores it and says so in the result's text; structured
+content returns. 0.2.18 reads a grant issued with `--format` as one without.
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write

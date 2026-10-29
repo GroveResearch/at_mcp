@@ -175,12 +175,18 @@ jobs:
 
       - run: rm -rf _build/*/lib/at_mcp
 
-      # The official client packages gate the independent MCP checks. Without
-      # them those tests skip, which is the failure this job exists to catch.
-      - name: Install the official MCP client packages
+      # The official client packages gate the independent MCP checks, and the
+      # Claude Code CLI the check of what its model receives
+      # (test/at_mcp/hosts_test.exs), which calls a model with
+      # ANTHROPIC_API_KEY. Without them those tests skip, which is the failure
+      # this job exists to catch.
+      - name: Install the official MCP client packages and Claude Code
         run: |
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
+          npm install --prefix "$RUNNER_TEMP/claude" --no-audit --no-fund \
+            @anthropic-ai/claude-code@2.1.312
+          echo "$RUNNER_TEMP/claude/node_modules/.bin" >> "$GITHUB_PATH"
 
       - uses: actions/download-artifact@v8
         with:
@@ -203,6 +209,7 @@ jobs:
           MIX_ENV: test
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TEST_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
           TEST_CONNECT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp/bin/at_mcp-connect
 

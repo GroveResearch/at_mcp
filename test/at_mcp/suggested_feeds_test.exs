@@ -44,11 +44,14 @@ defmodule AtMcp.SuggestedFeedsTest do
     assert {:ok, _} = AtMcp.Effects.login(effects)
     state = %{effects: effects}
 
-    {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
-    schema = Enum.find(tools, &(&1.name == "get_suggested_feeds")).outputSchema
+    schema = AtMcp.MCP.Server.__output_schemas__()["get_suggested_feeds"]
 
     assert {:ok, result, ^state} =
-             AtMcp.MCP.Server.handle_call_tool("get_suggested_feeds", %{}, state)
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_suggested_feeds",
+               %{"format" => "json"},
+               state
+             )
 
     refute result[:isError]
     page = result.structuredContent

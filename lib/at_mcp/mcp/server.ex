@@ -27,7 +27,9 @@ defmodule AtMcp.MCP.Server do
   @impl true
   def init(args) do
     effects = Keyword.get(args, :effects, AtMcp.Effects)
-    {:ok, %{effects: effects, scope: Keyword.get(args, :scope)}}
+
+    {:ok,
+     %{effects: effects, scope: Keyword.get(args, :scope), format: Keyword.get(args, :format)}}
   end
 
   # The MCP log levels (RFC 5424 names), as the spec lists them.
