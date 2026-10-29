@@ -157,7 +157,9 @@
         "cursor": "string",
         "detail": "string",
         "format": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": [
         "actor"
@@ -194,7 +196,9 @@
         "detail": "string",
         "feed": "string",
         "format": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": [
         "feed"
@@ -283,7 +287,9 @@
         "detail": "string",
         "format": "string",
         "limit": "integer",
-        "list": "string"
+        "list": "string",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": [
         "list"
@@ -338,7 +344,9 @@
         "format": "string",
         "grouped": "boolean",
         "limit": "integer",
-        "reasons": "array"
+        "mark_read": "boolean",
+        "reasons": "array",
+        "since": "string"
       },
       "required": []
     },
@@ -510,7 +518,9 @@
         "cursor": "string",
         "detail": "string",
         "format": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": []
     },

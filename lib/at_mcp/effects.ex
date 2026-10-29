@@ -215,6 +215,9 @@ defmodule AtMcp.Effects do
   @doc "The immutable account binding required by named shared connections."
   def expected_did(effects), do: state(effects).expected_did
 
+  @doc "The DID of the account this session acts as, or nil before it has one."
+  def account_did(effects), do: did_of(state(effects).backend_state)
+
   @doc "Whether Effects currently holds a live backend session."
   def logged_in?(effects), do: state(effects).logged_in?
 

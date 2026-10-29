@@ -42,6 +42,18 @@ This release is 0.3.0: what read tools return has changed.
   `other_replies` says when the app leaves replies out (`include_hidden`
   reads them).
 
+- at_mcp keeps the account's read position in the timeline, each custom
+  feed, list feed and author feed it reads, and the notifications: the time
+  of the newest item a read returned (#204). `get_timeline`,
+  `get_author_feed`, `get_feed`, `get_list_feed` and `get_notifications`
+  take `since`: `"last_read"` returns only the items newer than the
+  position, newest first, and says how many are new, or a time does the
+  same from that time. `mark_read: false` reads without moving the
+  position. Every client of the account shares one position per feed, kept
+  in `read-positions.json` in the state directory, so it survives a
+  restart. Notifications keep their own seen marker (`update_seen`) as
+  before.
+
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass

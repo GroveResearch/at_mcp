@@ -216,6 +216,23 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`since` on a read whose position is held (`AtMcp.ReadPositions`)."
+  defmacro since do
+    Macro.escape(
+      description:
+        "last_read for only the items newer than this account's read position in this feed, which every client of the account shares; or a time (2026-10-29T08:00:00Z) for the items newer than it. Newest first; the result says how many are new",
+      schema: %{type: "string"}
+    )
+  end
+
+  @doc "`mark_read` beside `since`."
+  defmacro mark_read do
+    Macro.escape(
+      description:
+        "false to leave the read position where it is. Otherwise a read that returns items moves it to the newest of them"
+    )
+  end
+
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
@@ -412,7 +429,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_view, do: Macro.escape(unread(object(profile_view_schema()["properties"])))
 
-  defmacro post_page, do: Macro.escape(unread(cut(page(post_view_schema()))))
+  defmacro post_page, do: Macro.escape(unread(held(cut(page(post_view_schema())))))
 
   defmacro profile_page, do: Macro.escape(unread(page(profile_view_schema())))
 
@@ -446,7 +463,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro list_result, do: Macro.escape(list_result_schema())
 
-  defmacro notification_page, do: Macro.escape(notification_page_schema())
+  defmacro notification_page, do: Macro.escape(held(cut(notification_page_schema())))
 
   defmacro relationship_page, do: Macro.escape(relationship_page_schema())
 
@@ -1493,12 +1510,40 @@ defmodule AtMcp.MCP.Schemas do
     |> promising(["count", "items"])
   end
 
-  # A page of posts that `AtMcp.MCP.Tools.page/4` cut short.
+  # A page of a feed whose read position is held (`AtMcp.ReadPositions`).
+  defp held(schema) do
+    update_in(schema, ["properties"], fn properties ->
+      Map.merge(properties, %{
+        "since" =>
+          nullable_string(
+            "With since: the time items were asked for after; null when last_read was asked and no position was held, so this is the newest page"
+          ),
+        "new_total" => %{
+          "type" => "integer",
+          "description" =>
+            "With since: how many items are newer than it, this page's and those after it"
+        },
+        "new_total_exact" => %{
+          "type" => "boolean",
+          "description" =>
+            "False when there were more to count than were read; new_total is then a lower bound"
+        },
+        "read_position" =>
+          nullable_string("The account's position in this feed after this read, when it moved"),
+        "read_position_unsaved" =>
+          nullable_string("Why the position could not be moved, when it could not"),
+        "since_unread" =>
+          nullable_string("With since: last_read, why the position could not be read")
+      })
+    end)
+  end
+
+  # A page of posts that `AtMcp.MCP.Tools.page/5` cut short.
   defp cut(schema) do
     put_in(schema, ["properties", "left_out"], %{
       "type" => "integer",
       "description" =>
-        "Posts the service sent for this page that were left out to keep its reading within the bound; the cursor continues from them. Absent when none were"
+        "Items the service sent for this page that were left out to keep its reading within the bound; the cursor continues from them. Absent when none were"
     })
   end
 

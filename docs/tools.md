@@ -13,6 +13,8 @@ A read answers in text written for a model, and nothing else, so every host's mo
 
 A page of posts reads in at most 40000 characters. A page that would read longer ends early, says how many posts it left out, and its cursor continues from the first of them. With `"detail": "brief"` a page reads each post on one line: who, when, the first line of its text, its counts and its uri, which `get_posts` reads whole.
 
+`get_timeline`, `get_author_feed`, `get_feed`, `get_list_feed` and `get_notifications` keep the account's read position in each feed: the time of the newest item a read returned. With `"since": "last_read"` a read returns only what is newer, and says how many are new. Every client of the account shares one position per feed, and it survives a restart. `"mark_read": false` reads without moving it.
+
 | Tool | What it does |
 | --- | --- |
 | `get_activity_subscriptions` | List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription). |
