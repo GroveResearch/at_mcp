@@ -448,15 +448,26 @@ defmodule AtMcp.Network do
 
   @doc """
   The service that reads a page for a link card (`AtMcp.LinkCards`), or nil
-  when this network looks none up. `config :at_mcp, card_service: url_or_nil`
-  replaces it; only tests set it, to a card service on localhost or to none.
+  when this network looks none up. Which network sends its accounts' links to
+  which service is decided here alone: in the test environment `config
+  :at_mcp, card_service: url_or_nil` replaces it, so a test can name a card
+  service on localhost or none, and outside it nothing does.
   """
-  def card_service do
-    case Application.fetch_env(:at_mcp, :card_service) do
-      {:ok, url} when is_binary(url) or is_nil(url) -> url
-      :error -> @networks |> Map.fetch!(name()) |> Map.fetch!(:card_service)
+  # The override is compiled in only for the test environment: a
+  # configuration that named a card service would send a network's links
+  # where its entry says not to.
+  if Mix.env() == :test do
+    def card_service do
+      case Application.fetch_env(:at_mcp, :card_service) do
+        {:ok, url} when is_binary(url) or is_nil(url) -> url
+        :error -> network_card_service()
+      end
     end
+  else
+    def card_service, do: network_card_service()
   end
+
+  defp network_card_service, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:card_service)
 
   @doc "Where this network's app is on the web: the origin of every web link to it."
   def web_origin, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:web_origin)

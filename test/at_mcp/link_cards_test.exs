@@ -28,6 +28,7 @@ defmodule AtMcp.LinkCardsTest do
       base = "http://127.0.0.1:#{conn.port}"
 
       case {conn.request_path, conn.query_params["url"]} do
+        {"/v1/extract", "https://example.com/slow"} -> drip(conn, extract("", base))
         {"/v1/extract", url} -> json(conn, extract(url, base))
         {"/v1/image", "big"} -> image(conn, :binary.copy("x", 1_000_001))
         {"/v1/image", _} -> image(conn, opts[:png])
@@ -45,6 +46,18 @@ defmodule AtMcp.LinkCardsTest do
     defp extract("https://example.com/elsewhere", _base),
       do: %{error: "", title: "Elsewhere", description: "", image: "https://other.example/a.png"}
 
+    # The service's own host, on another port.
+    defp extract("https://example.com/otherport", _base),
+      do: %{error: "", title: "Other port", description: "", image: "http://127.0.0.1:1/v1/image"}
+
+    defp extract("https://example.com/long", _base),
+      do: %{
+        error: "",
+        title: String.duplicate("t", 400),
+        description: String.duplicate("d", 1_500),
+        image: ""
+      }
+
     defp extract(_url, base),
       do: %{
         error: "",
@@ -52,6 +65,24 @@ defmodule AtMcp.LinkCardsTest do
         description: "What the page says about itself",
         image: base <> "/v1/image?url=page"
       }
+
+    # A byte at a time, each 400 ms apart: every read gets its byte within any
+    # timeout, and the whole answer takes far longer than a lookup may.
+    defp drip(conn, body) do
+      conn = send_chunked(conn, 200)
+
+      body
+      |> Jason.encode!()
+      |> String.graphemes()
+      |> Enum.reduce_while(conn, fn byte, conn ->
+        Process.sleep(400)
+
+        case chunk(conn, byte) do
+          {:ok, conn} -> {:cont, conn}
+          {:error, _} -> {:halt, conn}
+        end
+      end)
+    end
 
     defp json(conn, body),
       do: conn |> put_resp_content_type("application/json") |> send_resp(200, Jason.encode!(body))
@@ -200,7 +231,8 @@ defmodule AtMcp.LinkCardsTest do
   test "an image over the lexicon's limit, or one the service does not serve, is left off" do
     for {url, says} <- [
           {"https://example.com/big", "over 1000000 bytes"},
-          {"https://example.com/elsewhere", "does not serve"}
+          {"https://example.com/elsewhere", "does not serve"},
+          {"https://example.com/otherport", "does not serve"}
         ] do
       {session, pds} = FakePDS.start()
 
@@ -220,6 +252,39 @@ defmodule AtMcp.LinkCardsTest do
       assert FakePDS.sent(pds, "com.atproto.repo.uploadBlob") == []
       assert result.link_card.note =~ says
     end
+  end
+
+  test "a card service that answers a byte at a time gives up at the lookup's budget, and the post is sent",
+       %{effects: effects, pds: pds} do
+    started = System.monotonic_time(:millisecond)
+
+    assert {:ok, result} =
+             AtMcp.Effects.post(effects, "slow", link: %{url: "https://example.com/slow"})
+
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert elapsed < AtMcp.LinkCards.lookup_ms() + 1_500, "took #{elapsed} ms"
+    assert %{"uri" => "https://example.com/slow", "title" => ""} = card(pds)
+    assert result.link_card.note =~ "did not answer within #{AtMcp.LinkCards.lookup_ms()} ms"
+  end
+
+  test "a page's title and description are cut to 300 and 1000 characters",
+       %{effects: effects, pds: pds} do
+    assert {:ok, _} = AtMcp.Effects.post(effects, "x", link: %{url: "https://example.com/long"})
+    assert String.length(card(pds)["title"]) == 300
+    assert String.length(card(pds)["description"]) == 1_000
+  end
+
+  test "a link into the app before an outside link leaves the card to the outside one, as the app does",
+       %{effects: effects, pds: pds, calls: calls} do
+    assert {:ok, result} =
+             AtMcp.Effects.post(
+               effects,
+               "see https://bsky.app/profile/a.test/post/3k22222222222 and https://example.com/page"
+             )
+
+    assert %{"uri" => "https://example.com/page"} = card(pds)
+    assert looked_up(calls) == ["https://example.com/page"]
+    assert result.link_card.from == "text"
   end
 
   test "a link into the app or to an image is not looked up, as the app does not",

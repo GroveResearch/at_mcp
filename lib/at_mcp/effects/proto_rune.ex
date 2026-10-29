@@ -4507,8 +4507,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
       Keyword.get(opts, :facets) != :none and blank?(Keyword.get(opts, :images)) and
           is_nil(Keyword.get(opts, :quote)) ->
-        with url when is_binary(url) <- first_link(rich_text.facets),
-             true <- AtMcp.LinkCards.looked_up?(url) do
+        with url when is_binary(url) <- first_link(rich_text.facets) do
           card = AtMcp.LinkCards.lookup(url)
           {Keyword.put(opts, :link, Map.delete(card, :note)), report(card, :text)}
         else
@@ -4542,12 +4541,17 @@ defmodule AtMcp.Effects.ProtoRune do
   defp blank?([]), do: true
   defp blank?(_), do: false
 
+  # The first link in the text that is looked up: a link into the app is the
+  # app's own (a post it shows as a quote, not a card), so the app's composer
+  # cards the first other link (social-app 62b95002, `detectedExtUris`).
   defp first_link(facets) do
     link_type = AtMcp.Network.type(:link_facet)
 
     Enum.find_value(facets || [], fn facet ->
       Enum.find_value(Map.get(facet, :features, []), fn feature ->
-        if feature[:"$type"] == link_type and http?(feature[:uri]), do: feature[:uri]
+        if feature[:"$type"] == link_type and http?(feature[:uri]) and
+             AtMcp.LinkCards.looked_up?(feature[:uri]),
+           do: feature[:uri]
       end)
     end)
   end

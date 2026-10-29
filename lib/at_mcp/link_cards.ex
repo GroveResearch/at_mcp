@@ -10,10 +10,14 @@ defmodule AtMcp.LinkCards do
   - A network with no card service looks nothing up.
   - A link into the network's own app, other than a starter pack, and a link
     whose path names an image are not looked up, as the app does not.
-  - Requests carry no account credential, follow no redirect, and together
-    take at most `AtMcp.PostImages.fetch_ms/0`.
-  - A lookup that fails leaves the card as the app writes it then: the url,
-    with no title or description.
+  - Requests carry no account credential and follow no redirect. The whole
+    lookup has its own wall-clock budget, `lookup_ms/0` (#{3_000} ms): a card
+    is optional, so a slow card service never holds a post past it.
+  - A lookup that fails or runs out of time leaves the card as the app writes
+    it then: the url, with no title or description.
+  - A title is cut at #{300} characters and a description at #{1_000}. The
+    lexicon sets no limit; the page's author would otherwise choose how much
+    text goes into a record under the account.
   - A thumbnail is an `image/*` answer of at most #{1_000_000} bytes, the
     lexicon's `maxSize` for an external embed's `thumb`. The app resizes a
     larger one; at_mcp leaves it off.
@@ -25,6 +29,12 @@ defmodule AtMcp.LinkCards do
   # `app.bsky.embed.external#external`'s `thumb.maxSize`, the same on both
   # networks' lexicons.
   @thumb_max_bytes 1_000_000
+  @lookup_ms 3_000
+  @title_chars 300
+  @description_chars 1_000
+
+  @doc "How long one card's lookup may take in all, in milliseconds."
+  def lookup_ms, do: @lookup_ms
 
   @image_path ~r/\.(?:apng|avif|bmp|gif|heic|heif|ico|jpe?g|jxl|png|svgz?|tiff?|webp)$/i
 
@@ -42,13 +52,35 @@ defmodule AtMcp.LinkCards do
   is `%{data, mime_type}` or nil and `note` says what is missing and why, or
   is nil for a card with all three.
   """
-  def lookup(url) do
-    deadline = System.monotonic_time(:millisecond) + AtMcp.PostImages.fetch_ms()
+  def lookup(url, budget_ms \\ @lookup_ms) do
     card = %{url: url, title: "", description: "", thumb: nil, note: nil}
 
-    case extract(url, deadline) do
+    # Req's timeouts bound each read, not the whole answer: a service that
+    # sends a byte at a time would hold the lookup as long as it liked. The
+    # task is stopped at the budget, whatever it is waiting for.
+    task = Task.async(fn -> look_up(card, System.monotonic_time(:millisecond) + budget_ms) end)
+
+    case Task.yield(task, budget_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, card} ->
+        card
+
+      _ ->
+        %{
+          card
+          | note:
+              "The card shows only the link: the card service did not answer within #{budget_ms} ms."
+        }
+    end
+  end
+
+  defp look_up(card, deadline) do
+    case extract(card.url, deadline) do
       {:ok, meta} ->
-        card = %{card | title: string(meta["title"]), description: string(meta["description"])}
+        card = %{
+          card
+          | title: meta["title"] |> string() |> String.slice(0, @title_chars),
+            description: meta["description"] |> string() |> String.slice(0, @description_chars)
+        }
 
         case string(meta["image"]) do
           "" ->
@@ -89,7 +121,7 @@ defmodule AtMcp.LinkCards do
 
   # The image the card service names, which it serves through itself.
   defp thumb(image, deadline) do
-    if same_host?(image, AtMcp.Network.card_service()) do
+    if same_origin?(image, AtMcp.Network.card_service()) do
       case get(image, deadline, @thumb_max_bytes) do
         {:ok, "image/" <> _ = type, data} -> {:ok, %{data: data, mime_type: type}}
         {:ok, type, _} -> {:error, "the card service's image is #{type}, not an image"}
@@ -163,5 +195,12 @@ defmodule AtMcp.LinkCards do
 
   defp image?(url), do: Regex.match?(@image_path, URI.parse(url).path || "")
 
-  defp same_host?(a, b), do: URI.parse(a).host == URI.parse(b).host
+  # Scheme, host and port, so the service cannot send the fetch to plain HTTP
+  # or to another port of its host.
+  defp same_origin?(a, b), do: origin(a) == origin(b)
+
+  defp origin(url) do
+    %URI{scheme: scheme, host: host, port: port} = URI.parse(url)
+    {scheme, host, port}
+  end
 end
