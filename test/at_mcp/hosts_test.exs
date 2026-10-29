@@ -6,8 +6,8 @@ defmodule AtMcp.HostsTest do
   Code gives it `structuredContent` when there is any, and `content` only
   otherwise. So a read returns text alone unless asked for json
   (`AtMcp.MCP.Output`), and this test reads one through Claude Code against
-  the running endpoint, with a stand-in account, and checks what came back to
-  the model.
+  the running endpoint, with a stand-in account, connected as
+  docs/hosts/claude-code.md says, and checks what came back to the model.
   """
   use ExUnit.Case, async: false
 
@@ -18,6 +18,7 @@ defmodule AtMcp.HostsTest do
   alias AtMcp.Test.Grant
 
   @fixture Path.expand("../fixtures/fieldnote-post.json", __DIR__)
+  @page Path.expand("../../docs/hosts/claude-code.md", __DIR__)
 
   setup do
     old = Application.get_env(:at_mcp, :network)
@@ -39,6 +40,7 @@ defmodule AtMcp.HostsTest do
         listen_enabled: false,
         backend: AtMcp.Test.MockBackend,
         backend_state: %{did: "did:plc:mock", mock: true, timeline: page},
+        expected_did: "did:plc:mock",
         write_quota: AtMcp.Test.QuotaFixture.quota(1)
       )
 
@@ -72,16 +74,21 @@ defmodule AtMcp.HostsTest do
     on_exit(fn -> File.rm_rf!(dir) end)
     config = Path.join(dir, "mcp.json")
 
+    # The configuration docs/hosts/claude-code.md gives, as written there,
+    # with this test's grant, account and endpoint filled in.
+    [json | _] = AtMcp.Test.Docs.blocks(@page, "json")
+
     File.write!(
       config,
-      Jason.encode!(%{
-        mcpServers: %{
-          at_mcp: %{type: "http", url: Grant.url(), headers: %{authorization: "Bearer " <> token}}
-        }
-      })
+      json
+      |> String.replace("http://127.0.0.1:4400/mcp", Grant.url())
+      |> String.replace("YOUR_GRANT", token)
+      |> String.replace("YOUR_ACCOUNT_DID", "did:plc:mock")
     )
 
     name = "mcp__at_mcp__" <> tool
+    # The page's own permission: every at_mcp tool the grant reaches.
+    assert File.read!(@page) =~ "--allowedTools mcp__at_mcp\n"
 
     {output, status} =
       System.cmd(
@@ -93,7 +100,7 @@ defmodule AtMcp.HostsTest do
           config,
           "--strict-mcp-config",
           "--allowedTools",
-          name,
+          "mcp__at_mcp",
           "--max-turns",
           "3",
           "--model",
