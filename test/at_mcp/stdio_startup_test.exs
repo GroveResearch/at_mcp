@@ -72,7 +72,9 @@ defmodule AtMcp.StdioStartupTest do
         root,
         "occupied-state",
         ~s(the README section "Using an account from several clients"),
-        env, state: collision)
+        env,
+        state: collision
+      )
     after
       :ok = AtMcp.NativeLock.unflock(lock)
     end
