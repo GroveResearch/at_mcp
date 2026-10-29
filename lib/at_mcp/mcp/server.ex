@@ -2,11 +2,12 @@ defmodule AtMcp.MCP.Server do
   @moduledoc """
   HTTP/stdio MCP surface for one identity on this network.
 
-  Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
-  summaries (never raw session dumps): as structured content, and as text for
-  a model, which is the JSON of the summary except for reads made of posts,
-  accounts, lists, starter packs, feeds, trends and invitation codes, where it is
-  `AtMcp.Reading`'s text of it.
+  Each network verb is one MCP tool. A tool calls `AtMcp.Effects` and returns
+  a summary of the result, never a raw session dump. A write returns the
+  summary as structured content and as its JSON text. A read returns
+  `AtMcp.Reading`'s text of the summary, or the JSON for reads without a
+  reading of their own. A read passed `format: "json"` returns the summary the
+  way a write does (`AtMcp.MCP.Output`).
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -27,7 +28,9 @@ defmodule AtMcp.MCP.Server do
   @impl true
   def init(args) do
     effects = Keyword.get(args, :effects, AtMcp.Effects)
-    {:ok, %{effects: effects, scope: Keyword.get(args, :scope)}}
+
+    {:ok,
+     %{effects: effects, scope: Keyword.get(args, :scope), format: Keyword.get(args, :format)}}
   end
 
   # The MCP log levels (RFC 5424 names), as the spec lists them.

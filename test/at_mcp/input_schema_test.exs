@@ -243,8 +243,7 @@ defmodule AtMcp.InputSchemaTest do
     assert line ==
              "ignored: embed, facets, images/0/caption (this tool does not take them; nothing was done with them)"
 
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-    output = Enum.find(tools, &(&1.name == "post")).outputSchema
+    output = AtMcp.MCP.Server.__output_schemas__()["post"]
     assert AtMcp.Test.Schema.valid?(result.structuredContent, output)
   end
 

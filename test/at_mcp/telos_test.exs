@@ -190,7 +190,9 @@ defmodule AtMcp.TelosTest do
           retry: false
         ).body
 
-      assert body["result"]["structuredContent"]["did"] == did,
+      [%{"text" => status}] = body["result"]["content"]
+
+      assert Jason.decode!(status)["did"] == did,
              "#{id} was not served: #{inspect(body)}"
     end
 

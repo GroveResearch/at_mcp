@@ -28,7 +28,7 @@ defmodule AtMcp.Test.MockBackend do
            reason: "mention",
            uri: "at://did:plc:test/app.bsky.feed.post/1",
            author: "alice.bsky.social",
-           indexed_at: DateTime.to_iso8601(DateTime.utc_now()),
+           indexed_at: "2026-10-01T00:00:00.000Z",
            is_read: false
          }
        ],
@@ -101,8 +101,10 @@ defmodule AtMcp.Test.MockBackend do
   end
 
   @impl true
-  def get_timeline(_state, opts) do
-    {:ok, %{count: 0, items: [], limit: Keyword.get(opts, :limit, 20)}}
+  def get_timeline(state, opts) do
+    # A test can give the account a timeline page to read (`timeline`).
+    {:ok,
+     Map.get(state, :timeline) || %{count: 0, items: [], limit: Keyword.get(opts, :limit, 20)}}
   end
 
   @impl true

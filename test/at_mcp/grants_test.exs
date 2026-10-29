@@ -16,6 +16,21 @@ defmodule AtMcp.GrantsTest do
     assert Grants.authorize("at_mcp-nothing", ctx.opts) == {:error, :unknown_grant}
   end
 
+  test "a grant may carry the format its reads answer in, read in the same lookup", ctx do
+    {:ok, json} = Grants.issue("alice", [scope: :read, format: "json"] ++ ctx.opts)
+    {:ok, plain} = Grants.issue("alice", ctx.opts)
+
+    assert json.format == "json"
+
+    assert {:ok, %{account: "alice", scope: :read, format: "json"}} =
+             Grants.request(json.token, ctx.opts)
+
+    assert {:ok, %{format: nil}} = Grants.request(plain.token, ctx.opts)
+    assert {:ok, [%{format: "json"}, %{format: nil}]} = Grants.list(ctx.opts)
+
+    assert Grants.issue("alice", [format: "yaml"] ++ ctx.opts) == {:error, :invalid_format}
+  end
+
   test "a new grant's token starts with at_mcp-", ctx do
     {:ok, grant} = Grants.issue("alice", ctx.opts)
     assert "at_mcp-" <> rest = grant.token

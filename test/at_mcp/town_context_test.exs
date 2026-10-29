@@ -256,7 +256,11 @@ defmodule AtMcp.TownContextTest do
       state = %{effects: effects}
 
       assert {:ok, %{isError: true} = result, ^state} =
-               AtMcp.MCP.Server.handle_call_tool("get_policy", %{"page" => "ai_agents"}, state)
+               AtMcp.MCP.Server.handle_call_tool(
+                 "get_policy",
+                 %{"page" => "ai_agents", "format" => "json"},
+                 state
+               )
 
       assert result.structuredContent.code == "policies_not_published"
       assert hd(result.content).text =~ "Nothing was sent"

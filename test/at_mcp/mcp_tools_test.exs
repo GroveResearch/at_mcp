@@ -324,7 +324,7 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_activity_subscriptions" => :profiles
   }
 
-  test "every tool returns structured content its declared schema accepts" do
+  test "a read returns text alone, and its summary when asked; a write returns its summary" do
     {:ok, effects} =
       AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend, quota_limit: 100)
 
@@ -337,29 +337,49 @@ defmodule AtMcp.MCP.ToolsTest do
              @calls |> Enum.map(&elem(&1, 0)) |> Enum.sort()
 
     for {name, arguments} <- @calls do
-      assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+      tool = Enum.find(tools, &(&1.name == name))
+      read? = tool.annotations[:readOnlyHint] == true
+      schema = AtMcp.MCP.Server.__output_schemas__()[name]
+
+      # Asked for json, every tool's structured content is its summary, which
+      # its schema accepts, and the text is that JSON.
+      json_arguments = if read?, do: Map.put(arguments, "format", "json"), else: arguments
+
+      assert {:ok, result, ^state} =
+               AtMcp.MCP.Server.handle_call_tool(name, json_arguments, state)
+
       refute result[:isError], "#{name}: #{inspect(result)}"
-
-      schema = Enum.find(tools, &(&1.name == name)).outputSchema
       assert Schema.valid?(result.structuredContent, schema), "#{name} output schema"
-
-      # What a model reads: the JSON of the structured content, or for a read
-      # made of posts, `AtMcp.Reading`'s text of it and nothing else.
       text = Enum.find(result.content, &(&1.type == "text")).text
+      assert result.structuredContent == Jason.decode!(text), "#{name} json text"
 
-      case @readings[name] do
-        nil ->
-          assert result.structuredContent == Jason.decode!(text), "#{name} structured content"
+      if read? do
+        # A read declares no output schema, so it may return text alone.
+        refute Map.has_key?(tool, :outputSchema), "#{name} declares an output schema"
+        assert tool.inputSchema.properties.format.enum == ["text", "json"]
 
-        reading ->
-          assert text == apply(AtMcp.Reading, reading, [result.structuredContent]), name
+        # By default it does: `AtMcp.Reading`'s text of the summary, or for a
+        # read with no reading of its own, the JSON.
+        assert {:ok, plain, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+        refute Map.has_key?(plain, :structuredContent), "#{name} returned structured content"
+        text = Enum.find(plain.content, &(&1.type == "text")).text
+
+        case @readings[name] do
+          nil ->
+            assert Jason.decode!(text) == result.structuredContent, name
+
+          reading ->
+            assert text == apply(AtMcp.Reading, reading, [result.structuredContent]), name
+        end
+      else
+        assert tool.outputSchema == schema
+        refute Map.has_key?(tool.inputSchema.properties, :format), name
       end
     end
   end
 
   test "a declared schema rejects a shape from a different tool" do
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-    schema = fn name -> Enum.find(tools, &(&1.name == name)).outputSchema end
+    schema = fn name -> AtMcp.MCP.Server.__output_schemas__()[name] end
 
     page = %{
       "count" => 1,
@@ -379,10 +399,8 @@ defmodule AtMcp.MCP.ToolsTest do
   end
 
   test "page schemas describe the records their own tool returns" do
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-
     items = fn name ->
-      Enum.find(tools, &(&1.name == name)).outputSchema["properties"]["items"]["items"][
+      AtMcp.MCP.Server.__output_schemas__()[name]["properties"]["items"]["items"][
         "properties"
       ]
     end
@@ -423,7 +441,7 @@ defmodule AtMcp.MCP.ToolsTest do
 
     # Notifications one at a time, or the groups the app shows.
     assert [one, group] =
-             Enum.find(tools, &(&1.name == "get_notifications")).outputSchema["properties"][
+             AtMcp.MCP.Server.__output_schemas__()["get_notifications"]["properties"][
                "items"
              ]["items"]["anyOf"]
 
@@ -537,7 +555,11 @@ defmodule AtMcp.MCP.ToolsTest do
 
     text =
       Enum.flat_map(tools, fn tool ->
-        [tool.description | descriptions(tool.inputSchema) ++ descriptions(tool.outputSchema)]
+        [
+          tool.description
+          | descriptions(tool.inputSchema) ++
+              descriptions(AtMcp.MCP.Server.__output_schemas__()[tool.name])
+        ]
       end) ++ errors
 
     for phrase <- ["Bluesky", "bluesky", "budget", "allowance"] do

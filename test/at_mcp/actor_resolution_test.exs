@@ -277,7 +277,11 @@ defmodule AtMcp.ActorResolutionTest do
     assert {:ok, result, ^state} =
              AtMcp.MCP.Server.handle_call_tool(
                "get_relationships",
-               %{"actor" => "carol.example", "others" => ["@alice.example", "did:plc:bob"]},
+               %{
+                 "actor" => "carol.example",
+                 "format" => "json",
+                 "others" => ["@alice.example", "did:plc:bob"]
+               },
                state
              )
 
@@ -304,7 +308,11 @@ defmodule AtMcp.ActorResolutionTest do
     assert {:ok, result, ^state} =
              AtMcp.MCP.Server.handle_call_tool(
                "get_relationships",
-               %{"actor" => "carol.example", "others" => ["gone.example", "did:plc:bob"]},
+               %{
+                 "actor" => "carol.example",
+                 "format" => "json",
+                 "others" => ["gone.example", "did:plc:bob"]
+               },
                state
              )
 
@@ -329,6 +337,7 @@ defmodule AtMcp.ActorResolutionTest do
                "get_relationships",
                %{
                  "actor" => "carol.example",
+                 "format" => "json",
                  "others" => ["gone.example", "nobody.example"]
                },
                state
@@ -349,7 +358,7 @@ defmodule AtMcp.ActorResolutionTest do
     assert {:ok, result, ^state} =
              AtMcp.MCP.Server.handle_call_tool(
                "get_relationships",
-               %{"actor" => "carol.example", "others" => ["alice.example"]},
+               %{"actor" => "carol.example", "format" => "json", "others" => ["alice.example"]},
                state
              )
 
@@ -367,7 +376,11 @@ defmodule AtMcp.ActorResolutionTest do
     assert {:ok, result, ^state} =
              AtMcp.MCP.Server.handle_call_tool(
                "get_relationships",
-               %{"actor" => "carol.example", "others" => ["did:plc:bob", "did:plc:short"]},
+               %{
+                 "actor" => "carol.example",
+                 "format" => "json",
+                 "others" => ["did:plc:bob", "did:plc:short"]
+               },
                state
              )
 

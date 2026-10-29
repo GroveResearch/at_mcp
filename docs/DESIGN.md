@@ -44,7 +44,7 @@ When the account stops, its tasks stop with it.
 `AtMcp.Summary` describes each kind of record once. The network code builds
 results from those descriptions, and `AtMcp.MCP.Server` derives each tool's
 output schema from them. A test checks every result against its tool's
-schema.
+schema; a read's is checked when it is asked for json.
 
 A long-running service runs a single MCP listener for all its accounts. The
 stdio launcher runs a single account and starts no listener.
@@ -110,13 +110,22 @@ whether the account has capacity left.
 
 [tools.md](tools.md) lists every tool. `mix at_mcp.tools_doc` writes it from
 `AtMcp.MCP.Server`, and a test fails when the file falls out of date. Tool
-handlers call `AtMcp.Effects` and leave account rules to it. Every tool
-returns its result as structured content, checked against its output schema,
-plus a text block for the model.
+handlers call `AtMcp.Effects` and leave account rules to it.
+
+A read returns text for the model and nothing else, because hosts differ in
+which half of a result the model gets: Claude Code and Codex give it
+`structuredContent` when there is any, Gemini CLI and Imp give it `content`.
+A read declares no output schema, since a tool that declares one must return
+structured content. A program passes `"format": "json"`, or holds a grant
+whose default is json, and gets the summary as structured content and as
+JSON text (`AtMcp.MCP.Output`). A write returns its small summary both ways
+and declares its output schema. Tests check every structured result against
+its tool's schema, for reads asked for json as well as for writes.
 
 ### Text for the model
 
-For most tools, the text block is the result's JSON. For reads made of posts,
+For writes and for reads with no reading of their own, the text is the
+result's JSON. For reads made of posts,
 such as feeds, notifications, searches and threads, `AtMcp.Reading` writes
 readable text. Each post shows its author, time, parent post, text,
 attachments, counts and labels, plus the `uri` and `cid` the write tools take.

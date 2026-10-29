@@ -16,7 +16,8 @@ permissions:
 
 jobs:
   deps:
-    runs-on: ubuntu-latest
+    # check.yml's build runner: the key names it, and the cache is restored there.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -28,8 +29,9 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       # Pinned with check.yml's runtime.
       - if: steps.cache.outputs.cache-hit != 'true'
