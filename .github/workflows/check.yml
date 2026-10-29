@@ -9,9 +9,10 @@ name: check
 #                  merge queue, not the evidence that it works.
 #   merge queue    the whole suite, split across the suite jobs, with every
 #                  gate's environment, the documentation and Hex package
-#                  (package), and release (Linux), on the queued pull
-#                  requests merged onto main; nothing is published. test
-#                  passes only when build, every suite partition and package
+#                  (package), the round trips against the reference network
+#                  (e2e), and release (Linux), on the queued pull requests
+#                  merged onto main; nothing is published. test passes only
+#                  when build, every suite partition, package and e2e
 #                  passed. Nothing reaches main without passing everything
 #                  here, and main then moves to exactly the commit that
 #                  passed, so main is not tested again (cache.yml only keeps
@@ -19,8 +20,9 @@ name: check
 #   push a v* tag  release (Linux) and macos build the tagged commit as the
 #                  tag's version, then publish both tarballs only if both
 #                  passed, then the package goes to Hex only if that GitHub
-#                  release was published. build, suite, package and test do
-#                  not run: the commit already passed them in the merge queue.
+#                  release was published. build, suite, package, e2e and
+#                  test do not run: the commit already passed them in the
+#                  merge queue.
 #   on request     as in the merge queue, and macos; nothing is published
 #
 # Publishing is a deliberate act: CONTRIBUTING.md's "Publish a release"
@@ -365,14 +367,94 @@ jobs:
           mix deps.get
           mix test --only hosts test/at_mcp/hosts_test.exs
 
+  # The end-to-end round trips (test/e2e): every write tool against upstream's
+  # reference PDS and AppView, which scripts/e2e.sh runs on the runner beside
+  # Postgres and Redis. Not on a pull request: it needs the built atproto
+  # checkout, which cache.yml keeps for main (a cache saved here would belong
+  # to the queue's temporary branch), and a run that finds none builds it.
+  e2e:
+    if: github.event_name != 'pull_request' && github.ref_type != 'tag'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pg
+          POSTGRES_PASSWORD: password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pg" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_POSTGRES_URL: postgresql://pg:password@127.0.0.1:5432/postgres
+      REDIS_HOST: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned with build's runtime; see the reason there.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # The version atproto's package.json requires.
+      - run: npm install --global pnpm@11.11.0
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            deps
+            _build
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
+
+      # The built atproto checkout, keyed on the commit scripts/e2e.sh names;
+      # cache.yml's key is the same.
+      - id: atproto
+        run: echo "commit=$(grep -m1 '^ATPROTO_COMMIT=' scripts/e2e.sh | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: _build/e2e/atproto
+          key: e2e-atproto-${{ runner.os }}-ubuntu-22.04-${{ steps.atproto.outputs.commit }}
+
+      - run: mix deps.get
+
+      - run: rm -rf _build/*/lib/at_mcp
+
+      - name: The round trips
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/e2e.sh --warnings-as-errors 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+
+      # As in suite: every e2e test's environment is here, so a skip is a failure.
+      - name: No test may have skipped
+        shell: bash
+        run: |
+          summary=$(grep -E '^[0-9]+ tests?, [0-9]+ failures?' "$RUNNER_TEMP/e2e.log" | tail -n 1)
+          echo "summary: $summary"
+          test -n "$summary"
+          if echo "$summary" | grep -qE '[1-9][0-9]* skipped'; then exit 1; fi
+
   # The required check. Branch protection requires `test` (and `release`), so
   # this job carries that name and passes only when everything that ran for
-  # this event passed: build on a pull request; build, every suite partition
-  # and package everywhere else. A failed, cancelled or skipped job it
+  # this event passed: build on a pull request; build, every suite partition,
+  # package and e2e everywhere else. A failed, cancelled or skipped job it
   # expected fails it. It runs even when the run is cancelled (always()):
   # skipped, it would count as passing, and release may already have passed.
   test:
-    needs: [build, suite, package]
+    needs: [build, suite, package, e2e]
     if: ${{ always() && github.ref_type != 'tag' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -383,12 +465,14 @@ jobs:
           BUILD: ${{ needs.build.result }}
           SUITE: ${{ needs.suite.result }}
           PACKAGE: ${{ needs.package.result }}
+          E2E: ${{ needs.e2e.result }}
         run: |
-          echo "build: $BUILD, suite: $SUITE, package: $PACKAGE ($EVENT)"
+          echo "build: $BUILD, suite: $SUITE, package: $PACKAGE, e2e: $E2E ($EVENT)"
           test "$BUILD" = success
           if [ "$EVENT" != pull_request ]; then
             test "$SUITE" = success
             test "$PACKAGE" = success
+            test "$E2E" = success
           fi
 
   # The linux-x86_64 release, built the way it is published and run as

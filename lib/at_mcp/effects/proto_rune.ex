@@ -1468,7 +1468,7 @@ defmodule AtMcp.Effects.ProtoRune do
       status: upstream.status,
       message:
         "#{landed} of #{total} commits landed, deleting #{Enum.join(deleted, ", ")}. " <>
-          "#{rest}#{said}. Call again to delete what is left.",
+          "#{rest}#{said}.",
       detail: {:partially_written, deleted, upstream}
     )
   end
@@ -2361,6 +2361,128 @@ defmodule AtMcp.Effects.ProtoRune do
   def delete_post(session, post_uri) when is_binary(post_uri),
     do: delete(session, post_uri, :delete_post, :post)
 
+  # put_record and delete_record read the current record first, then send
+  # its CID as swapRecord. The server refuses the write if the record changed
+  # in between.
+  @impl true
+  def prepare_record_write(_session, {:put, collection, nil, record, nil}),
+    do: {:ok, %{op: :create, collection: collection, rkey: nil, record: record}}
+
+  def prepare_record_write(session, {:put, collection, rkey, record, cid}) do
+    with {:ok, current} <- current_record(session, collection, rkey),
+         :ok <- still_at(current, cid, session, collection, rkey) do
+      {:ok, %{op: :put, collection: collection, rkey: rkey, record: record, swap: current}}
+    end
+  end
+
+  def prepare_record_write(session, {:delete, collection, rkey, cid}) do
+    case current_record(session, collection, rkey) do
+      {:ok, nil} ->
+        {:ok,
+         {:unchanged,
+          %{
+            ok: true,
+            action: :delete_record,
+            uri: record_uri(session, collection, rkey),
+            unchanged: true
+          }}}
+
+      {:ok, current} ->
+        with :ok <- still_at(current, cid, session, collection, rkey),
+             do: {:ok, %{op: :delete, collection: collection, rkey: rkey, swap: current}}
+
+      error ->
+        error
+    end
+  end
+
+  @impl true
+  def write_record(session, %{op: :delete} = prepared) do
+    params = %{
+      repo: session.did,
+      collection: prepared.collection,
+      rkey: prepared.rkey,
+      swap_record: prepared.swap
+    }
+
+    case AtMcp.ATProto.delete_record(session, params) do
+      {:ok, _} ->
+        {:ok,
+         %{
+           ok: true,
+           action: :delete_record,
+           uri: record_uri(session, prepared.collection, prepared.rkey)
+         }}
+
+      error ->
+        record_write_error(error, session, prepared)
+    end
+  end
+
+  def write_record(session, prepared) do
+    case AtMcp.ATProto.write_record_as_given(session, prepared) do
+      {:ok, response} ->
+        {:ok,
+         %{
+           ok: true,
+           action: :put_record,
+           uri: string_value(response, :uri),
+           cid: string_value(response, :cid),
+           replaced: is_binary(prepared[:swap])
+         }}
+
+      error ->
+        record_write_error(error, session, prepared)
+    end
+  end
+
+  defp record_write_error({:error, %ProtoRune.XRPC.Error{reason: reason}}, session, prepared)
+       when reason in [:invalid_swap, "invalid_swap"],
+       do:
+         {:error,
+          changed_meanwhile(
+            "The record at #{record_uri(session, prepared.collection, prepared.rkey)}"
+          )}
+
+  defp record_write_error({:error, reason}, _session, _prepared), do: {:error, failure(reason)}
+
+  # The CID of the record at collection/rkey in this account's repository, or
+  # nil when there is none.
+  defp current_record(session, collection, rkey) do
+    case AtMcp.ATProto.get_record_as_stored(session, %{
+           repo: session.did,
+           collection: collection,
+           rkey: rkey
+         }) do
+      {:ok, %{"cid" => cid}} when is_binary(cid) ->
+        {:ok, cid}
+
+      {:ok, other} ->
+        {:error, unreadable("a record", other)}
+
+      {:error, :unreadable_record} ->
+        {:error, unreadable("a record", %{})}
+
+      {:error, reason} ->
+        uri = record_uri(session, collection, rkey)
+
+        case not_found_or_failure(reason, "record", uri) do
+          %AtMcp.Effects.Failure{detail: {:not_found, _, _}} -> {:ok, nil}
+          failure -> {:error, failure}
+        end
+    end
+  end
+
+  # If the caller passed a cid, the write goes ahead only when the current
+  # record still has that cid.
+  defp still_at(_current, nil, _session, _collection, _rkey), do: :ok
+  defp still_at(cid, cid, _session, _collection, _rkey), do: :ok
+
+  defp still_at(_current, _cid, session, collection, rkey),
+    do: {:error, changed_meanwhile("The record at #{record_uri(session, collection, rkey)}")}
+
+  defp record_uri(session, collection, rkey), do: "at://#{session.did}/#{collection}/#{rkey}"
+
   @impl true
   def get_own_profile(session) do
     if AtMcp.Network.name() == :delve do
@@ -2865,9 +2987,7 @@ defmodule AtMcp.Effects.ProtoRune do
   # read and the write, and the write did not happen.
   defp changed_meanwhile(what) do
     AtMcp.Effects.Failure.new(:refused,
-      message:
-        "#{what} changed between reading it and writing it, so nothing was written. " <>
-          "Read it again and retry if the change still applies.",
+      message: "#{what} changed between reading it and writing it, so nothing was written.",
       detail: {:changed_meanwhile, what}
     )
   end
@@ -4948,8 +5068,7 @@ defmodule AtMcp.Effects.ProtoRune do
         {:error,
          AtMcp.Effects.Failure.new(:refused,
            message:
-             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved. " <>
-               "Call save_draft without an id to keep the text as a new draft.",
+             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved.",
            detail: {:draft_gone, id}
          )}
 

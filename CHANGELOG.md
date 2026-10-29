@@ -18,6 +18,19 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
+- Every tool error ends with one sentence saying what the agent can do: try
+  again now, try again after a stated time, change a named argument, read the
+  account first, or not retry; when at_mcp can't classify a failure, it says
+  so. Where an error has structured content (a write, or a read asked for
+  json), it carries the same advice as `retry` (with `retry_after` when a
+  real time is known, or `argument` when one argument caused the error) and
+  the whole text as `message`. A read that timed out says whether its
+  request reached the service (`sent`).
 - A new README section, "Using an account from several clients", explains
   when to run `at_mcp-stdio` and when to run the service.
 - When a second `at_mcp-stdio` for the same account fails to start, its error
