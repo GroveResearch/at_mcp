@@ -135,9 +135,17 @@ defmodule AtMcp.MCP.DSL do
   # tool. A grant's scope never changes, so the list a session sees does not
   # either, and no `notifications/tools/list_changed` is owed.
   @doc false
-  def offered(tools, %{scope: scope}) when not is_nil(scope),
-    do: Enum.filter(tools, &AtMcp.Grants.permits_scope?(scope, &1.name))
+  #
+  # A session is also offered only what its network serves
+  # (`AtMcp.MCP.Served`). Reading the surface without a session's state (the
+  # bare `:state` `AtMcp.Grants` and the tool surface test pass) sees it all.
+  def offered(tools, %{scope: scope} = state) when not is_nil(scope),
+    do:
+      tools
+      |> Enum.filter(&AtMcp.Grants.permits_scope?(scope, &1.name))
+      |> offered(Map.delete(state, :scope))
 
+  def offered(tools, state) when is_map(state), do: AtMcp.MCP.Served.offered(tools)
   def offered(tools, _state), do: tools
 
   defp compile_schemas(schemas) do
