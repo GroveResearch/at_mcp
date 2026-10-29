@@ -14,6 +14,10 @@ itself.
   `retry_after` when a real time is known, or `argument` when one argument
   caused the error) and the whole text as `message`. A read that timed out says whether its request reached the
   service (`sent`).
+- `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
+  replies, mentions and quotes, waits for a quiet period so a burst becomes
+  one wake, and runs a command with a summary of what arrived
+  ([delivery.md](docs/delivery.md#wake-an-agent)).
 
 ## 0.2.18
 
