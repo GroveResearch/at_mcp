@@ -12,6 +12,10 @@ itself.
   `get_trends` and `feed_feedback`, because Delvetown's servers do not answer
   them. If an agent calls one anyway, at_mcp refuses the call before sending
   anything.
+- `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
+  replies, mentions and quotes, waits for a quiet period so a burst becomes
+  one wake, and runs a command with a summary of what arrived
+  ([delivery.md](docs/delivery.md#wake-an-agent)).
 
 ## 0.2.18
 
