@@ -87,6 +87,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       moderation: info["moderation"],
       feed: info["feed"],
       me: account.(info["accounts"]["self"]),
+      me_credentials: info["accounts"]["self"],
       them: account.(info["accounts"]["other"]),
       session: session
     }
@@ -106,10 +107,21 @@ defmodule AtMcp.E2E.RoundTripTest do
     result.structuredContent
   end
 
+  # A read asks for json, so its result carries the summary these tests
+  # compare; a write's result is the same either way. `reading/3` is the text
+  # a model gets by default.
   defp call(account, name, arguments) do
-    state = %{effects: account.effects}
+    state = %{effects: account.effects, format: "json"}
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
+  end
+
+  # A read as a model reads it: the text of a call in text, the default.
+  defp reading(account, name, arguments) do
+    result = call(account, name, Map.put(arguments, "format", "text"))
+    refute result[:isError], "#{name}: #{hd(result.content).text}"
+    refute Map.has_key?(result, :structuredContent)
+    hd(result.content).text
   end
 
   defp sync(net), do: assert(:ok = DevNetwork.sync(net))
@@ -666,9 +678,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
 
       # Read back by the link too: the text names the link beside the uri.
-      read = call(me, "get_posts", %{"uris" => [link]})
-      refute read[:isError]
-      text = hd(read.content).text
+      text = reading(me, "get_posts", %{"uris" => [link]})
       assert text =~ "uri: #{uri}"
       assert text =~ "\nlink: #{link}"
       assert text =~ "You liked this: #{like["uri"]}"
@@ -1296,7 +1306,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       fields = ~w(uri cid text reply_to indexed_at author author_did created_at like_count)
       assert Map.take(whole, fields) == Map.take(read, fields)
 
-      text = hd(result.content).text
+      text = reading(me, "get_notifications", %{"grouped" => true})
       assert text =~ "\nThe post: "
       assert text =~ "\n> a whole reply\n"
       assert text =~ "cid: #{reply["cid"]}"
@@ -1456,7 +1466,6 @@ defmodule AtMcp.E2E.RoundTripTest do
     test "reads mark what the app would hide or cover: a muted word, a thread's reply, and a label as the account's own setting for it says",
          %{net: net, me: me, them: them, moderation: moderation, session: session} do
       {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
-      text = fn result -> hd(result.content).text end
 
       # A muted word: the post is marked, and all of it is still there.
       call!(me, "mute_word", %{"value" => "kumquat"})
@@ -1472,8 +1481,9 @@ defmodule AtMcp.E2E.RoundTripTest do
              } =
                post["moderation"]
 
-      assert text.(read) =~ "Hidden by the app: matches your muted word \"kumquat\""
-      assert text.(read) =~ "I love kumquat pie"
+      text = reading(me, "get_posts", %{"uris" => [muted["uri"]]})
+      assert text =~ "Hidden by the app: matches your muted word \"kumquat\""
+      assert text =~ "I love kumquat pie"
 
       # On the author's own profile the app leaves none of their posts out.
       feed = call!(me, "get_author_feed", %{"actor" => them.did})["items"]
@@ -1497,7 +1507,9 @@ defmodule AtMcp.E2E.RoundTripTest do
                moved["moderation"]
 
       refute Map.has_key?(kept, "moderation")
-      assert text.(thread) =~ ~s(Under "Show more replies" in the app)
+
+      assert reading(me, "get_thread", %{"uri" => root["uri"]}) =~
+               ~s(Under "Show more replies" in the app)
 
       # The account's own posts are never matched.
       own = post!(me, "kumquat season")
@@ -1529,8 +1541,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       handle = cause["labeler_handle"]
       assert is_binary(handle)
 
-      read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
-      assert text.(read) =~ "Hidden by the app: labeled spam (\"Spam\") by #{handle}"
+      assert reading(me, "get_posts", %{"uris" => [labelled["uri"]]}) =~
+               "Hidden by the app: labeled spam (\"Spam\") by #{handle}"
 
       call!(me, "set_label_visibility", %{
         "label" => "spam",
@@ -1541,8 +1553,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert %{"causes" => [%{"effect" => "cover", "setting" => "warn"}]} =
                only_post(me, labelled["uri"])["moderation"]
 
-      read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
-      assert text.(read) =~ "Behind a warning in the app: labeled spam (\"Spam\") by #{handle}"
+      assert reading(me, "get_posts", %{"uris" => [labelled["uri"]]}) =~
+               "Behind a warning in the app: labeled spam (\"Spam\") by #{handle}"
 
       call!(me, "set_label_visibility", %{
         "label" => "spam",
@@ -1804,6 +1816,97 @@ defmodule AtMcp.E2E.RoundTripTest do
     end
   end
 
+  describe "records of other applications" do
+    @issue "sh.tangled.repo.issue"
+
+    test "put_record creates and replaces a record of a collection the PDS does not know, get_record reads it back, and delete_record deletes it",
+         %{me: me} do
+      created =
+        call!(me, "put_record", %{
+          "collection" => @issue,
+          "record" => %{
+            "repo" => "at://#{me.did}/sh.tangled.repo/3k22222222222",
+            "title" => "first",
+            "body_text" => "keys stay as written",
+            "createdAt" => "2026-10-29T00:00:00Z"
+          }
+        })
+
+      assert %{"action" => "put_record", "uri" => uri, "cid" => cid, "replaced" => false} =
+               created
+
+      assert ["at:", "", did, @issue, rkey] = String.split(uri, "/")
+      assert did == me.did
+
+      read = call!(me, "get_record", %{"uri" => uri})
+      assert read["cid"] == cid
+
+      assert %{"$type" => @issue, "title" => "first", "body_text" => "keys stay as written"} =
+               read["value"]
+
+      replaced =
+        call!(me, "put_record", %{
+          "collection" => @issue,
+          "rkey" => rkey,
+          "cid" => cid,
+          "record" => Map.put(read["value"], "title", "second")
+        })
+
+      assert %{"uri" => ^uri, "replaced" => true, "cid" => new_cid} = replaced
+      assert new_cid != cid
+      assert %{"title" => "second"} = record(me, uri)
+
+      # The version first read is gone: a write naming it changes nothing.
+      for {name, args} <- [
+            {"put_record", %{"rkey" => rkey, "cid" => cid, "record" => %{"title" => "stale"}}},
+            {"delete_record", %{"rkey" => rkey, "cid" => cid}}
+          ] do
+        assert %{"code" => "changed_meanwhile"} =
+                 stringify(refused(me, name, Map.put(args, "collection", @issue)))
+      end
+
+      assert %{"title" => "second"} = record(me, uri)
+
+      assert %{"action" => "delete_record", "uri" => ^uri} =
+               call!(me, "delete_record", %{"collection" => @issue, "rkey" => rkey})
+
+      assert record(me, uri) == nil
+
+      assert %{"unchanged" => true} =
+               call!(me, "delete_record", %{"collection" => @issue, "rkey" => rkey})
+    end
+
+    test "each put_record and delete_record counts against the write quota, and one past it is refused before it is sent",
+         %{me: me, me_credentials: credentials, pds: pds} do
+      effects =
+        start_supervised!(
+          {AtMcp.Effects,
+           backend: AtMcp.Effects.ProtoRune,
+           handle: credentials["handle"],
+           password: credentials["password"],
+           service: pds,
+           write_quota: AtMcp.Test.QuotaFixture.quota(2)},
+          id: make_ref()
+        )
+
+      limited = %{me | effects: effects}
+      rkey = AtMcp.ATProto.tid()
+      uri = "at://#{me.did}/#{@issue}/#{rkey}"
+      put = %{"collection" => @issue, "rkey" => rkey, "record" => %{"title" => "counted"}}
+
+      call!(limited, "put_record", put)
+      assert AtMcp.Effects.quota_status(effects).used == 1
+      call!(limited, "delete_record", Map.delete(put, "record"))
+      assert AtMcp.Effects.quota_status(effects).used == 2
+
+      assert %{"code" => "write_quota_exhausted"} =
+               stringify(refused(limited, "put_record", put))
+
+      assert record(me, uri) == nil
+      assert AtMcp.Effects.quota_status(effects).used == 2
+    end
+  end
+
   describe "what this account sees" do
     test "bookmark and pin_post read back as this account's on the post; a mention reads with the DID it links to",
          %{net: net, me: me, them: them, session: session, pds: pds} do
@@ -1826,9 +1929,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
 
       read = fn ->
-        result = call(me, "get_posts", %{"uris" => [mine["uri"], quote["uri"]]})
-        refute result[:isError]
-        {result.structuredContent["items"], hd(result.content).text}
+        uris = %{"uris" => [mine["uri"], quote["uri"]]}
+        {call!(me, "get_posts", uris)["items"], reading(me, "get_posts", uris)}
       end
 
       {[p, q], text} = read.()

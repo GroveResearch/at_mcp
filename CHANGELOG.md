@@ -21,6 +21,11 @@ This release is 0.3.0: what read tools return has changed.
 - When `reply` is called without `langs`, at_mcp copies the parent post's
   language tags into the reply. If the parent has no tags, the reply has
   none.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
 - Every tool error ends with one sentence saying what the agent can do: try
   again now, try again after a stated time, change a named argument, read the
   account first, or not retry; when at_mcp can't classify a failure, it says

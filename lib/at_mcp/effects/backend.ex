@@ -362,6 +362,24 @@ defmodule AtMcp.Effects.Backend do
   @callback mute(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback unmute(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback delete_post(state(), post_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Reads the record a `put_record` or `delete_record` call would replace or
+  delete, before the write quota is charged. The request is one of:
+
+  - `{:put, collection, rkey, record, cid}`, with `rkey` nil for a new record
+  - `{:delete, collection, rkey, cid}`
+
+  When `cid` is not nil and the current record has a different CID, the
+  answer is a `changed_meanwhile` refusal. A delete with no record at the key
+  answers `{:ok, {:unchanged, summary}}`. Otherwise the answer is what
+  `write_record/2` sends.
+  """
+  @callback prepare_record_write(state(), request :: tuple()) ::
+              {:ok, term()} | {:error, reason()}
+
+  @doc "Send what `prepare_record_write/2` prepared, written only over the version it read."
+  @callback write_record(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
   @callback update_profile(state(), updates :: keyword()) :: {:ok, summary()} | {:error, reason()}
   @callback update_seen(state(), seen_at :: DateTime.t()) :: {:ok, summary()} | {:error, reason()}
 

@@ -750,6 +750,39 @@ defmodule AtMcp.ATProto do
     do: procedure(session, "com.atproto.repo.putRecord", @repo_put, params)
 
   @doc """
+  Create a record of another application's (`op: :create`, the service picks
+  the key), or put one at `rkey` over the version `swap` (`op: :put`; a nil
+  swap is sent as null: there must be no record yet). The record is sent
+  byte-for-byte: `procedure/4` passes a body through proto_rune's camelizer,
+  which would rename any snake_case key the record's own lexicon declares.
+  """
+  def write_record_as_given(session, %{op: op, collection: collection, record: record} = write) do
+    {method, body} =
+      case op do
+        :create ->
+          {"com.atproto.repo.createRecord",
+           %{repo: session.did, collection: collection, record: record}}
+
+        :put ->
+          {"com.atproto.repo.putRecord",
+           %{
+             repo: session.did,
+             collection: collection,
+             rkey: write.rkey,
+             record: record,
+             swapRecord: write.swap
+           }}
+      end
+
+    proc =
+      Procedure.new(method, base_url: base_url(session))
+      |> Procedure.put_raw_body(Jason.encode!(body))
+      |> Procedure.put_header("content-type", "application/json")
+
+    execute(session, proc, "POST")
+  end
+
+  @doc """
   Create, update and delete several records in one commit: all of them land,
   or none does. `writes` are `{:create | :update, collection, rkey, record}`
   and `{:delete, collection, rkey}`.
