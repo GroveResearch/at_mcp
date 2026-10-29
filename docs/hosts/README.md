@@ -8,7 +8,7 @@ something outside can wake the agent, so each has a page:
 
 - [Claude Code](claude-code.md)
 - [Codex](codex.md)
-- [Imp and Dwell](imp.md)
+- [Imp](imp.md)
 - [A plain script](script.md)
 
 Each page assumes at_mcp is installed and has an account, as the
@@ -31,7 +31,7 @@ section says which to choose.
 
 ## What the model receives
 
-From 0.3.0, every read tool answers with text written for a model: who
+Every read tool answers with text written for a model: who
 wrote each post, when, what it says (each line of someone else's words
 after `> `), and the identifiers the write tools take. A write answers with
 a short JSON summary of what it did. All of these hosts give the model the

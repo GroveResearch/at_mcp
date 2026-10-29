@@ -10,9 +10,10 @@ defmodule AtMcp.MCP.ToolSet do
     * `AT_MCP_TOOLS=full`, which covers `at_mcp-stdio` and every grant of a
       service that stores no set of its own.
 
-  The default set holds the 40 tools Delvetown's residents are given (dwell's
-  `templates/model-resident.toml`, as of October 2026), plus `get_record`,
-  `put_record` and `delete_record` for other applications' records.
+  The default set holds the tools an agent on a social network uses most:
+  reading, posting and replying, and choosing whom it follows, blocks and
+  mutes. It adds `get_record`, `put_record` and `delete_record` for other
+  applications' records.
 
   `tools/call` accepts every published tool, listed or not, so a program that
   calls a tool by name works under either set

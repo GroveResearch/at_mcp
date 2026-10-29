@@ -43,8 +43,9 @@ When the account stops, its tasks stop with it.
 
 `AtMcp.Summary` describes each kind of record once. The network code builds
 results from those descriptions, and `AtMcp.MCP.Server` derives each tool's
-output schema from them. A test checks every result against its tool's
-schema; a read's is checked when it is asked for json.
+output schema from them. `AtMcp.MCP.Output` checks every structured result
+against its tool's schema, and a check that fails or times out is logged
+without changing the result.
 
 A long-running service runs a single MCP listener for all its accounts. The
 stdio launcher runs a single account and starts no listener.
@@ -115,12 +116,21 @@ handlers call `AtMcp.Effects` and leave account rules to it.
 A read returns text for the model and nothing else, because hosts differ in
 which half of a result the model gets: Claude Code and Codex give it
 `structuredContent` when there is any, Gemini CLI and Imp give it `content`.
-A read declares no output schema, since a tool that declares one must return
-structured content. A program passes `"format": "json"`, or holds a grant
-whose default is json, and gets the summary as structured content and as
-JSON text (`AtMcp.MCP.Output`). A write returns its small summary both ways
-and declares its output schema. Tests check every structured result against
-its tool's schema, for reads asked for json as well as for writes.
+A program passes `"format": "json"`, or holds a grant whose default is json,
+and gets the summary as structured content and as JSON text
+(`AtMcp.MCP.Output`). A write returns its small summary both ways.
+
+`tools/list` lists no output schemas. A tool that lists one must return
+structured content, which a read does not, and the write schemas were most of
+the list's size while each write returns a few fields. The schemas stay in
+`AtMcp.MCP.Server` for the checks above.
+
+A session is offered a default set of 43 tools (`AtMcp.MCP.ToolSet`), since
+many hosts put every listed tool's definition in the model's context. A grant
+issued with `--tools full`, or `AT_MCP_TOOLS=full`, lists every tool, and
+`tools/call` accepts every published tool either way. `AtMcp.MCP.Served`
+leaves out the tools and arguments the session's network does not serve, so
+the model is offered only calls its network answers.
 
 ### Text for the model
 
@@ -156,6 +166,22 @@ response. A quote inside a quote appears as its AT URI. Feed reads leave
 pictures out to keep results small, and `get_post_images` fetches a single
 post's pictures as MCP image content.
 
+A page of posts reads in at most 40,000 characters, since Claude Code moves a
+longer result into a file the model never sees. A page that would be longer
+is asked for again with fewer posts, so its cursor is the service's own and
+starts with the first post left out. When the service's shorter answer does
+not start the same way as the first, as a custom feed's generator that
+ignores `limit` gives, the first page is returned whole and says it is long.
+`detail: "brief"` reads each post on one line. A page asked for as JSON keeps
+every post up to its `limit`.
+
+`AtMcp.ReadPositions` keeps how far each account has read in its timeline,
+list feeds, author feeds and notifications, so `since: "last_read"` returns
+only what is newer. A position moves only on a read that asks it to, and
+only once the read has reached the old position, so a page cut short never
+passes over posts the agent has not seen. Custom feeds have none: their
+generators order posts as they choose.
+
 Every post, account, list, feed and starter pack carries `web_url`, the link a
 person would share, built as the app builds it. Every tool taking an AT URI,
 handle or DID also takes such a link, and reports its resolution of the link.
@@ -182,8 +208,11 @@ from before them with `swapCommit`. If the check fails, at_mcp writes nothing
 and reports `changed_meanwhile`. An edit changing nothing writes nothing and
 reports `unchanged`.
 
-`post` writes the post and its reply and quote rules in a single commit. The
-agent supplies a link card's title and description. at_mcp adds `langs` only
+`post` writes the post and its reply and quote rules in a single commit. A
+link card given only its URL, or the first link in a post with no other
+embed, is looked up as the app does, from the network's card service
+(`AtMcp.LinkCards`; Bluesky's `cardyb`, none on Delvetown). A title or
+description the agent writes is used as written. at_mcp adds `langs` only
 when the agent gives a language.
 
 A tool taking the account's own post or list refuses another account's before
@@ -205,10 +234,14 @@ files only from the folder in `AT_MCP_MEDIA_DIR`.
 
 ### Threads
 
-`get_thread` shows the area around a post: two levels of parents and two of
-replies, nested, with counts of anything left out. `get_thread_chain` shows
-the conversation leading to a post: every ancestor from the root down, flat
-and in order, plus the direct replies.
+`get_thread` reads a thread as the app does, with `getPostThreadV2`: every
+parent, then the replies nested and sorted by the account's thread settings
+(10 levels with one reply under each in the app's linear view, 4 levels with
+10 in its tree view). `depth` and `breadth` read more or less. Its text, like
+a page's, ends after the direct replies that fit in 40,000 characters and
+counts the rest. `get_thread_chain` shows the conversation leading to a
+post: every ancestor from the root down, flat and in order, plus the direct
+replies.
 
 For a long chain, `get_thread_chain` returns the posts closest to the
 requested one and counts the rest in `chain_omitted`. It gives the address to
@@ -235,8 +268,8 @@ session, so the agent needs a way to check both.
 Each account has a durable quota on posts, replies, reposts, and every
 `put_record` or `delete_record` call: 16 attempts per hour by default, shared
 by every client of the account and kept across restarts. The default guards
-against an agent posting faster than a person would notice and stop it. The figure comes from an earlier per-turn limit,
-kept when the limit moved to the hour, and nobody has measured a better one.
+against an agent posting faster than a person would notice and stop it. No
+one has measured a better figure than 16.
 `AtMcp.WriteQuota` explains the reasoning. Each account on a service can have
 its own limit.
 
