@@ -7,6 +7,11 @@ itself.
 
 ## Unreleased
 
+- On Delvetown, `tools/list` no longer offers what the town does not serve:
+  `get_notifications`'s `grouped`, `update_profile`'s `links`, `get_trends`
+  and `feed_feedback`. A call that names one is still refused as before,
+  with nothing sent.
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write
