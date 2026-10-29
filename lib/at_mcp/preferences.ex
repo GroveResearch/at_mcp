@@ -23,7 +23,8 @@ defmodule AtMcp.Preferences do
       and `tree_view` (`lab_treeViewEnabled`).
     * `interaction_defaults`: who may reply to and quote a new post
       (`postInteractionSettingsPref`), in the words `post` takes. The app's
-      composer starts each new post from them; `post` does not read them.
+      composer starts each new post from them, and so do `post` and `reply`
+      for a rule they are not given.
     * `adult_content`: `enabled` (`adultContentPref`). The app shows adult
       content only to an account whose declared age is 18 or over, and not in
       regions that require age assurance; `enabled: true` is refused for an

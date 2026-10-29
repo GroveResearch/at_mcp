@@ -59,6 +59,9 @@ const pds=http.createServer(async(req,res)=>{try {
   if(mode==='issue-redirect') {res.writeHead(307,{location:`http://127.0.0.1:${app.address().port}/leak`});return res.end();}
   return send(res,200,{token:jwt({iss:did,aud:mode==='wrong-aud'?'did:web:other.test':aud,lxm:mode==='wrong-method'?'town.delve.actor.getProfile':u.searchParams.get('lxm'),exp:mode==='expired'?1:exp})});
  }
+ // Preferences are read through the PDS, not the direct route. No saved
+ // settings for new posts: a post leaving its rules out is open.
+ if(u.pathname.endsWith('town.delve.actor.getPreferences')) return send(res,200,{preferences:[]});
  if(u.pathname.includes('/town.delve.')) {proxyCalls++;return send(res,501,{error:'NotImplemented'});}
  if(u.pathname.endsWith('createRecord')) {
   let text='';for await(const part of req) text+=part;

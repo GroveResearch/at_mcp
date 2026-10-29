@@ -27,6 +27,10 @@ defmodule AtMcp.ImagePostTest do
 
           "/xrpc/com.atproto.repo.createRecord" ->
             %{uri: "at://#{opts[:did]}/app.bsky.feed.post/1", cid: "bafyrecord"}
+
+          # No saved settings for new posts: a post leaving its rules out is open.
+          "/xrpc/app.bsky.actor.getPreferences" ->
+            %{preferences: []}
         end
 
       conn

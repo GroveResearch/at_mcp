@@ -208,9 +208,10 @@ defmodule AtMcp.Interactions do
   def post_options(verb, opts) do
     with :ok <- no_reply_rule(verb, Keyword.get(opts, :reply_rule)),
          :ok <- facets(Keyword.get(opts, :facets)),
+         # `:everyone` and `:allowed` are kept: said, they stand in for the
+         # account's saved interaction settings, which a rule left out takes
+         # (`AtMcp.Effects.ProtoRune.prepare_post/3`).
          {:ok, reply_rule} <- reply_rule(Keyword.get(opts, :reply_rule)),
-         # A new post with no gate is open to everyone already.
-         reply_rule = if(reply_rule == :everyone, do: nil, else: reply_rule),
          {:ok, quotes} <- quotes(Keyword.get(opts, :quotes)),
          {:ok, labels} <- labels(Keyword.get(opts, :labels)),
          {:ok, link} <- link(Keyword.get(opts, :link)),

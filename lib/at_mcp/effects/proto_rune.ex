@@ -1797,6 +1797,7 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def prepare_post(session, text, opts) do
     with :ok <- validate_post_languages(opts),
+         {:ok, opts} <- saved_interactions(session, opts),
          {rich_text, unresolved} = rich_text(text, session, Keyword.get(opts, :facets)),
          {:ok, opts} <- resolve_references(session, opts),
          {:ok, opts} <- resolve_reply_lists(session, opts),
@@ -1823,7 +1824,8 @@ defmodule AtMcp.Effects.ProtoRune do
          reply: Keyword.get(opts, :reply),
          declared_root: get_in(opts, [:reply_ref, :declared_root]),
          rkey: rkey,
-         gates: gates
+         gates: gates,
+         saved: Keyword.get(opts, :saved_interactions, [])
        }}
     else
       {:error, {:referenced_record_unreadable, _uri, _cause}} = error -> error
@@ -1909,6 +1911,12 @@ defmodule AtMcp.Effects.ProtoRune do
 
         summary =
           if prepared.reply, do: Map.put(summary, :reply_to, prepared.reply), else: summary
+
+        summary =
+          case Map.get(prepared, :saved, []) do
+            [] -> summary
+            saved -> Map.put(summary, :from_saved_settings, Enum.map(saved, &Atom.to_string/1))
+          end
 
         {:ok,
          summary
@@ -4473,19 +4481,89 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # --- a post's gates ---
 
+  # Who may reply to and quote a post, when the call leaves a rule out, is
+  # what the account saved for new posts (`postInteractionSettingsPref`, the
+  # preference `interaction_defaults`), as the app's composer starts each post
+  # from it (social-app 62b95002, `createComposerState`). A reply takes the
+  # saved quote rule; its thread's reply rule belongs to the thread's first
+  # post, so it takes none. A rule given, `everyone` and `allowed` included,
+  # wins. Settings that cannot be read leave the post unsent rather than open
+  # to everyone: the account chose them. `:saved_interactions` names the
+  # rules taken from them that wrote a gate.
+  defp saved_interactions(session, opts) do
+    reply? = Keyword.has_key?(opts, :reply)
+    want_rule? = not reply? and not Keyword.has_key?(opts, :reply_rule)
+    want_quotes? = not Keyword.has_key?(opts, :quotes)
+
+    if want_rule? or want_quotes? do
+      with {:ok, preferences} <- saved_preferences(session),
+           saved = AtMcp.Preferences.kind_view(preferences, "interaction_defaults"),
+           {:ok, rule} <- saved_rule(saved.reply_rule),
+           {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
+        taken =
+          if(want_rule? and rule != :everyone, do: [reply_rule: rule], else: []) ++
+            if(want_quotes? and quotes == :disabled, do: [quotes: quotes], else: [])
+
+        {:ok,
+         opts
+         |> Keyword.merge(taken)
+         |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
+      end
+    else
+      {:ok, opts}
+    end
+  end
+
+  defp saved_preferences(session) do
+    case AtMcp.ATProto.preferences_as_stored(session) do
+      {:ok, preferences} when is_list(preferences) ->
+        {:ok, preferences}
+
+      {:ok, _other} ->
+        {:error, unreadable("the account's saved interaction settings", %{})}
+
+      {:error, reason} ->
+        {:error,
+         AtMcp.Effects.Failure.new(failure(reason).kind,
+           status: failure(reason).status,
+           message:
+             "The account's saved settings for who may reply to and quote a new post could not be read, so the post was not sent: without them it would be open to everyone. To post without them, pass reply_rule and quotes.",
+           detail: :saved_interactions
+         )}
+    end
+  end
+
+  # A saved rule at_mcp cannot read is not taken as everyone.
+  defp saved_rule(words) do
+    case AtMcp.Interactions.reply_rule(words) do
+      {:ok, rule} ->
+        {:ok, rule}
+
+      {:error, _} ->
+        {:error,
+         AtMcp.Effects.Failure.new(:refused,
+           message:
+             "The account's saved reply setting has a rule at_mcp cannot read (#{Enum.join(words, ", ")}), so the post was not sent. Pass reply_rule to choose who may reply.",
+           detail: :saved_interactions
+         )}
+    end
+  end
+
   # The gates a new post is written with, and the record key they share with
   # it. A post with none is written as before, under a key the PDS picks.
+  # `everyone` and `allowed` are the open defaults and write no gate.
   defp post_gates(session, record, opts) do
     quotes = Keyword.get(opts, :quotes)
+    reply_rule = Keyword.get(opts, :reply_rule, :everyone)
 
-    if Keyword.has_key?(opts, :reply_rule) or quotes == :disabled do
+    if reply_rule != :everyone or quotes == :disabled do
       rkey = AtMcp.ATProto.tid()
       uri = "at://#{session.did}/#{AtMcp.Network.collection(:post)}/#{rkey}"
       created = %{"createdAt" => record["createdAt"]}
 
       gates =
         [
-          if(Keyword.has_key?(opts, :reply_rule),
+          if(reply_rule != :everyone,
             do:
               {:threadgate,
                AtMcp.ATProto.threadgate_record(

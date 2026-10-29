@@ -213,8 +213,9 @@ defmodule AtMcp.PostGatesTest do
       :ok
     end
 
-    defp pds(records \\ %{}, answers \\ %{}) do
-      {session, pds} = FakePDS.start(records: records, answers: answers)
+    defp pds(records \\ %{}, answers \\ %{}, preferences \\ []) do
+      {session, pds} =
+        FakePDS.start(records: records, answers: answers, preferences: preferences)
 
       effects =
         start_supervised!(
@@ -387,6 +388,109 @@ defmodule AtMcp.PostGatesTest do
       assert result.structuredContent.code == "changed_meanwhile"
       assert hd(result.content).text =~ "nothing was written"
       assert FakePDS.record(pds, @postgate) == nil
+    end
+
+    # What the app saved as the account's settings for new posts: only
+    # people it follows may reply, and nobody may quote.
+    @saved [
+      %{
+        "$type" => "app.bsky.actor.defs#postInteractionSettingsPref",
+        "threadgateAllowRules" => [%{"$type" => "app.bsky.feed.threadgate#followingRule"}],
+        "postgateEmbeddingRules" => [%{"$type" => "app.bsky.feed.postgate#disableRule"}]
+      }
+    ]
+
+    test "a post that leaves its rules out takes the account's saved ones, as the app does" do
+      %{effects: effects, pds: pds} = pds(%{}, %{}, @saved)
+      assert {:ok, result} = AtMcp.Effects.post(effects, "as saved")
+
+      assert [_post, threadgate, postgate] = applied(pds)
+
+      assert threadgate["value"]["allow"] == [
+               %{"$type" => "app.bsky.feed.threadgate#followingRule"}
+             ]
+
+      assert postgate["value"]["embeddingRules"] == [
+               %{"$type" => "app.bsky.feed.postgate#disableRule"}
+             ]
+
+      valid!(threadgate["value"], "app.bsky.feed.threadgate")
+      valid!(postgate["value"], "app.bsky.feed.postgate")
+      assert result.from_saved_settings == ["reply_rule", "quotes"]
+      assert AtMcp.Effects.quota_status(effects).used == 1
+
+      # Through the tool, the result says so within its declared schema.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          result = call(%{effects: effects}, "post", %{"text" => "as saved, by tool"})
+          refute result[:isError], hd(result.content).text
+          assert result.structuredContent["from_saved_settings"] == ["reply_rule", "quotes"]
+        end)
+
+      refute log =~ "unvalidated"
+    end
+
+    test "a rule given wins over the saved one, everyone and allowed included" do
+      %{effects: effects, pds: pds} = pds(%{}, %{}, @saved)
+
+      assert {:ok, result} =
+               AtMcp.Effects.post(effects, "open", reply_rule: ["everyone"], quotes: "allowed")
+
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+      assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+      refute Map.has_key?(result, :threadgate_uri)
+      refute Map.has_key?(result, :from_saved_settings)
+
+      # One rule given, the other taken from what was saved.
+      %{effects: effects, pds: pds} = pds(%{}, %{}, @saved)
+      assert {:ok, result} = AtMcp.Effects.post(effects, "quotable", quotes: "allowed")
+      assert [_post, threadgate] = applied(pds)
+      assert threadgate["collection"] == "app.bsky.feed.threadgate"
+      assert result.from_saved_settings == ["reply_rule"]
+    end
+
+    test "a reply takes the saved quote rule and no reply rule" do
+      parent = "at://did:plc:other/app.bsky.feed.post/3kparent22222"
+      %{effects: effects, pds: pds} = pds(%{parent => post("theirs")}, %{}, @saved)
+
+      assert {:ok, result} = AtMcp.Effects.reply(effects, parent, "a reply")
+      assert [_reply, postgate] = applied(pds)
+      assert postgate["collection"] == "app.bsky.feed.postgate"
+      assert result.from_saved_settings == ["quotes"]
+      refute Map.has_key?(result, :threadgate_uri)
+    end
+
+    test "saved settings that cannot be read leave the post unsent and uncounted" do
+      unreadable = %{
+        "app.bsky.actor.getPreferences" => {500, %{error: "InternalServerError", message: "down"}}
+      }
+
+      unknown = [
+        %{
+          "$type" => "app.bsky.actor.defs#postInteractionSettingsPref",
+          "threadgateAllowRules" => [%{"$type" => "app.bsky.feed.threadgate#somedayRule"}]
+        }
+      ]
+
+      for {answers, preferences, says} <- [
+            {unreadable, [], "could not be read"},
+            {%{}, unknown, "app.bsky.feed.threadgate#somedayRule"}
+          ] do
+        %{effects: effects, pds: pds} = pds(%{}, answers, preferences)
+
+        assert {:error, %AtMcp.Effects.Failure{message: message}} =
+                 AtMcp.Effects.post(effects, "x")
+
+        assert message =~ says
+        assert message =~ "reply_rule"
+        assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+        assert FakePDS.sent(pds, "com.atproto.repo.createRecord") == []
+        assert AtMcp.Effects.quota_status(effects).used == 0
+
+        # Given both rules, the post needs nothing saved and is sent.
+        assert {:ok, _} =
+                 AtMcp.Effects.post(effects, "x", reply_rule: ["everyone"], quotes: "allowed")
+      end
     end
 
     test "a post without gates is written as before, and quotes allowed writes no postgate" do

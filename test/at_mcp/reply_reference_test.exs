@@ -89,6 +89,8 @@ defmodule AtMcp.ReplyReferenceTest do
     defp response("com.atproto.repo.createRecord", _conn),
       do: {200, %{uri: "at://did:plc:self/app.bsky.feed.post/new", cid: "bafyreinew"}}
 
+    # No saved settings for new posts: a post leaving its rules out is open.
+    defp response("app.bsky.actor.getPreferences", _conn), do: {200, %{preferences: []}}
     defp response(_method, _conn), do: {200, %{}}
   end
 

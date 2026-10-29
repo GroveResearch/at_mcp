@@ -1445,10 +1445,18 @@ defmodule AtMcp.MCP.Server do
     param(
       :reply_rule,
       {:array, :string},
-      AtMcp.MCP.Schemas.reply_rule("Omit for everyone.")
+      AtMcp.MCP.Schemas.reply_rule(
+        "Omit to use the account's saved setting for new posts (get_preferences interaction_defaults), which is everyone unless the account changed it."
+      )
     )
 
-    param(:quotes, :string, AtMcp.MCP.Schemas.quotes("Omit for anyone."))
+    param(
+      :quotes,
+      :string,
+      AtMcp.MCP.Schemas.quotes(
+        "Omit to use the account's saved setting for new posts (get_preferences interaction_defaults), which is allowed unless the account changed it."
+      )
+    )
 
     run(fn a, state ->
       e = state.effects
@@ -1505,7 +1513,14 @@ defmodule AtMcp.MCP.Server do
 
     param(:link, :object, AtMcp.MCP.Schemas.link())
     param(:labels, {:array, :string}, AtMcp.MCP.Schemas.self_labels())
-    param(:quotes, :string, AtMcp.MCP.Schemas.quotes("Omit for anyone."))
+
+    param(
+      :quotes,
+      :string,
+      AtMcp.MCP.Schemas.quotes(
+        "Omit to use the account's saved setting for new posts (get_preferences interaction_defaults), which is allowed unless the account changed it."
+      )
+    )
 
     run(fn a, state ->
       e = state.effects
@@ -2270,7 +2285,7 @@ defmodule AtMcp.MCP.Server do
   tool "set_preference",
        write_description(
          :set_preference,
-         "Change one of this account's settings, as the app's settings screens do. kind names the setting, and only its own fields are taken; a field left out keeps its value. home_feed: the Following feed (hide_replies, hide_reposts, hide_quotes, saved_feed_samples). threads: sort and tree_view. interaction_defaults: the reply_rule and quotes the app's composer starts each new post with; post does not read them. adult_content: enabled. interests: tags. verification: hide_badges. discoverable: hide_from_recommendations. activity_subscriptions: allow. home_feed, threads, adult_content and verification change what the app shows; at_mcp's reads return what the service serves either way. The result names the fields that changed (changed), with the setting's fields before (previous) and after (now); a setting already as asked is left alone and unchanged is true. discoverable and activity_subscriptions are records of the account's, written over the version read. The rest are preferences, read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
+         "Change one of this account's settings, as the app's settings screens do. kind names the setting, and only its own fields are taken; a field left out keeps its value. home_feed: the Following feed (hide_replies, hide_reposts, hide_quotes, saved_feed_samples). threads: sort and tree_view. interaction_defaults: the reply_rule and quotes the app's composer starts each new post with; post and reply take them for a rule they are not given. adult_content: enabled. interests: tags. verification: hide_badges. discoverable: hide_from_recommendations. activity_subscriptions: allow. home_feed, threads, adult_content and verification change what the app shows; at_mcp's reads return what the service serves either way. The result names the fields that changed (changed), with the setting's fields before (previous) and after (now); a setting already as asked is left alone and unchanged is true. discoverable and activity_subscriptions are records of the account's, written over the version read. The rest are preferences, read and written back whole with every other one kept; the service offers no compare-and-swap for them, so a change another client makes in between is lost."
        ) do
     annotations(
       write_annotations(:set_preference, %{

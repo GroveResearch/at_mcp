@@ -29,6 +29,8 @@ const appview = http.createServer(async (req,res) => {
     return send(res,200,{enabled:true,...(membership===undefined?{}:{membership})});
   }
   if(url.pathname.endsWith('actor.getProfile')) return send(res,200,{did,handle:'external.test'});
+  // No saved settings for new posts: a post leaving its rules out is open.
+  if(url.pathname.endsWith('actor.getPreferences')) return send(res,200,{preferences:[]});
   if(url.pathname.endsWith('feed.getTimeline')) return send(res,200,{feed:writes.map((r,i)=>({post:view(r,i+1)}))});
   if(url.pathname.endsWith('feed.getPosts')) {
     assert.equal(url.searchParams.getAll('uris').length,2);

@@ -148,6 +148,12 @@ defmodule AtMcp.WriteRecordsTest do
          do: {400, %{error: "InvalidRequest", message: "Unable to resolve handle"}}
 
     defp response("com.atproto.identity.resolveHandle", _conn), do: %{did: "did:plc:other"}
+    # No saved settings for new posts, on either network: a post leaving its
+    # rules out is open.
+    defp response(method, _conn)
+         when method in ["app.bsky.actor.getPreferences", "town.delve.actor.getPreferences"],
+         do: %{preferences: []}
+
     defp response(_method, _conn), do: %{}
   end
 

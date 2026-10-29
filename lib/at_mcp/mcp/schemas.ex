@@ -761,7 +761,13 @@ defmodule AtMcp.MCP.Schemas do
       "threadgate_uri" =>
         nullable_string("AT URI of the threadgate written with the post: who may reply"),
       "postgate_uri" =>
-        nullable_string("AT URI of the postgate written with the post: whether it may be quoted")
+        nullable_string("AT URI of the postgate written with the post: whether it may be quoted"),
+      "from_saved_settings" => %{
+        "type" => "array",
+        "items" => %{"type" => "string", "enum" => ["reply_rule", "quotes"]},
+        "description" =>
+          "The rules the call left out that were taken from the account's saved settings for new posts, and wrote a gate"
+      }
     })
   end
 
@@ -962,7 +968,7 @@ defmodule AtMcp.MCP.Schemas do
         }),
       "interaction_defaults" =>
         settings(
-          "Who may reply to and quote a new post: the app's composer starts each new post with these; post does not read them",
+          "Who may reply to and quote a new post: the app's composer starts each new post with these, and post and reply take them for a rule they are not given",
           %{
             "reply_rule" => %{
               "type" => ["array", "null"],
