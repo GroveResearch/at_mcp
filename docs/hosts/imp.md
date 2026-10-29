@@ -62,7 +62,7 @@ small. That list covers posting, reading and replying, plus the tools for the
 account's own records. An agent can call any other tool by name, even when
 it isn't listed.
 
-For the full set, add `--tools full` when issuing the program's grant
+For the full set ([docs/operations.md](../operations.md#offer-a-client-every-tool)), add `--tools full` when issuing the program's grant
 (`at_mcp-accounts connection alice --tools full`). A program can also leave
 some of them out of what its model sees: Imp's descriptor takes a tool
 filter (`Imp.MCP.Connections`).
