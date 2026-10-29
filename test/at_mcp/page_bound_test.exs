@@ -34,6 +34,13 @@ defmodule AtMcp.PageBoundTest do
     shown = Enum.map(from..(min(from + limit, @posts) - 1)//1, &post/1)
     cursor = if from + limit < @posts, do: Integer.to_string(from + limit)
 
+    # A generator that ignores `limit`: the AppView cuts its 50 posts to the
+    # limit and passes the generator's cursor on unchanged.
+    cursor =
+      if method == "getFeed" and String.ends_with?(query["feed"] || "", "/greedy"),
+        do: Integer.to_string(from + 50),
+        else: cursor
+
     case method do
       m when m in ["searchPosts", "searchPostsV2", "getQuotes"] ->
         %{"posts" => shown}
@@ -119,15 +126,39 @@ defmodule AtMcp.PageBoundTest do
       assert String.length(text) <= AtMcp.Reading.page_chars(),
              "#{name} read #{String.length(text)} characters"
 
-      assert text =~ ~r/(\d+) more on this page were left out to keep it under 40000 characters/,
-             name
+      [_, kept, left] =
+        Regex.run(
+          ~r/^(\d+) \w+\. (\d+) more on this page were left out to keep it under 40000 characters/,
+          text
+        )
 
-      page = call(ctx.state, name, Map.put(args, "format", "json")).structuredContent
+      assert String.to_integer(kept) + String.to_integer(left) == 50, name
+
+      # Asked for JSON, the page is bound by the JSON it is sent as.
+      {:ok, json, _} =
+        AtMcp.MCP.Server.handle_call_tool(name, Map.put(args, "format", "json"), ctx.state)
+
+      page = json.structuredContent
       shown = length(page["items"])
       assert shown > 1 and shown < 50, "#{name} showed #{shown}"
       assert page["left_out"] == 50 - shown
-      assert text =~ "#{50 - shown} more on this page were left out"
+      assert String.length(hd(json.content).text) <= AtMcp.Reading.page_chars(), name
     end
+  end
+
+  test "a feed whose generator ignores limit is not cut, so no post is skipped", ctx do
+    page =
+      call(ctx.state, "get_feed", %{
+        "feed" => "at://did:plc:gen/town.delve.feed.generator/greedy",
+        "limit" => 50,
+        "format" => "json"
+      }).structuredContent
+
+    # The second read's cursor would skip from the cut to post 50, so the
+    # first page is returned whole.
+    assert length(page["items"]) == 50
+    refute Map.has_key?(page, "left_out")
+    assert page["cursor"] == "50"
   end
 
   test "the cursor of a page cut short continues from its first post left out", ctx do

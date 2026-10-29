@@ -594,34 +594,67 @@ defmodule AtMcp.MCP.Tools do
   """
   def page(fetch, args, state, reading) do
     reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
+    measure = if AtMcp.MCP.DSL.format(args, state) == "json", do: :json, else: reading
+    started = System.monotonic_time(:millisecond)
 
     fetch.(Map.get(args, :limit))
-    |> bounded(fetch, reading)
+    |> bounded(fetch, measure, started)
     |> respond(state, reading)
   end
 
-  defp bounded({:ok, %{} = page} = result, fetch, reading) do
+  # The cut page is the service's second answer, so it is taken only when it
+  # is plainly the first page's beginning: the same first posts, in order, and
+  # a cursor of its own. A custom feed's generator need not honour `limit`,
+  # and the AppView then cuts its skeleton and passes the generator's cursor
+  # on unchanged, which would skip every post between the cut and that
+  # cursor; a feed that changed between the two reads, or that answers each
+  # read differently, gives other posts. Either way the first page is
+  # returned whole.
+  defp bounded({:ok, %{} = page} = result, fetch, measure, started) do
     with {:ok, json} <- Jason.encode(page),
          %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
-         fit when fit < length(items) <- fitting(data, items, reading),
-         {:ok, %{items: shown} = smaller} when shown != [] and length(shown) < length(items) <-
-           fetch.(fit) do
+         fit when fit < length(items) <- fitting(data, items, measure),
+         true <- time_left?(started),
+         {:ok, %{items: [_ | _] = shown} = smaller} <- fetch.(fit),
+         true <- length(shown) < length(items),
+         true <- uris(shown) == uris(Enum.take(page.items, length(shown))),
+         cursor when is_binary(cursor) <- smaller[:cursor],
+         true <- cursor != page[:cursor] do
       {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
     else
       _ -> result
     end
   end
 
-  defp bounded(result, _fetch, _reading), do: result
+  defp bounded(result, _fetch, _measure, _started), do: result
 
-  # How many of the page's first posts its reading holds within the bound;
-  # at least one.
-  defp fitting(data, items, reading) do
+  defp uris(items), do: Enum.map(items, &(&1[:uri] || &1["uri"]))
+
+  # An account call answers within `AtMcp.Effects.answered_within/0`, and the
+  # endpoint waits `AtMcp.MCP.HTTP.handler_call_timeout/0` for the whole tool
+  # call, which is sized for one. A read makes a second only while the
+  # endpoint would still be waiting when it answered, so every call is still
+  # answered by AtMcp rather than abandoned by ExMCP.
+  @result_margin_ms 3_000
+
+  defp time_left?(started) do
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    elapsed + AtMcp.Effects.answered_within() + @result_margin_ms <=
+      AtMcp.MCP.HTTP.handler_call_timeout()
+  end
+
+  # How many of the page's first items fit within the bound, measured as the
+  # caller receives them: the reading, or the JSON when it asked for that; at
+  # least one.
+  defp fitting(data, items, measure) do
     fits? = fn n ->
+      page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
+
       text =
-        apply(AtMcp.Reading, reading, [
-          Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
-        ])
+        if measure == :json,
+          do: Jason.encode!(page),
+          else: apply(AtMcp.Reading, measure, [page])
 
       not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
     end
