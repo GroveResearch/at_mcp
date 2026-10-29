@@ -723,6 +723,99 @@ defmodule AtMcp.MCP.Tools do
 
   def respond(result, state, _reading), do: respond(result, state)
 
+  @doc """
+  `respond/3` for a page of posts. `fetch` reads the page; it takes the limit
+  to ask the service for (`nil` means the caller's limit).
+
+  With `detail: "brief"` the page is shown with `AtMcp.Reading.brief_posts/1`.
+  When the text would be longer than `AtMcp.Reading.page_chars/0`, the page is
+  read again with the number of posts that fit. The cursor is then the
+  service's own and starts with the first post that was dropped, and the page
+  says how many were dropped. A post hidden from the page is not counted, so
+  the cursor never skips a post, though it may repeat one. If the second read
+  fails or does not return fewer posts, the whole first page is returned: a
+  page that is too long is better than lost posts. If not even one post fits,
+  the page has that one post.
+  """
+  def page(fetch, args, state, reading) do
+    reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
+    started = System.monotonic_time(:millisecond)
+    result = fetch.(Map.get(args, :limit))
+
+    # JSON is for programs, which page by count: only the reading is bounded.
+    if AtMcp.MCP.DSL.format(args, state) == "json",
+      do: respond(result, state, reading),
+      else: result |> bounded(fetch, reading, started) |> respond(state, reading)
+  end
+
+  # The shorter page comes from a second read, so it is used only when it
+  # starts the same way as the first page: the same first posts, in the same
+  # order, with a different cursor. A custom feed's generator may ignore
+  # `limit`. The AppView then cuts the generator's posts to the limit but
+  # passes on the generator's cursor unchanged, and that cursor skips every
+  # post between the cut and the cursor. A feed that changed between the two
+  # reads, or answers each read differently, gives different posts. In either
+  # case the first page is returned whole, with a note that it is longer than
+  # the limit. The same happens when the second read would not finish before
+  # the endpoint stops waiting.
+  defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
+    with {:ok, json} <- Jason.encode(page),
+         %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
+         fit when fit < length(items) <- fitting(data, items, reading) do
+      case cut(page, fetch, fit, items, started) do
+        {:ok, smaller} -> {:ok, smaller}
+        :error -> {:ok, Map.put(page, :over_bound, true)}
+      end
+    else
+      _ -> result
+    end
+  end
+
+  defp bounded(result, _fetch, _reading, _started), do: result
+
+  defp cut(page, fetch, fit, items, started) do
+    with true <- time_left?(started),
+         {:ok, %{items: [_ | _] = shown} = smaller} <- fetch.(fit),
+         true <- length(shown) < length(items),
+         true <- uris(shown) == uris(Enum.take(page.items, length(shown))),
+         cursor when is_binary(cursor) <- smaller[:cursor],
+         true <- cursor != page[:cursor] do
+      {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
+    else
+      _ -> :error
+    end
+  end
+
+  defp uris(items), do: Enum.map(items, &(&1[:uri] || &1["uri"]))
+
+  # An account call answers within `AtMcp.Effects.answered_within/0`, and the
+  # endpoint waits `AtMcp.MCP.HTTP.handler_call_timeout/0` for the whole tool
+  # call, which is sized for one. A read makes a second only while the
+  # endpoint would still be waiting when it answered, so every call is still
+  # answered by AtMcp rather than abandoned by ExMCP.
+  @result_margin_ms 3_000
+
+  defp time_left?(started) do
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    elapsed + AtMcp.Effects.answered_within() + @result_margin_ms <=
+      AtMcp.MCP.HTTP.handler_call_timeout()
+  end
+
+  # How many of the page's first items its reading holds within the bound;
+  # at least one.
+  defp fitting(data, items, reading) do
+    fits? = fn n ->
+      page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
+      text = apply(AtMcp.Reading, reading, [page])
+      not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
+    end
+
+    if fits?.(length(items)),
+      do: length(items),
+      else: Enum.find(length(items)..2//-1, 1, fits?)
+  end
+
   # What a refusal's message says, which AtMcp composed from its own words
   # and, at times, the service's: one literal.
   defp composed(%{message: message}), do: cat([~L"error: ", literal(message)])

@@ -44,7 +44,8 @@ defmodule AtMcp.Reading do
   post whose text, or quoted text, holds such an escape says so in one line
   under it.
 
-  It only drops what is absent. A post's text is never shortened, every uri
+  It only drops what is absent. A post's text is never shortened, except on
+  one line of a brief page (`brief_posts/1`), which says so; every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
   next page is stated with the argument to pass it as. Beside the uri of each
   post, account, list, feed, starter pack and labeler is its `link:`, the web
@@ -52,8 +53,45 @@ defmodule AtMcp.Reading do
   """
   import AtMcp.Reading.Text
 
+  # The most characters of text a page of posts may have, when it can be cut
+  # (`AtMcp.MCP.Tools.page/4`). Claude Code puts a result over 50,000
+  # characters in a file instead of in front of the model. A recorded 50-post
+  # author feed is about 35,000 characters (#203), so a page is cut only when
+  # its posts are long, and the notes `AtMcp.MCP.Input` and
+  # `AtMcp.MCP.WebLinks` append after the page still fit under 50,000.
+  @page_chars 40_000
+
+  @doc "The most characters of text a page of posts may have, when it can be cut."
+  def page_chars, do: @page_chars
+
   @doc "A page of posts: timelines, feeds, search results, `get_posts`."
   def posts(page), do: post_page(page, ~L"post", ~L"posts")
+
+  @doc """
+  A page of posts with one line per post, for skimming (`detail: "brief"`).
+  Each line has the author, the time, the first line of the text, the counts
+  and the uri, which `get_posts` takes to return the whole post. This is the
+  only reading that shortens a post's text, and the line marks where it was
+  cut.
+  """
+  def brief_posts(%{"items" => items} = page) when is_list(items) do
+    header =
+      cat([
+        count(length(items), ~L"post", ~L"posts"),
+        ~L", one line each. Pass a uri to get_posts to read the whole post.",
+        left_out(page),
+        next_page(page)
+      ])
+
+    lines =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {post, n} -> brief(post, numbered(n)) end)
+
+    to_text(join([header, shown(page["moderation_unread"]) | lines], :line))
+  end
+
+  def brief_posts(_other), do: nil
 
   @doc """
   This account's bookmarks: each post as a page of posts shows it, or one line
@@ -62,7 +100,7 @@ defmodule AtMcp.Reading do
   def bookmarks(page), do: post_page(page, ~L"bookmark", ~L"bookmarks")
 
   defp post_page(%{"items" => items} = page, one, many) when is_list(items) do
-    header = cat([count(length(items), one, many), ~L".", next_page(page)])
+    header = cat([count(length(items), one, many), ~L".", left_out(page), next_page(page)])
 
     blocks =
       items
@@ -1324,6 +1362,70 @@ defmodule AtMcp.Reading do
 
   defp post(other, label), do: unknown(other, label)
 
+  # A post on one line: why a feed shows it, who, when, the first line of its
+  # text, its counts, whether moderation marks it, and its uri.
+  defp brief(%{} = post, label) do
+    case unavailable(post) do
+      nil ->
+        cat([
+          label,
+          ~L" ",
+          join(
+            [
+              brief_reason(post["reason"]),
+              brief_who(post["author"], post["author_did"]),
+              time(post["indexed_at"] || post["created_at"]),
+              if(is_binary(post["reply_to"]), do: ~L"a reply"),
+              first_line(post["raw_text"] || post["text"]),
+              engagement(post),
+              if(AtMcp.ModerationDecision.line(post["moderation"]), do: ~L"marked by moderation"),
+              ident(post["uri"])
+            ],
+            :dot
+          )
+        ])
+
+      why ->
+        cat([label, ~L" ", why])
+    end
+  end
+
+  defp brief(other, label), do: unknown(other, label)
+
+  defp brief_reason(%{"type" => "repost"} = reason),
+    do:
+      cat([~L"reposted by ", who(%{"author" => reason["by"], "author_did" => reason["by_did"]})])
+
+  defp brief_reason(%{"type" => "pin"}), do: ~L"pinned"
+  defp brief_reason(_reason), do: nil
+
+  defp brief_who(handle, _did) when is_binary(handle), do: cat([~L"@", ident(handle)])
+  defp brief_who(_handle, did), do: ident(did)
+
+  @first_line 120
+
+  # The text's first non-blank line, at most @first_line characters, quoted;
+  # what is cut is said outside the quotes. It is read from the text as
+  # written (`raw_text`): cut from the rendered text, a link or mention marker
+  # could be cut in half, and inside one quoted literal no marker is needed.
+  defp first_line(text) when is_binary(text) do
+    lines = text |> String.split(~r/\R/u) |> Enum.map(&one_line/1) |> Enum.reject(&(&1 == ""))
+
+    case lines do
+      [] ->
+        nil
+
+      [line | rest] ->
+        shortened = String.slice(line, 0, @first_line)
+
+        if rest == [] and shortened == line,
+          do: literal(line),
+          else: cat([literal(shortened), ~L" (continues)"])
+    end
+  end
+
+  defp first_line(_text), do: nil
+
   defp unavailable(%{"blocked" => true} = post),
     do: cat([where(post), ~L" is hidden by a block."])
 
@@ -2179,6 +2281,26 @@ defmodule AtMcp.Reading do
     do: cat([int(n), ~L" earlier posts are not shown. "])
 
   defp earlier(_n), do: nil
+
+  defp left_out(%{"left_out" => n}) when is_integer(n) and n > 0,
+    do:
+      cat([
+        ~L" ",
+        int(n),
+        if(n == 1, do: ~L" more post did not fit in ", else: ~L" more posts did not fit in "),
+        int(@page_chars),
+        ~L" characters. The cursor below starts with them."
+      ])
+
+  defp left_out(%{"over_bound" => true}),
+    do:
+      cat([
+        ~L" This page is longer than ",
+        int(@page_chars),
+        ~L" characters."
+      ])
+
+  defp left_out(_page), do: nil
 
   defp next_page(%{"cursor" => cursor}) when is_binary(cursor),
     do: cat([~L" For the next page, pass cursor: ", ident(cursor)])

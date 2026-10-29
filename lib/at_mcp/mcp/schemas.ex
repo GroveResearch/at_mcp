@@ -186,6 +186,15 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "The `detail` a page of posts takes: see `AtMcp.Reading.brief_posts/1`."
+  defmacro post_detail do
+    Macro.escape(
+      description:
+        "How much of each post to show. \"full\" (the default) shows the whole post. \"brief\" shows one line per post: the author, the time, the first line of the text, the counts and the uri. Pass a uri to get_posts to read that post in full.",
+      schema: %{type: "string", enum: ["full", "brief"]}
+    )
+  end
+
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
@@ -383,11 +392,11 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_view, do: Macro.escape(unread(object(profile_view_schema()["properties"])))
 
-  defmacro post_page, do: Macro.escape(unread(page(post_view_schema())))
+  defmacro post_page, do: Macro.escape(unread(cut(page(post_view_schema()))))
 
   defmacro profile_page, do: Macro.escape(unread(page(profile_view_schema())))
 
-  defmacro bookmark_page, do: Macro.escape(unread(page(bookmark_schema())))
+  defmacro bookmark_page, do: Macro.escape(unread(cut(page(bookmark_schema()))))
 
   defmacro draft_page, do: Macro.escape(page(record(:draft)))
 
@@ -1466,6 +1475,21 @@ defmodule AtMcp.MCP.Schemas do
     }
     |> object()
     |> promising(["count", "items"])
+  end
+
+  # A page of posts that `AtMcp.MCP.Tools.page/4` cut short.
+  defp cut(schema) do
+    schema
+    |> put_in(["properties", "left_out"], %{
+      "type" => "integer",
+      "description" =>
+        "How many posts the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no post was dropped."
+    })
+    |> put_in(["properties", "over_bound"], %{
+      "type" => "boolean",
+      "description" =>
+        "True when the text of this page is longer than #{AtMcp.Reading.page_chars()} characters and at_mcp could not get a shorter page that continues it."
+    })
   end
 
   # A successful result carries these fields; an error result carries its code

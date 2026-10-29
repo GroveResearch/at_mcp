@@ -60,6 +60,13 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     the full summary as structured content and as JSON text. Issuing its \
     grant with `--format json` makes json the default instead.
 
+    A page of posts is at most #{AtMcp.Reading.page_chars()} characters of \
+    text. When a page would be longer, at_mcp returns fewer posts, says how \
+    many it dropped, and returns a cursor that starts with them. A page asked \
+    for as JSON keeps every post up to `limit`. With `"detail": "brief"`, each \
+    post gets one line: the author, the time, the first line of the text, the \
+    counts and the uri. `get_posts` returns a post in full.
+
     | Tool | What it does |
     | --- | --- |
     #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{summary(&1)} |")}
