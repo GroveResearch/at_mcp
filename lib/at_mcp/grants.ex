@@ -47,9 +47,9 @@ defmodule AtMcp.Grants do
 
   ## Tools
 
-  A grant may name the tool set its client is offered (`AtMcp.MCP.ToolSet`):
-  `"full"` for every tool. A grant without one is offered the service's set,
-  the default unless `AT_MCP_TOOLS` says otherwise.
+  A grant can store a tool set (`AtMcp.MCP.ToolSet`), `"default"` or `"full"`,
+  and its client is offered that set. When a grant stores none, its client is
+  offered the set `AT_MCP_TOOLS` configures, which is `"default"` if unset.
 
   ## Format
 

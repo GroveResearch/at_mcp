@@ -47,11 +47,11 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     tool's description. The agent's MCP client shows it the full description \
     and the arguments.
 
-    A client is offered the default set, the #{length(AtMcp.MCP.ToolSet.default())} \
-    tools marked "default" below. `AT_MCP_TOOLS=full`, or a grant issued \
-    with `--tools full`, offers every tool \
-    ([operations.md](operations.md#offer-a-client-every-tool)); a tool left \
-    out of the list still answers a call by name.
+    A client gets the default set, the #{length(AtMcp.MCP.ToolSet.default())} \
+    tools marked "default" below, unless its grant was issued with \
+    `--tools full` or the service sets `AT_MCP_TOOLS=full` \
+    ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets \
+    every tool its scope allows and its network serves.
 
     A client running `at_mcp-stdio` can call every tool. A client of a \
     long-running service holds a grant, and the grant's scope limits its \

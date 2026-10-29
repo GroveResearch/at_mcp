@@ -112,12 +112,12 @@ defmodule AtMcp.MCP.DSL do
       def handle_list_tools(cursor, state) do
         {:ok, tools, next, state} = super(cursor, state)
 
-        # No tool declares its output schema. A read's is text unless asked
-        # (`AtMcp.MCP.Output`), and a tool that declares one must return
-        # structured content. A write's result is a few fields, returned as
-        # structured content and as the same JSON text; its schema, most of
-        # what `tools/list` weighed, told a host little it could use. Every
-        # schema still checks every result (`__output_schemas__/0`).
+        # tools/list includes no output schemas. A tool that lists one has to
+        # return structured content, and reads return text unless the caller
+        # asks for json (`AtMcp.MCP.Output`). Write results are small and come
+        # back both as structured content and as the same JSON in text. After
+        # #210, the write schemas were 243 KB of a 338 KB list. `AtMcp.MCP.Output`
+        # still validates every result against its schema (`__output_schemas__/0`).
         {:ok, AtMcp.MCP.DSL.offered(tools, state), next, state}
       end
 
@@ -161,26 +161,24 @@ defmodule AtMcp.MCP.DSL do
     end
   end
 
-  # A client is offered only the tools its grant's scope permits, judged by the
-  # same `AtMcp.Grants.permits_scope?/2` that refuses an out-of-scope
-  # `tools/call`. A handler started without a scope — the local stdio server,
-  # or `AtMcp.Grants` reading the surface to classify it — is offered every
-  # tool. A grant's scope never changes, so the list a session sees does not
-  # either, and no `notifications/tools/list_changed` is owed.
+  # tools/list offers a client the tools it may call, filtered three times:
+  #   1. by its grant's scope, through the same `AtMcp.Grants.permits_scope?/2`
+  #      that refuses an out-of-scope `tools/call`;
+  #   2. by its tool set (`AtMcp.MCP.ToolSet`), which is the default set unless
+  #      the grant or `AT_MCP_TOOLS` asks for the full one;
+  #   3. by what its network serves (`AtMcp.MCP.Served`).
+  # The stdio server has no scope, so only steps 2 and 3 apply to it.
+  # `AtMcp.Grants` and the tool surface test pass a bare `:state` and get every
+  # tool. A grant's scope and set are fixed when it is issued, so the list
+  # stays the same for the whole session and the server never sends
+  # `notifications/tools/list_changed`.
   @doc false
-  #
-  # A session is also offered only what its network serves
-  # (`AtMcp.MCP.Served`). Reading the surface without a session's state (the
-  # bare `:state` `AtMcp.Grants` and the tool surface test pass) sees it all.
   def offered(tools, %{scope: scope} = state) when not is_nil(scope),
     do:
       tools
       |> Enum.filter(&AtMcp.Grants.permits_scope?(scope, &1.name))
       |> offered(Map.delete(state, :scope))
 
-  #
-  # And only its tool set (`AtMcp.MCP.ToolSet`): the default set unless its
-  # grant or the environment asks for the full one.
   def offered(tools, state) when is_map(state),
     do:
       tools

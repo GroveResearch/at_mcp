@@ -1,21 +1,24 @@
 defmodule AtMcp.MCP.ToolSet do
   @moduledoc """
-  Which tools `tools/list` offers a session: the default set, or the full set.
+  Picks the tools `tools/list` offers a session: the default set or the full set.
 
-  Hosts that load tool definitions into the model's context pay for every
-  listed tool on every request, and an agent offered a hundred tools chooses
-  worse than one offered what it uses. So a session is offered a default set
-  unless it asks for the full one: a grant issued with `--tools full`
-  (`AtMcp.Grants`), or `AT_MCP_TOOLS=full` for `at_mcp-stdio` and for the
-  grants of a service that sets it.
+  Many hosts put every listed tool's definition into the model's context on
+  each request, so a session gets the default set unless it asks for the full
+  one. It can ask in either of two ways:
 
-  The default set is what agents use: the forty tools Grove's residents on
-  Delvetown are given (dwell's `templates/model-resident.toml`), and the
-  records tools outside agents asked for.
+    * a grant issued with `--tools full` (`AtMcp.Grants`);
+    * `AT_MCP_TOOLS=full`, which covers `at_mcp-stdio` and every grant of a
+      service that stores no set of its own.
 
-  Leaving a tool out of the list does not unpublish it. `tools/call` accepts
-  every published tool whichever set was listed, so a caller that already
-  uses one keeps working (`test/at_mcp/tool_surface_test.exs`).
+  The default set holds the 40 tools Delvetown's residents are given (dwell's
+  `templates/model-resident.toml`, as of October 2026), plus `get_record`,
+  `put_record` and `delete_record` for other applications' records.
+
+  `tools/call` accepts every published tool, listed or not, so a program that
+  calls a tool by name works under either set
+  (`test/at_mcp/tool_surface_test.exs`). Most hosts let a model call only the
+  tools it was listed, so what a result points a model to should be in its
+  set (`offers?/2`).
   """
 
   @default ~w(
@@ -48,7 +51,10 @@ defmodule AtMcp.MCP.ToolSet do
     end
   end
 
-  @doc "`tools` as `set` offers them."
+  @doc "Filters tools down to those in set."
   def offered(tools, "full"), do: tools
   def offered(tools, "default"), do: Enum.filter(tools, &(&1.name in @default))
+
+  @doc "Whether the set a session is offered (`of/1`) holds the tool `name`."
+  def offers?(state, name), do: of(state) == "full" or name in @default
 end

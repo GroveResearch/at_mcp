@@ -1744,7 +1744,7 @@ defmodule AtMcp.MCP.Server do
   tool "put_record",
        write_description(
          :put_record,
-         "Create or replace one record in this account's own repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). The service checks a record whose lexicon it knows; nothing checks the shape of one it does not. Collections at_mcp writes with its own tools (posts, likes, reposts, follows, blocks, the profile, lists and their items, gates, status) are refused, naming the tool to use. A replacement is written only over the version read, so a change made meanwhile is refused. Returns the record's uri and cid; get_record reads it back."
+         "Create or replace a record in this account's repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). The service checks the record against its lexicon if it knows that lexicon, and stores it unchecked if not. Posts, likes, reposts, follows, blocks, the profile, lists and list items, gates and the status each have a tool of their own, and put_record refuses those collections. To replace a record, pass the cid you read: if the record changed since then, the write is refused. The result gives the record's uri and cid, and get_record reads it back."
        ) do
     annotations(
       write_annotations(:put_record, %{

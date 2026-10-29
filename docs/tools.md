@@ -5,7 +5,7 @@ declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
 at_mcp offers 103 tools, 47 for reading and 56 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
-A client is offered the default set, the 43 tools marked "default" below. `AT_MCP_TOOLS=full`, or a grant issued with `--tools full`, offers every tool ([operations.md](operations.md#offer-a-client-every-tool)); a tool left out of the list still answers a call by name.
+A client gets the default set, the 43 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
 A client running `at_mcp-stdio` can call every tool. A client of a long-running service holds a grant, and the grant's scope limits its tools: `read` allows the reads, `write` adds the writes marked `write`, and `manage` allows everything ([operations.md](operations.md#limit-a-clients-tools)).
 
@@ -91,7 +91,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `mute_word` | full |  | manage | Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. |
 | `pin_post` | full |  | write | Pin one of this account's posts to the top of its profile, replacing any post pinned before. |
 | `post` | default | yes | write | Publish a top-level post as this account. |
-| `put_record` | default | yes | write | Create or replace one record in this account's own repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). |
+| `put_record` | default | yes | write | Create or replace a record in this account's repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). |
 | `reattach_quote` | full |  | manage | Undo detach_quote: show this account's post in the post quoting it again. |
 | `remove_from_list` | full |  | manage | Take an account off a list or starter pack this account made. |
 | `reply` | default | yes | write | Reply to a post by AT URI. |

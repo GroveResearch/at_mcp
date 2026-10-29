@@ -61,6 +61,65 @@ defmodule AtMcp.ToolSetTest do
     for tool <- listed(%{tools: "full"}), do: refute(Map.has_key?(tool, :outputSchema), tool.name)
   end
 
+  # Most hosts let a model call only the tools listed to it, so what a
+  # result points to must be on the list.
+  test "a put_record refusal says whether this connection lists the tools that write the record" do
+    refusal = fn state ->
+      {:ok, result, _} =
+        AtMcp.MCP.Tools.respond(
+          {:error,
+           {:own_collection, "app.bsky.graph.list", ~w(create_list update_list delete_list)}},
+          state
+        )
+
+      assert result.isError
+      assert result.structuredContent.code == "invalid_arguments"
+      hd(result.content).text
+    end
+
+    default = refusal.(%{})
+    assert default =~ "create_list, update_list, delete_list"
+    assert default =~ "This connection does not list those tools"
+    refute default =~ "Use those instead"
+
+    full = refusal.(%{tools: "full"})
+    assert full =~ "Use those instead."
+    refute full =~ "does not list"
+
+    # Tools the default set holds are named as usable.
+    {:ok, liked, _} =
+      AtMcp.MCP.Tools.respond(
+        {:error, {:own_collection, "app.bsky.feed.like", ~w(like unlike)}},
+        %{}
+      )
+
+    assert hd(liked.content).text =~ "Use those instead."
+  end
+
+  test "a feed item points to feed_feedback only when the session lists it" do
+    page =
+      {:ok,
+       %{
+         count: 1,
+         items: [
+           %{
+             uri: "at://did:plc:a/app.bsky.feed.post/3kp2222222222",
+             text: "hello",
+             feed_context: "t-gliders",
+             req_id: "r1"
+           }
+         ]
+       }}
+
+    reading = fn state ->
+      {:ok, result, _} = AtMcp.MCP.Tools.respond(page, state, :posts)
+      hd(result.content).text
+    end
+
+    refute reading.(%{}) =~ "feed_feedback"
+    assert reading.(%{tools: "full"}) =~ ~s(For feed_feedback: feed_context: "t-gliders")
+  end
+
   test "every tool in the default set is declared" do
     every = names(listed(:state))
     for name <- AtMcp.MCP.ToolSet.default(), do: assert(name in every, name)

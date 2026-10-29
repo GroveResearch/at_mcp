@@ -464,7 +464,8 @@ defmodule AtMcp.AccountSetup do
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
 
   defp message(:invalid_tools),
-    do: "Choose --tools default (the tools agents use, the default) or full."
+    do:
+      "Choose --tools default (43 tools, used when --tools is left out) or --tools full (every tool)."
 
   defp message(:invalid_format),
     do: "Choose --format text (reads answer as text, the default) or json."
