@@ -132,6 +132,16 @@ This release is 0.3.0: what read tools return has changed.
   real time is known, or `argument` when one argument caused the error) and
   the whole text as `message`. A read that timed out says whether its
   request reached the service (`sent`).
+- A value outside an argument's allowed values is refused with those values
+  listed, for example `page: Value is not allowed in enum. Allowed values:
+  …`.
+- `get_thread`, `get_thread_chain`, `get_posts`, `get_post_images`,
+  `get_likes`, `get_reposted_by`, `get_quotes` and `repost` refuse a post
+  URI whose record key can't be a post's (a TID) as `invalid_arguments`,
+  giving the key, before anything is read. Before, they read it and
+  reported the post as missing. The other write tools already refused such
+  a key. `delete_post` still takes one, so a post a server stored under
+  another key can still be deleted.
 - `docs/hosts/` has a setup page for each kind of client: Claude Code,
   Codex, Imp, and a plain script. Each says how to connect, what
   the model receives, how to ask for JSON or the full tool set, and how to
