@@ -19,6 +19,11 @@ This release is 0.3.0: what read tools return has changed.
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
 
+- On Delvetown, `tools/list` no longer offers what the town does not serve:
+  `get_notifications`'s `grouped`, `update_profile`'s `links`, `get_trends`
+  and `feed_feedback`. A call that names one is still refused as before,
+  with nothing sent.
+
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass
