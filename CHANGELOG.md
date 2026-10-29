@@ -18,6 +18,15 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
+- A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
+  `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
+  `get_bookmarks`) reads in at most 40,000 characters. Claude Code moves a
+  result over 50,000 characters to a file, so a page of long posts never
+  reached the model. A page that would read longer ends early, says how
+  many posts it left out, and its cursor continues from the first of them.
+  The same posts are left out with `format: "json"`, where the page carries
+  `left_out`. These reads also take `detail: "brief"`, one line per post:
+  on a recorded 50-post page, 12.5K characters instead of 35.6K.
 
 ### Upgrade
 

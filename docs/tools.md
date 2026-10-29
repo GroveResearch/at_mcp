@@ -11,6 +11,8 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 A read answers in text written for a model, and nothing else, so every host's model reads the same thing. A program that parses results passes `"format": "json"` and gets the full summary as structured content and as JSON text, or holds a grant issued with `--format json`, which makes json its default.
 
+A page of posts reads in at most 40000 characters. A page that would read longer ends early, says how many posts it left out, and its cursor continues from the first of them. With `"detail": "brief"` a page reads each post on one line: who, when, the first line of its text, its counts and its uri, which `get_posts` reads whole.
+
 | Tool | What it does |
 | --- | --- |
 | `get_activity_subscriptions` | List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription). |

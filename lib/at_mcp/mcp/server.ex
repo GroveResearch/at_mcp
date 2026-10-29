@@ -109,11 +109,16 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_timeline(e, limit: Map.get(a, :limit), cursor: Map.get(a, :cursor)),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_timeline(e, limit: limit, cursor: Map.get(a, :cursor))
+        end,
+        a,
         state,
         :posts
       )
@@ -129,14 +134,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_author_feed(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_author_feed(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+            limit: limit,
+            cursor: Map.get(a, :cursor)
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -366,48 +376,53 @@ defmodule AtMcp.MCP.Server do
         "The language the query is written in, when the service cannot tell: ja, zh, ko, th or ar"
     )
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.search_posts(
-          e,
-          AtMcp.MCP.Tools.optional(Map.get(a, :query)),
-          [
-            limit: Map.get(a, :limit),
-            cursor: Map.get(a, :cursor),
-            author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
-            mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
-            exclude_authors: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_authors, [])),
-            exclude_mentions: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_mentions, []))
-          ] ++
-            Enum.map(
-              [
-                :sort,
-                :since,
-                :until,
-                :lang,
-                :exclude_langs,
-                :domains,
-                :exclude_domains,
-                :urls,
-                :exclude_urls,
-                :embeds,
-                :exclude_embeds,
-                :hashtags,
-                :exclude_hashtags,
-                :has_media,
-                :has_video,
-                :reply_to,
-                :thread_root,
-                :replies,
-                :following,
-                :all_time,
-                :query_language
-              ],
-              &{&1, Map.get(a, &1)}
-            )
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.search_posts(
+            e,
+            AtMcp.MCP.Tools.optional(Map.get(a, :query)),
+            [
+              limit: limit,
+              cursor: Map.get(a, :cursor),
+              author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
+              mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
+              exclude_authors: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_authors, [])),
+              exclude_mentions: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_mentions, []))
+            ] ++
+              Enum.map(
+                [
+                  :sort,
+                  :since,
+                  :until,
+                  :lang,
+                  :exclude_langs,
+                  :domains,
+                  :exclude_domains,
+                  :urls,
+                  :exclude_urls,
+                  :embeds,
+                  :exclude_embeds,
+                  :hashtags,
+                  :exclude_hashtags,
+                  :has_media,
+                  :has_video,
+                  :reply_to,
+                  :thread_root,
+                  :replies,
+                  :following,
+                  :all_time,
+                  :query_language
+                ],
+                &{&1, Map.get(a, &1)}
+              )
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -675,14 +690,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_quotes(e, Map.fetch!(a, :uri),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_quotes(e, Map.fetch!(a, :uri),
+            limit: limit,
+            cursor: Map.get(a, :cursor)
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -698,14 +718,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_actor_likes(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_actor_likes(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+            limit: limit,
+            cursor: Map.get(a, :cursor)
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -728,14 +753,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_feed(e, Map.fetch!(a, :feed),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_feed(e, Map.fetch!(a, :feed),
+            limit: limit,
+            cursor: Map.get(a, :cursor)
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -896,14 +926,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_list_feed(e, Map.fetch!(a, :list),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_list_feed(e, Map.fetch!(a, :list),
+            limit: limit,
+            cursor: Map.get(a, :cursor)
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -2808,12 +2843,17 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_bookmarks(state.effects,
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit ->
+          AtMcp.Effects.get_bookmarks(state.effects,
+            limit: limit,
+            cursor: Map.get(a, :cursor)
+          )
+        end,
+        a,
         state,
         :bookmarks
       )

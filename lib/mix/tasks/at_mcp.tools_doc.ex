@@ -61,6 +61,13 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     as JSON text, or holds a grant issued with `--format json`, which makes \
     json its default.
 
+    A page of posts reads in at most #{AtMcp.Reading.page_chars()} \
+    characters. A page that would read longer ends early, says how many \
+    posts it left out, and its cursor continues from the first of them. \
+    With `"detail": "brief"` a page reads each post on one line: who, when, \
+    the first line of its text, its counts and its uri, which `get_posts` \
+    reads whole.
+
     | Tool | What it does |
     | --- | --- |
     #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{summary(&1)} |")}

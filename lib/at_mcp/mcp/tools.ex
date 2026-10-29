@@ -579,6 +579,58 @@ defmodule AtMcp.MCP.Tools do
 
   def respond(result, state, _reading), do: respond(result, state)
 
+  @doc """
+  `respond/3` for a page of posts, read by `fetch`, a function of the limit
+  to ask the service for (`nil` for the caller's).
+
+  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page whose
+  reading would pass `AtMcp.Reading.page_chars/0` is asked for again with the
+  number of posts that fit, so its cursor is the service's own and continues
+  from the first post left out; the page says how many were left out. A post
+  hidden from a page is not counted in it, so the cursor never skips a post,
+  and may at most repeat one. If that second read fails or returns nothing
+  fewer, the whole first page is returned instead: a page too long is better
+  than posts lost. A page that would not fit one post is that one post.
+  """
+  def page(fetch, args, state, reading) do
+    reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
+
+    fetch.(Map.get(args, :limit))
+    |> bounded(fetch, reading)
+    |> respond(state, reading)
+  end
+
+  defp bounded({:ok, %{} = page} = result, fetch, reading) do
+    with {:ok, json} <- Jason.encode(page),
+         %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
+         fit when fit < length(items) <- fitting(data, items, reading),
+         {:ok, %{items: shown} = smaller} when shown != [] and length(shown) < length(items) <-
+           fetch.(fit) do
+      {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
+    else
+      _ -> result
+    end
+  end
+
+  defp bounded(result, _fetch, _reading), do: result
+
+  # How many of the page's first posts its reading holds within the bound;
+  # at least one.
+  defp fitting(data, items, reading) do
+    fits? = fn n ->
+      text =
+        apply(AtMcp.Reading, reading, [
+          Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
+        ])
+
+      not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
+    end
+
+    if fits?.(length(items)),
+      do: length(items),
+      else: Enum.find(length(items)..2//-1, 1, fits?)
+  end
+
   # What a refusal's message says, which AtMcp composed from its own words
   # and, at times, the service's: one literal.
   defp composed(%{message: message}), do: cat([~L"error: ", literal(message)])

@@ -143,6 +143,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer"
       },
@@ -154,6 +155,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer"
       },
@@ -172,6 +174,7 @@
     "get_bookmarks": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer"
       },
@@ -188,6 +191,7 @@
     "get_feed": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "feed": "string",
         "format": "string",
         "limit": "integer"
@@ -276,6 +280,7 @@
     "get_list_feed": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer",
         "list": "string"
@@ -389,6 +394,7 @@
     "get_quotes": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer",
         "uri": "string"
@@ -500,6 +506,7 @@
     "get_timeline": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer"
       },
@@ -700,6 +707,7 @@
         "all_time": "boolean",
         "author": "string",
         "cursor": "string",
+        "detail": "string",
         "domains": "array",
         "embeds": "array",
         "exclude_authors": "array",
