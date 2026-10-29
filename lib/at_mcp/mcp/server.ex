@@ -774,8 +774,6 @@ defmodule AtMcp.MCP.Server do
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
     param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
-    param(:since, :string, AtMcp.MCP.Schemas.since())
-    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       e = state.effects
@@ -789,8 +787,7 @@ defmodule AtMcp.MCP.Server do
         end,
         a,
         state,
-        :posts,
-        AtMcp.ReadPositions.key(:feed, Map.fetch!(a, :feed))
+        :posts
       )
     end)
   end

@@ -20,7 +20,7 @@ This release is 0.3.0: what read tools return has changed.
   `tools/list` is smaller. Write tools are unchanged.
 - A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
   `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) reads in at most 40,000 characters. Claude Code moves a
+  `get_bookmarks`) is at most 40,000 characters, as text or as JSON. Claude Code moves a
   result over 50,000 characters to a file, so a page of long posts never
   reached the model. A page that would read longer ends early, says how
   many posts it left out, and its cursor continues from the first of them.
@@ -42,18 +42,20 @@ This release is 0.3.0: what read tools return has changed.
   `other_replies` says when the app leaves replies out (`include_hidden`
   reads them).
 
-- at_mcp keeps the account's read position in the timeline, each custom
-  feed, list feed and author feed it reads, and the notifications: the time
-  of the newest item a read returned (#204). `get_timeline`,
-  `get_author_feed`, `get_feed`, `get_list_feed` and `get_notifications`
-  take `since`: `"last_read"` returns only the items newer than the
-  position, newest first, and says how many are new, or a time does the
-  same from that time. Only a read with `since` moves the position (to
-  its newest item), unless it passes `mark_read: false`; a read without
-  `since` moves it only with `mark_read: true`. Every client of the account shares one position per feed, kept
-  in `read-positions.json` in the state directory, so it survives a
-  restart. Notifications keep their own seen marker (`update_seen`) as
-  before.
+- at_mcp keeps the account's read position in the timeline, each list
+  feed and author feed it reads, and the notifications: the time of the
+  newest item a read returned (#204). `get_timeline`, `get_author_feed`,
+  `get_list_feed` and `get_notifications` take `since`: `"last_read"`
+  returns only the items newer than the position, newest first, says how
+  many are new, and gives the cursor that reads the rest; a time does the
+  same from that time. Only a read with `since: "last_read"` moves the
+  position, unless it passes `mark_read: false`, and any other read only
+  with `mark_read: true`. A position moves only once a read has reached it,
+  so a page cut short never passes over items not yet returned. Every
+  client of the account shares one position per feed, kept in
+  `read-positions.json` in the state directory, so it survives a restart.
+  A custom feed has no position: its generator orders it as it chooses.
+  Notifications keep their own seen marker (`update_seen`) as before.
 
 ### Upgrade
 

@@ -220,7 +220,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro since do
     Macro.escape(
       description:
-        "last_read for only the items newer than this account's read position in this feed, which every client of the account shares; or a time (2026-10-29T08:00:00Z) for the items newer than it. Newest first; the result says how many are new",
+        "last_read for only the items newer than this account's read position in this feed, which every client of the account shares; or a time (2026-10-29T08:00:00Z) for the items newer than it. Newest first; the result says how many are new, and the cursor with the same since reads the rest",
       schema: %{type: "string"}
     )
   end
@@ -229,7 +229,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro mark_read do
     Macro.escape(
       description:
-        "Whether this read moves the read position to its newest item. A read with since does unless this is false; a read without since does only if this is true"
+        "Whether this read moves the read position to its newest item, once it has read back to the position. A read with since last_read does unless this is false; any other read does only if this is true"
     )
   end
 

@@ -1404,7 +1404,7 @@ defmodule AtMcp.Reading do
               brief_who(post["author"], post["author_did"]),
               time(post["indexed_at"] || post["created_at"]),
               if(is_binary(post["reply_to"]), do: ~L"a reply"),
-              first_line(post["text"]),
+              first_line(post["raw_text"] || post["text"]),
               engagement(post),
               if(AtMcp.ModerationDecision.line(post["moderation"]), do: ~L"marked by moderation"),
               ident(post["uri"])
@@ -1433,7 +1433,9 @@ defmodule AtMcp.Reading do
   @first_line 120
 
   # The text's first non-blank line, at most @first_line characters, quoted;
-  # what is cut is said outside the quotes.
+  # what is cut is said outside the quotes. It is read from the text as
+  # written (`raw_text`): cut from the rendered text, a link or mention marker
+  # could be cut in half, and inside one quoted literal no marker is needed.
   defp first_line(text) when is_binary(text) do
     lines = text |> String.split(~r/\R/u) |> Enum.map(&one_line/1) |> Enum.reject(&(&1 == ""))
 
@@ -2313,7 +2315,8 @@ defmodule AtMcp.Reading do
       cat([
         ~L" ",
         int(n),
-        ~L" more on this page were left out to keep it under ",
+        if(n == 1, do: ~L" more on this page was", else: ~L" more on this page were"),
+        ~L" left out to keep it under ",
         int(@page_chars),
         ~L" characters; the cursor continues from them."
       ])
@@ -2352,14 +2355,15 @@ defmodule AtMcp.Reading do
 
   defp unsaved(_page), do: nil
 
-  defp next_page(%{"cursor" => cursor, "since" => at}) when is_binary(cursor) and is_binary(at),
-    do:
-      cat([
-        ~L" For the rest of the new ones, pass cursor: ",
-        ident(cursor),
-        ~L" and since: ",
-        time(at)
-      ])
+  defp next_page(%{"cursor" => cursor, "since" => at} = page)
+       when is_binary(cursor) and is_binary(at),
+       do:
+         cat([
+           ~L" For the rest of the new ones, pass cursor: ",
+           ident(cursor),
+           ~L" and since: ",
+           if(page["since_asked"] == "last_read", do: ~L"last_read", else: time(at))
+         ])
 
   defp next_page(%{"cursor" => cursor}) when is_binary(cursor),
     do: cat([~L" For the next page, pass cursor: ", ident(cursor)])

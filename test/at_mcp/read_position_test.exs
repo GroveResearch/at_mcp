@@ -55,6 +55,7 @@ defmodule AtMcp.ReadPositionTest do
     |> Jason.decode!()
     |> Map.merge(%{"uri" => uri(n), "indexedAt" => at})
     |> put_in(["record", "text"], "Post #{n}.")
+    |> put_in(["record", "createdAt"], at)
     |> put_in(["record", "facets"], [])
   end
 
@@ -152,21 +153,73 @@ defmodule AtMcp.ReadPositionTest do
     {page, _} = timeline(ctx.state, %{"since" => "last_read", "limit" => 3})
     assert uris(page) == Enum.map(9..7//-1, &uri/1)
     assert page["new_total"] == 7 and page["new_total_exact"]
-    since = post(2)["indexedAt"]
-    assert page["since"] == since
+    assert page["since"] == post(2)["indexedAt"]
 
-    text = text(ctx.state, %{"since" => since, "limit" => 3, "mark_read" => false})
-    assert text =~ "For the rest of the new ones, pass cursor: 3 and since: #{since}"
+    # Posts 3 to 6 are not read yet, so the position has not moved past them.
+    assert {:ok, %{at: at, pending: pending}} = ReadPositions.get(ctx.did, "timeline")
+    assert at == post(2)["indexedAt"] and pending == post(9)["indexedAt"]
 
-    # The rest, by the cursor and the time, to where the account had read.
+    text = text(ctx.state, %{"since" => "last_read", "limit" => 3, "mark_read" => false})
+    assert text =~ "For the rest of the new ones, pass cursor: 3 and since: last_read"
+
+    # The rest, by the cursor and the same since, back to where the account
+    # had read; reaching it commits the newest post read.
     {rest, _} =
-      timeline(ctx.state, %{"since" => since, "cursor" => page["cursor"], "limit" => 50})
+      timeline(ctx.state, %{"since" => "last_read", "cursor" => page["cursor"], "limit" => 50})
 
     assert uris(rest) == Enum.map(6..3//-1, &uri/1)
 
-    # Reading older items never moved the position back.
-    assert {:ok, at} = ReadPositions.get(ctx.did, "timeline")
-    assert at == post(9)["indexedAt"]
+    assert ReadPositions.get(ctx.did, "timeline") ==
+             {:ok, %{at: post(9)["indexedAt"], pending: nil}}
+  end
+
+  test "a page cut short and not followed loses nothing: the next read returns it all again",
+       ctx do
+    posted(2)
+    timeline(ctx.state, %{"mark_read" => true})
+    posted(9)
+
+    {first, _} = timeline(ctx.state, %{"since" => "last_read", "limit" => 3})
+    assert length(first["items"]) == 3
+
+    # A new session, a dropped cursor: the same read from the top.
+    {again, _} = timeline(ctx.state, %{"since" => "last_read"})
+    assert uris(again) == Enum.map(9..3//-1, &uri/1)
+    assert again["new_total"] == 7
+
+    assert ReadPositions.get(ctx.did, "timeline") ==
+             {:ok, %{at: post(9)["indexedAt"], pending: nil}}
+  end
+
+  test "a read since a time looks back without moving the shared position", ctx do
+    posted(2)
+    timeline(ctx.state, %{"mark_read" => true})
+    posted(5)
+
+    {page, _} = timeline(ctx.state, %{"since" => post(3)["indexedAt"]})
+    assert uris(page) == Enum.map(5..4//-1, &uri/1)
+    refute Map.has_key?(page, "read_position")
+
+    assert ReadPositions.get(ctx.did, "timeline") ==
+             {:ok, %{at: post(2)["indexedAt"], pending: nil}}
+  end
+
+  test "since last_read before the account has a session reads, rather than failing" do
+    # No session yet: the read logs in, then the position is read.
+    {:ok, effects} =
+      AtMcp.Test.QuotaFixture.start_effects(
+        backend: AtMcp.Test.MockBackend,
+        handle: "reader.test",
+        password: "app-password"
+      )
+
+    assert AtMcp.Effects.account_did(effects) == nil
+    state = %{effects: effects}
+
+    assert {:ok, result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool("get_timeline", %{"since" => "last_read"}, state)
+
+    refute result[:isError], inspect(result)
   end
 
   test "a read without since leaves the position, unless it asks to move it", ctx do
@@ -178,7 +231,10 @@ defmodule AtMcp.ReadPositionTest do
     {plain, _} = timeline(ctx.state)
     assert length(plain["items"]) == 6
     refute Map.has_key?(plain, "read_position")
-    assert ReadPositions.get(ctx.did, "timeline") == {:ok, post(3)["indexedAt"]}
+
+    assert ReadPositions.get(ctx.did, "timeline") ==
+             {:ok, %{at: post(3)["indexedAt"], pending: nil}}
+
     assert text(ctx.state, %{"since" => "last_read", "mark_read" => false}) =~ "3 new since"
   end
 
@@ -189,7 +245,9 @@ defmodule AtMcp.ReadPositionTest do
     {page, _} = timeline(ctx.state, %{"since" => "last_read", "mark_read" => false})
     assert length(page["items"]) == 3
     refute Map.has_key?(page, "read_position")
-    assert ReadPositions.get(ctx.did, "timeline") == {:ok, post(3)["indexedAt"]}
+
+    assert ReadPositions.get(ctx.did, "timeline") ==
+             {:ok, %{at: post(3)["indexedAt"], pending: nil}}
   end
 
   test "the position outlives the process that saved it, and every client of the account shares it",
@@ -226,15 +284,22 @@ defmodule AtMcp.ReadPositionTest do
     refute_received {:read, _}
   end
 
-  test "each feed keeps its own position, and a read of one leaves the others" do
+  test "a position moves only forward, and each feed keeps its own" do
     did = "did:plc:feeds#{System.unique_integer([:positive])}"
+    timeline = ReadPositions.key(:timeline, nil)
     at = "2026-10-29T08:05:00.000Z"
-    assert {:ok, ^at} = ReadPositions.advance(did, ReadPositions.key(:timeline, nil), at)
+    assert {:ok, %{at: ^at}} = ReadPositions.advance(did, timeline, at, true)
+    assert {:ok, %{at: ^at}} = ReadPositions.advance(did, timeline, "2026-10-29T08:01:00Z", true)
 
-    assert {:ok, ^at} =
-             ReadPositions.advance(did, ReadPositions.key(:timeline, nil), "2026-10-29T08:01:00Z")
+    # Not reached: held as pending, and committed by the read that reaches it.
+    later = "2026-10-29T09:00:00.000Z"
+    assert {:ok, %{at: ^at, pending: ^later}} = ReadPositions.advance(did, timeline, later, false)
 
-    assert {:ok, nil} = ReadPositions.get(did, ReadPositions.key(:feed, "at://f"))
+    assert {:ok, %{at: ^later, pending: nil}} =
+             ReadPositions.advance(did, timeline, "2026-10-29T08:30:00Z", true)
+
+    list = ReadPositions.key(:list_feed, "at://l")
+    assert {:ok, %{at: nil, pending: nil}} = ReadPositions.get(did, list)
     assert ReadPositions.key(:author, "Alice.Test") == ReadPositions.key(:author, "alice.test")
   end
 end

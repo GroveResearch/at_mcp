@@ -4,25 +4,27 @@ defmodule AtMcp.ReadPositions do
   read returned, per DID and feed, so a read can ask for only what is newer
   (`since: "last_read"` on a read tool).
 
-  A feed is named by `key/2`: the timeline, a custom feed or a list's feed by
-  its AT URI, an author's posts by the actor as the caller named it (a handle
-  and its DID hold separate positions), and the notifications. Every client
-  of an account shares its positions, as they share its write quota.
+  A feed is named by `key/2`: the timeline, a list's feed by its AT URI, an
+  author's posts by the actor as the caller named it (a handle and its DID
+  hold separate positions), and the notifications. A custom feed holds none:
+  its generator orders it as it chooses, so no time says what in it is new.
+  Every client of an account shares its positions, as they share its write
+  quota.
 
-  A position moves only on a read that asks it to: one with `since`, unless
-  it passes `mark_read: false`, or one with `mark_read: true`. A plain read,
-  by an operator or another client, leaves it alone. It only moves forward: a read of an older page, or one whose newest
-  item is older than the position, leaves it where it is. Positions live in
-  `read-positions.json` in the state directory beside the write quota
-  (`AtMcp.Inbound.Store.default_dir/0`), rewritten whole under
-  `AtMcp.PrivateFile`'s lock, so they survive a restart.
+  A position moves only on a read that asks it to (`since: "last_read"`,
+  unless it passes `mark_read: false`, or any read with `mark_read: true`),
+  only forward, and only once the read has reached it: a page whose items
+  are all newer leaves items between it and the position unread, so its
+  newest time is held as pending until the read that reaches the position
+  commits it (`advance/5`). No read moves the position past an item it has
+  not returned. Positions live in `read-positions.json` in the state
+  directory beside the write quota (`AtMcp.Inbound.Store.default_dir/0`),
+  rewritten whole under `AtMcp.PrivateFile`'s lock, so they survive a
+  restart.
 
-  Limits: an item's time is when its feed listed it (a repost's time, else
-  when the service indexed it). A timeline, an author feed and the
-  notifications are in that order, so a read stops at the position. A custom
-  feed is in whatever order its generator chooses, so `since` there keeps the
-  page's items newer than the position, and a newer item further down the
-  feed is not looked for.
+  An item's time is where its feed lists it: a repost at the repost's time,
+  anything else at the earlier of its own date and when the service indexed
+  it, as the AppView sorts a feed.
   """
 
   @version 1
@@ -33,24 +35,32 @@ defmodule AtMcp.ReadPositions do
   @doc "The name a feed's position is kept under."
   def key(:timeline, nil), do: "timeline"
   def key(:notifications, nil), do: "notifications"
-  def key(:feed, uri) when is_binary(uri), do: "feed:" <> uri
   def key(:list_feed, uri) when is_binary(uri), do: "list:" <> uri
   def key(:author, actor) when is_binary(actor), do: "author:" <> String.downcase(actor)
 
-  @doc "The position held for `did` in `feed`, or nil for none."
-  @spec get(binary(), binary(), binary()) :: {:ok, binary() | nil} | {:error, term()}
+  @doc """
+  What is held for `did` in `feed`: `at`, the position, and `pending`, the
+  newest time a read returned before it had reached the position (see
+  `advance/5`); nil for none.
+  """
+  @spec get(binary(), binary(), binary()) ::
+          {:ok, %{at: binary() | nil, pending: binary() | nil}} | {:error, term()}
   def get(did, feed, path \\ path()) when is_binary(did) and is_binary(feed) do
     case AtMcp.PrivateFile.read(path) do
       {:ok, contents} ->
-        with {:ok, data} <- decode(contents), do: {:ok, get_in(data, ["accounts", did, feed])}
+        with {:ok, data} <- decode(contents),
+             do: {:ok, held(get_in(data, ["accounts", did, feed]))}
 
       {:error, :config_missing} ->
-        {:ok, nil}
+        {:ok, held(nil)}
 
       error ->
         error
     end
   end
+
+  defp held(%{} = row), do: %{at: row["at"], pending: row["pending"]}
+  defp held(_none), do: %{at: nil, pending: nil}
 
   # Another read of the same account holds the lock for the moment it takes to
   # rewrite the file. A read waits briefly for it rather than leave its
@@ -59,27 +69,36 @@ defmodule AtMcp.ReadPositions do
   @pause_ms 10
 
   @doc """
-  Move `did`'s position in `feed` to `at` (an ISO 8601 time) if that is later
-  than the one held. Returns the position now held.
+  Record that a read of `did`'s `feed` returned items up to `newest` (an ISO
+  8601 time).
+
+  With `reached?` true the read reached the position it read from, so every
+  item up to `newest` has been returned: the position moves to the latest of
+  itself, `newest` and anything pending, and nothing stays pending. With
+  `reached?` false, items between the position and this read are still
+  unread: the position stays, and `newest` is held as pending for the read
+  that reaches it. Returns what is held after.
   """
-  @spec advance(binary(), binary(), binary(), binary()) :: {:ok, binary()} | {:error, term()}
-  def advance(did, feed, at, path \\ path()) when is_binary(did) and is_binary(feed) do
-    {:ok, _, _} = DateTime.from_iso8601(at)
-    advance(did, feed, at, path, @attempts)
+  @spec advance(binary(), binary(), binary(), boolean(), binary()) ::
+          {:ok, %{at: binary() | nil, pending: binary() | nil}} | {:error, term()}
+  def advance(did, feed, newest, reached?, path \\ path())
+      when is_binary(did) and is_binary(feed) and is_boolean(reached?) do
+    {:ok, _, _} = DateTime.from_iso8601(newest)
+    advance(did, feed, newest, reached?, path, @attempts)
   end
 
-  defp advance(did, feed, at, path, attempts) do
-    case AtMcp.PrivateFile.mutate(path, &change(&1, did, feed, at)) do
+  defp advance(did, feed, newest, reached?, path, attempts) do
+    case AtMcp.PrivateFile.mutate(path, &change(&1, did, feed, newest, reached?)) do
       {:error, :config_busy} when attempts > 1 ->
         Process.sleep(@pause_ms)
-        advance(did, feed, at, path, attempts - 1)
+        advance(did, feed, newest, reached?, path, attempts - 1)
 
       result ->
         result
     end
   end
 
-  defp change(current, did, feed, at) do
+  defp change(current, did, feed, newest, reached?) do
     data =
       case current do
         :missing -> {:ok, %{"version" => @version, "accounts" => %{}}}
@@ -87,11 +106,22 @@ defmodule AtMcp.ReadPositions do
       end
 
     with {:ok, data} <- data do
-      held = get_in(data, ["accounts", did, feed])
-      kept = if held && later?(held, at), do: held, else: at
-      accounts = Map.update(data["accounts"], did, %{feed => kept}, &Map.put(&1, feed, kept))
-      {:ok, Jason.encode!(%{data | "accounts" => accounts}), kept}
+      %{at: at, pending: pending} = held(get_in(data, ["accounts", did, feed]))
+
+      row =
+        if reached?,
+          do: %{"at" => latest([at, pending, newest]), "pending" => nil},
+          else: %{"at" => at, "pending" => latest([pending, newest])}
+
+      accounts = Map.update(data["accounts"], did, %{feed => row}, &Map.put(&1, feed, row))
+      {:ok, Jason.encode!(%{data | "accounts" => accounts}), held(row)}
     end
+  end
+
+  defp latest(times) do
+    times
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reduce(nil, fn t, max -> if is_nil(max) or later?(t, max), do: t, else: max end)
   end
 
   @doc "Whether `a` is later than `b`, both ISO 8601 times."

@@ -196,9 +196,7 @@
         "detail": "string",
         "feed": "string",
         "format": "string",
-        "limit": "integer",
-        "mark_read": "boolean",
-        "since": "string"
+        "limit": "integer"
       },
       "required": [
         "feed"

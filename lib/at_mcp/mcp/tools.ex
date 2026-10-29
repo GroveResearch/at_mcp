@@ -584,28 +584,25 @@ defmodule AtMcp.MCP.Tools do
   function of the limit to ask the service for (`nil` for the caller's) and
   the cursor.
 
-  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page whose
-  reading would pass `AtMcp.Reading.page_chars/0` is asked for again with the
-  number of items that fit, so its cursor is the service's own and continues
-  from the first item left out; the page says how many were left out. An item
-  hidden from a page is not counted in it, so the cursor never skips one, and
-  may at most repeat one. If that second read fails or returns nothing fewer,
-  the whole first page is returned instead: a page too long is better than
-  items lost. A page that would not fit one item is that one item.
+  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page longer
+  than `AtMcp.Reading.page_chars/0`, measured as the caller receives it, is
+  asked for again with the number of items that fit, and the second answer is
+  taken only when it plainly begins the first: see `bounded/4`.
 
   `feed`, for a feed whose read position is held (`AtMcp.ReadPositions.key/2`),
-  takes `since` and `mark_read`: see `newer/3` and `held/4`.
+  takes `since` and `mark_read`: see `positioned/6`.
   """
   def page(fetch, args, state, reading, feed \\ nil) do
     reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
+    measure = if AtMcp.MCP.DSL.format(args, state) == "json", do: :json, else: reading
     cursor = Map.get(args, :cursor)
+    started = System.monotonic_time(:millisecond)
 
-    case since(Map.get(args, :since), state, feed) do
-      {:ok, since} ->
+    case valid_since(Map.get(args, :since), feed) do
+      :ok ->
         fetch.(Map.get(args, :limit), cursor)
-        |> bounded(&fetch.(&1, cursor), reading)
-        |> newer(since, fetch)
-        |> held(marks?(args), state, feed)
+        |> bounded(&fetch.(&1, cursor), measure, started)
+        |> positioned(args, state, feed, fetch, started)
         |> respond(state, reading)
 
       error ->
@@ -613,24 +610,78 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
-  # The time a read asks for items after: the account's position in the feed,
-  # or a time the caller gave. Only a feed whose position is held reads its
-  # `since` here; `search_posts` has a `since` of its own, which the service
-  # applies.
-  defp since(nil, _state, _feed), do: {:ok, nil}
-  defp since(_since, _state, nil), do: {:ok, nil}
-
-  defp since("last_read", state, feed) when is_binary(feed) do
-    case AtMcp.ReadPositions.get(account(state), feed) do
-      {:ok, at} -> {:ok, %{at: at, asked: "last_read"}}
-      {:error, reason} -> {:ok, %{at: nil, asked: "last_read", unread: reason}}
+  # The cut page is the service's second answer, so it is taken only when it
+  # is plainly the first page's beginning: the same first items, in order, and
+  # a cursor of its own. A custom feed's generator need not honour `limit`,
+  # and the AppView then cuts its skeleton and passes the generator's cursor
+  # on unchanged, which would skip every post between the cut and that
+  # cursor; a feed that changed between the two reads, or that answers each
+  # read differently, gives other posts. Either way the first page is
+  # returned whole: a page too long is better than posts lost.
+  defp bounded({:ok, %{} = page} = result, fetch, measure, started) do
+    with {:ok, json} <- Jason.encode(page),
+         %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
+         fit when fit < length(items) <- fitting(data, items, measure),
+         true <- time_left?(started),
+         {:ok, %{items: [_ | _] = shown} = smaller} <- fetch.(fit),
+         true <- length(shown) < length(items),
+         true <- uris(shown) == uris(Enum.take(page.items, length(shown))),
+         cursor when is_binary(cursor) <- smaller[:cursor],
+         true <- cursor != page[:cursor] do
+      {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
+    else
+      _ -> result
     end
   end
 
-  defp since(at, _state, _feed) when is_binary(at) do
+  defp bounded(result, _fetch, _measure, _started), do: result
+
+  defp uris(items), do: Enum.map(items, &(&1[:uri] || &1["uri"]))
+
+  # An account call answers within `AtMcp.Effects.answered_within/0`, and the
+  # endpoint waits `AtMcp.MCP.HTTP.handler_call_timeout/0` for the whole tool
+  # call, which is sized for one. A read makes another only while the
+  # endpoint would still be waiting when it answered, so every call is still
+  # answered by AtMcp rather than abandoned by ExMCP.
+  @result_margin_ms 3_000
+
+  defp time_left?(started) do
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    elapsed + AtMcp.Effects.answered_within() + @result_margin_ms <=
+      AtMcp.MCP.HTTP.handler_call_timeout()
+  end
+
+  # How many of the page's first items fit within the bound, measured as the
+  # caller receives them: the reading, or the JSON when it asked for that; at
+  # least one.
+  defp fitting(data, items, measure) do
+    fits? = fn n ->
+      page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
+
+      text =
+        if measure == :json,
+          do: Jason.encode!(page),
+          else: apply(AtMcp.Reading, measure, [page])
+
+      not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
+    end
+
+    if fits?.(length(items)),
+      do: length(items),
+      else: Enum.find(length(items)..2//-1, 1, fits?)
+  end
+
+  # `since` is read only on a feed whose position is held; `search_posts` has
+  # a `since` of its own, which the service applies.
+  defp valid_since(nil, _feed), do: :ok
+  defp valid_since(_since, nil), do: :ok
+  defp valid_since("last_read", _feed), do: :ok
+
+  defp valid_since(at, _feed) do
     case DateTime.from_iso8601(at) do
       {:ok, _, _} ->
-        {:ok, %{at: at, asked: at}}
+        :ok
 
       _ ->
         {:error,
@@ -639,8 +690,57 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
+  # The read position, after the read: the account has a session by then, so
+  # its DID is known. `since` keeps only the items newer than the position
+  # (`last_read`) or the time given. A read moves the position only when it
+  # asks to (`marks?/1`), and only once it has reached the position it read
+  # from: a page that is all newer, whose older items are still unread, holds
+  # its newest time as pending, and the read that reaches the position (the
+  # same `since: "last_read"` with the cursor) commits it. So no read, cut
+  # short or interrupted, moves the position past items not yet returned.
+  defp positioned({:ok, %{items: items} = page}, args, state, feed, fetch, started)
+       when is_binary(feed) and is_list(items) do
+    did = account(state)
+    asked = Map.get(args, :since)
+
+    case did && AtMcp.ReadPositions.get(did, feed) do
+      {:ok, %{at: held}} ->
+        since = if asked == "last_read", do: held, else: asked
+        reached? = reached?(page, held)
+
+        page
+        |> newer(since, asked, fetch, started)
+        |> mark(marks?(args) && reached?, marks?(args), did, feed)
+
+      other ->
+        why = if is_nil(did), do: :no_session, else: elem(other, 1)
+
+        {:ok,
+         Map.merge(page, %{
+           since: if(asked == "last_read", do: nil, else: asked),
+           since_asked: asked,
+           since_unread: if(asked == "last_read", do: inspect(why)),
+           read_position_unsaved: if(marks?(args), do: inspect(why))
+         })}
+    end
+  end
+
+  defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
+
   defp account(%{effects: effects}), do: AtMcp.Effects.account_did(effects)
   defp account(_state), do: nil
+
+  # Whether this read moves the position: as `mark_read` says, else when it
+  # asked for what is new since the position.
+  defp marks?(%{mark_read: mark}) when is_boolean(mark), do: mark
+  defp marks?(args), do: Map.get(args, :since) == "last_read"
+
+  # Whether a page reaches back to the position: it holds an item at or before
+  # it, or nothing comes after it. With no position held, any page does.
+  defp reached?(_page, nil), do: true
+
+  defp reached?(page, held),
+    do: not is_binary(page[:cursor]) or Enum.any?(page.items, &(not later?(&1, held)))
 
   # How many items past a page a read with `since` counts, to say how many are
   # new: four more pages of the largest size.
@@ -649,50 +749,50 @@ defmodule AtMcp.MCP.Tools do
   # Only the page's items newer than `since`, newest first as the service
   # sends them. When the whole page is newer, it reads on only to count how
   # many are, and keeps its cursor, which continues into them with the same
-  # `since`; otherwise the position is reached and there is no more to read.
-  defp newer({:ok, %{items: items} = page}, %{at: at}, fetch)
-       when is_binary(at) and is_list(items) do
-    new = Enum.filter(items, &later?(&1, at))
-    reached? = length(new) < length(items) or not is_binary(page[:cursor])
+  # `since`; otherwise there is no more to read.
+  defp newer(page, since, asked, fetch, started) when is_binary(since) do
+    new = Enum.filter(page.items, &later?(&1, since))
+    rest? = length(new) == length(page.items) and is_binary(page[:cursor])
 
     {more, exact?} =
-      if reached?, do: {0, true}, else: count_newer(fetch, page[:cursor], at, @count_pages)
+      if rest?,
+        do: count_newer(fetch, page[:cursor], since, @count_pages, started),
+        else: {0, true}
 
-    {:ok,
-     Map.merge(page, %{
-       items: new,
-       count: length(new),
-       cursor: if(reached?, do: nil, else: page[:cursor]),
-       since: at,
-       new_total: length(new) + more,
-       new_total_exact: exact?
-     })}
+    Map.merge(page, %{
+      items: new,
+      count: length(new),
+      cursor: if(rest?, do: page[:cursor]),
+      since: since,
+      since_asked: asked,
+      new_total: length(new) + more,
+      new_total_exact: exact?
+    })
   end
 
-  defp newer({:ok, %{} = page}, %{asked: "last_read"} = since, _fetch),
-    do: {:ok, Map.merge(page, %{since: nil, since_unread: unread_reason(since)})}
+  # `last_read` with no position held: everything is new, and this is the
+  # newest page.
+  defp newer(page, nil, "last_read", _fetch, _started),
+    do: Map.merge(page, %{since: nil, since_asked: "last_read"})
 
-  defp newer(result, _since, _fetch), do: result
+  defp newer(page, _since, _asked, _fetch, _started), do: page
 
-  defp unread_reason(%{unread: reason}), do: inspect(reason)
-  defp unread_reason(_since), do: nil
+  defp count_newer(_fetch, _cursor, _at, 0, _started), do: {0, false}
 
-  defp count_newer(_fetch, _cursor, _at, 0), do: {0, false}
+  defp count_newer(fetch, cursor, at, pages, started) do
+    with true <- time_left?(started),
+         {:ok, %{items: items} = page} when is_list(items) <-
+           fetch.(AtMcp.Effects.page_limits().max, cursor) do
+      new = Enum.count(items, &later?(&1, at))
 
-  defp count_newer(fetch, cursor, at, pages) do
-    case fetch.(AtMcp.Effects.page_limits().max, cursor) do
-      {:ok, %{items: items} = page} when is_list(items) ->
-        new = Enum.count(items, &later?(&1, at))
-
-        if new < length(items) or not is_binary(page[:cursor]) do
-          {new, true}
-        else
-          {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1)
-          {new + more, exact?}
-        end
-
-      _ ->
-        {0, false}
+      if new < length(items) or not is_binary(page[:cursor]) do
+        {new, true}
+      else
+        {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1, started)
+        {new + more, exact?}
+      end
+    else
+      _ -> {0, false}
     end
   end
 
@@ -703,36 +803,39 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
-  # When an item entered its feed: a repost at the repost's time, as a
-  # timeline orders it; anything else when the service indexed it.
+  # Where an item sits in its feed's order: a repost at the repost's time;
+  # anything else at the earlier of when it says it was made and when the
+  # service indexed it, as the AppView sorts a feed (`sortAt`).
   defp when_listed(item) when is_map(item) do
     reason = item[:reason]
-    (is_map(reason) && reason[:at]) || item[:indexed_at] || item[:created_at]
+
+    case {is_map(reason) && reason[:at], item[:created_at], item[:indexed_at]} do
+      {at, _, _} when is_binary(at) -> at
+      {_, made, indexed} when is_binary(made) and is_binary(indexed) -> earlier(made, indexed)
+      {_, made, indexed} -> indexed || made
+    end
   end
 
   defp when_listed(_item), do: nil
 
-  # A read moves the position only when it asked to: with `since`, unless it
-  # passed `mark_read: false`, or with `mark_read: true`. A plain read, by an
-  # operator or another client, leaves an agent's new items new.
-  defp marks?(%{mark_read: mark}) when is_boolean(mark), do: mark
-  defp marks?(args), do: not is_nil(Map.get(args, :since))
+  defp earlier(a, b), do: if(AtMcp.ReadPositions.later?(a, b), do: b, else: a)
 
-  # A read that marks moves the position to its newest item.
-  defp held({:ok, %{items: [_ | _] = items} = page}, true, state, feed) when is_binary(feed) do
-    newest = items |> Enum.map(&when_listed/1) |> Enum.reduce(nil, &newest/2)
+  # Commit the newest item returned when the read reached the position, or
+  # hold it as pending when it did not; nothing when the read does not mark.
+  defp mark(page, commit?, marks?, did, feed) do
+    newest = page.items |> Enum.map(&when_listed/1) |> Enum.reduce(nil, &newest/2)
 
-    with did when is_binary(did) <- account(state),
-         at when is_binary(at) <- newest,
-         {:ok, position} <- AtMcp.ReadPositions.advance(did, feed, at) do
-      {:ok, Map.put(page, :read_position, position)}
-    else
-      {:error, reason} -> {:ok, Map.put(page, :read_position_unsaved, inspect(reason))}
-      _ -> {:ok, page}
+    cond do
+      not marks? or is_nil(newest) ->
+        {:ok, page}
+
+      true ->
+        case AtMcp.ReadPositions.advance(did, feed, newest, commit?) do
+          {:ok, %{at: at}} -> {:ok, Map.put(page, :read_position, at)}
+          {:error, reason} -> {:ok, Map.put(page, :read_position_unsaved, inspect(reason))}
+        end
     end
   end
-
-  defp held(result, _mark?, _state, _feed), do: result
 
   defp newest(at, nil) when is_binary(at),
     do: if(match?({:ok, _, _}, DateTime.from_iso8601(at)), do: at)
@@ -741,37 +844,6 @@ defmodule AtMcp.MCP.Tools do
     do: if(AtMcp.ReadPositions.later?(at, max), do: at, else: max)
 
   defp newest(_at, max), do: max
-
-  defp bounded({:ok, %{} = page} = result, fetch, reading) do
-    with {:ok, json} <- Jason.encode(page),
-         %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
-         fit when fit < length(items) <- fitting(data, items, reading),
-         {:ok, %{items: shown} = smaller} when shown != [] and length(shown) < length(items) <-
-           fetch.(fit) do
-      {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
-    else
-      _ -> result
-    end
-  end
-
-  defp bounded(result, _fetch, _reading), do: result
-
-  # How many of the page's first posts its reading holds within the bound;
-  # at least one.
-  defp fitting(data, items, reading) do
-    fits? = fn n ->
-      text =
-        apply(AtMcp.Reading, reading, [
-          Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
-        ])
-
-      not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
-    end
-
-    if fits?.(length(items)),
-      do: length(items),
-      else: Enum.find(length(items)..2//-1, 1, fits?)
-  end
 
   # What a refusal's message says, which AtMcp composed from its own words
   # and, at times, the service's: one literal.
