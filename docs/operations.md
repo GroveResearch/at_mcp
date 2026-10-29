@@ -373,9 +373,11 @@ another process is using the state folder.
 - **`at_mcp-stdio` waits without printing anything.** It expects an MCP client
   on its input and output, so start it from an MCP client. Its messages go to
   standard error.
-- **The state folder is in use.** Another at_mcp process holds it. Close the
-  other client, or connect both clients to a single service. Two state folders
-  for the same account mean two separate write quotas.
+- **The state folder is in use.** Another at_mcp process has locked it.
+  Usually this is a second `at_mcp-stdio` for the same account. Close the other client, or
+  connect both clients to a single service ([Connect a
+  client](#connect-a-client)). Two state folders for the same account mean
+  two separate write quotas.
 - **Login fails.** Check the handle, the app password and the server address.
   Use the address of the account's host. A profile page address fails. The
   account's DID document lists the host as the
