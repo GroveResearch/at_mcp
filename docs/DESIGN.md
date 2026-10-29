@@ -223,9 +223,9 @@ session, so the agent needs a way to check both.
 
 ## The write quota
 
-Each account has a durable quota on posts, replies and reposts: 16 attempts
-per hour by default, shared by every client of the account and kept across
-restarts. The default guards against an agent posting faster than a person
+Each account has a durable quota on posts, replies, reposts and the records
+`put_record` and `delete_record` write: 16 attempts per hour by default,
+shared by every client of the account and kept across restarts. The default guards against an agent posting faster than a person
 would notice and stop it. The figure comes from an earlier per-turn limit,
 kept when the limit moved to the hour, and nobody has measured a better one.
 `AtMcp.WriteQuota` explains the reasoning. Each account on a service can have
@@ -354,7 +354,7 @@ host:
   the stream.
 - **Delivery**: sending a collected event to a receiving program, retried
   until accepted.
-- **Write quota**: the per-account limit on posts, replies and reposts in a
+- **Write quota**: the per-account limit on posts, replies, reposts and record writes in a
   time window.
 - **Ready**: logged in, checked against its DID, and not paused.
 - **Disconnected**: paused with `disconnect`, until `reconnect`.

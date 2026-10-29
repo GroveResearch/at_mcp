@@ -7,6 +7,11 @@ itself.
 
 ## Unreleased
 
+- New tools `put_record` and `delete_record` write and delete records of
+  other applications in the account's own repository, such as issues on
+  Tangled. Each write counts against the write quota. Collections at_mcp
+  writes with its own tools are refused, naming the tool to use.
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write

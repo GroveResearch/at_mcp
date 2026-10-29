@@ -87,6 +87,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       moderation: info["moderation"],
       feed: info["feed"],
       me: account.(info["accounts"]["self"]),
+      me_credentials: info["accounts"]["self"],
       them: account.(info["accounts"]["other"]),
       session: session
     }
@@ -1801,6 +1802,97 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       call!(them, "delete_post", %{"uri" => post["uri"]})
       sync(net)
+    end
+  end
+
+  describe "records of other applications" do
+    @issue "sh.tangled.repo.issue"
+
+    test "put_record creates and replaces a record of a collection the PDS does not know, get_record reads it back, and delete_record deletes it",
+         %{me: me} do
+      created =
+        call!(me, "put_record", %{
+          "collection" => @issue,
+          "record" => %{
+            "repo" => "at://#{me.did}/sh.tangled.repo/3k22222222222",
+            "title" => "first",
+            "body_text" => "keys stay as written",
+            "createdAt" => "2026-10-29T00:00:00Z"
+          }
+        })
+
+      assert %{"action" => "put_record", "uri" => uri, "cid" => cid, "replaced" => false} =
+               created
+
+      assert ["at:", "", did, @issue, rkey] = String.split(uri, "/")
+      assert did == me.did
+
+      read = call!(me, "get_record", %{"uri" => uri})
+      assert read["cid"] == cid
+
+      assert %{"$type" => @issue, "title" => "first", "body_text" => "keys stay as written"} =
+               read["value"]
+
+      replaced =
+        call!(me, "put_record", %{
+          "collection" => @issue,
+          "rkey" => rkey,
+          "cid" => cid,
+          "record" => Map.put(read["value"], "title", "second")
+        })
+
+      assert %{"uri" => ^uri, "replaced" => true, "cid" => new_cid} = replaced
+      assert new_cid != cid
+      assert %{"title" => "second"} = record(me, uri)
+
+      # The version first read is gone: a write naming it changes nothing.
+      for {name, args} <- [
+            {"put_record", %{"rkey" => rkey, "cid" => cid, "record" => %{"title" => "stale"}}},
+            {"delete_record", %{"rkey" => rkey, "cid" => cid}}
+          ] do
+        assert %{"code" => "changed_meanwhile"} =
+                 stringify(refused(me, name, Map.put(args, "collection", @issue)))
+      end
+
+      assert %{"title" => "second"} = record(me, uri)
+
+      assert %{"action" => "delete_record", "uri" => ^uri} =
+               call!(me, "delete_record", %{"collection" => @issue, "rkey" => rkey})
+
+      assert record(me, uri) == nil
+
+      assert %{"unchanged" => true} =
+               call!(me, "delete_record", %{"collection" => @issue, "rkey" => rkey})
+    end
+
+    test "each put_record and delete_record counts against the write quota, and one past it is refused before it is sent",
+         %{me: me, me_credentials: credentials, pds: pds} do
+      effects =
+        start_supervised!(
+          {AtMcp.Effects,
+           backend: AtMcp.Effects.ProtoRune,
+           handle: credentials["handle"],
+           password: credentials["password"],
+           service: pds,
+           write_quota: AtMcp.Test.QuotaFixture.quota(2)},
+          id: make_ref()
+        )
+
+      limited = %{me | effects: effects}
+      rkey = AtMcp.ATProto.tid()
+      uri = "at://#{me.did}/#{@issue}/#{rkey}"
+      put = %{"collection" => @issue, "rkey" => rkey, "record" => %{"title" => "counted"}}
+
+      call!(limited, "put_record", put)
+      assert AtMcp.Effects.quota_status(effects).used == 1
+      call!(limited, "delete_record", Map.delete(put, "record"))
+      assert AtMcp.Effects.quota_status(effects).used == 2
+
+      assert %{"code" => "write_quota_exhausted"} =
+               stringify(refused(limited, "put_record", put))
+
+      assert record(me, uri) == nil
+      assert AtMcp.Effects.quota_status(effects).used == 2
     end
   end
 

@@ -82,6 +82,17 @@
         "uri"
       ]
     },
+    "delete_record": {
+      "arguments": {
+        "cid": "string",
+        "collection": "string",
+        "rkey": "string"
+      },
+      "required": [
+        "collection",
+        "rkey"
+      ]
+    },
     "delete_starter_pack": {
       "arguments": {
         "uri": "string"
@@ -550,6 +561,18 @@
       },
       "required": [
         "text"
+      ]
+    },
+    "put_record": {
+      "arguments": {
+        "cid": "string",
+        "collection": "string",
+        "record": "object",
+        "rkey": "string"
+      },
+      "required": [
+        "collection",
+        "record"
       ]
     },
     "reattach_quote": {

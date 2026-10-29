@@ -362,6 +362,21 @@ defmodule AtMcp.Effects.Backend do
   @callback mute(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback unmute(state(), did :: String.t()) :: {:ok, summary()} | {:error, reason()}
   @callback delete_post(state(), post_uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+
+  @doc """
+  Read the record a `put_record` or `delete_record` would replace or delete,
+  before the write quota is charged. The request is `{:put, collection, rkey,
+  record, cid}` (rkey nil for a new record) or `{:delete, collection, rkey,
+  cid}`, in this account's own repository; `cid`, when not nil, is the version
+  the caller read. A record that no longer has it is refused as changed
+  meanwhile; a delete of a record that is not there answers `{:ok,
+  {:unchanged, summary}}`. Otherwise the answer is what `write_record/2` sends.
+  """
+  @callback prepare_record_write(state(), request :: tuple()) ::
+              {:ok, term()} | {:error, reason()}
+
+  @doc "Send what `prepare_record_write/2` prepared, written only over the version it read."
+  @callback write_record(state(), prepared :: term()) :: {:ok, summary()} | {:error, reason()}
   @callback update_profile(state(), updates :: keyword()) :: {:ok, summary()} | {:error, reason()}
   @callback update_seen(state(), seen_at :: DateTime.t()) :: {:ok, summary()} | {:error, reason()}
 
