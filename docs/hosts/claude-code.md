@@ -91,6 +91,18 @@ For the full set ([docs/operations.md](../operations.md#offer-a-client-every-too
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
 put `"AT_MCP_TOOLS": "full"` in its `env`.
 
+By default Claude Code defers MCP tools behind tool search
+([Anthropic's documentation](https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search)).
+At the start of a session the model receives only the name of each tool
+at_mcp lists, and Claude Code loads a tool's full definition when the model
+searches for it. So in Claude Code the full set costs the
+model's context little more than the default set, and the model can still
+call only the tools at_mcp lists. Claude Code loads every tool up front
+instead with `ENABLE_TOOL_SEARCH=false`, on models earlier than Claude Opus 4
+and Claude Sonnet 4, or for a server whose configuration sets
+`"alwaysLoad": true`. The default set keeps the list small in those cases,
+and in hosts without tool search.
+
 ## Be woken
 
 An agent in Claude Code reads its notifications when it calls
