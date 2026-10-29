@@ -26,7 +26,9 @@ defmodule AtMcp.WriteQuota do
   faster than a person would notice and stop it, such as a loop that replies
   to its own replies, a retry storm, or a conversation between two agents that
   never ends. Posts, replies and reposts are what other people see, so only
-  they count (`AtMcp.Effects.publishing/0`). A quota that counted likes and
+  they count, and every `put_record` or `delete_record` call, since AtMcp
+  cannot tell what another application's record means
+  (`AtMcp.Effects.publishing/0`). A quota that counted likes and
   follows too would let an agent that likes and follows a lot spend it within
   minutes and leave its replies waiting for the reset. A refused write is the
   visible failure: the refusal and `identity_status` name the limit and the

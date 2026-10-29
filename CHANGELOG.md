@@ -18,16 +18,11 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
-- A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
-  `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) is now at most 40,000 characters of text. Claude Code
-  saves a result over 50,000 characters to a file, so a page of long posts
-  never got to the model. When a page would be longer, at_mcp asks the
-  service for fewer posts, says how many it dropped, and returns a cursor
-  that starts with them. A page asked for as JSON keeps every post up to
-  `limit`.
-- The same reads take `detail: "brief"`, which shows one line per post. A
-  recorded 50-post page was 12.5K characters this way, and 35.6K in full.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
 - Every tool error ends with one sentence saying what the agent can do: try
   again now, try again after a stated time, change a named argument, read the
   account first, or not retry; when at_mcp can't classify a failure, it says
