@@ -51,8 +51,9 @@ the turn.
   anywhere else in `lib/` is a defect. `com.atproto.*` and `chat.bsky.*` stay
   literal because the rename does not touch them.
 - `AtMcp.MCP.Server` — the tool surface. Handlers call `AtMcp.Effects` and never
-  reimplement account policy. Every tool declares an output schema from
-  `AtMcp.Summary`, and its `readOnlyHint` / `destructiveHint` annotations are the
+  reimplement account policy. A write declares an output schema from
+  `AtMcp.Summary`; a read answers in text unless asked for json, and declares
+  none (`AtMcp.MCP.Output`). A tool's `readOnlyHint` / `destructiveHint` annotations are the
   only definition of what a grant's scope reaches.
 - `AtMcp.Grants` — the credential boundary. It alone answers which identity a
   request acts as and how much it may reach; `AtMcp.MCP.HTTP` resolves, nothing

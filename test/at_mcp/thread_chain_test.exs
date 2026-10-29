@@ -537,7 +537,7 @@ defmodule AtMcp.ThreadChainTest do
     {:ok, effects} =
       AtMcp.Test.QuotaFixture.start_effects(backend: Backend, backend_state: session())
 
-    state = %{effects: effects}
+    state = %{effects: effects, format: "json"}
 
     for fixture <- [
           :whole_thread,
@@ -992,7 +992,7 @@ defmodule AtMcp.ThreadChainTest do
     tool = Enum.find(tools, &(&1.name == "get_thread_chain"))
 
     assert Map.has_key?(tool.inputSchema.properties, :before)
-    assert tool.outputSchema["properties"]["chain_before"]
+    assert AtMcp.MCP.Server.__output_schemas__()["get_thread_chain"]["properties"]["chain_before"]
 
     # A cap written into a description is frozen at compile time and goes stale
     # the moment the attribute moves; chain_before is what a caller acts on.
@@ -1009,7 +1009,7 @@ defmodule AtMcp.ThreadChainTest do
         backend_state: session()
       )
 
-    state = %{effects: effects}
+    state = %{effects: effects, format: "json"}
 
     assert {:ok, result, ^state} =
              AtMcp.MCP.Server.handle_call_tool(

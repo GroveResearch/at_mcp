@@ -48,7 +48,7 @@ defmodule AtMcp.MCP.HTTPTest do
     mismatched =
       Req.post!(Grant.url(),
         headers: Grant.headers(alice_token) ++ [{"x-at-mcp-account-did", bob_did}],
-        json: request("identity_status"),
+        json: request("identity_status", %{"format" => "json"}),
         retry: false
       )
 
@@ -59,7 +59,7 @@ defmodule AtMcp.MCP.HTTPTest do
     matched =
       Req.post!(Grant.url(),
         headers: Grant.session!(alice_token) ++ [{"x-at-mcp-account-did", alice_did}],
-        json: request("identity_status"),
+        json: request("identity_status", %{"format" => "json"}),
         retry: false
       )
 
@@ -89,12 +89,46 @@ defmodule AtMcp.MCP.HTTPTest do
       assert structured(response)["code"] == "invalid_arguments"
     end
 
-    assert structured(post(headers, "identity_status"))["write_quota"]["used"] == 0
+    assert structured(post(headers, "identity_status", %{"format" => "json"}))["write_quota"][
+             "used"
+           ] == 0
 
     assert post(headers, "post", %{"text" => "valid mock write"}).body["result"]["isError"] !=
              true
 
-    assert structured(post(headers, "identity_status"))["write_quota"]["used"] == 1
+    assert structured(post(headers, "identity_status", %{"format" => "json"}))["write_quota"][
+             "used"
+           ] == 1
+  end
+
+  test "a grant issued for json makes json its reads' default, and a call can still ask for text" do
+    id = "http_json_grant"
+
+    {:ok, _} =
+      AtMcp.Identities.start_identity(
+        id: id,
+        listen_enabled: false,
+        backend: AtMcp.Test.MockBackend,
+        backend_state: %{did: "did:plc:jsongrant", mock: true}
+      )
+
+    on_exit(fn -> AtMcp.Identities.stop_identity(id) end)
+    {:ok, json} = AtMcp.Grants.issue(id, scope: :read, format: "json")
+    on_exit(fn -> AtMcp.Grants.revoke(json.token) end)
+    plain = Grant.token(id, :read)
+
+    by_grant = post(Grant.session!(json.token), "get_timeline").body["result"]
+    assert %{"count" => 0, "items" => []} = by_grant["structuredContent"]
+    assert Jason.decode!(hd(by_grant["content"])["text"]) == by_grant["structuredContent"]
+
+    asked_text =
+      post(Grant.session!(json.token), "get_timeline", %{"format" => "text"}).body["result"]
+
+    refute Map.has_key?(asked_text, "structuredContent")
+
+    default = post(Grant.session!(plain), "get_timeline").body["result"]
+    refute Map.has_key?(default, "structuredContent")
+    assert hd(default["content"])["text"] == hd(asked_text["content"])["text"]
   end
 
   test "the endpoint refuses a caller that presents nothing" do
@@ -110,7 +144,12 @@ defmodule AtMcp.MCP.HTTPTest do
 
     # If an uncredentialed caller were served, nothing would be separated: an
     # agent that wanted another identity would simply omit the header.
-    response = Req.post!(Grant.url(), json: request("identity_status"), retry: false)
+    response =
+      Req.post!(Grant.url(),
+        json: request("identity_status", %{"format" => "json"}),
+        retry: false
+      )
+
     assert response.status == 401
     assert response.body["error"] == "grant_required"
     assert Req.Response.get_header(response, "www-authenticate") == [~s(Bearer realm="at_mcp")]
@@ -121,7 +160,7 @@ defmodule AtMcp.MCP.HTTPTest do
     refused =
       Req.post!(Grant.url(),
         headers: Grant.headers(revoked),
-        json: request("identity_status"),
+        json: request("identity_status", %{"format" => "json"}),
         retry: false
       )
 
@@ -210,7 +249,7 @@ defmodule AtMcp.MCP.HTTPTest do
     response =
       Req.post!(Grant.url(),
         headers: Grant.headers(token),
-        json: request("identity_status"),
+        json: request("identity_status", %{"format" => "json"}),
         retry: false
       )
 
@@ -333,7 +372,7 @@ defmodule AtMcp.MCP.HTTPTest do
     Req.post!(Grant.url(), headers: headers, json: request(tool, arguments), retry: false)
   end
 
-  defp request(tool, arguments \\ %{}) do
+  defp request(tool, arguments) do
     %{
       jsonrpc: "2.0",
       id: System.unique_integer([:positive]),

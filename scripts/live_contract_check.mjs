@@ -46,27 +46,37 @@ const postUris = value => Array.isArray(value) ? value.flatMap(postUris)
   : (typeof value.uri === 'string' && typeof value.text === 'string' ? [value.uri] : [])
       .concat(Object.values(value).flatMap(postUris));
 
-const call = async (name, args = {}) => {
-  const result = await client.callTool({name, arguments: args});
-  const text = result.content.find(c => c.type === 'text')?.text;
-  const reading = readings.has(name) && !result.isError;
-  const parsed = text && !result.isError && !reading ? JSON.parse(text) : undefined;
-  if (parsed !== undefined) {
-    check(isDeepStrictEqual(parsed, result.structuredContent),
-      `${name}: structured content differs from the JSON text`);
-  }
-  if (reading) {
-    const omitted = postUris(result.structuredContent).filter(uri => !text?.includes(uri));
-    check(omitted.length === 0, `${name}: the text omits ${omitted.join(', ')}`);
-  }
-  return {isError: Boolean(result.isError), text, body: result.structuredContent ?? parsed};
-};
-
 const {tools} = await client.listTools();
-const missing = tools.filter(t => !t.outputSchema?.properties).map(t => t.name);
-check(missing.length === 0, `tools without an output schema: ${missing.join(', ')}`);
+// A read takes `format`, answers in text alone by default, and with json
+// returns its summary as structured content and as that JSON in the text.
+const reads = new Set(tools.filter(t => t.inputSchema.properties?.format).map(t => t.name));
+const writesWithoutSchema = tools.filter(t => !reads.has(t.name) && !t.outputSchema?.properties).map(t => t.name);
+check(writesWithoutSchema.length === 0, `writes without an output schema: ${writesWithoutSchema.join(', ')}`);
+const readsWithSchema = tools.filter(t => reads.has(t.name) && t.outputSchema).map(t => t.name);
+check(readsWithSchema.length === 0, `reads declaring an output schema: ${readsWithSchema.join(', ')}`);
 check(tools.find(t => t.name === 'get_posts')?.inputSchema.properties.uris.maxItems === 25,
   'get_posts does not advertise its 25-item limit');
+
+const call = async (name, args = {}) => {
+  const read = reads.has(name);
+  const result = await client.callTool({name, arguments: read ? {...args, format: 'json'} : args});
+  const json = result.content.find(c => c.type === 'text')?.text;
+  if (json && !result.isError) {
+    check(isDeepStrictEqual(JSON.parse(json), result.structuredContent),
+      `${name}: structured content differs from the JSON text`);
+  }
+  let text = json;
+  if (read && !result.isError) {
+    const plain = await client.callTool({name, arguments: args});
+    check(plain.structuredContent === undefined, `${name}: structured content returned unasked`);
+    text = plain.content.find(c => c.type === 'text')?.text;
+    if (readings.has(name)) {
+      const omitted = postUris(result.structuredContent).filter(uri => !text?.includes(uri));
+      check(omitted.length === 0, `${name}: the text omits ${omitted.join(', ')}`);
+    }
+  }
+  return {isError: Boolean(result.isError), text, body: result.structuredContent};
+};
 
 const status = await call('identity_status');
 check(status.body?.did === did, `identity_status reports ${status.body?.did}, expected ${did}`);

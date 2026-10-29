@@ -57,7 +57,11 @@ defmodule AtMcp.MCP.HTTP do
         ExMCP.HttpPlug.init(
           handler: AtMcp.MCP.Server,
           handler_opts: fn conn, _request ->
-            [effects: conn.private.at_mcp_effects, scope: conn.private.at_mcp_scope]
+            [
+              effects: conn.private.at_mcp_effects,
+              scope: conn.private.at_mcp_scope,
+              format: conn.private.at_mcp_format
+            ]
           end,
           server_info: AtMcp.MCP.Server.server_info(),
           handler_call_timeout: handler_call_timeout(),
@@ -94,12 +98,13 @@ defmodule AtMcp.MCP.HTTP do
 
   def call(conn, opts) do
     with :ok <- same_origin(conn),
-         {:ok, account, scope} <- grant(conn),
+         {:ok, %{account: account, scope: scope, format: format}} <- grant(conn),
          {:ok, effects} <- effects(account),
          :ok <- confirmed_binding(conn, effects) do
       conn
       |> put_private(:at_mcp_effects, effects)
       |> put_private(:at_mcp_scope, scope)
+      |> put_private(:at_mcp_format, format)
       |> authorize(scope, opts)
     else
       {:error, status, body} -> json(conn, status, body)
@@ -138,8 +143,8 @@ defmodule AtMcp.MCP.HTTP do
   defp grant(conn) do
     case get_req_header(conn, "authorization") do
       ["Bearer " <> token] when token != "" ->
-        case AtMcp.Grants.authorize(token) do
-          {:ok, account, scope} -> {:ok, account, scope}
+        case AtMcp.Grants.request(token) do
+          {:ok, grant} -> {:ok, grant}
           {:error, :grants_unreadable} -> {:error, 503, %{error: "grants_unreadable"}}
           {:error, _} -> {:error, 401, %{error: "unknown_grant"}}
         end
