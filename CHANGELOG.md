@@ -24,6 +24,11 @@ This release is 0.3.0: what read tools return has changed.
   and `feed_feedback`. A call that names one is still refused as before,
   with nothing sent.
 
+- New tools `put_record` and `delete_record` write and delete records of
+  other applications in the account's own repository, such as issues on
+  Tangled. Each write counts against the write quota. Collections at_mcp
+  writes with its own tools are refused, naming the tool to use.
+
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass

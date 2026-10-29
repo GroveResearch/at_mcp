@@ -1736,6 +1736,94 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "put_record",
+       write_description(
+         :put_record,
+         "Create or replace one record in this account's own repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). The service checks a record whose lexicon it knows; nothing checks the shape of one it does not. Collections at_mcp writes with its own tools (posts, likes, reposts, follows, blocks, the profile, lists and their items, gates, status) are refused, naming the tool to use. A replacement is written only over the version read, so a change made meanwhile is refused. Returns the record's uri and cid; get_record reads it back."
+       ) do
+    annotations(
+      write_annotations(:put_record, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.record_write_result())
+
+    param(:collection, :string,
+      required: true,
+      description: "The record's collection, an NSID such as sh.tangled.repo.issue"
+    )
+
+    param(:rkey, :string,
+      description:
+        "The record's key. Left out, the service picks one and the record is new; given, the record there is created or replaced"
+    )
+
+    param(:record, :object,
+      required: true,
+      description:
+        "The record as JSON, keys as its lexicon names them. $type is the collection and is added when left out"
+    )
+
+    param(:cid, :string,
+      description:
+        "With rkey: the CID get_record gave for the version being replaced. If the record no longer has it, nothing is written"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.put_record(
+          state.effects,
+          Map.fetch!(a, :collection),
+          a[:rkey],
+          Map.fetch!(a, :record),
+          a[:cid]
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "delete_record",
+       write_description(
+         :delete_record,
+         "Delete one record of this account's own by collection and key, for a collection put_record writes. A record that is not there is left alone and unchanged is true."
+       ) do
+    annotations(
+      write_annotations(:delete_record, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.record_write_result())
+
+    param(:collection, :string, required: true, description: "The record's collection, an NSID")
+    param(:rkey, :string, required: true, description: "The record's key")
+
+    param(:cid, :string,
+      description:
+        "The CID get_record gave for the record. If the record no longer has it, nothing is deleted"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_record(
+          state.effects,
+          Map.fetch!(a, :collection),
+          Map.fetch!(a, :rkey),
+          a[:cid]
+        ),
+        state
+      )
+    end)
+  end
+
   tool "update_profile",
        write_description(
          :update_profile,

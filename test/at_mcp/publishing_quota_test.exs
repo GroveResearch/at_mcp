@@ -54,7 +54,7 @@ defmodule AtMcp.PublishingQuotaTest do
   end
 
   test "only publishing counts" do
-    assert AtMcp.Effects.publishing() == [:post, :reply, :repost]
+    assert AtMcp.Effects.publishing() == [:post, :reply, :repost, :put_record, :delete_record]
   end
 
   # Every mutating tool, called through the MCP surface with no writes left:
@@ -74,6 +74,8 @@ defmodule AtMcp.PublishingQuotaTest do
     "mute" => %{"actor" => "alice.example"},
     "unmute" => %{"actor" => "alice.example"},
     "delete_post" => %{"uri" => "at://p"},
+    "put_record" => %{"collection" => "sh.tangled.repo.issue", "record" => %{"title" => "t"}},
+    "delete_record" => %{"collection" => "sh.tangled.repo.issue", "rkey" => "3k22222222222"},
     "update_profile" => %{"display_name" => "n"},
     "update_seen" => %{},
     "create_list" => %{"name" => "n", "purpose" => "curate"},

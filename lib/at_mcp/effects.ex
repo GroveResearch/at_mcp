@@ -36,7 +36,7 @@ defmodule AtMcp.Effects do
   this account's own limit (`:write_limit`, `:write_window_seconds`) or, where
   it sets none, the quota server's. The quota bounds what the account
   publishes, so only the verbs in `publishing/0` —
-  post, reply and repost — reserve before dispatch; every other write goes out
+  post, reply, repost, put_record and delete_record — reserve before dispatch; every other write goes out
   without spending one. Failed and ambiguous backend attempts consume their
   reservation. Hosts own activity limits.
 
@@ -910,7 +910,10 @@ defmodule AtMcp.Effects do
   # a deletion or a profile edit is an ordinary gesture and does not spend it.
   # Each MCP tool's description and its `at_mcp/publicWrite` annotation derive
   # from this list (`AtMcp.MCP.DSL`), so a host reads the same classification.
-  @publishing [:post, :reply, :repost]
+  # A record written with `put_record` or deleted with `delete_record` counts
+  # too: AtMcp cannot tell what another application's record means, so it
+  # counts every one rather than guess which are gestures.
+  @publishing [:post, :reply, :repost, :put_record, :delete_record]
 
   @doc "The write verbs that count against the account's write quota."
   def publishing, do: @publishing
@@ -1199,6 +1202,136 @@ defmodule AtMcp.Effects do
       backend.delete_post(session, post_uri)
     end)
   end
+
+  # The record kinds AtMcp writes through tools of its own, and those tools.
+  # Each makes checks a raw write would skip (a reply's gate, a like made
+  # once, a handle resolved, a profile written over what was read), so
+  # `put_record` and `delete_record` refuse these collections and name them.
+  @own_tools [
+    post: "post, reply and delete_post",
+    like: "like and unlike",
+    repost: "repost and unrepost",
+    follow: "follow and unfollow",
+    block: "block and unblock",
+    profile: "update_profile",
+    link: "update_profile",
+    list: "create_list, update_list and delete_list",
+    list_item: "add_to_list and remove_from_list",
+    list_block: "block_list and unblock_list",
+    starter_pack: "create_starter_pack, update_starter_pack and delete_starter_pack",
+    list_opt_out: "set_list_opt_out",
+    threadgate: "set_post_interactions",
+    postgate: "set_post_interactions",
+    status: "set_status",
+    content_visibility: "set_preference",
+    notification_declaration: "set_preference"
+  ]
+
+  @doc """
+  Create or replace one record in this account's own repository: any
+  collection but those AtMcp writes with tools of its own (`@own_tools`).
+
+  Without `rkey` the service picks the key and the record is new. With one,
+  the record there is read first and replaced only if it is still the version
+  read (`swapRecord`); when there is none, only if there still is none. `cid`,
+  given, is the version the caller read: a record that no longer has it is
+  not written over. A record's `$type` is its collection, added when left out.
+  The service checks the record against its lexicon when it knows it; nothing
+  checks one it does not know.
+  """
+  def put_record(effects, collection, rkey, record, cid \\ nil) do
+    with :ok <- writable_collection(collection),
+         :ok <- record_key(rkey),
+         :ok <- optional_text(cid, "cid"),
+         :ok <-
+           only_with(
+             cid,
+             rkey != nil,
+             "cid",
+             "names the version of the record at rkey; give rkey too"
+           ),
+         {:ok, record} <- typed_record(record, collection) do
+      take_and_write(
+        effects,
+        :put_record,
+        fn backend, session ->
+          backend.prepare_record_write(session, {:put, collection, rkey, record, cid})
+        end,
+        fn prepared -> fn backend, session -> backend.write_record(session, prepared) end end
+      )
+    end
+  end
+
+  @doc """
+  Delete one record of this account's own, by collection and key, under the
+  same rules as `put_record/5`. A record that is not there is left alone and
+  nothing is counted; one that no longer has `cid`, given, is not deleted.
+  """
+  def delete_record(effects, collection, rkey, cid \\ nil) do
+    with :ok <- writable_collection(collection),
+         :ok <- record_key(rkey || :missing),
+         :ok <- optional_text(cid, "cid") do
+      take_and_write(
+        effects,
+        :delete_record,
+        fn backend, session ->
+          backend.prepare_record_write(session, {:delete, collection, rkey, cid})
+        end,
+        fn prepared -> fn backend, session -> backend.write_record(session, prepared) end end
+      )
+    end
+  end
+
+  # An NSID as the protocol defines one: at least three dot-separated
+  # segments, a reversed domain and a name.
+  @nsid ~r/\A[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\.[a-zA-Z][a-zA-Z0-9]{0,62}\z/
+
+  defp writable_collection(collection) when is_binary(collection) do
+    own = Enum.find(@own_tools, fn {kind, _} -> AtMcp.Network.collection?(collection, kind) end)
+
+    cond do
+      String.length(collection) > 317 or not Regex.match?(@nsid, collection) ->
+        invalid("collection", "must be an NSID, such as sh.tangled.repo.issue")
+
+      own ->
+        {_kind, tools} = own
+
+        invalid(
+          "collection",
+          "#{collection} records are written with at_mcp's own tools (#{tools}), " <>
+            "which make checks a raw write would skip; use those instead"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp writable_collection(_collection), do: invalid("collection", "must be an NSID")
+
+  # A record key as the protocol defines one. Left out of a put, the service
+  # picks one.
+  defp record_key(nil), do: :ok
+
+  defp record_key(rkey) when is_binary(rkey) do
+    if rkey not in [".", ".."] and rkey =~ ~r/\A[A-Za-z0-9._:~-]{1,512}\z/,
+      do: :ok,
+      else: invalid("rkey", "must be a record key: 1 to 512 of A-Z a-z 0-9 . _ : ~ -")
+  end
+
+  defp record_key(_rkey), do: invalid("rkey", "must be a record key")
+
+  defp typed_record(record, collection) when is_map(record) do
+    case Map.get(record, "$type", collection) do
+      ^collection ->
+        {:ok, Map.put(record, "$type", collection)}
+
+      other ->
+        invalid("record", "$type is #{inspect(other)}, and the collection is #{collection}")
+    end
+  end
+
+  defp typed_record(_record, _collection), do: invalid("record", "must be a JSON object")
 
   @doc """
   Change this account's profile. `updates` holds only what changes:

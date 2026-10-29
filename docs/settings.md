@@ -29,7 +29,7 @@ it finds them. When both names are set, at_mcp uses the `AT_MCP_` one.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AT_MCP_WRITE_LIMIT` | `16` | Posts, replies and reposts allowed per account in each window, a positive whole number. |
+| `AT_MCP_WRITE_LIMIT` | `16` | Posts, replies, reposts and `put_record`/`delete_record` writes allowed per account in each window, a positive whole number. |
 | `AT_MCP_WRITE_WINDOW_SECONDS` | `3600` | Length of the window in seconds, a positive whole number. |
 
 On a long-running service, at_mcp uses an account's own limit and window, when
