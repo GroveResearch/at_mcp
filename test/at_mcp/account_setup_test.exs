@@ -105,6 +105,31 @@ defmodule AtMcp.AccountSetupTest do
                "xml"
              ])
 
+    # A client that wants every tool listed asks for the full set.
+    assert {:ok, full} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "connection",
+               "reader",
+               "--tools",
+               "full"
+             ])
+
+    assert full.grant == %{scope: :manage, tools: "full"}
+    [%{value: "Bearer " <> full_token} | _] = full.mcp.headers
+    assert {:ok, %{tools: "full"}} = AtMcp.Grants.request(full_token, path: grants)
+
+    assert {:error, :invalid_tools} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "connection",
+               "reader",
+               "--tools",
+               "all"
+             ])
+
     refute Jason.encode!(stdio.mcp) =~ path
     assert Process.whereis(AtMcp.Accounts)
     # Setup changed only configuration, not the already-running runtime.

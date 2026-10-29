@@ -219,6 +219,25 @@ at_mcp-accounts connection alice --scope read
 at_mcp lists only the tools in a client's scope, and refuses calls to tools
 outside it. [tools.md](tools.md) gives the scope of each tool.
 
+### Offer a client every tool
+
+A client is offered the default tool set: 43 tools, those Delvetown's
+residents use plus the records tools, about 42 KB of tool definitions. To
+list all of them for a client, issue its grant with `--tools full`:
+
+```sh
+at_mcp-accounts connection alice --tools full
+```
+
+`AT_MCP_TOOLS=full` makes the full set the service's default for grants that
+name none, and is how a client of `at_mcp-stdio` gets it.
+
+A program that calls a tool by name keeps working under either set, because
+at_mcp accepts every tool in `tools/call`. A model is different: most hosts
+let it call only the tools `tools/list` returned, so an agent that needs a
+tool outside the default set needs `--tools full`. [tools.md](tools.md) marks
+the default set.
+
 ### Give a program JSON
 
 A read answers in text written for a model. A program that parses read

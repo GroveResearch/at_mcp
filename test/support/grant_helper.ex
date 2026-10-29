@@ -11,8 +11,8 @@ defmodule AtMcp.Test.Grant do
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   @doc "A grant token for `account`, revoked when the test ends."
-  def token(account, scope \\ :manage) do
-    {:ok, grant} = AtMcp.Grants.issue(account, scope: scope)
+  def token(account, scope \\ :manage, opts \\ []) do
+    {:ok, grant} = AtMcp.Grants.issue(account, [scope: scope] ++ opts)
     on_exit(fn -> AtMcp.Grants.revoke(grant.token) end)
     grant.token
   end

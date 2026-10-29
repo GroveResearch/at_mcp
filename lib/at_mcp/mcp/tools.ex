@@ -567,6 +567,41 @@ defmodule AtMcp.MCP.Tools do
     )
   end
 
+  # A record `put_record` or `delete_record` refuses because a tool of
+  # at_mcp's own writes it, with checks a raw write would skip. Most hosts let
+  # a model call only the tools `tools/list` gave it, so the refusal says
+  # whether this session lists them.
+  def respond({:error, {:own_collection, collection, tools}}, state) do
+    names = join(Enum.map(tools, &ident/1), :comma)
+
+    advice =
+      if Enum.all?(tools, &AtMcp.MCP.ToolSet.offers?(state, &1)),
+        do: stop(~L"Trying again with put_record will not help; use those tools instead."),
+        else:
+          stop(
+            ~L"Trying again will not help; this connection does not list those tools, so this account cannot change these records here, and its operator can list every tool with --tools full or AT_MCP_TOOLS=full."
+          )
+
+    error(
+      state,
+      "invalid_arguments",
+      cat([
+        ~L"error: collection: ",
+        ident(collection),
+        ~L" records are written with ",
+        names,
+        ~L", because those tools check things a raw write would skip. Nothing was sent and nothing was counted against the write quota."
+      ]),
+      advice,
+      %{
+        problems: [
+          %{path: "collection", message: "written with " <> Enum.join(tools, ", ")}
+        ],
+        tools: tools
+      }
+    )
+  end
+
   def respond({:error, {:write_quota_exhausted, resets_at}}, state) do
     reset = iso8601(resets_at)
 
@@ -708,7 +743,7 @@ defmodule AtMcp.MCP.Tools do
   def respond({:ok, summary}, state, reading) do
     case encode(summary) do
       %{structuredContent: data} = result ->
-        case apply(AtMcp.Reading, reading, [data]) do
+        case apply(AtMcp.Reading, reading, [for_reading(data, state)]) do
           text when is_binary(text) ->
             {:ok, %{result | content: [%{type: "text", text: text}]}, state}
 
@@ -1074,6 +1109,21 @@ defmodule AtMcp.MCP.Tools do
     do: if(AtMcp.ReadPositions.later?(at, max), do: at, else: max)
 
   defp newest(_at, max), do: max
+
+  # What a custom feed gave an item is for `feed_feedback`, and the reading
+  # points to that tool; a session whose set leaves it out is not pointed
+  # to it. The structured content keeps every field.
+  defp for_reading(data, state) do
+    if AtMcp.MCP.ToolSet.offers?(state, "feed_feedback"),
+      do: data,
+      else: without_keys(data, ["feed_context", "req_id"])
+  end
+
+  defp without_keys(%{} = map, keys),
+    do: map |> Map.drop(keys) |> Map.new(fn {k, v} -> {k, without_keys(v, keys)} end)
+
+  defp without_keys(list, keys) when is_list(list), do: Enum.map(list, &without_keys(&1, keys))
+  defp without_keys(other, _keys), do: other
 
   # What a refusal's message says, which AtMcp composed from its own words
   # and, at times, the service's: one literal.

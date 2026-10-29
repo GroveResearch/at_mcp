@@ -47,6 +47,12 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     tool's description. The agent's MCP client shows it the full description \
     and the arguments.
 
+    A client gets the default set, the #{length(AtMcp.MCP.ToolSet.default())} \
+    tools marked "default" below, unless its grant was issued with \
+    `--tools full` or the service sets `AT_MCP_TOOLS=full` \
+    ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets \
+    every tool its scope allows and its network serves.
+
     A client running `at_mcp-stdio` can call every tool. A client of a \
     long-running service holds a grant, and the grant's scope limits its \
     tools: `read` allows the reads, `write` adds the writes marked `write`, \
@@ -83,25 +89,28 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     - Custom feeds have no read position, because each feed's generator \
     decides the order of its own posts.
 
-    | Tool | What it does |
-    | --- | --- |
-    #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{summary(&1)} |")}
+    | Tool | Set | What it does |
+    | --- | --- | --- |
+    #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{set(&1.name)} | #{summary(&1)} |")}
 
     ## Writes
 
     Writes marked "yes" under "Publishes" count against the account's write \
     quota. Other tools leave the quota alone.
 
-    | Tool | Publishes | Scope | What it does |
-    | --- | --- | --- | --- |
+    | Tool | Set | Publishes | Scope | What it does |
+    | --- | --- | --- | --- | --- |
     #{Enum.map_join(writes, "\n", &write_row/1)}
     """
   end
 
   defp write_row(tool) do
     publishes = if tool.annotations[:"at_mcp/publicWrite"] == true, do: "yes", else: ""
-    "| `#{tool.name}` | #{publishes} | #{scope(tool.name)} | #{summary(tool)} |"
+
+    "| `#{tool.name}` | #{set(tool.name)} | #{publishes} | #{scope(tool.name)} | #{summary(tool)} |"
   end
+
+  defp set(name), do: if(name in AtMcp.MCP.ToolSet.default(), do: "default", else: "full")
 
   defp scope(name),
     do: Enum.find([:read, :write, :manage], &AtMcp.Grants.permits_scope?(&1, name))

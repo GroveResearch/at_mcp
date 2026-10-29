@@ -1213,23 +1213,23 @@ defmodule AtMcp.Effects do
   # made only once, a resolved handle, a profile merged with what was read.
   # put_record and delete_record refuse these collections and point to the tools.
   @own_tools [
-    post: "post, reply and delete_post",
-    like: "like and unlike",
-    repost: "repost and unrepost",
-    follow: "follow and unfollow",
-    block: "block and unblock",
-    profile: "update_profile",
-    link: "update_profile",
-    list: "create_list, update_list and delete_list",
-    list_item: "add_to_list and remove_from_list",
-    list_block: "block_list and unblock_list",
-    starter_pack: "create_starter_pack, update_starter_pack and delete_starter_pack",
-    list_opt_out: "set_list_opt_out",
-    threadgate: "set_post_interactions",
-    postgate: "set_post_interactions",
-    status: "set_status",
-    content_visibility: "set_preference",
-    notification_declaration: "set_preference"
+    post: ~w(post reply delete_post),
+    like: ~w(like unlike),
+    repost: ~w(repost unrepost),
+    follow: ~w(follow unfollow),
+    block: ~w(block unblock),
+    profile: ~w(update_profile),
+    link: ~w(update_profile),
+    list: ~w(create_list update_list delete_list),
+    list_item: ~w(add_to_list remove_from_list),
+    list_block: ~w(block_list unblock_list),
+    starter_pack: ~w(create_starter_pack update_starter_pack delete_starter_pack),
+    list_opt_out: ~w(set_list_opt_out),
+    threadgate: ~w(set_post_interactions),
+    postgate: ~w(set_post_interactions),
+    status: ~w(set_status),
+    content_visibility: ~w(set_preference),
+    notification_declaration: ~w(set_preference)
   ]
 
   @doc """
@@ -1300,14 +1300,11 @@ defmodule AtMcp.Effects do
       String.length(collection) > 317 or not Regex.match?(@nsid, collection) ->
         invalid("collection", "must be an NSID, such as sh.tangled.repo.issue")
 
+      # Which of those tools a model can call depends on the tools its
+      # session lists, which `AtMcp.MCP.Tools` knows and words.
       own ->
         {_kind, tools} = own
-
-        invalid(
-          "collection",
-          "#{collection} records have their own tools in at_mcp: #{tools}. Use those, " <>
-            "because they check things put_record does not, such as reply gates and duplicate likes"
-        )
+        {:error, {:own_collection, collection, tools}}
 
       true ->
         :ok

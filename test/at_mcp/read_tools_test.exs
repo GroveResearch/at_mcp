@@ -30,10 +30,18 @@ defmodule AtMcp.ReadToolsTest do
     end
   end
 
-  test "every other tool declares its output schema and takes no format", %{tools: tools} do
+  # No tool lists its output schema (`AtMcp.MCP.DSL.handle_list_tools/2`), but
+  # every write keeps one, which checks each of its results.
+  test "every other tool has an output schema that checks its result, and takes no format",
+       %{tools: tools} do
+    schemas = AtMcp.MCP.Server.__output_schemas__()
+
     for tool <- Enum.reject(tools, &read?/1) do
-      assert tool.outputSchema["type"] == "object" or tool.outputSchema[:type] == "object",
-             "#{tool.name} is not a read and declares no output schema"
+      refute Map.has_key?(tool, :outputSchema), "#{tool.name} lists an output schema"
+      schema = Map.fetch!(schemas, tool.name)
+
+      assert schema["type"] == "object" or schema[:type] == "object",
+             "#{tool.name} is not a read and has no output schema"
 
       refute tool.inputSchema.properties[:format] || tool.inputSchema.properties["format"],
              "#{tool.name} is not a read and takes format"

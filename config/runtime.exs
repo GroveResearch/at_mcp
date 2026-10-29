@@ -79,6 +79,9 @@ if config_env() != :test do
     {"AT_MCP_IMAGE_MAX_BYTES", positive, 2_000_000},
     {"AT_MCP_IMAGE_FETCH_SECONDS", positive, 10},
     {"AT_MCP_MEDIA_DIR", text, nil},
+    # Which tools a client is offered unless its grant names a set
+    # (AtMcp.MCP.ToolSet).
+    {"AT_MCP_TOOLS", one_of.([:default, :full]), :default},
     {"AT_MCP_DELIVERY_URL", url, nil},
     {"AT_MCP_DELIVERY_TOKEN", text, nil},
     {"AT_MCP_DELIVERY_TOKEN_FILE", text, nil},
@@ -192,6 +195,7 @@ if config_env() != :test do
       fetch_ms: value["AT_MCP_IMAGE_FETCH_SECONDS"] * 1000
     ],
     media_dir: value["AT_MCP_MEDIA_DIR"],
+    tool_set: value["AT_MCP_TOOLS"],
     delivery: [
       url: value["AT_MCP_DELIVERY_URL"],
       token: value["AT_MCP_DELIVERY_TOKEN"],

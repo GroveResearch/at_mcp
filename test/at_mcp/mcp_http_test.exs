@@ -216,7 +216,7 @@ defmodule AtMcp.MCP.HTTPTest do
 
     listed =
       Map.new([:read, :write, :manage], fn scope ->
-        headers = Grant.session!(Grant.token(id, scope))
+        headers = Grant.session!(Grant.token(id, scope, tools: "full"))
         response = Req.post!(Grant.url(), headers: headers, json: list_request(), retry: false)
         assert response.status == 200
         {scope, response.body["result"]["tools"]}
