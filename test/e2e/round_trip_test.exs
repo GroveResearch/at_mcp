@@ -371,8 +371,14 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert hidden["subject_uri"] == root["uri"]
       sync(net)
 
+      # getPostThreadV2 leaves a hidden reply out of the thread, and
+      # include_hidden reads it, marked, from getPostThreadOtherV2.
+      assert call!(me, "get_thread", %{"uri" => root["uri"]})["replies"] == []
+
       assert [%{"uri" => uri, "hidden_by_threadgate" => true}] =
-               call!(me, "get_thread", %{"uri" => root["uri"]})["replies"]
+               call!(me, "get_thread", %{"uri" => root["uri"], "include_hidden" => true})[
+                 "hidden_replies"
+               ]
 
       assert uri == reply["uri"]
 
