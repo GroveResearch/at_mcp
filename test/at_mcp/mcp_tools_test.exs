@@ -105,9 +105,9 @@ defmodule AtMcp.MCP.ToolsTest do
   test "a service failure reports what it said and whether retrying can help" do
     cases = [
       {400, "Profile not found", "upstream_rejected", "Change the request", "change_argument"},
-      {429, "Rate Limit Exceeded", "upstream_rate_limited", "Try again after", "after"},
+      {429, "Rate Limit Exceeded", "upstream_rate_limited", "Wait about a minute", "after"},
       {501, "Operation unavailable", "upstream_not_implemented", "does not offer it", "no"},
-      {503, "Service Unavailable", "upstream_unavailable", "Try again after", "after"}
+      {503, "Service Unavailable", "upstream_unavailable", "Wait about half a minute", "after"}
     ]
 
     for {status, message, code, guidance, retry} <- cases do
@@ -444,7 +444,7 @@ defmodule AtMcp.MCP.ToolsTest do
 
   test "account failures give stable codes and a recovery action" do
     for {code, guidance} <- [
-          account_disconnected: "reconnected through at_mcp's account controls",
+          account_disconnected: "reconnect it through at_mcp's account controls",
           account_identity_changed: "stop using this connection",
           account_runtime_unavailable: "read the account's records",
           post_text_too_long: "300 Unicode graphemes and 3000 UTF-8 bytes",

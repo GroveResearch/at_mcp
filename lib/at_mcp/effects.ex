@@ -2891,11 +2891,11 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  # A read tells the owner when it has a session and goes to the service, so
-  # a read stopped at the deadline can say whether the service was asked
-  # (`{:call_deadline_exceeded, :sent}`) or the read was still waiting for the
-  # account's session (`:call_deadline_exceeded`). An agent retries the first
-  # knowing the service is slow, and the second knowing it never asked.
+  # Just before a read goes to the service, it sends the owner
+  # `{@call, :sent, id}`. If the deadline then stops the read, the owner
+  # answers `{:call_deadline_exceeded, :sent}`. Without the mark, it answers
+  # `:call_deadline_exceeded`, which means the read was still waiting for the
+  # account's session or for an earlier write.
   defp mark_sent do
     case Process.get(@call) do
       %{owner: owner, id: id} -> send(owner, {@call, :sent, id})

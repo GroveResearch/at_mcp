@@ -188,13 +188,14 @@ field says the same:
 | `retry` | What the agent can do |
 | --- | --- |
 | `now` | Try again now. |
-| `after` | Try again after the time in `retry_after`, such as when the write quota resets. |
-| `change_argument` | Change the argument named in `argument`, then try again. |
+| `after` | Try again later: after the time in `retry_after` when there is one, such as when the write quota resets, otherwise after the wait the message states. |
+| `change_argument` | Change the call's arguments and try again. When one argument caused the error, `argument` gives its name. |
 | `check_first` | Read the account before trying again: the write's outcome is unknown. |
 | `no` | Don't try again: the service does not offer this, or the account needs its operator. |
+| `unknown` | at_mcp did not recognize the failure, so it can't say whether trying again will help. |
 
-A call that timed out says whether its request reached the service (`sent`).
-A read that failed is an error, never an empty result.
+When a call times out, `sent` tells you whether at_mcp had sent the request to
+the service. When a read fails, the result is an error and holds no items.
 
 An `outcome: "unknown"` result comes from a timed-out write, as described
 under [Limits](#limits).

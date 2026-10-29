@@ -298,13 +298,13 @@ defmodule AtMcp.MCP.Input do
     argument =
       case shown do
         [%{path: path} | _] when path != "" -> path
-        _ -> "the arguments"
+        _ -> nil
       end
 
     {sentence, fields} = AtMcp.MCP.Tools.advice_for({:change, argument})
 
     message =
-      "Arguments do not match this tool's input schema. No operation was attempted:\n- " <>
+      "Arguments do not match this tool's input schema. No operation was attempted. The problems:\n- " <>
         Enum.join(lines, "\n- ") <> "\n" <> sentence
 
     refusal("invalid_arguments", message)

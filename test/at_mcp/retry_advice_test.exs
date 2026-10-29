@@ -12,12 +12,15 @@ defmodule AtMcp.RetryAdviceTest do
 
   # The sentence each kind of advice ends with.
   @endings %{
-    "now" => ~r/(Trying again now is safe|try again now|Call it again now)[^.]*\.\z/,
-    "after" => ~r/Try again after \d{4}-\d\d-\d\dT[\d:]+Z\.\z/,
+    "now" =>
+      ~r/(Trying again now is safe[^.]*\.( If this tool takes a limit[^.]*\.)?|(try|Call it) again now[^.]*\.)\z/,
+    "after" => ~r/(Try again after \d{4}-\d\d-\d\dT[\d:]+Z|Wait about [^,]+, then try again)\.\z/,
     "change_argument" =>
-      ~r/(Change .+ and try again|Change the request before trying again)[^.]*\.\z/,
+      ~r/(and try again|before trying again[^.]*|call again with each part)\.\z/,
     "check_first" => ~r/Don't retry until you have read [^.]+\.\z/,
-    "no" => ~r/Trying again will (not help|return the same result)[^.]*\.\z/
+    "no" =>
+      ~r/(Trying again will (not help|return the same result)[^.]*|Tell the account's operator about this error)\.\z/,
+    "unknown" => ~r/can't say whether trying again will help\.\z/
   }
 
   defp respond(reason) do
@@ -37,6 +40,8 @@ defmodule AtMcp.RetryAdviceTest do
       {Failure.new(:indeterminate, status: 503, message: "Down"), "after"},
       {Failure.new(:indeterminate, status: 429, message: "Slow down"), "after"},
       {Failure.new(:indeterminate, detail: :closed), "now"},
+      {Failure.new(:refused, message: "invalid record"), "change_argument"},
+      {{:some_unclassified_reason, 1}, "unknown"},
       {Failure.new(:unreadable, message: "An answer AtMcp could not read."), "no"},
       {{:write_outcome_unknown, Failure.new(:indeterminate, detail: :closed)}, "check_first"},
       {{:write_outcome_unknown, :call_deadline_exceeded}, "check_first"},
@@ -51,6 +56,31 @@ defmodule AtMcp.RetryAdviceTest do
     for {reason, retry} <- cases do
       {_text, structured} = respond(reason)
       assert structured.retry == retry, inspect(reason)
+    end
+  end
+
+  test "a wait at_mcp chose gives no retry_after, since the service gave no time" do
+    for status <- [429, 503] do
+      {text, structured} = respond(Failure.new(:indeterminate, status: status, message: "x"))
+      assert structured.retry == "after"
+      refute Map.has_key?(structured, :retry_after)
+      assert text =~ ~r/Wait about (a|half a) minute, then try again\.\z/
+    end
+  end
+
+  test "argument is only ever an argument's name" do
+    for reason <- [
+          :empty_batch,
+          :batch_too_large,
+          :invalid_search_filter,
+          "limit must be an integer between 1 and 50",
+          {:referenced_record_unreadable, "at://did:plc:x/app.bsky.feed.post/3k22222222222",
+           :not_found},
+          Failure.new(:refused, status: 400, message: "bad")
+        ] do
+      {_text, structured} = respond(reason)
+      assert structured.retry == "change_argument", inspect(reason)
+      refute Map.has_key?(structured, :argument), inspect(reason)
     end
   end
 
@@ -132,7 +162,7 @@ defmodule AtMcp.RetryAdviceTest do
       assert %{code: "call_deadline_exceeded", sent: true, retry: "now"} =
                result.structuredContent
 
-      assert hd(result.content).text =~ "reached the account's service"
+      assert hd(result.content).text =~ "sent this read to the account's service"
     end
 
     test "says the request was never sent when it was waiting for the account's session" do
@@ -169,7 +199,7 @@ defmodule AtMcp.RetryAdviceTest do
     refute Map.has_key?(result.structuredContent, :count)
     assert %{code: "upstream_failed", retry: "now"} = result.structuredContent
     text = hd(result.content).text
-    assert text =~ "this is a failure, not an empty result"
+    assert text =~ "no results were read"
     refute text =~ ~r/no posts|0 posts/i
   end
 end
