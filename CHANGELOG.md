@@ -19,6 +19,11 @@ This release is 0.3.0: what read tools return has changed.
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
 
+- `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
+  replies, mentions and quotes, waits for a quiet period so a burst becomes
+  one wake, and runs a command with a summary of what arrived
+  ([delivery.md](docs/delivery.md#wake-an-agent)).
+
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass
