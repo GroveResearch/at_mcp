@@ -222,7 +222,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro since do
     Macro.escape(
       description:
-        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item, and every app using the account shares it. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest.",
+        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item, and every app using the account shares it. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest. The first read of the notifications with last_read starts where this account last marked them seen.",
       schema: %{type: "string"}
     )
   end
@@ -569,7 +569,7 @@ defmodule AtMcp.MCP.Schemas do
     |> put_in(
       ["properties", "seen_at"],
       nullable_string(
-        "grouped: when the account last marked its notifications seen, as an ISO 8601 timestamp"
+        "When the account last marked its notifications seen, as an ISO 8601 timestamp"
       )
     )
   end
@@ -1559,7 +1559,7 @@ defmodule AtMcp.MCP.Schemas do
       Map.merge(properties, %{
         "since" =>
           nullable_string(
-            "The time this read counted new items from. Null when the read passed last_read and the account had no read position in this feed yet, or at_mcp could not load it. The page then starts from the newest item."
+            "The time this read counted new items from. Null when the read passed last_read and the account had no read position in this feed yet, or at_mcp could not load it. The page then starts from the newest item. The notifications, with no position yet, start from seen_at."
           ),
         "new_total" => %{
           "type" => "integer",

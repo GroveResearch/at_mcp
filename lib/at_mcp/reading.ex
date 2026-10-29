@@ -123,29 +123,21 @@ defmodule AtMcp.Reading do
 
   @doc "A page of notifications, newest first as the service sends them."
   def notifications(%{"items" => items} = page) when is_list(items) do
+    {one, many} =
+      if Enum.any?(items, &Map.has_key?(&1, "kind")),
+        do: {~L"notification group", ~L"notification groups"},
+        else: {~L"notification", ~L"notifications"}
+
     header =
-      if Map.has_key?(page, "seen_at") do
-        cat([
-          count(length(items), ~L"notification group", ~L"notification groups"),
-          ~L".",
-          if(is_binary(page["seen_at"]),
-            do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])
-          ),
-          news(page),
-          left_out(page, ~L"notification group", ~L"notification groups"),
-          next_page(page),
-          unsaved(page)
-        ])
-      else
-        cat([
-          count(length(items), ~L"notification", ~L"notifications"),
-          ~L".",
-          news(page),
-          left_out(page, ~L"notification", ~L"notifications"),
-          next_page(page),
-          unsaved(page)
-        ])
-      end
+      cat([
+        count(length(items), one, many),
+        ~L".",
+        if(is_binary(page["seen_at"]), do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])),
+        news(page),
+        left_out(page, one, many),
+        next_page(page),
+        unsaved(page)
+      ])
 
     blocks =
       items

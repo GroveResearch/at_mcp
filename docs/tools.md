@@ -20,6 +20,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 - Every client of the account shares these positions, and they survive a restart.
 - When more new items wait below the first page, the position moves after the agent follows the cursor down to the old position, so the agent doesn't skip any item.
 - A read with a time as `since` leaves the position alone. A read without `since` moves it only when it passes `"mark_read": true`.
+- Before the first read of the notifications with `last_read`, their position is where the account last marked them seen, as the app shows them unread.
 - Custom feeds have no read position, because each feed's generator decides the order of its own posts.
 
 | Tool | Set | What it does |

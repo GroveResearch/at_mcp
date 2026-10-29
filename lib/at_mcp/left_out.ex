@@ -174,8 +174,6 @@ defmodule AtMcp.LeftOut do
     # Notifications.
     {"notifications[].record.subject",
      "What a like, repost or follow record names beyond the post, which `subject_post_uri` reads: the post's CID, or a follow's account, which is this one"},
-    {"seenAt",
-     "When this account last marked its notifications seen: each ungrouped notification's `is_read` says it; a grouped read's `seen_at` reads it"},
     {"groups[].$type",
      "The group view's type tag; `kind` reads what happened from the group's kind"},
     {"relatedViews[].$type",

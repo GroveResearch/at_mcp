@@ -971,7 +971,8 @@ defmodule AtMcp.MCP.Tools do
   end
 
   # positioned/6 loads the read position after the fetch, since the fetch
-  # logs in and the DID is known only then. It filters the page to items
+  # logs in and the DID is known only then. A notifications position never
+  # saved starts at the page's `seen_at` (seen/2). It filters the page to items
   # newer than the position (for last_read) or the given time, then calls
   # mark/5 when the read asks to move the position. If the page is all new
   # and more wait below it, mark/5 stores its newest time as pending. The
@@ -983,6 +984,7 @@ defmodule AtMcp.MCP.Tools do
 
     case did && AtMcp.ReadPositions.get(did, feed) do
       {:ok, %{at: held}} ->
+        held = held || seen(page, feed)
         since = if asked == "last_read", do: held, else: asked
         reached? = reached?(page, held, feed)
 
@@ -1015,6 +1017,13 @@ defmodule AtMcp.MCP.Tools do
   end
 
   defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
+
+  # Where a feed with no position held starts. Notifications start where the
+  # account last marked them seen, as the AppView's `seenAt` gives it, so the
+  # first read with last_read returns what the app shows as unread. A feed
+  # has no such marker, and starts from its newest item.
+  defp seen(page, "notifications"), do: if(is_binary(page[:seen_at]), do: page[:seen_at])
+  defp seen(_page, _feed), do: nil
 
   # A read-position failure in a word the reading can show: AtMcp's own
   # reason, else that the store failed in a way it did not name.
