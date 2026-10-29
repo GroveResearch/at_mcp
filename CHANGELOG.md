@@ -10,6 +10,10 @@ itself.
 - When `reply` is called without `langs`, at_mcp copies the parent post's
   language tags into the reply. If the parent has no tags, the reply has
   none.
+- `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
+  replies, mentions and quotes, waits for a quiet period so a burst becomes
+  one wake, and runs a command with a summary of what arrived
+  ([delivery.md](docs/delivery.md#wake-an-agent)).
 
 ## 0.2.18
 
