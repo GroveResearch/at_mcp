@@ -43,28 +43,6 @@ This release is 0.3.0: what read tools return has changed.
   `input_validation_unavailable`. The argument and result checks now wait
   up to one second instead of 100 ms.
 
-- `get_thread` reads threads with `getPostThreadV2`, the way the app does (#137).
-  - It returns every parent and sorts replies by the account's thread sort,
-    `top` by default.
-  - By default it follows the account's thread view: the linear view reads
-    10 levels with a single reply under each reply, the tree view 4 levels
-    with 10. Before this change it read 2 levels each way and the first 20
-    replies per post, in the service's order.
-  - New optional arguments: `depth` (0-20 levels) and `breadth` (0-100
-    replies under each reply).
-  - `type` values change from `app.bsky.feed.defs#threadViewPost`,
-    `#notFoundPost` and `#blockedPost` to
-    `app.bsky.unspecced.defs#threadItemPost`, `#threadItemNotFound` and
-    `#threadItemBlocked`.
-  - `context` now holds `depth`, `breadth`, `sort` and `view`.
-    `parent_height` and `max_replies_per_node` are gone.
-  - When the text reading would pass 40,000 characters, it ends after the
-    direct replies that fit, and `replies_cut` gives the count of the rest.
-    JSON output is not cut.
-  - New fields: `op_thread_index` and `op_thread_count` for posts in the
-    original poster's own series, and `other_replies` for hidden replies
-    (read them with `include_hidden`).
-
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass
