@@ -84,6 +84,26 @@ This release is 0.3.0: what read tools return has changed.
   issues on Tangled. Each call counts against the write quota. For posts,
   likes and the other records at_mcp has its own tools for, they refuse the
   call and give the tool to use.
+- When `post` leaves out `reply_rule` or `quotes`, the post takes them from
+  the account's saved settings for new posts, as the app's composer does:
+  the app's "Post interaction settings", which `get_preferences` shows as
+  `interaction_defaults`. `reply` takes only the saved quote rule. A rule
+  given in the call wins, `["everyone"]` and `"allowed"` included, where
+  0.2.18 dropped `["everyone"]` as if it had been left out. The result's
+  `from_saved_settings` lists the rules taken from the saved settings.
+  - If at_mcp can't read the saved settings, it sends nothing, counts
+    nothing against the quota, and refuses the call with
+    `saved_settings_unreadable`. Passing both rules posts without them.
+  - Where the service serves no preferences, the post is sent open to
+    everyone, and its `warning` says the saved settings weren't taken.
+- On Bluesky, a link card given only its `url` gets the page's title,
+  description and image from Bluesky's card service, as in the app. So does
+  the first link in the text of a post with no `link`, images or quote. A
+  title or description the caller writes is used as written, with no lookup.
+  A lookup sends the link to the card service with no credential of the
+  account. The result's `link_card` gives `from` (`given`, `card_service`,
+  `text` or `url_only`) and a `note` on anything the card lacks. On
+  Delvetown, at_mcp looks no card up.
 - Every tool error ends with one sentence saying what the agent can do: try
   again now, try again after a stated time, change a named argument, read the
   account first, or not retry; when at_mcp can't classify a failure, it says
@@ -125,6 +145,12 @@ back, or 0.2.18 will refuse to start.
 
 A program that reads `get_thread` as JSON must handle the new `type` values
 and `context` keys listed above.
+
+A program that posts through at_mcp, as a tool caller or through
+`AtMcp.Effects.post/3`, and relies on its posts being open to everyone must
+pass `reply_rule: ["everyone"]` and `quotes: "allowed"`. Without them, its
+posts follow the account's saved settings. After a rollback to 0.2.18, a post
+that leaves a rule out is open again.
 
 ## 0.2.18
 
