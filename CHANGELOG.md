@@ -28,6 +28,14 @@ This release is 0.3.0: what read tools return has changed.
   `limit`.
 - The same reads take `detail: "brief"`, which shows one line per post. A
   recorded 50-post page was 12.5K characters this way, and 35.6K in full.
+- A new README section, "Using an account from several clients", explains
+  when to run `at_mcp-stdio` and when to run the service.
+- When a second `at_mcp-stdio` for the same account fails to start, its error
+  message refers to that section.
+- `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
+  replies, mentions and quotes, waits for a quiet period so a burst becomes
+  one wake, and runs a command with a summary of what arrived
+  ([delivery.md](docs/delivery.md#wake-an-agent)).
 
 ### Upgrade
 
