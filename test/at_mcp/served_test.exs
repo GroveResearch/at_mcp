@@ -18,7 +18,7 @@ defmodule AtMcp.ServedTest do
 
   defp listed(network) do
     Application.put_env(:at_mcp, :network, network)
-    {:ok, tools, nil, _} = AtMcp.MCP.Server.handle_list_tools(nil, %{})
+    {:ok, tools, nil, _} = AtMcp.MCP.Server.handle_list_tools(nil, %{tools: "full"})
     Map.new(tools, &{&1.name, &1})
   end
 

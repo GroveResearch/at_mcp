@@ -60,7 +60,8 @@ defmodule AtMcp.MCP.HTTP do
             [
               effects: conn.private.at_mcp_effects,
               scope: conn.private.at_mcp_scope,
-              format: conn.private.at_mcp_format
+              format: conn.private.at_mcp_format,
+              tools: conn.private.at_mcp_tools
             ]
           end,
           server_info: AtMcp.MCP.Server.server_info(),
@@ -98,13 +99,14 @@ defmodule AtMcp.MCP.HTTP do
 
   def call(conn, opts) do
     with :ok <- same_origin(conn),
-         {:ok, %{account: account, scope: scope, format: format}} <- grant(conn),
+         {:ok, %{account: account, scope: scope, format: format, tools: tools}} <- grant(conn),
          {:ok, effects} <- effects(account),
          :ok <- confirmed_binding(conn, effects) do
       conn
       |> put_private(:at_mcp_effects, effects)
       |> put_private(:at_mcp_scope, scope)
       |> put_private(:at_mcp_format, format)
+      |> put_private(:at_mcp_tools, tools)
       |> authorize(scope, opts)
     else
       {:error, status, body} -> json(conn, status, body)

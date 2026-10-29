@@ -111,19 +111,13 @@ defmodule AtMcp.MCP.DSL do
       @impl true
       def handle_list_tools(cursor, state) do
         {:ok, tools, next, state} = super(cursor, state)
-        schemas = unquote(Macro.escape(schemas))
-        reads = unquote(Macro.escape(reads))
 
-        # A read's schema still checks its json, but is not declared: a tool
-        # that declares one must return structured content, and a read's is
-        # text unless asked (`AtMcp.MCP.Output`).
-        tools =
-          Enum.map(tools, fn tool ->
-            if MapSet.member?(reads, tool.name),
-              do: tool,
-              else: Map.put(tool, :outputSchema, Map.fetch!(schemas, tool.name))
-          end)
-
+        # No tool declares its output schema. A read's is text unless asked
+        # (`AtMcp.MCP.Output`), and a tool that declares one must return
+        # structured content. A write's result is a few fields, returned as
+        # structured content and as the same JSON text; its schema, most of
+        # what `tools/list` weighed, told a host little it could use. Every
+        # schema still checks every result (`__output_schemas__/0`).
         {:ok, AtMcp.MCP.DSL.offered(tools, state), next, state}
       end
 
@@ -184,7 +178,15 @@ defmodule AtMcp.MCP.DSL do
       |> Enum.filter(&AtMcp.Grants.permits_scope?(scope, &1.name))
       |> offered(Map.delete(state, :scope))
 
-  def offered(tools, state) when is_map(state), do: AtMcp.MCP.Served.offered(tools)
+  #
+  # And only its tool set (`AtMcp.MCP.ToolSet`): the default set unless its
+  # grant or the environment asks for the full one.
+  def offered(tools, state) when is_map(state),
+    do:
+      tools
+      |> AtMcp.MCP.ToolSet.offered(AtMcp.MCP.ToolSet.of(state))
+      |> AtMcp.MCP.Served.offered()
+
   def offered(tools, _state), do: tools
 
   # The format a read was asked for, else the grant's default

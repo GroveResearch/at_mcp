@@ -9,6 +9,7 @@ defmodule AtMcp.AccountSetup do
     service: :string,
     scope: :string,
     format: :string,
+    tools: :string,
     password_stdin: :boolean,
     transport: :string,
     url: :string,
@@ -59,19 +60,22 @@ defmodule AtMcp.AccountSetup do
   defp dispatch(["connection", id], opts, dependencies) do
     with {:ok, scope} <- scope(opts),
          {:ok, format} <- format(opts),
+         {:ok, tools} <- tool_set(opts),
          {:ok, accounts} <- AccountConfig.load(path(opts)),
          {:ok, account} <- find(accounts, id),
          {:ok, descriptor} <-
            descriptor(
              account,
              opts[:transport] || "http",
-             [scope: scope, format: format, path: grants_path(opts)] ++ dependencies
+             [scope: scope, format: format, tools: tools, path: grants_path(opts)] ++
+               dependencies
            ) do
       {:ok,
        %{
          account: public(account),
          mcp: descriptor,
-         grant: Map.reject(%{scope: scope, format: format}, fn {_, v} -> is_nil(v) end),
+         grant:
+           Map.reject(%{scope: scope, format: format, tools: tools}, fn {_, v} -> is_nil(v) end),
          service_configuration: %{AT_MCP_ACCOUNTS_FILE: path(opts)}
        }}
     end
@@ -380,6 +384,18 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  defp tool_set(opts) do
+    case opts[:tools] do
+      nil ->
+        {:ok, nil}
+
+      tools ->
+        if tools in AtMcp.MCP.ToolSet.sets(),
+          do: {:ok, tools},
+          else: {:error, :invalid_tools}
+    end
+  end
+
   defp find(accounts, id) do
     case Enum.find(accounts, &(&1["id"] == id)) do
       nil -> {:error, :not_found}
@@ -418,6 +434,7 @@ defmodule AtMcp.AccountSetup do
       list
       connection NAME [--transport http|stdio]
                       [--scope read|write|manage] [--format text|json]
+                      [--tools default|full]
       grants
       revoke GRANT_ID
 
@@ -445,6 +462,9 @@ defmodule AtMcp.AccountSetup do
       "Use a simple account name and a valid PDS URL; a write limit and window are positive integers."
 
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
+
+  defp message(:invalid_tools),
+    do: "Choose --tools default (the tools agents use, the default) or full."
 
   defp message(:invalid_format),
     do: "Choose --format text (reads answer as text, the default) or json."

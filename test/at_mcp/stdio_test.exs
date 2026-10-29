@@ -21,14 +21,17 @@ defmodule AtMcp.StdioTest do
 
     assert code == 0, output
     assert output =~ ~s("modern":"2026-07-28")
-    # Derived, not pinned. The probe reports how many tools carry an output
-    # schema; comparing it to the number of writes the server declares asserts
-    # that every write does (a read declares none, `AtMcp.MCP.Output`). A
-    # literal here would be a second place to update when a tool is added, and
-    # it fails only in CI, where this probe is not skipped.
+    # Derived, not pinned: a literal here would be a second place to update
+    # when a tool is added, and it fails only in CI, where this probe is not
+    # skipped. No tool lists an output schema. The account started with
+    # AT_MCP_TOOLS=full is offered every tool the server declares, through
+    # config/runtime.exs as a release reads it; the other, the default set.
     {:ok, declared, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-    writes = Enum.reject(declared, &(&1.annotations[:readOnlyHint] == true))
-    assert output =~ ~s("output_schemas":#{length(writes)})
+    assert output =~ ~s("output_schemas":0)
+
+    assert output =~
+             ~s("listed":{"full":#{length(declared)},"default":#{length(AtMcp.MCP.ToolSet.default())}})
+
     assert output =~ ~s("structured_content":true)
     assert output =~ ~s("real_summaries":["get_timeline","get_thread"])
     assert output =~ ~s("iso_quota_reset":true)

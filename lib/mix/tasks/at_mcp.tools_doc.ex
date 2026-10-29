@@ -47,6 +47,12 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     tool's description. The agent's MCP client shows it the full description \
     and the arguments.
 
+    A client is offered the default set, the #{length(AtMcp.MCP.ToolSet.default())} \
+    tools marked "default" below. `AT_MCP_TOOLS=full`, or a grant issued \
+    with `--tools full`, offers every tool \
+    ([operations.md](operations.md#offer-a-client-every-tool)); a tool left \
+    out of the list still answers a call by name.
+
     A client running `at_mcp-stdio` can call every tool. A client of a \
     long-running service holds a grant, and the grant's scope limits its \
     tools: `read` allows the reads, `write` adds the writes marked `write`, \
@@ -61,25 +67,28 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     as JSON text, or holds a grant issued with `--format json`, which makes \
     json its default.
 
-    | Tool | What it does |
-    | --- | --- |
-    #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{summary(&1)} |")}
+    | Tool | Set | What it does |
+    | --- | --- | --- |
+    #{Enum.map_join(reads, "\n", &"| `#{&1.name}` | #{set(&1.name)} | #{summary(&1)} |")}
 
     ## Writes
 
     Writes marked "yes" under "Publishes" count against the account's write \
     quota. Other tools leave the quota alone.
 
-    | Tool | Publishes | Scope | What it does |
-    | --- | --- | --- | --- |
+    | Tool | Set | Publishes | Scope | What it does |
+    | --- | --- | --- | --- | --- |
     #{Enum.map_join(writes, "\n", &write_row/1)}
     """
   end
 
   defp write_row(tool) do
     publishes = if tool.annotations[:"at_mcp/publicWrite"] == true, do: "yes", else: ""
-    "| `#{tool.name}` | #{publishes} | #{scope(tool.name)} | #{summary(tool)} |"
+
+    "| `#{tool.name}` | #{set(tool.name)} | #{publishes} | #{scope(tool.name)} | #{summary(tool)} |"
   end
+
+  defp set(name), do: if(name in AtMcp.MCP.ToolSet.default(), do: "default", else: "full")
 
   defp scope(name),
     do: Enum.find([:read, :write, :manage], &AtMcp.Grants.permits_scope?(&1, name))

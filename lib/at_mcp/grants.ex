@@ -45,6 +45,12 @@ defmodule AtMcp.Grants do
   A tool AtMcp does not declare is permitted by no scope, so a renamed tool fails
   closed instead of inheriting the last classification it had.
 
+  ## Tools
+
+  A grant may name the tool set its client is offered (`AtMcp.MCP.ToolSet`):
+  `"full"` for every tool. A grant without one is offered the service's set,
+  the default unless `AT_MCP_TOOLS` says otherwise.
+
   ## Format
 
   A grant may also carry the format its reads answer in when a call does not
@@ -67,6 +73,7 @@ defmodule AtMcp.Grants do
           account: binary(),
           scope: scope(),
           format: binary() | nil,
+          tools: binary() | nil,
           issued_at: binary()
         }
 
@@ -98,11 +105,13 @@ defmodule AtMcp.Grants do
   def issue(account, opts \\ []) when is_binary(account) do
     scope = Keyword.get(opts, :scope, :manage)
     format = Keyword.get(opts, :format)
+    tools = Keyword.get(opts, :tools)
     file = Keyword.get(opts, :path) || path()
 
     with :ok <- valid_account(account),
          :ok <- valid_scope(scope),
-         :ok <- valid_format(format) do
+         :ok <- valid_format(format),
+         :ok <- valid_tools(tools) do
       # Only the digest is stored and looked up, so a token issued under any
       # earlier prefix still resolves.
       token = "at_mcp-" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
@@ -116,6 +125,7 @@ defmodule AtMcp.Grants do
       }
 
       row = if format, do: Map.put(row, "format", format), else: row
+      row = if tools, do: Map.put(row, "tools", tools), else: row
 
       case write(file, fn grants -> {:ok, grants ++ [row], row} end) do
         {:ok, saved} -> {:ok, saved |> public() |> Map.put(:token, token)}
@@ -159,9 +169,13 @@ defmodule AtMcp.Grants do
     end
   end
 
-  @doc "`authorize/2` with the grant's read format (`nil` for none), in the same one read."
+  @doc """
+  `authorize/2` with the grant's read format and tool set (`nil` for none),
+  in the same one read.
+  """
   @spec request(binary(), keyword()) ::
-          {:ok, %{account: binary(), scope: scope(), format: binary() | nil}}
+          {:ok,
+           %{account: binary(), scope: scope(), format: binary() | nil, tools: binary() | nil}}
           | {:error, :unknown_grant | :grants_unreadable}
   def request(token, opts \\ []) do
     case find(token, Keyword.get(opts, :path) || path()) do
@@ -170,7 +184,8 @@ defmodule AtMcp.Grants do
          %{
            account: row["account"],
            scope: String.to_existing_atom(row["scope"]),
-           format: row["format"]
+           format: row["format"],
+           tools: row["tools"]
          }}
 
       error ->
@@ -308,7 +323,7 @@ defmodule AtMcp.Grants do
   defp row?(%{"id" => id, "account" => account, "scope" => scope, "digest" => digest} = row)
        when is_binary(id) and is_binary(account) and is_binary(digest) do
     scope in Enum.map(@scopes, &Atom.to_string(&1)) and byte_size(digest) == 64 and
-      valid_format(Map.get(row, "format")) == :ok
+      valid_format(Map.get(row, "format")) == :ok and valid_tools(Map.get(row, "tools")) == :ok
   end
 
   defp row?(_), do: false
@@ -332,6 +347,7 @@ defmodule AtMcp.Grants do
       account: row["account"],
       scope: String.to_existing_atom(row["scope"]),
       format: row["format"],
+      tools: row["tools"],
       issued_at: row["issued_at"]
     }
   end
@@ -344,6 +360,12 @@ defmodule AtMcp.Grants do
 
   defp valid_scope(scope) do
     if scope in @scopes, do: :ok, else: {:error, :invalid_scope}
+  end
+
+  defp valid_tools(tools) do
+    if is_nil(tools) or tools in AtMcp.MCP.ToolSet.sets(),
+      do: :ok,
+      else: {:error, :invalid_tools}
   end
 
   defp valid_format(format) do

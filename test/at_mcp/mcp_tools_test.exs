@@ -329,7 +329,7 @@ defmodule AtMcp.MCP.ToolsTest do
       AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend, quota_limit: 100)
 
     assert {:ok, _} = AtMcp.Effects.login(effects)
-    state = %{effects: effects}
+    state = %{effects: effects, tools: "full"}
 
     {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
 
@@ -339,6 +339,7 @@ defmodule AtMcp.MCP.ToolsTest do
     for {name, arguments} <- @calls do
       tool = Enum.find(tools, &(&1.name == name))
       read? = tool.annotations[:readOnlyHint] == true
+      refute Map.has_key?(tool, :outputSchema), "#{name} declares an output schema"
       schema = AtMcp.MCP.Server.__output_schemas__()[name]
 
       # Asked for json, every tool's structured content is its summary, which
@@ -355,7 +356,6 @@ defmodule AtMcp.MCP.ToolsTest do
 
       if read? do
         # A read declares no output schema, so it may return text alone.
-        refute Map.has_key?(tool, :outputSchema), "#{name} declares an output schema"
         assert tool.inputSchema.properties.format.enum == ["text", "json"]
 
         # By default it does: `AtMcp.Reading`'s text of the summary, or for a
@@ -372,7 +372,9 @@ defmodule AtMcp.MCP.ToolsTest do
             assert text == apply(AtMcp.Reading, reading, [result.structuredContent]), name
         end
       else
-        assert tool.outputSchema == schema
+        # Nor does a write: its result is a few fields, checked against its
+        # schema here and by `AtMcp.MCP.Output` on every call.
+        refute Map.has_key?(tool, :outputSchema), "#{name} declares an output schema"
         refute Map.has_key?(tool.inputSchema.properties, :format), name
       end
     end

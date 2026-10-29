@@ -50,10 +50,9 @@ const {tools} = await client.listTools();
 // A read takes `format`, answers in text alone by default, and with json
 // returns its summary as structured content and as that JSON in the text.
 const reads = new Set(tools.filter(t => t.inputSchema.properties?.format).map(t => t.name));
-const writesWithoutSchema = tools.filter(t => !reads.has(t.name) && !t.outputSchema?.properties).map(t => t.name);
-check(writesWithoutSchema.length === 0, `writes without an output schema: ${writesWithoutSchema.join(', ')}`);
-const readsWithSchema = tools.filter(t => reads.has(t.name) && t.outputSchema).map(t => t.name);
-check(readsWithSchema.length === 0, `reads declaring an output schema: ${readsWithSchema.join(', ')}`);
+// No tool lists an output schema; a write still returns its structured result.
+const withSchema = tools.filter(t => t.outputSchema).map(t => t.name);
+check(withSchema.length === 0, `tools declaring an output schema: ${withSchema.join(', ')}`);
 check(tools.find(t => t.name === 'get_posts')?.inputSchema.properties.uris.maxItems === 25,
   'get_posts does not advertise its 25-item limit');
 

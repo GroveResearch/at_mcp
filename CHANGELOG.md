@@ -29,14 +29,24 @@ This release is 0.3.0: what read tools return has changed.
   Tangled. Each write counts against the write quota. Collections at_mcp
   writes with its own tools are refused, naming the tool to use.
 
+- `tools/list` offers a default set of 43 tools, the ones agents use: about
+  42 KB, where every tool with its output schema was 994 KB. A client that
+  wants every tool listed sets `AT_MCP_TOOLS=full` (for `at_mcp-stdio`) or
+  holds a grant issued with `at_mcp-accounts connection NAME --tools full`.
+  Every tool still answers a call by name. No tool lists an output schema;
+  write tools still return their structured result.
+
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass
 `"format": "json"` in each read's arguments, or issue its client a new grant
 with `--format json` and revoke the old one. A program that reads only write
-results needs nothing. To roll back, the `format` argument is not known to
-0.2.18, which ignores it and says so in the result's text; structured
-content returns. 0.2.18 reads a grant issued with `--format` as one without.
+results needs nothing. A client that relied on a tool being listed, rather
+than calling it by name, needs `--tools full` or `AT_MCP_TOOLS=full`. To roll
+back, the `format` argument is not known to 0.2.18, which ignores it and says
+so in the result's text; structured content returns. 0.2.18 reads a grant
+issued with `--format` or `--tools` as one without, and does not know
+`AT_MCP_TOOLS`: unset it before rolling back, or 0.2.18 will refuse to start.
 
 ## 0.2.18
 

@@ -70,7 +70,9 @@ function params(name) {
     PATH: process.env.PATH, LANG: 'C', LC_ALL: 'C',
     AT_MCP_ENV_FILE: join(root, 'inherited-service-file-must-not-be-read'),
     AT_MCP_HANDLE: `${name}.test`, AT_MCP_APP_PASSWORD: 'fixture-password',
-    AT_MCP_SERVICE: service, AT_MCP_STATE_DIR: join(root, name)
+    AT_MCP_SERVICE: service, AT_MCP_STATE_DIR: join(root, name),
+    // alice asks for every tool, bob is offered the default set.
+    ...(name === 'alice' ? {AT_MCP_TOOLS: 'full'} : {})
   }};
 }
 
@@ -184,17 +186,11 @@ try {
     await close(legacy);
   }
   const {tools} = await a.client.listTools();
-  // No count is pinned here. The loop below fails by name on any write missing
-  // a schema or any read declaring one, and the Elixir side compares the number
-  // reported back against the tools the server declares one for, so a new
-  // tool needs no edit in either place.
+  const defaultTools = (await b.client.listTools()).tools;
+  // No count is pinned here: the Elixir side compares the numbers reported
+  // back with the tools the server declares and its default set.
   for (const tool of tools) {
-    if (tool.annotations?.readOnlyHint) {
-      assert.equal(tool.outputSchema, undefined, `${tool.name} is a read and declares an output schema`);
-      continue;
-    }
-    assert.equal(tool.outputSchema?.type, 'object', `${tool.name} declares no output schema`);
-    assert.ok(tool.outputSchema.properties.code, `${tool.name} cannot report a failure code`);
+    assert.equal(tool.outputSchema, undefined, `${tool.name} declares an output schema`);
   }
   assert.equal(tools.find(t => t.name === 'get_posts').inputSchema.properties.uris.maxItems, 25);
   assert.equal(tools.find(t => t.name === 'get_profiles').inputSchema.properties.actors.maxItems, 25);
@@ -257,7 +253,8 @@ try {
   assert.deepEqual(mutations, [{name: 'alice', text: 'café 日本語 🪁'}]);
   console.log(JSON.stringify({modern: '2026-07-28', legacy: Boolean(process.env.MCP_SDK_PATH),
     concurrent_accounts: 2, unicode: true, exclusive_state: true,
-    output_schemas: tools.filter((t) => t.outputSchema).length, structured_content: true, recoverable_invalid_arguments: true, iso_quota_reset: true,
+    output_schemas: tools.filter((t) => t.outputSchema).length,
+    listed: {full: tools.length, default: defaultTools.length}, structured_content: true, recoverable_invalid_arguments: true, iso_quota_reset: true,
     real_summaries: ['get_timeline', 'get_thread'],
     durable_quota: true, process_cleanup: true, graceful_eof: true,
     private_env_file: process.env.TEST_STDIO_RELEASE === '1', mock_writes: 1, public_writes: 0}));
