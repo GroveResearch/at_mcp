@@ -114,9 +114,14 @@ jobs:
           test "${#files[@]}" -gt 0
           mix test --warnings-as-errors "${files[@]}"
 
+      # `--overwrite`: the cache restores `_build` with whatever release an
+      # earlier run left in `_build/prod/rel`, and without a terminal
+      # `mix release` takes its "Overwrite? [Yn]" prompt as no and keeps that
+      # old release, so the suite tested an older server than this commit's
+      # (#210's first merge-queue run).
       - name: Build the release the tests run
         if: github.event_name != 'pull_request'
-        run: mix release
+        run: mix release --overwrite
         env:
           MIX_ENV: prod
 
@@ -274,7 +279,9 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
 
-      - run: mix release
+      # `--overwrite`, as in the build job: the cached `_build` may hold an
+      # older release, which `mix release` would otherwise keep.
+      - run: mix release --overwrite
         env:
           MIX_ENV: prod
 
@@ -416,7 +423,7 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix release
+      - run: mix release --overwrite
 
       # On a tag, the release must be the tag's version.
       - name: Name the release and check it is the tag's version
@@ -520,7 +527,7 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix release
+      - run: mix release --overwrite
 
       # On a tag, the release must be the tag's version.
       - name: Name the release and check it is the tag's version
