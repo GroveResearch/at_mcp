@@ -72,12 +72,16 @@ defmodule AtMcp.MCP.ToolsTest do
   end
 
   test "quota and connection failures give stable codes alongside their guidance" do
-    for {reason, code, guidance} <- [
-          {:not_connected, "not_connected", "not connected"},
-          {:write_quota_unavailable, "write_quota_unavailable", "writes remain paused"}
+    for {reason, code, guidance, retry} <- [
+          {:not_connected, "not_connected", "not connected", "no"},
+          {:write_quota_unavailable, "write_quota_unavailable", "writes are paused", "after"}
         ] do
-      assert {:ok, %{isError: true, structuredContent: %{code: ^code}, content: [%{text: text}]},
-              :state} = AtMcp.MCP.Tools.respond({:error, reason}, :state)
+      assert {:ok,
+              %{
+                isError: true,
+                structuredContent: %{code: ^code, retry: ^retry},
+                content: [%{text: text}]
+              }, :state} = AtMcp.MCP.Tools.respond({:error, reason}, :state)
 
       assert text =~ guidance
     end
@@ -87,24 +91,26 @@ defmodule AtMcp.MCP.ToolsTest do
               isError: true,
               structuredContent: %{
                 code: "write_quota_exhausted",
-                resets_at: "1970-01-01T00:02:00Z"
+                resets_at: "1970-01-01T00:02:00Z",
+                retry: "after",
+                retry_after: "1970-01-01T00:02:00Z"
               },
               content: [%{text: text}]
             }, :state} =
              AtMcp.MCP.Tools.respond({:error, {:write_quota_exhausted, 120}}, :state)
 
-    assert text =~ "1970-01-01T00:02:00Z"
+    assert text =~ ~r/Try again after 1970-01-01T00:02:00Z\.\z/
   end
 
   test "a service failure reports what it said and whether retrying can help" do
     cases = [
-      {400, "Profile not found", "upstream_rejected", "Check the request"},
-      {429, "Rate Limit Exceeded", "upstream_rate_limited", "Wait before retrying"},
-      {501, "Operation unavailable", "upstream_not_implemented", "not implemented"},
-      {503, "Service Unavailable", "upstream_unavailable", "was not applied"}
+      {400, "Profile not found", "upstream_rejected", "Change the request", "change_argument"},
+      {429, "Rate Limit Exceeded", "upstream_rate_limited", "Wait about a minute", "after"},
+      {501, "Operation unavailable", "upstream_not_implemented", "does not offer it", "no"},
+      {503, "Service Unavailable", "upstream_unavailable", "Wait about half a minute", "after"}
     ]
 
-    for {status, message, code, guidance} <- cases do
+    for {status, message, code, guidance, retry} <- cases do
       kind = if status >= 500, do: :indeterminate, else: :refused
       upstream = AtMcp.Effects.Failure.new(kind, status: status, message: message)
 
@@ -114,7 +120,8 @@ defmodule AtMcp.MCP.ToolsTest do
                 structuredContent: %{
                   code: ^code,
                   http_status: ^status,
-                  upstream_message: ^message
+                  upstream_message: ^message,
+                  retry: ^retry
                 },
                 content: [%{text: text}]
               }, :state} = AtMcp.MCP.Tools.respond({:error, upstream}, :state)
@@ -455,9 +462,9 @@ defmodule AtMcp.MCP.ToolsTest do
 
   test "account failures give stable codes and a recovery action" do
     for {code, guidance} <- [
-          account_disconnected: "Reconnect it through at_mcp's account controls",
-          account_identity_changed: "Stop using this connection",
-          account_runtime_unavailable: "inspect the account records",
+          account_disconnected: "reconnect it through at_mcp's account controls",
+          account_identity_changed: "stop using this connection",
+          account_runtime_unavailable: "read the account's records",
           post_text_too_long: "300 Unicode graphemes and 3000 UTF-8 bytes",
           invalid_post_text: "valid UTF-8"
         ] do

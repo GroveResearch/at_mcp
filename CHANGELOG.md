@@ -28,6 +28,14 @@ This release is 0.3.0: what read tools return has changed.
   `limit`.
 - The same reads take `detail: "brief"`, which shows one line per post. A
   recorded 50-post page was 12.5K characters this way, and 35.6K in full.
+- Every tool error ends with one sentence saying what the agent can do: try
+  again now, try again after a stated time, change a named argument, read the
+  account first, or not retry; when at_mcp can't classify a failure, it says
+  so. Where an error has structured content (a write, or a read asked for
+  json), it carries the same advice as `retry` (with `retry_after` when a
+  real time is known, or `argument` when one argument caused the error) and
+  the whole text as `message`. A read that timed out says whether its
+  request reached the service (`sent`).
 - A new README section, "Using an account from several clients", explains
   when to run `at_mcp-stdio` and when to run the service.
 - When a second `at_mcp-stdio` for the same account fails to start, its error

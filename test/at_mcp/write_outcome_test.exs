@@ -174,7 +174,7 @@ defmodule AtMcp.WriteOutcomeTest do
                AtMcp.MCP.Tools.respond(result, :state)
 
       assert message =~ "may have completed"
-      assert message =~ "Inspect the account"
+      assert message =~ "Don't retry until you have read the account"
       assert message =~ "did not retry"
       refute message =~ "private backend detail"
     end

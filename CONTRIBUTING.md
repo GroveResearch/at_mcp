@@ -132,8 +132,9 @@ You need git, Node 22.19 or later, pnpm 11.11.0, and `initdb`, `pg_ctl` and
 `redis-server` on your `PATH`. The first run builds
 atproto under `_build/e2e`, taking a minute or two, and later runs take about
 ten seconds. Without `DB_POSTGRES_URL` and `REDIS_HOST`, the script starts a
-private Postgres and Redis and removes them afterwards. CI runs these tests on
-request through `.github/workflows/e2e.yml`.
+private Postgres and Redis and removes them afterwards. CI runs these tests in
+the merge queue (the `e2e` job in `.github/workflows/check.yml`), so a change
+that breaks one does not reach main.
 
 The suite calls each write tool, reads the result back through the read tools,
 undoes the write, and reads again. The suite leaves these uncovered:

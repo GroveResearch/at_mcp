@@ -97,8 +97,9 @@ try {
   const before=timelineRequests;
   const unsupported=await client.callTool({name:'get_timeline',arguments:{format:'json'}});
   assert.equal(unsupported.isError,true);
-  assert.deepEqual(unsupported.structuredContent,{code:'upstream_not_implemented',http_status:501,upstream_message:'Timeline operation is not implemented'});
   const guidance=unsupported.content.find(x=>x.type==='text').text;
+  assert.deepEqual(unsupported.structuredContent,{code:'upstream_not_implemented',http_status:501,upstream_message:'Timeline operation is not implemented',retry:'no',message:guidance});
+  assert.match(guidance,/Trying again will not help/);
   assert.match(guidance,/not implemented/);
   assert.doesNotMatch(guidance,/retrying later|proxy|incompatib/i);
   assert.equal(timelineRequests,before+1,'unsupported operation must not retry');
