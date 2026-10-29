@@ -17,6 +17,9 @@ config :at_mcp,
   control_port: 0,
   # A raw string reaching a reading's text fails the test that reaches it
   # (`AtMcp.Reading.Text`); elsewhere it is quoted.
-  strict_reading: true
+  strict_reading: true,
+  # No link card is looked up from Bluesky's card service, which is past this
+  # machine. The tests of `AtMcp.LinkCards` name one on localhost.
+  card_service: nil
 
 config :logger, level: :warning

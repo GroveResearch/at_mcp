@@ -354,7 +354,7 @@ defmodule AtMcp.MCP.Schemas do
 
     Macro.escape(
       description:
-        "A link card: url (http or https), and the title and description the card shows. at_mcp does not fetch the page, so they are yours to give. thumb is an optional image for the card, base64 data or a file path with its MIME type. A post carries a link card or images, not both.",
+        "A link card: url (http or https), and the title and description the card shows. Give only url and at_mcp looks up the title, description and image as the app does, on a network with a card service; on one without, they are yours to give. A title or description you give is used as written. thumb is an optional image for the card, base64 data or a file path with its MIME type. A post carries a link card or images, not both. A post with no link, images or quote gets a card for the first link in its text, looked up the same way.",
       schema: %{
         type: "object",
         required: ["url"],
@@ -761,7 +761,16 @@ defmodule AtMcp.MCP.Schemas do
       "threadgate_uri" =>
         nullable_string("AT URI of the threadgate written with the post: who may reply"),
       "postgate_uri" =>
-        nullable_string("AT URI of the postgate written with the post: whether it may be quoted")
+        nullable_string("AT URI of the postgate written with the post: whether it may be quoted"),
+      "link_card" =>
+        object(%{
+          "url" => nullable_string("The page the card links to"),
+          "from" =>
+            nullable_string(
+              "given: the title or description you wrote; card_service: looked up from the url you gave; text: looked up for the first link in the text; url_only: nothing looked up"
+            ),
+          "note" => nullable_string("What the card is missing, and why")
+        })
     })
   end
 
