@@ -7,7 +7,8 @@ defmodule AtMcp.TownContextTest do
   The feed comes from `AtMcp.Network.app_pinned_feeds/0`. `get_preferences`
   lists it beside the account's own saved feeds and writes nothing;
   `get_suggested_feeds` reads its view beside the service's suggestions on a
-  first page. A network whose app pins nothing reads no more than before.
+  first page. On a network whose app pins nothing, both read only the
+  account's own preferences and the service's suggestions.
 
   The policy pages come from `AtMcp.Network.policy_url/1` and are read by
   `AtMcp.PolicyPage`, which is checked here against a local web server.

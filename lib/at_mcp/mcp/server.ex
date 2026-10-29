@@ -528,7 +528,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_known_followers",
-       "List followers of a handle or DID that this account also follows — shared connections, not all followers." do
+       "List the followers of a handle or DID whom this account also follows: the connections the two share." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.profile_page())
     param(:actor, :string, required: true, description: "Handle or DID")

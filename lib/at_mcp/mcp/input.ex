@@ -117,7 +117,8 @@ defmodule AtMcp.MCP.Input do
       field = to_string(key)
 
       cond do
-        # Optional basic fields historically treat null as omitted, not a clear.
+        # A null display_name or description is dropped, as if omitted; an
+        # empty string clears the field.
         name == "update_profile" and field in ["display_name", "description"] and is_nil(value) ->
           Map.delete(acc, key)
 

@@ -150,9 +150,9 @@ undoes the write, and reads again. The suite leaves these uncovered:
 
 The fixtures test at_mcp against known responses. To compare its output with
 real network responses, run this script against a running service. It checks
-that each write declares an output schema and no read does, and compares real
-read results, asked for as json, with their text. It calls no write tool. `$probe_dir` comes from the
-[interoperability tests](#interoperability-tests) above, and each run of
+that no tool lists an output schema, and compares real read results, asked
+for as json, with their text. It calls no write tool. `$probe_dir` comes from
+the [interoperability tests](#interoperability-tests) above, and each run of
 `connection` issues a fresh grant, so revoke old ones with
 `at_mcp-accounts revoke`:
 
@@ -182,6 +182,9 @@ CI compares the documentation with the code:
 - `scripts/download_release_check.py` runs the README's install block against
   a local copy of a built release, so the block has to keep working as
   written.
+- `test/at_mcp/host_pages_test.exs` runs the plain-script example in
+  `docs/hosts/script.md`. It also checks each link in the host pages, the
+  heading a link points to, and the default tool count the pages give.
 
 ## Publish a release
 
@@ -213,6 +216,8 @@ publishes and the Hex step fails, rerun the failed job with
 servers may have fetched it and Hex keeps it. Fix the problem on `main` and
 tag the next patch.
 
-Add a [CHANGELOG](CHANGELOG.md) entry under "Unreleased" in the same pull
-request as each change worth telling users about. Before tagging, rename
-"Unreleased" to the new version.
+Give a change worth telling users about a "Changelog" section in its pull
+request's description, with the entry as it should read. Leave CHANGELOG.md
+alone in the pull request: entries written there conflicted on nearly every
+merge. Before tagging, the maintainer cutting the release writes the
+[CHANGELOG](CHANGELOG.md) section for the new version from those entries.

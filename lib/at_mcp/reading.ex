@@ -4,9 +4,8 @@ defmodule AtMcp.Reading do
   starter packs, feeds, trends, invitation codes and the account's settings.
 
   A tool result has two halves in MCP: `content`, text and images, which most
-  clients give a model, and `structuredContent`, which a client validates
-  against the tool's output schema and a program reads. For posts and
-  notifications the two readers want different things. A program wants every field, `null`s included, so it can tell absent
+  clients give a model, and `structuredContent`, which a program reads. For
+  posts and notifications the two readers want different things. A program wants every field, `null`s included, so it can tell absent
   from empty. A model reading a page of posts wants what a person scrolling a
   client sees: why a feed shows it (a repost or a pin), who wrote it, when,
   whose post it replies to, what it says, and the

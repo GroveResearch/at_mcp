@@ -104,8 +104,9 @@ if config_env() != :test do
 
   secrets = ~w(AT_MCP_DELIVERY_TOKEN AT_MCP_APP_PASSWORD AT_MCP_APP_PASSWORD_2 AT_MCP_GRANT)
 
-  # The account variables were first named for Bluesky, though an account can
-  # live on any PDS. Existing installations keep working under the old names.
+  # Each account variable is also read under a deprecated `BLUESKY_` name, so
+  # an environment file that sets those keeps working. An account can live on
+  # any PDS, so the names AtMcp documents start with `AT_MCP_`.
   renamed =
     for suffix <- ["", "_2"], part <- ~w(SERVICE HANDLE APP_PASSWORD), into: %{} do
       {"AT_MCP_#{part}#{suffix}", "BLUESKY_#{part}#{suffix}"}

@@ -622,15 +622,14 @@ defmodule AtMcp.Inbound.Store do
         # Decoded without [:safe] on purpose. The checkpoint is a file this
         # module wrote itself, mode 0600 inside its own 0700 state directory;
         # it is not untrusted input. [:safe] guards against atom table
-        # exhaustion from a hostile peer, and its failure mode here was refusing
-        # to start: an event key like :thread_root_uri exists only in the
-        # collector module that produced it, and on a fresh VM that module has
-        # not been loaded, so the decode raised and took the application down
-        # with every pending event still on disk. Preloading the producing
-        # modules cannot hold — moving one field between modules silently breaks
-        # cold start again. Trust in the bytes is not trust in their shape: the
-        # structural checks below still reject a damaged checkpoint rather than
-        # resetting it.
+        # exhaustion from a hostile peer, and here it would refuse to start: an
+        # event key like :thread_root_uri exists only in the collector module
+        # that produced it, and on a fresh VM that module has not been loaded,
+        # so a [:safe] decode raises and takes the application down with every
+        # pending event still on disk. Preloading the producing modules cannot
+        # hold: moving one field between modules would break cold start. Trust
+        # in the bytes is not trust in their shape: the structural checks below
+        # still reject a damaged checkpoint rather than resetting it.
         %{version: 1, cursor: _, pending: pending, receipts: receipts} =
           data =
           :erlang.binary_to_term(binary)

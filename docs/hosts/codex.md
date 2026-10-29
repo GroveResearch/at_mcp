@@ -54,7 +54,7 @@ Ask the agent to call `identity_status` and check the handle.
 ## What the model sees
 
 Codex gives the model a tool result's structured content when it has any,
-and its text otherwise. From 0.3.0 a read returns text alone, so the model
+and its text otherwise. A read returns text alone, so the model
 reads at_mcp's text: each post's author, time, text and identifiers. A write
 returns a small JSON summary, which is what the model reads for it.
 
@@ -79,7 +79,7 @@ small. That list covers posting, reading and replying, plus the tools for the
 account's own records. An agent can call any other tool by name, even when
 it isn't listed.
 
-For the full set, add `--tools full` when issuing the grant
+For the full set ([docs/operations.md](../operations.md#offer-a-client-every-tool)), add `--tools full` when issuing the grant
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
 add `AT_MCP_TOOLS = "full"` to `[mcp_servers.at_mcp.env]`.
 

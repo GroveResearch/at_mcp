@@ -3,7 +3,8 @@ defmodule AtMcp.HostPagesTest do
   The pages in docs/hosts/ say how to use at_mcp from each host. What can be
   run here is run as written: the plain script's example, against the
   service's endpoint with a stand-in account. (Claude Code's page is run in
-  `AtMcp.HostsTest`, which needs a model.) Every link in the pages resolves.
+  `AtMcp.HostsTest`, which needs a model.) Every link in the pages resolves,
+  and the default tool count they give is the default set's.
   """
   use ExUnit.Case, async: false
 
@@ -58,6 +59,16 @@ defmodule AtMcp.HostPagesTest do
 
     assert status == 0, output
     assert output == "fieldnote.example.test #{post["uri"]}\n"
+  end
+
+  test "a page that counts the default tools counts the default set" do
+    count = length(AtMcp.MCP.ToolSet.default())
+
+    for page <- @pages,
+        [_, said] <- Regex.scan(~r/lists (\d+) tools by default/, File.read!(page)) do
+      assert String.to_integer(said) == count,
+             "#{Path.basename(page)} says #{said} tools; the default set has #{count}"
+    end
   end
 
   test "every link in the host pages reaches a file, and a heading where it names one" do

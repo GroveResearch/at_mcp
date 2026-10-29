@@ -112,8 +112,8 @@ defmodule AtMcp.Grants do
          :ok <- valid_scope(scope),
          :ok <- valid_format(format),
          :ok <- valid_tools(tools) do
-      # Only the digest is stored and looked up, so a token issued under any
-      # earlier prefix still resolves.
+      # Only the digest is stored and looked up, so a token resolves whatever
+      # its prefix, `kite-` included.
       token = "at_mcp-" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
       row = %{

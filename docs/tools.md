@@ -36,7 +36,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_followers` | default | List the accounts that follow a handle or DID. |
 | `get_follows` | default | List the accounts a handle or DID follows. |
 | `get_invite_codes` | full | List this account's delve.town invitation codes, as the town's app shows them: each code, how many accounts it admits and who has used it. |
-| `get_known_followers` | default | List followers of a handle or DID that this account also follows — shared connections, not all followers. |
+| `get_known_followers` | default | List the followers of a handle or DID whom this account also follows: the connections the two share. |
 | `get_labelers` | full | Read labelers (moderation services) in detail. |
 | `get_likes` | default | List the accounts that liked a post. |
 | `get_list` | full | Read one list: its name, purpose, creator and description, and a page of the accounts on it. |

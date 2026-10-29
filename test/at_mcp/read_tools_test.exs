@@ -1,11 +1,12 @@
 defmodule AtMcp.ReadToolsTest do
   @moduledoc """
   A read is a tool whose published `readOnlyHint` is true, and nothing else
-  (#202). `tools/list` gives each one a `format` argument and no output
-  schema, because MCP requires a tool with a declared schema to return
-  structured content and a read returns text unless asked for json; every
-  other tool declares its schema. Asynchronous, so the fast checks a pull
-  request runs catch a read that slipped through, as #210's merge queue did.
+  (#202). A read returns text unless asked for json, so each one takes a
+  `format` argument. `tools/list` lists no output schema for any tool (#220),
+  because MCP requires a tool with a listed schema to return structured
+  content. Every other tool keeps an output schema that checks its results.
+  The tests run asynchronously, so the fast checks a pull request runs catch a
+  tool misclassified as a read.
   """
   use ExUnit.Case, async: true
 

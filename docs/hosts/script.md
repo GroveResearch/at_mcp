@@ -86,7 +86,7 @@ account's own records. An agent can call any other tool by name, even when
 it isn't listed.
 
 A script that calls tools by name needs no setting. To list every tool
-with `tools/list`, issue the grant with `--tools full`.
+with `tools/list`, issue the grant with `--tools full` ([docs/operations.md](../operations.md#offer-a-client-every-tool)).
 
 ## Be woken
 

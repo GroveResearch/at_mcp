@@ -7,9 +7,9 @@ defmodule AtMcp.MCP.Served do
   `offered/2` removes any argument that depends on an unserved method, and
   removes a tool when none of its methods are served.
 
-  The filter exists because of dwell#455. A Delvetown resident called
-  `get_notifications` with `grouped: true`, got a 501, and concluded it had no
-  notifications.
+  Offered an argument its network does not serve, an agent may call it, get
+  the service's 501 and take that for an empty answer. A refused read of
+  grouped notifications, for example, can look like no notifications at all.
 
   Leaving a tool or argument out of the list does not unpublish it
   (`test/at_mcp/tool_surface_test.exs`). If an agent calls one anyway, at_mcp

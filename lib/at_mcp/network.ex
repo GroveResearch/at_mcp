@@ -51,9 +51,8 @@ defmodule AtMcp.Network do
 
   ## What this does not cover
 
-  `com.atproto.*` and `chat.bsky.*` are untouched by the rename, and are written
-  as literals wherever they appear. That is correct: they are the same NSIDs on
-  both networks.
+  `com.atproto.*` and `chat.bsky.*` are the same NSIDs on both networks, so
+  they are written as literals wherever they appear.
 
   Writes derive from this module too. `AtMcp.ATProto` builds each record AtMcp
   writes and sends it with `com.atproto.repo.createRecord`, so the collection
@@ -104,10 +103,10 @@ defmodule AtMcp.Network do
       # 2026-10-19). The AppView's own DID document names no labeler; that is
       # the AppView's account, not the town's moderation account.
       moderation_service: "did:plc:7voo3hmmzshypkn34iam3mg5",
-      # No card service: a town account's links are not sent to Bluesky's
-      # until the town's maintainers decide they may be (deepfates is asking,
-      # 2026-10-29), so its link cards are the caller's own text. Naming
-      # Bluesky's here, as `bluesky` does, turns lookups on.
+      # No card service: a lookup on Bluesky's card service would tell
+      # Bluesky which links a town account is posting, so a town account's
+      # link cards hold the caller's own text. Naming Bluesky's here, as
+      # `bluesky` does, turns lookups on.
       card_service: nil,
       # The Town feed, which the town's web app pins as a tab for every
       # account without storing it in the account's preferences. It is the
@@ -206,7 +205,7 @@ defmodule AtMcp.Network do
   # Read at compile time so a release carries no runtime dependency on priv/.
   # The paths are named first so `@external_resource` can be set outside the
   # comprehension that reads them: a vendored lexicon changing must recompile
-  # this module, or the numbers below become the transcription they replaced.
+  # this module, or the numbers below drift from the file they come from.
   @lexicon_paths Map.new(@networks, fn {name, network} ->
                    {name,
                     Path.expand(

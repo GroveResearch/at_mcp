@@ -129,6 +129,21 @@ defmodule AtMcp.E2E.RoundTripTest do
 
   defp sync(net), do: assert(:ok = DevNetwork.sync(net))
 
+  # The AppView keeps mutes, bookmarks, drafts, notification settings, activity
+  # subscriptions and the seen time in bsync, not in the account's repository
+  # (each handler under packages/bsky/src/api/app/bsky writes through
+  # `ctx.stashClient` or `ctx.bsyncClient`), and reads one back only once its
+  # bsync subscription has applied it. So each such write waits for that
+  # before anything reads it; "bsync writes wait" below holds every one to it.
+  @bsync_tools ~w(mute unmute mute_thread unmute_thread mute_list unmute_list bookmark unbookmark
+                  save_draft delete_draft subscribe_to_activity set_notification_setting update_seen)
+
+  defp through_bsync!(net, account, name, arguments) when name in @bsync_tools do
+    result = call!(account, name, arguments)
+    sync(net)
+    result
+  end
+
   defp profile_uri(account), do: "at://#{account.did}/app.bsky.actor.profile/self"
 
   defp record(account, uri) do
@@ -144,6 +159,14 @@ defmodule AtMcp.E2E.RoundTripTest do
   defp only_post(account, uri) do
     %{"items" => [post]} = call!(account, "get_posts", %{"uris" => [uri]})
     post
+  end
+
+  test "bsync writes wait: no tool @bsync_tools names is called here without through_bsync!" do
+    source = File.read!(__ENV__.file)
+    names = Enum.map_join(@bsync_tools, "|", &Regex.escape/1)
+
+    assert Regex.scan(~r/\bcall!\(\w+, "(?:#{names})"/, source) == [],
+           "a write the AppView keeps in bsync must go through through_bsync!(net, ...)"
   end
 
   describe "posts and their gates" do
@@ -308,11 +331,9 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert {first, last} == {root["uri"], reply["uri"]}
 
       # Muting the thread through the parent mutes the root the AppView knows.
-      call!(them, "mute_thread", %{"uri" => parent})
-      sync(net)
+      through_bsync!(net, them, "mute_thread", %{"uri" => parent})
       assert only_post(them, root["uri"])["viewer"]["thread_muted"]
-      call!(them, "unmute_thread", %{"uri" => parent})
-      sync(net)
+      through_bsync!(net, them, "unmute_thread", %{"uri" => parent})
       refute only_post(them, root["uri"])["viewer"]["thread_muted"]
 
       call!(them, "delete_post", %{"uri" => reply["uri"]})
@@ -869,13 +890,11 @@ defmodule AtMcp.E2E.RoundTripTest do
 
     test "mute and unmute: get_mutes lists the account, then not",
          %{net: net, me: me, them: them} do
-      call!(me, "mute", %{"actor" => them.handle})
-      sync(net)
+      through_bsync!(net, me, "mute", %{"actor" => them.handle})
       assert %{"items" => [%{"did" => did}]} = call!(me, "get_mutes", %{})
       assert did == them.did
 
-      call!(me, "unmute", %{"actor" => them.handle})
-      sync(net)
+      through_bsync!(net, me, "unmute", %{"actor" => them.handle})
       assert %{"items" => []} = call!(me, "get_mutes", %{})
     end
 
@@ -886,13 +905,11 @@ defmodule AtMcp.E2E.RoundTripTest do
       reply = call!(them, "reply", %{"uri" => root["uri"], "text" => "deeper"})
       sync(net)
 
-      assert %{"uri" => muted} = call!(me, "mute_thread", %{"uri" => reply["uri"]})
+      assert %{"uri" => muted} = through_bsync!(net, me, "mute_thread", %{"uri" => reply["uri"]})
       assert muted == root["uri"]
-      sync(net)
       assert only_post(me, root["uri"])["viewer"]["thread_muted"] == true
 
-      call!(me, "unmute_thread", %{"uri" => reply["uri"]})
-      sync(net)
+      through_bsync!(net, me, "unmute_thread", %{"uri" => reply["uri"]})
       assert only_post(me, root["uri"])["viewer"]["thread_muted"] == false
     end
 
@@ -901,13 +918,11 @@ defmodule AtMcp.E2E.RoundTripTest do
       post = post!(them, "bookmark me")
       sync(net)
 
-      call!(me, "bookmark", %{"uri" => post["uri"]})
-      sync(net)
+      through_bsync!(net, me, "bookmark", %{"uri" => post["uri"]})
       assert %{"items" => [%{"uri" => uri}]} = call!(me, "get_bookmarks", %{})
       assert uri == post["uri"]
 
-      call!(me, "unbookmark", %{"uri" => post["uri"]})
-      sync(net)
+      through_bsync!(net, me, "unbookmark", %{"uri" => post["uri"]})
       assert %{"items" => []} = call!(me, "get_bookmarks", %{})
     end
 
@@ -927,8 +942,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
       assert call!(me, "get_unread_count", %{})["count"] > 0
 
-      call!(me, "update_seen", %{})
-      sync(net)
+      through_bsync!(net, me, "update_seen", %{})
       assert call!(me, "get_unread_count", %{})["count"] == 0
 
       call!(them, "unfollow", %{"uri" => follow["uri"]})
@@ -1257,16 +1271,10 @@ defmodule AtMcp.E2E.RoundTripTest do
 
     test "set_notification_setting: get_notification_settings reads it back, then the undo",
          %{net: net, me: me} do
-      # The AppView stores these settings through bsync and reads them back
-      # once its bsync subscription has applied the change, so each write
-      # waits for that before the next read or write. A put also merges into
-      # the settings as last applied, so a second put sent too soon would
-      # write the first one's old value back.
-      set = fn arguments ->
-        result = call!(me, "set_notification_setting", arguments)
-        sync(net)
-        result
-      end
+      # A put merges into the settings as last applied, so a second put sent
+      # before bsync applied the first would write its old value back: each
+      # waits (`through_bsync!`) before the next read or write.
+      set = &through_bsync!(net, me, "set_notification_setting", &1)
 
       setting = fn reason ->
         Enum.find(
@@ -1378,7 +1386,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
 
       result =
-        call!(me, "subscribe_to_activity", %{
+        through_bsync!(net, me, "subscribe_to_activity", %{
           "actor" => them.handle,
           "posts" => true,
           "replies" => true
@@ -1387,7 +1395,6 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert result["actor"] == them.did
       assert result["previous"] == %{"posts" => false, "replies" => false}
       assert result["now"] == %{"posts" => true, "replies" => true}
-      sync(net)
 
       assert call!(me, "get_profile", %{"actor" => them.did})["activity_subscription"] ==
                %{"posts" => true, "replies" => true}
@@ -1397,19 +1404,18 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       assert did == them.did
 
-      assert call!(me, "subscribe_to_activity", %{
+      assert through_bsync!(net, me, "subscribe_to_activity", %{
                "actor" => them.did,
                "posts" => true,
                "replies" => true
              })["unchanged"]
 
-      call!(me, "subscribe_to_activity", %{
+      through_bsync!(net, me, "subscribe_to_activity", %{
         "actor" => them.did,
         "posts" => false,
         "replies" => false
       })
 
-      sync(net)
       assert call!(me, "get_profile", %{"actor" => them.did})["activity_subscription"] == nil
       assert %{"items" => []} = call!(me, "get_activity_subscriptions", %{})
 
@@ -1417,20 +1423,20 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
     end
 
-    test "save_draft, update it, delete_draft: get_drafts follows each", %{me: me} do
-      draft = call!(me, "save_draft", %{"text" => "first words"})
+    test "save_draft, update it, delete_draft: get_drafts follows each", %{net: net, me: me} do
+      draft = through_bsync!(net, me, "save_draft", %{"text" => "first words"})
       id = draft["id"]
 
       assert %{"items" => [%{"id" => ^id, "posts" => [%{"text" => "first words"}]}]} =
                call!(me, "get_drafts", %{})
 
-      call!(me, "save_draft", %{"id" => id, "text" => "second words"})
+      through_bsync!(net, me, "save_draft", %{"id" => id, "text" => "second words"})
 
       assert %{"items" => [%{"id" => ^id, "posts" => [%{"text" => "second words"}]}]} =
                call!(me, "get_drafts", %{})
 
       assert %{"draft" => %{"posts" => [%{"text" => "second words"}]}} =
-               call!(me, "delete_draft", %{"id" => id})
+               through_bsync!(net, me, "delete_draft", %{"id" => id})
 
       assert %{"items" => []} = call!(me, "get_drafts", %{})
 
@@ -1754,10 +1760,9 @@ defmodule AtMcp.E2E.RoundTripTest do
       handle_form = String.replace(list["uri"], me.did, me.handle)
 
       assert %{"list" => uri, "muted" => true, "previous" => false} =
-               call!(me, "mute_list", %{"uri" => handle_form})
+               through_bsync!(net, me, "mute_list", %{"uri" => handle_form})
 
       assert uri == list["uri"]
-      sync(net)
 
       assert %{"viewer" => %{"muted" => true}} = call!(me, "get_list", %{"uri" => uri})["list"]
 
@@ -1767,8 +1772,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert get_in(call!(me, "get_profile", %{"actor" => them.did}), ["viewer", "muted_by_list"]) ==
                uri
 
-      call!(me, "unmute_list", %{"uri" => uri})
-      sync(net)
+      through_bsync!(net, me, "unmute_list", %{"uri" => uri})
 
       assert get_in(call!(me, "get_list", %{"uri" => uri}), ["list", "viewer", "muted"]) in [
                false,
@@ -1972,7 +1976,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
 
       call!(me, "pin_post", %{"uri" => mine["uri"]})
-      call!(me, "bookmark", %{"uri" => quote["uri"]})
+      through_bsync!(net, me, "bookmark", %{"uri" => quote["uri"]})
       call!(me, "like", %{"uri" => quote["uri"]})
       sync(net)
 
@@ -1996,7 +2000,7 @@ defmodule AtMcp.E2E.RoundTripTest do
 
       if dir = System.get_env("AT_MCP_E2E_RECORD"), do: record(session, pds, me, mine, dir)
 
-      call!(me, "unbookmark", %{"uri" => quote["uri"]})
+      through_bsync!(net, me, "unbookmark", %{"uri" => quote["uri"]})
       call!(me, "unpin_post", %{})
       sync(net)
 

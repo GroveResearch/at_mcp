@@ -930,7 +930,8 @@ defmodule AtMcp.Effects do
   Publish a post. `opts` are `AtMcp.Effects.ProtoRune.prepare_post/3`'s and
   `AtMcp.Interactions.post_options/2`'s. `facets: :none` publishes `text`
   exactly as given, with no mention, link or tag facets, for a caller that
-  quotes text it did not write; the MCP tools do not offer it (decisions.md).
+  quotes text it did not write. The MCP tools do not offer it, because the
+  app's composer detects facets whenever a person publishes (#163).
   A `reply_rule` or `quotes` left out is the account's saved one for new
   posts, as in the app; pass `reply_rule: ["everyone"], quotes: "allowed"` to
   post open whatever is saved.
