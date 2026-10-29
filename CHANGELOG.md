@@ -18,6 +18,9 @@ itself.
   replies, mentions and quotes, waits for a quiet period so a burst becomes
   one wake, and runs a command with a summary of what arrived
   ([delivery.md](docs/delivery.md#wake-an-agent)).
+- On a busy machine, a correct tool call is no longer refused as
+  `input_validation_unavailable`. The argument and result checks now wait
+  up to one second instead of 100 ms.
 
 ## 0.2.18
 
