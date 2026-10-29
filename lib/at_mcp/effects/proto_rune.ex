@@ -2465,7 +2465,11 @@ defmodule AtMcp.Effects.ProtoRune do
            action: :put_record,
            uri: string_value(response, :uri),
            cid: string_value(response, :cid),
-           replaced: is_binary(prepared[:swap])
+           replaced: is_binary(prepared[:swap]),
+           # "valid" when the server checked the record against the
+           # collection's lexicon, "unknown" when it did not know the lexicon
+           # and stored the record unchecked.
+           validation_status: string_value(response, :validation_status)
          }}
 
       error ->

@@ -217,7 +217,7 @@ reads it back. To file an issue on a Tangled repository, an agent calls:
 {
   "collection": "sh.tangled.repo.issue",
   "record": {
-    "repo": "at://did:plc:owner/sh.tangled.repo/3kexamplerepo",
+    "repo": "did:plc:examplerepo",
     "title": "Search times out",
     "body": "search_posts gave up after 20 seconds.",
     "createdAt": "2026-10-29T12:00:00Z"
@@ -230,8 +230,14 @@ the record's key. To edit the issue, call `put_record` again with that key as
 `rkey` and the `cid` from the result. To remove it, call `delete_record` with
 the same collection and key.
 
+This follows Tangled's issue lexicon (`lexicons/issue/issue.json` in
+[Tangled's core repository](https://tangled.org/@tangled.org/core) at
+`dfcc014`), where `repo` is the repository's DID.
+
 at_mcp writes the record as given, so check the application's lexicon for the
-field names. Posts, likes, follows and the other records at_mcp has its own
+field names. The result's `validation_status` is `valid` when the account's
+server checked the record against the collection's lexicon, and `unknown` when
+it does not know that lexicon and nothing checked the record. Posts, likes, follows and the other records at_mcp has its own
 tools for are refused, and the error gives the tool to use.
 
 ## Failed tool calls

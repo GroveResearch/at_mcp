@@ -812,6 +812,10 @@ defmodule AtMcp.MCP.Schemas do
         "type" => ["boolean", "null"],
         "description" => "put_record: true when a record was already there and was replaced"
       },
+      "validation_status" =>
+        nullable_string(
+          "put_record: valid when the account's server checked the record against the collection's lexicon; unknown when it does not know that lexicon and stored the record unchecked"
+        ),
       "unchanged" => %{
         "type" => ["boolean", "null"],
         "description" => "delete_record: true when there was no record to delete"

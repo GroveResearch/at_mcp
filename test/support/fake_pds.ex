@@ -166,7 +166,9 @@ defmodule AtMcp.Test.FakePDS do
 
   defp answer("com.atproto.repo.createRecord", %{body: b}, state) do
     uri = "at://#{b["repo"]}/#{b["collection"]}/#{b["rkey"] || "new"}"
-    {{200, %{uri: uri, cid: cid(uri)}}, put_in(state.records[uri], b["record"])}
+
+    {{200, %{uri: uri, cid: cid(uri), validationStatus: validation(b["collection"])}},
+     put_in(state.records[uri], b["record"])}
   end
 
   # A `swapRecord` names the version the write must replace; the PDS refuses
@@ -182,7 +184,8 @@ defmodule AtMcp.Test.FakePDS do
             Map.has_key?(state.records, uri)) do
       {{400, %{error: "InvalidSwap", message: "Record was at another version"}}, state}
     else
-      {{200, %{uri: uri, cid: cid(uri)}}, put_in(state.records[uri], b["record"])}
+      {{200, %{uri: uri, cid: cid(uri), validationStatus: validation(b["collection"])}},
+       put_in(state.records[uri], b["record"])}
     end
   end
 
@@ -333,6 +336,12 @@ defmodule AtMcp.Test.FakePDS do
 
   # Every reason's setting, the service's defaults where none was set, as the
   # AppView answers (`ensurePreferences` in its notification/util.ts).
+  # As a PDS answers: it checks a record whose lexicon it knows, and stores
+  # one of any other collection unchecked.
+  defp validation("app.bsky." <> _), do: "valid"
+  defp validation("town.delve." <> _), do: "valid"
+  defp validation(_collection), do: "unknown"
+
   defp notification_preferences(state) do
     filterable = %{"include" => "all", "list" => true, "push" => true}
     plain = %{"list" => true, "push" => true}

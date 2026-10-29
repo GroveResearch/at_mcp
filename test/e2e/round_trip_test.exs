@@ -1877,15 +1877,21 @@ defmodule AtMcp.E2E.RoundTripTest do
         call!(me, "put_record", %{
           "collection" => @issue,
           "record" => %{
-            "repo" => "at://#{me.did}/sh.tangled.repo/3k22222222222",
+            "repo" => "did:plc:examplerepo",
             "title" => "first",
             "body_text" => "keys stay as written",
             "createdAt" => "2026-10-29T00:00:00Z"
           }
         })
 
-      assert %{"action" => "put_record", "uri" => uri, "cid" => cid, "replaced" => false} =
-               created
+      # The reference PDS does not know Tangled's lexicons, so nothing checked it.
+      assert %{
+               "action" => "put_record",
+               "uri" => uri,
+               "cid" => cid,
+               "replaced" => false,
+               "validation_status" => "unknown"
+             } = created
 
       assert ["at:", "", did, @issue, rkey] = String.split(uri, "/")
       assert did == me.did

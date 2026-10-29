@@ -1818,7 +1818,7 @@ defmodule AtMcp.MCP.Server do
   tool "put_record",
        write_description(
          :put_record,
-         "Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). If the account's server knows the collection's lexicon, it validates the record. Otherwise it stores the record as given, so check the application's lexicon for the fields. Posts, likes, follows, the profile and the other records at_mcp has its own tools for are refused, and the error tells you which tool to use. To replace a record safely, read it with get_record first and pass its cid. If someone changes the record between your read and your write, the write is refused. Returns the record's uri and cid."
+         "Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). If the account's server knows the collection's lexicon, it validates the record. Otherwise it stores the record as given, so check the application's lexicon for the fields. Posts, likes, follows, the profile and the other records at_mcp has its own tools for are refused, and the error tells you which tool to use. To replace a record safely, read it with get_record first and pass its cid. If someone changes the record between your read and your write, the write is refused. Returns the record's uri and cid, and validation_status: valid when the server checked the record against the lexicon, unknown when nothing checked it."
        ) do
     annotations(
       # Without rkey, every call creates a new record.
