@@ -491,6 +491,11 @@ defmodule AtMcp.Network do
       |> Enum.uniq()
       |> Enum.sort()
 
+  @doc "Whether the network `name` publishes any policy page `get_policy` reads."
+  @spec publishes_policies?(atom()) :: boolean()
+  def publishes_policies?(name),
+    do: @networks |> Map.fetch!(name) |> Map.fetch!(:policies) |> map_size() > 0
+
   @doc "Where this network publishes the policy page `page`; nil when it publishes none by that name."
   @spec policy_url(String.t()) :: String.t() | nil
   def policy_url(page) do

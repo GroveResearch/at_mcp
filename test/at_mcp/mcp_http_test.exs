@@ -222,12 +222,14 @@ defmodule AtMcp.MCP.HTTPTest do
         {scope, response.body["result"]["tools"]}
       end)
 
-    # :manage is offered the whole surface; the other two are judged against
-    # each tool's own annotations as :manage was shown them.
+    # :manage is offered every tool the network serves; the other two are
+    # judged against each tool's own annotations as :manage was shown them.
     everything = listed.manage
+    {:ok, declared, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+    unserved = Enum.map(declared -- AtMcp.MCP.Served.offered(declared), & &1.name)
 
     assert MapSet.new(everything, & &1["name"]) ==
-             MapSet.new(Map.keys(AtMcp.Grants.tool_scopes()))
+             MapSet.new(Map.keys(AtMcp.Grants.tool_scopes()) -- unserved)
 
     hint = fn tool, key -> get_in(tool, ["annotations", key]) == true end
 

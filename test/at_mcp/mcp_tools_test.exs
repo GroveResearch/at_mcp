@@ -338,7 +338,8 @@ defmodule AtMcp.MCP.ToolsTest do
     assert {:ok, _} = AtMcp.Effects.login(effects)
     state = %{effects: effects, tools: "full"}
 
-    {:ok, tools, nil, ^state} = AtMcp.MCP.Server.handle_list_tools(nil, state)
+    # Every published tool, whether or not this network serves it.
+    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
 
     assert Enum.map(tools, & &1.name) |> Enum.sort() ==
              @calls |> Enum.map(&elem(&1, 0)) |> Enum.sort()

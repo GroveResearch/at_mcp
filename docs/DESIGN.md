@@ -125,7 +125,7 @@ structured content, which a read does not, and the write schemas were most of
 the list's size while each write returns a few fields. The schemas stay in
 `AtMcp.MCP.Server` for the checks above.
 
-A session is offered a default set of 43 tools (`AtMcp.MCP.ToolSet`), since
+A session is offered a default set of 46 tools (`AtMcp.MCP.ToolSet`), since
 many hosts put every listed tool's definition in the model's context. A grant
 issued with `--tools full`, or `AT_MCP_TOOLS=full`, lists every tool, and
 `tools/call` accepts every published tool either way. `AtMcp.MCP.Served`

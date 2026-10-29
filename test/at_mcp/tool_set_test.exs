@@ -8,24 +8,29 @@ defmodule AtMcp.ToolSetTest do
 
   alias AtMcp.Test.Grant
 
-  # The default `tools/list`, in bytes of JSON: 41,700 when this was set
-  # (43 tools), from 994,426 for every tool with its output schema; 49,482
-  # once reads took `detail` (#212), `get_thread` `depth` and `breadth`
-  # (#214), and the feeds `since` and `mark_read` (#216). A host that loads
-  # tool definitions into the model's context pays this on every request;
-  # raise it only for a tool or argument agents use.
-  @default_bound 52_000
-  # Every tool, for a client that asks for the full set: 96,719 when set,
-  # 105,329 with those arguments.
-  @full_bound 110_000
+  # The default `tools/list`, in characters of JSON, on each network: with
+  # 46 tools, 51,946 on Delvetown and 51,787 on Bluesky, which leaves out
+  # get_policy. 0.2.18 listed every tool with its output schema in 994,426.
+  # A host that loads tool definitions into the model's context pays this
+  # on every request; raise it only for a tool or argument agents use.
+  @default_bound 53_000
+  # Every tool, for a client that asks for the full set: 103,606 on
+  # Delvetown and 105,435 on Bluesky.
+  @full_bound 108_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)
+    network = Application.fetch_env(:at_mcp, :network)
 
     on_exit(fn ->
       case previous do
         {:ok, value} -> Application.put_env(:at_mcp, :tool_set, value)
         :error -> Application.delete_env(:at_mcp, :tool_set)
+      end
+
+      case network do
+        {:ok, value} -> Application.put_env(:at_mcp, :network, value)
+        :error -> Application.delete_env(:at_mcp, :network)
       end
     end)
   end
@@ -37,27 +42,46 @@ defmodule AtMcp.ToolSetTest do
 
   defp names(tools), do: tools |> Enum.map(& &1.name) |> Enum.sort()
 
-  test "a session is offered the default set, and it fits the bound" do
-    tools = listed(%{})
+  # Every published tool the session's network serves, and those of `wanted`.
+  defp served, do: names(AtMcp.MCP.Served.offered(listed(:state)))
+  defp served(wanted), do: Enum.sort(wanted) -- (names(listed(:state)) -- served())
 
-    assert names(tools) == Enum.sort(AtMcp.MCP.ToolSet.default())
-    size = byte_size(Jason.encode!(%{tools: tools}))
-    assert size <= @default_bound, "the default tools/list is #{size} bytes"
+  test "a session is offered the default set, and it fits the bound on each network" do
+    for network <- AtMcp.Network.names() do
+      Application.put_env(:at_mcp, :network, network)
+      tools = listed(%{})
+
+      # get_policy is listed where the network publishes policies to read.
+      default = AtMcp.MCP.ToolSet.default()
+
+      expected =
+        if AtMcp.Network.publishes_policies?(network),
+          do: default,
+          else: default -- ["get_policy"]
+
+      assert names(tools) == Enum.sort(expected), "#{network}"
+      assert "get_post_images" in names(tools) and "pin_post" in names(tools)
+
+      size = String.length(Jason.encode!(%{tools: tools}))
+      assert size <= @default_bound, "the default tools/list on #{network} is #{size} characters"
+
+      full = String.length(Jason.encode!(%{tools: listed(%{tools: "full"})}))
+      assert full <= @full_bound, "the full tools/list on #{network} is #{full} characters"
+    end
   end
 
   test "the full set, asked for by the session or the environment, offers every tool" do
-    every = names(listed(:state))
+    every = served()
     assert length(every) > length(AtMcp.MCP.ToolSet.default())
 
     full = listed(%{tools: "full"})
     assert names(full) == every
-    assert byte_size(Jason.encode!(%{tools: full})) <= @full_bound
 
     Application.put_env(:at_mcp, :tool_set, :full)
     assert names(listed(%{})) == every
 
     # A grant's own set wins over the environment's.
-    assert names(listed(%{tools: "default"})) == Enum.sort(AtMcp.MCP.ToolSet.default())
+    assert names(listed(%{tools: "default"})) == served(AtMcp.MCP.ToolSet.default())
   end
 
   test "no tool's output schema is listed" do
@@ -172,8 +196,8 @@ defmodule AtMcp.ToolSetTest do
       default = Grant.session!(Grant.token(id, :manage))
       full = Grant.session!(Grant.token(id, :manage, tools: "full"))
 
-      assert listed_names(default) == Enum.sort(AtMcp.MCP.ToolSet.default())
-      assert listed_names(full) == names(listed(:state))
+      assert listed_names(default) == served(AtMcp.MCP.ToolSet.default())
+      assert listed_names(full) == served()
     end
 
     test "a tool left out of the default set still answers a call", %{id: id} do

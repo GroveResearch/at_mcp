@@ -464,7 +464,7 @@ defmodule AtMcp.AccountSetup do
 
   defp message(:invalid_tools),
     do:
-      "Choose --tools default (43 tools, used when --tools is left out) or --tools full (every tool)."
+      "Choose --tools default (#{length(AtMcp.MCP.ToolSet.default())} tools, used when --tools is left out) or --tools full (every tool)."
 
   defp message(:invalid_format),
     do: "Choose --format text (the default) or json."

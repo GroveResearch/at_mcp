@@ -34,6 +34,11 @@ defmodule AtMcp.ServedTest do
     refute "links" in arguments(town["update_profile"])
     refute Map.has_key?(town, "get_trends")
     refute Map.has_key?(town, "feed_feedback")
+    assert Map.has_key?(town, "get_policy")
+  end
+
+  test "get_policy is left out where the network publishes no policy pages" do
+    refute Map.has_key?(listed(:bluesky), "get_policy")
   end
 
   test "on Bluesky, which serves them, they are all offered" do

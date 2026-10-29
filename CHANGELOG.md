@@ -18,8 +18,9 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
-- `tools/list` offers a default set of 43 tools, about 49 KB, where 0.2.18
-  listed 101 tools with their output schemas in 994 KB. To list every tool,
+- `tools/list` offers a default set of 46 tools, about 52,000 characters,
+  where 0.2.18 listed 101 tools with their output schemas in 994 KB. On
+  Bluesky, which publishes no policy pages for `get_policy`, the set is 45. To list every tool,
   set `AT_MCP_TOOLS=full` for `at_mcp-stdio`, or issue the client's grant with
   `at_mcp-accounts connection NAME --tools full`. `tools/call` accepts every
   tool, listed or not. No tool lists an output schema, but write tools still
