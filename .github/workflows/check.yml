@@ -175,18 +175,12 @@ jobs:
 
       - run: rm -rf _build/*/lib/at_mcp
 
-      # The official client packages gate the independent MCP checks, and the
-      # Claude Code CLI the check of what its model receives
-      # (test/at_mcp/hosts_test.exs), which calls a model with
-      # ANTHROPIC_API_KEY. Without them those tests skip, which is the failure
-      # this job exists to catch.
-      - name: Install the official MCP client packages and Claude Code
+      # The official client packages gate the independent MCP checks. Without
+      # them those tests skip, which is the failure this job exists to catch.
+      - name: Install the official MCP client packages
         run: |
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
-          npm install --prefix "$RUNNER_TEMP/claude" --no-audit --no-fund \
-            @anthropic-ai/claude-code@2.1.312
-          echo "$RUNNER_TEMP/claude/node_modules/.bin" >> "$GITHUB_PATH"
 
       - uses: actions/download-artifact@v8
         with:
@@ -209,7 +203,6 @@ jobs:
           MIX_ENV: test
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TEST_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
           TEST_CONNECT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp/bin/at_mcp-connect
 
@@ -290,6 +283,62 @@ jobs:
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
         run: python3 scripts/download_release_check.py _build/prod/rel/at_mcp
+
+  # What a host's model receives from a read, through the host itself:
+  # test/at_mcp/hosts_test.exs runs a read through the Claude Code CLI against
+  # the running endpoint. It is tagged :hosts and left out of the suite,
+  # because the CLI calls a model (haiku, the cheapest that calls the tool)
+  # with the ANTHROPIC_API_KEY repository secret. Without the secret this job
+  # says so and runs nothing. `test` does not wait for it.
+  hosts:
+    if: github.ref_type != 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MIX_ENV: test
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Without the secret, say so and stop
+        if: env.ANTHROPIC_API_KEY == ''
+        run: |
+          echo "::notice title=hosts skipped::The ANTHROPIC_API_KEY secret is not set, so Claude Code cannot call a model and test/at_mcp/hosts_test.exs did not run."
+
+      - uses: actions/checkout@v7
+        if: env.ANTHROPIC_API_KEY != ''
+
+      # Pinned with build's runtime; see the reason there.
+      - uses: erlef/setup-beam@v1
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v7
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          node-version: "22"
+
+      - uses: actions/cache/restore@v6
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          path: |
+            deps
+            _build
+          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+
+      - name: Install Claude Code
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          npm install --prefix "$RUNNER_TEMP/claude" --no-audit --no-fund \
+            @anthropic-ai/claude-code@2.1.312
+          echo "$RUNNER_TEMP/claude/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: A read through Claude Code
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          mix deps.get
+          mix test --only hosts test/at_mcp/hosts_test.exs
 
   # The required check. Branch protection requires `test` (and `release`), so
   # this job carries that name and passes only when everything that ran for
