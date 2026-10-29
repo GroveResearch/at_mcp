@@ -65,7 +65,13 @@ jobs:
   # against, built once and handed to every suite partition.
   build:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The same runner as the release job, so the release the suite tests is
+    # built as the published one is: on the oldest Ubuntu GitHub still runs,
+    # with the system OpenSSL the release job's notices name. ubuntu-latest
+    # moves under us (it became 26.04, OpenSSL 3.5.5, and the release refused
+    # to build without that notice). Moving the release to a newer Ubuntu is
+    # its own change: the release job, these jobs and rel/notices together.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
       MIX_ENV: test
@@ -88,19 +94,25 @@ jobs:
           elixir-version: "1.19.6"
           otp-version: "28.5.0.7"
 
+      # The cache holds compiled dependencies only, for one runner image: the
+      # key names the image the jobs below run on, and `_build/*/rel` is kept
+      # out. A release left in a cached `_build` survived `mix release
+      # --overwrite`, which keeps any erts file already there, so the suite
+      # ran an erts built on a newer Ubuntu than this runner (#210).
       - uses: actions/cache@v6
         with:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
       # AtMcp itself is always compiled whole, so `--warnings-as-errors` sees
       # every file and the native lock is built from this checkout.
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       - run: mix format --check-formatted
 
@@ -114,9 +126,14 @@ jobs:
           test "${#files[@]}" -gt 0
           mix test --warnings-as-errors "${files[@]}"
 
+      # `--overwrite`: the cache restores `_build` with whatever release an
+      # earlier run left in `_build/prod/rel`, and without a terminal
+      # `mix release` takes its "Overwrite? [Yn]" prompt as no and keeps that
+      # old release, so the suite tested an older server than this commit's
+      # (#210's first merge-queue run).
       - name: Build the release the tests run
         if: github.event_name != 'pull_request'
-        run: mix release
+        run: mix release --overwrite
         env:
           MIX_ENV: prod
 
@@ -144,7 +161,8 @@ jobs:
   suite:
     needs: build
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The release job's runner, as build's: the suite runs that release.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -168,12 +186,13 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       # The official client packages gate the independent MCP checks. Without
       # them those tests skip, which is the failure this job exists to catch.
@@ -234,7 +253,8 @@ jobs:
   # rather than start a minute later with build's.
   package:
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The release job's runner, as build's: this job builds and runs a release.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -254,12 +274,13 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       - name: Build documentation and the local Hex package
         run: |
@@ -274,7 +295,9 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
 
-      - run: mix release
+      # `--overwrite`, as in the build job: the cached `_build` may hold an
+      # older release, which `mix release` would otherwise keep.
+      - run: mix release --overwrite
         env:
           MIX_ENV: prod
 
@@ -292,7 +315,8 @@ jobs:
   # says so and runs nothing. `test` does not wait for it.
   hosts:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # On build's runner, to share its dependency cache, whose key names it.
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
       MIX_ENV: test
@@ -324,8 +348,9 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - name: Install Claude Code
         if: env.ANTHROPIC_API_KEY != ''
@@ -416,7 +441,7 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix release
+      - run: mix release --overwrite
 
       # On a tag, the release must be the tag's version.
       - name: Name the release and check it is the tag's version
@@ -520,7 +545,7 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix release
+      - run: mix release --overwrite
 
       # On a tag, the release must be the tag's version.
       - name: Name the release and check it is the tag's version
