@@ -63,8 +63,8 @@ On Linux, systemd creates `/var/lib/at_mcp` with the right permissions when
 the service first starts.
 
 Back up the state folder along with your other backups. It holds the accounts
-file with its app passwords, the grants, the write quota counts and any
-undelivered notifications. Restoring it brings all of them back.
+file with its app passwords, the grants, the write quota counts, the read
+positions and any undelivered notifications. Restoring it brings all of them back.
 
 ## The environment file
 

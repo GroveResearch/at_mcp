@@ -40,7 +40,7 @@ set, in place of these values
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `AT_MCP_STATE_DIR` | a folder in your user data directory | The folder holding the write quota count, undelivered notifications and collection progress. A single at_mcp process at a time may use it. |
+| `AT_MCP_STATE_DIR` | a folder in your user data directory | The folder holding the write quota count, each account's read positions, undelivered notifications and collection progress. A single at_mcp process at a time may use it. |
 | `AT_MCP_ACCOUNTS_FILE` | `accounts.json` in your user configuration directory | A long-running service's list of accounts. at_mcp keeps its grants file next to it. |
 
 ## Images

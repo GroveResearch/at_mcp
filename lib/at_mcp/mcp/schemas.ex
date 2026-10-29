@@ -217,6 +217,23 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`since` on a read whose position is held (`AtMcp.ReadPositions`)."
+  defmacro since do
+    Macro.escape(
+      description:
+        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item, and every app using the account shares it. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest.",
+      schema: %{type: "string"}
+    )
+  end
+
+  @doc "`mark_read` beside `since`."
+  defmacro mark_read do
+    Macro.escape(
+      description:
+        "Set to false to read with since: last_read and leave the read position where it is. Set to true to move the read position on a read without since. A read with since set to a time leaves the position alone. When more new items wait below this page, the position moves only after you follow the cursor back to the old position."
+    )
+  end
+
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
@@ -414,7 +431,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_view, do: Macro.escape(unread(object(profile_view_schema()["properties"])))
 
-  defmacro post_page, do: Macro.escape(unread(cut(page(post_view_schema()))))
+  defmacro post_page, do: Macro.escape(unread(held(cut(page(post_view_schema())))))
 
   defmacro profile_page, do: Macro.escape(unread(page(profile_view_schema())))
 
@@ -448,7 +465,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro list_result, do: Macro.escape(list_result_schema())
 
-  defmacro notification_page, do: Macro.escape(notification_page_schema())
+  defmacro notification_page, do: Macro.escape(held(cut(notification_page_schema())))
 
   defmacro relationship_page, do: Macro.escape(relationship_page_schema())
 
@@ -1520,13 +1537,43 @@ defmodule AtMcp.MCP.Schemas do
     |> promising(["count", "items"])
   end
 
-  # A page of posts that `AtMcp.MCP.Tools.page/4` cut short.
+  # A page of a feed whose read position is held (`AtMcp.ReadPositions`).
+  defp held(schema) do
+    update_in(schema, ["properties"], fn properties ->
+      Map.merge(properties, %{
+        "since" =>
+          nullable_string(
+            "The time this read counted new items from. Null when the read passed last_read and the account had no read position in this feed yet, or at_mcp could not load it. The page then starts from the newest item."
+          ),
+        "new_total" => %{
+          "type" => "integer",
+          "description" =>
+            "How many items are newer than since, on this page and the pages after it."
+        },
+        "new_total_exact" => %{
+          "type" => "boolean",
+          "description" =>
+            "False when at_mcp stopped counting before it got back to since. new_total is then a minimum."
+        },
+        "read_position" =>
+          nullable_string(
+            "The account's read position in this feed after this read. It stays where it was until a read reaches the old position."
+          ),
+        "read_position_unsaved" =>
+          nullable_string("The error that stopped at_mcp from saving the read position."),
+        "since_unread" =>
+          nullable_string("The error at_mcp got loading the read position for since: last_read.")
+      })
+    end)
+  end
+
+  # A page of posts that `AtMcp.MCP.Tools.page/5` cut short.
   defp cut(schema) do
     schema
     |> put_in(["properties", "left_out"], %{
       "type" => "integer",
       "description" =>
-        "How many posts the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no post was dropped."
+        "How many items the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no item was dropped."
     })
     |> put_in(["properties", "over_bound"], %{
       "type" => "boolean",

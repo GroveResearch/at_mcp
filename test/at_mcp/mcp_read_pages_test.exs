@@ -286,9 +286,14 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert URI.query_decoder(wire) |> Enum.filter(&(elem(&1, 0) == "reasons")) ==
              [{"reasons", "reply"}, {"reasons", "quote"}]
 
+    # A page longer than the bound is asked for again; those requests are
+    # the first call's.
+    flush_wire()
+
     call(client, "get_notifications", %{})
     assert_receive {:wire, "/xrpc/app.bsky.notification.listNotifications", wire, _headers}
     refute URI.query_decoder(wire) |> Enum.any?(&(elem(&1, 0) == "reasons"))
+    flush_wire()
 
     # A reason the lexicon does not name is refused before anything is sent.
     assert {:ok, %{"isError" => true, "structuredContent" => %{"code" => "invalid_arguments"}}} =
@@ -614,6 +619,14 @@ defmodule AtMcp.MCP.ReadPagesTest do
     call(client, "get_feed", %{"feed" => "at://did:plc:gen/app.bsky.feed.generator/hot"})
     assert_receive {:wire, "/xrpc/app.bsky.feed.getFeed", wire, _headers}
     refute wire =~ "cursor"
+  end
+
+  defp flush_wire do
+    receive do
+      {:wire, _, _, _} -> flush_wire()
+    after
+      50 -> :ok
+    end
   end
 
   defp call(client, name, args) do

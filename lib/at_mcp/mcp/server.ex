@@ -69,26 +69,35 @@ defmodule AtMcp.MCP.Server do
     )
 
     param(:feed, :string, AtMcp.MCP.Schemas.notification_feed())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.Effects.list_notifications(e,
-        limit: Map.get(a, :limit),
-        cursor: Map.get(a, :cursor),
-        reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
-        grouped: Map.get(a, :grouped),
-        feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
-      )
-      |> case do
-        # A network without grouped notifications still serves the plain list.
-        {:error, {:not_served, nsid, evidence}} when a.grouped == true ->
-          {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.list_notifications(e,
+            limit: limit,
+            cursor: cursor,
+            reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
+            grouped: Map.get(a, :grouped),
+            feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
+          )
+          |> case do
+            # A network without grouped notifications still serves the plain list.
+            {:error, {:not_served, nsid, evidence}} when a.grouped == true ->
+              {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
 
-        result ->
-          result
-      end
-      |> AtMcp.MCP.Tools.respond(state, :notifications)
+            result ->
+              result
+          end
+        end,
+        a,
+        state,
+        :notifications,
+        AtMcp.ReadPositions.key(:notifications, nil)
+      )
     end)
   end
 
@@ -111,17 +120,20 @@ defmodule AtMcp.MCP.Server do
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
     param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
-          AtMcp.Effects.get_timeline(e, limit: limit, cursor: Map.get(a, :cursor))
+        fn limit, cursor ->
+          AtMcp.Effects.get_timeline(e, limit: limit, cursor: cursor)
         end,
         a,
         state,
-        :posts
+        :posts,
+        AtMcp.ReadPositions.key(:timeline, nil)
       )
     end)
   end
@@ -136,20 +148,23 @@ defmodule AtMcp.MCP.Server do
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
     param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.get_author_feed(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
             limit: limit,
-            cursor: Map.get(a, :cursor)
+            cursor: cursor
           )
         end,
         a,
         state,
-        :posts
+        :posts,
+        AtMcp.ReadPositions.key(:author, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)))
       )
     end)
   end
@@ -388,13 +403,13 @@ defmodule AtMcp.MCP.Server do
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.search_posts(
             e,
             AtMcp.MCP.Tools.optional(Map.get(a, :query)),
             [
               limit: limit,
-              cursor: Map.get(a, :cursor),
+              cursor: cursor,
               author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
               mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
               exclude_authors: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_authors, [])),
@@ -702,10 +717,10 @@ defmodule AtMcp.MCP.Server do
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.get_quotes(e, Map.fetch!(a, :uri),
             limit: limit,
-            cursor: Map.get(a, :cursor)
+            cursor: cursor
           )
         end,
         a,
@@ -730,10 +745,10 @@ defmodule AtMcp.MCP.Server do
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.get_actor_likes(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
             limit: limit,
-            cursor: Map.get(a, :cursor)
+            cursor: cursor
           )
         end,
         a,
@@ -765,10 +780,10 @@ defmodule AtMcp.MCP.Server do
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.get_feed(e, Map.fetch!(a, :feed),
             limit: limit,
-            cursor: Map.get(a, :cursor)
+            cursor: cursor
           )
         end,
         a,
@@ -933,20 +948,23 @@ defmodule AtMcp.MCP.Server do
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
     param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.get_list_feed(e, Map.fetch!(a, :list),
             limit: limit,
-            cursor: Map.get(a, :cursor)
+            cursor: cursor
           )
         end,
         a,
         state,
-        :posts
+        :posts,
+        AtMcp.ReadPositions.key(:list_feed, Map.fetch!(a, :list))
       )
     end)
   end
@@ -2942,10 +2960,10 @@ defmodule AtMcp.MCP.Server do
 
     run(fn a, state ->
       AtMcp.MCP.Tools.page(
-        fn limit ->
+        fn limit, cursor ->
           AtMcp.Effects.get_bookmarks(state.effects,
             limit: limit,
-            cursor: Map.get(a, :cursor)
+            cursor: cursor
           )
         end,
         a,

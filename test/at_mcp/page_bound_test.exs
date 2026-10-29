@@ -128,7 +128,7 @@ defmodule AtMcp.PageBoundTest do
 
       [_, kept, left] =
         Regex.run(
-          ~r/^(\d+) \w+\. (\d+) more posts did not fit in 40000 characters/,
+          ~r/^(\d+) \w+\. (\d+) more \w+ did not fit in 40000 characters/,
           text
         )
 

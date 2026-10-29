@@ -13,6 +13,13 @@ Reads return readable text, so a model gets the same result in every host. A pro
 
 A page of posts is at most 40000 characters of text. When a page would be longer, at_mcp returns fewer posts, says how many it dropped, and returns a cursor that starts with them. A page asked for as JSON keeps every post up to `limit`. With `"detail": "brief"`, each post gets one line: the author, the time, the first line of the text, the counts and the uri. `get_posts` returns a post in full.
 
+at_mcp remembers how far the account has read in the timeline, each list feed, each author feed and the notifications. A read of one of these with `"since": "last_read"` returns only the items newer than that point, newest first, and says how many are new. It then moves the point to the newest item it returned.
+
+- Every client of the account shares these positions, and they survive a restart.
+- When more new items wait below the first page, the position moves after the agent follows the cursor down to the old position, so the agent doesn't skip any item.
+- A read with a time as `since` leaves the position alone. A read without `since` moves it only when it passes `"mark_read": true`.
+- Custom feeds have no read position, because each feed's generator decides the order of its own posts.
+
 | Tool | What it does |
 | --- | --- |
 | `get_activity_subscriptions` | List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription). |

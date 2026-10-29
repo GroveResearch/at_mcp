@@ -79,8 +79,10 @@ defmodule AtMcp.Reading do
       cat([
         count(length(items), ~L"post", ~L"posts"),
         ~L", one line each. Pass a uri to get_posts to read the whole post.",
-        left_out(page),
-        next_page(page)
+        news(page),
+        left_out(page, ~L"post", ~L"posts"),
+        next_page(page),
+        unsaved(page)
       ])
 
     lines =
@@ -100,7 +102,15 @@ defmodule AtMcp.Reading do
   def bookmarks(page), do: post_page(page, ~L"bookmark", ~L"bookmarks")
 
   defp post_page(%{"items" => items} = page, one, many) when is_list(items) do
-    header = cat([count(length(items), one, many), ~L".", left_out(page), next_page(page)])
+    header =
+      cat([
+        count(length(items), one, many),
+        ~L".",
+        news(page),
+        left_out(page, one, many),
+        next_page(page),
+        unsaved(page)
+      ])
 
     blocks =
       items
@@ -122,13 +132,19 @@ defmodule AtMcp.Reading do
           if(is_binary(page["seen_at"]),
             do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])
           ),
-          next_page(page)
+          news(page),
+          left_out(page, ~L"notification group", ~L"notification groups"),
+          next_page(page),
+          unsaved(page)
         ])
       else
         cat([
           count(length(items), ~L"notification", ~L"notifications"),
           ~L".",
-          next_page(page)
+          news(page),
+          left_out(page, ~L"notification", ~L"notifications"),
+          next_page(page),
+          unsaved(page)
         ])
       end
 
@@ -2315,17 +2331,19 @@ defmodule AtMcp.Reading do
 
   defp earlier(_n), do: nil
 
-  defp left_out(%{"left_out" => n}) when is_integer(n) and n > 0,
+  defp left_out(%{"left_out" => n}, one, many) when is_integer(n) and n > 0,
     do:
       cat([
         ~L" ",
         int(n),
-        if(n == 1, do: ~L" more post did not fit in ", else: ~L" more posts did not fit in "),
+        ~L" more ",
+        if(n == 1, do: one, else: many),
+        ~L" did not fit in ",
         int(@page_chars),
         ~L" characters. The cursor below starts with them."
       ])
 
-  defp left_out(%{"over_bound" => true}),
+  defp left_out(%{"over_bound" => true}, _one, _many),
     do:
       cat([
         ~L" This page is longer than ",
@@ -2333,7 +2351,55 @@ defmodule AtMcp.Reading do
         ~L" characters."
       ])
 
-  defp left_out(_page), do: nil
+  defp left_out(_page, _one, _many), do: nil
+
+  # A read asked for what is newer than a position: how many are new, or why
+  # it read the newest page instead.
+  defp news(%{"since" => at} = page) when is_binary(at) do
+    n = if is_integer(page["new_total"]), do: page["new_total"], else: length(page["items"])
+
+    cat([
+      ~L" ",
+      if(page["new_total_exact"] == false, do: cat([~L"At least ", int(n)]), else: int(n)),
+      ~L" new since ",
+      time(at),
+      ~L"."
+    ])
+  end
+
+  defp news(%{"since" => nil, "since_unread" => why}) when is_binary(why),
+    do:
+      cat([
+        ~L" at_mcp could not load this account's read position for this feed (",
+        ident(why),
+        ~L"), so this page starts from the newest item and may repeat items the account has read."
+      ])
+
+  defp news(%{"since" => nil}),
+    do:
+      ~L" This was the first read of this feed with last_read, so the page starts from the newest item. To read further back, pass the cursor without since."
+
+  defp news(_page), do: nil
+
+  defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
+    do:
+      cat([
+        ~L" at_mcp could not save the read position (",
+        ident(why),
+        ~L"), so the next read with last_read returns these items again."
+      ])
+
+  defp unsaved(_page), do: nil
+
+  defp next_page(%{"cursor" => cursor, "since" => at} = page)
+       when is_binary(cursor) and is_binary(at),
+       do:
+         cat([
+           ~L" To get the rest of the new items, pass cursor: ",
+           ident(cursor),
+           ~L" with since: ",
+           if(page["since_asked"] == "last_read", do: ~L"last_read", else: time(at))
+         ])
 
   defp next_page(%{"cursor" => cursor}) when is_binary(cursor),
     do: cat([~L" For the next page, pass cursor: ", ident(cursor)])
