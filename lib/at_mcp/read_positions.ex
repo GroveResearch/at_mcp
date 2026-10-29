@@ -1,31 +1,33 @@
 defmodule AtMcp.ReadPositions do
   @moduledoc """
-  Where an account has read to in each feed: the time of the newest item a
-  read returned, per DID and feed, so a read can ask for only what is newer
-  (`since: "last_read"` on a read tool).
+  This module stores, for each account (DID) and feed, the time of the newest
+  item the account has read. Read tools use it for `since: "last_read"`.
 
-  A feed is named by `key/2`: the timeline, a list's feed by its AT URI, an
-  author's posts by the actor as the caller named it (a handle and its DID
-  hold separate positions), and the notifications. A custom feed holds none:
-  its generator orders it as it chooses, so no time says what in it is new.
-  Every client of an account shares its positions, as they share its write
-  quota.
+  `key/2` builds the feed key:
+    - `"timeline"` and `"notifications"`
+    - `"list:"` followed by the list's AT URI
+    - `"author:"` followed by the actor as the caller wrote it, lowercased, so
+      a handle and its DID get separate positions
 
-  A position moves only on a read that asks it to (`since: "last_read"`,
-  unless it passes `mark_read: false`, or a read without `since` that passes
-  `mark_read: true`; never a read since a time, which looks back),
-  only forward, and only once the read has reached it: a page whose items
-  are all newer leaves items between it and the position unread, so its
-  newest time is held as pending until the read that reaches the position
-  commits it (`advance/5`). No read moves the position past an item it has
-  not returned. Positions live in `read-positions.json` in the state
-  directory beside the write quota (`AtMcp.Inbound.Store.default_dir/0`),
-  rewritten whole under `AtMcp.PrivateFile`'s lock, so they survive a
-  restart.
+  Custom feeds get no key, because their generators order posts in their own
+  way.
 
-  An item's time is where its feed lists it: a repost at the repost's time,
-  anything else at the earlier of its own date and when the service indexed
-  it, as the AppView sorts a feed.
+  A read moves a position only when it asks to: `since: "last_read"` without
+  `mark_read: false`, or a read without `since` that passes `mark_read: true`.
+  When a read returns a page with every item newer than the position, older
+  new items still wait below it. `advance/5` then stores the page's newest
+  time as pending, and the read that gets back to the position commits it.
+
+  An item's time follows the AppView. In a feed it follows the feed's sort: a
+  repost uses the repost's time, and anything else uses the earlier of its
+  `createdAt` and `indexedAt`. So a post indexed late sorts below the
+  position, and a read since the position misses it as the app's feed shows
+  it further down. A notification uses its `indexedAt`, which the AppView
+  compares with `seenAt`, so a reply indexed late is still new.
+
+  The positions are written whole to `read-positions.json` in the state
+  directory, under `AtMcp.PrivateFile`'s lock, so every client of the account
+  shares them and they survive a restart.
   """
 
   @version 1

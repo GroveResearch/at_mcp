@@ -21,11 +21,19 @@ defmodule AtMcp.ReadPositionTest do
       query = URI.decode_query(uri.query || "")
 
       body =
-        if String.ends_with?(uri.path, ".actor.getPreferences") do
-          %{"preferences" => []}
-        else
-          send(Application.fetch_env!(:at_mcp, :read_position_test_owner), {:read, query})
-          AtMcp.ReadPositionTest.page(query)
+        cond do
+          String.ends_with?(uri.path, ".actor.getPreferences") ->
+            %{"preferences" => []}
+
+          String.ends_with?(uri.path, ".notification.listNotifications") ->
+            %{
+              "notifications" =>
+                Application.get_env(:at_mcp, :read_position_test_notifications, [])
+            }
+
+          true ->
+            send(Application.fetch_env!(:at_mcp, :read_position_test_owner), {:read, query})
+            AtMcp.ReadPositionTest.page(query)
         end
 
       {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
@@ -59,6 +67,26 @@ defmodule AtMcp.ReadPositionTest do
     |> put_in(["record", "facets"], [])
   end
 
+  # A reply to the account, written at `made` and indexed by the service at
+  # `indexed`, as a notification.
+  defp reply(n, made, indexed) do
+    post = @fixture |> File.read!() |> Jason.decode!()
+
+    %{
+      "uri" => uri(n),
+      "cid" => post["cid"],
+      "author" => post["author"],
+      "reason" => "reply",
+      "record" => %{
+        "$type" => "town.delve.feed.post",
+        "text" => "Reply #{n}.",
+        "createdAt" => made
+      },
+      "isRead" => false,
+      "indexedAt" => indexed
+    }
+  end
+
   defp uri(n),
     do:
       "at://did:plc:fixture0201/town.delve.feed.post/3kfixture#{String.pad_leading("#{n}", 4, "0")}"
@@ -78,6 +106,7 @@ defmodule AtMcp.ReadPositionTest do
       restore(:proto_rune, :http_client, previous)
       restore(:at_mcp, :network, network)
       Application.delete_env(:at_mcp, :read_position_test_posts)
+      Application.delete_env(:at_mcp, :read_position_test_notifications)
       Application.delete_env(:at_mcp, :read_position_test_owner)
     end)
 
@@ -160,7 +189,7 @@ defmodule AtMcp.ReadPositionTest do
     assert at == post(2)["indexedAt"] and pending == post(9)["indexedAt"]
 
     text = text(ctx.state, %{"since" => "last_read", "limit" => 3, "mark_read" => false})
-    assert text =~ "For the rest of the new ones, pass cursor: 3 and since: last_read"
+    assert text =~ "To get the rest of the new items, pass cursor: 3 with since: last_read"
 
     # The rest, by the cursor and the same since, back to where the account
     # had read; reaching it commits the newest post read.
@@ -206,6 +235,63 @@ defmodule AtMcp.ReadPositionTest do
 
     assert ReadPositions.get(ctx.did, "timeline") ==
              {:ok, %{at: post(2)["indexedAt"], pending: nil}}
+  end
+
+  test "a read since a time still counts what is new when the positions cannot be loaded",
+       ctx do
+    posted(5)
+    path = ReadPositions.path()
+    saved = File.read(path)
+    File.write!(path, "not json")
+    File.chmod!(path, 0o600)
+
+    on_exit(fn ->
+      case saved do
+        {:ok, bytes} -> File.write!(path, bytes)
+        _ -> File.rm(path)
+      end
+    end)
+
+    {page, _} = timeline(ctx.state, %{"since" => post(3)["indexedAt"]})
+    assert uris(page) == Enum.map(5..4//-1, &uri/1)
+    assert page["new_total"] == 2
+
+    {page, _} = timeline(ctx.state, %{"since" => "last_read"})
+    assert length(page["items"]) == 5
+    assert page["since_unread"] == "config_corrupt"
+    assert text(ctx.state, %{"since" => "last_read"}) =~ "(config_corrupt)"
+  end
+
+  test "a reply indexed after the position is new, though its author dated it earlier", ctx do
+    notifications = fn args ->
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_call_tool(
+          "get_notifications",
+          Map.put(args, "since", "last_read"),
+          ctx.state
+        )
+
+      refute result[:isError], inspect(result)
+      result.structuredContent
+    end
+
+    Application.put_env(:at_mcp, :read_position_test_notifications, [
+      reply(1, "2026-10-29T10:01:00.000Z", "2026-10-29T10:01:00.000Z")
+    ])
+
+    assert notifications.(%{})["read_position"] == "2026-10-29T10:01:00.000Z"
+
+    # Written at 10:00 on its author's server, reached the AppView at 10:05.
+    late = reply(2, "2026-10-29T10:00:00.000Z", "2026-10-29T10:05:00.000Z")
+
+    Application.put_env(:at_mcp, :read_position_test_notifications, [
+      late,
+      reply(1, "2026-10-29T10:01:00.000Z", "2026-10-29T10:01:00.000Z")
+    ])
+
+    page = notifications.(%{})
+    assert Enum.map(page["items"], & &1["uri"]) == [uri(2)]
+    assert page["new_total"] == 1
   end
 
   test "since last_read on an account that cannot log in is a plain refusal, not a crash" do

@@ -190,7 +190,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro post_detail do
     Macro.escape(
       description:
-        "full (the default) reads each post whole; brief reads each on one line: who, when, its text's first line, its counts and its uri, for get_posts to read whole",
+        "How much of each post to show. \"full\" (the default) shows the whole post. \"brief\" shows one line per post: the author, the time, the first line of the text, the counts and the uri. Pass a uri to get_posts to read that post in full.",
       schema: %{type: "string", enum: ["full", "brief"]}
     )
   end
@@ -200,7 +200,8 @@ defmodule AtMcp.MCP.Schemas do
     %{depth: max} = AtMcp.Effects.ProtoRune.thread_shape()
 
     Macro.escape(
-      description: "Levels of replies to read below the post (0-#{max}). Omit for the app's",
+      description:
+        "How many levels of replies to read below the post, from 0 to #{max}. Leave it out to use the account's view in the app.",
       schema: %{type: "integer", minimum: 0, maximum: max}
     )
   end
@@ -211,7 +212,7 @@ defmodule AtMcp.MCP.Schemas do
 
     Macro.escape(
       description:
-        "Replies to read under each post below the first level (0-#{max}); the direct replies to the post are as many as the service gives, whatever this is. Omit for the app's",
+        "How many replies to read under each reply, from 0 to #{max}. The direct replies to the post itself always come back in full, whatever this number is. Leave it out to use the account's view in the app.",
       schema: %{type: "integer", minimum: 0, maximum: max}
     )
   end
@@ -220,7 +221,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro since do
     Macro.escape(
       description:
-        "last_read for only the items newer than this account's read position in this feed, which every client of the account shares; or a time (2026-10-29T08:00:00Z) for the items newer than it. Newest first; the result says how many are new, and the cursor with the same since reads the rest",
+        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item, and every app using the account shares it. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest.",
       schema: %{type: "string"}
     )
   end
@@ -229,7 +230,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro mark_read do
     Macro.escape(
       description:
-        "Whether this read moves the read position to its newest item, once it has read back to the position. A read with since last_read does unless this is false; a read since a time never does; a read without since does only if this is true"
+        "Set to false to read with since: last_read and leave the read position where it is. Set to true to move the read position on a read without since. A read with since set to a time leaves the position alone. When more new items wait below this page, the position moves only after you follow the cursor back to the old position."
     )
   end
 
@@ -237,7 +238,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro read_format do
     Macro.escape(
       description:
-        "text (the default) for a reading written for a model; json for the full summary, as structured content and as JSON text",
+        "How the result comes back. \"text\" (the default) gives readable text. \"json\" gives every field as JSON, for a program that parses the result.",
       schema: %{type: "string", enum: AtMcp.MCP.Output.formats()}
     )
   end
@@ -412,12 +413,13 @@ defmodule AtMcp.MCP.Schemas do
   """
   defmacro describe(text) do
     %{views: %{linear: linear, tree: tree}} = AtMcp.Effects.ProtoRune.thread_shape()
+    under = if linear.breadth == 1, do: "a single reply", else: "up to #{linear.breadth} replies"
 
     text
     |> String.replace("{batch}", "1-#{AtMcp.Effects.max_batch()}")
     |> String.replace(
       "{thread}",
-      "every parent, then the replies nested below it in the order the app shows them, by this account's thread sort. As the app's default view reads it: #{linear.depth} levels of replies, the direct replies the service gives and #{linear.breadth} reply per post below them; with the app's tree view on, #{tree.depth} levels and #{tree.breadth} per post. A thread that would read longer than #{AtMcp.Reading.page_chars()} characters keeps its first direct replies and says how many it left out"
+      "every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. By default the tool follows the account's thread view in the app: the linear view (the usual one) reads #{linear.depth} levels of replies, with every direct reply and #{under} under each of those; the tree view reads #{tree.depth} levels, with up to #{tree.breadth} replies under each post. Use depth and breadth to read more or less. If the thread runs past #{AtMcp.Reading.page_chars()} characters, the tool returns as many direct replies as fit and gives the count of the rest"
     )
   end
 
@@ -597,7 +599,7 @@ defmodule AtMcp.MCP.Schemas do
         "parent_omitted" => %{
           "type" => ["boolean", "null"],
           "description" =>
-            "True when the service says the conversation goes further up than it returned"
+            "True when the service reports more parent posts above the ones it returned"
         },
         "replies" => %{"type" => "array", "items" => %{"type" => "object"}},
         "replies_omitted" => %{
@@ -607,26 +609,26 @@ defmodule AtMcp.MCP.Schemas do
         "context" => %{
           "type" => "object",
           "description" =>
-            "How the thread was read: depth (levels of replies), breadth (replies per post below the first level), sort, and view (linear or tree, the account's setting)"
+            "The settings used to read the thread: depth (levels of replies), breadth (replies under each reply), sort (the order of replies), and view (linear or tree, from the account's settings)"
         },
         "other_replies" => %{
           "type" => ["boolean", "null"],
           "description" =>
-            "True when the app leaves replies out of this thread; include_hidden reads them"
+            "True when some replies to this thread are hidden, by its author or by this account's settings. Call again with include_hidden set to true to read them."
         },
         "replies_cut" => %{
           "type" => ["integer", "null"],
           "description" =>
-            "Direct replies left out of the reading to keep it within the bound; replies_omitted counts them too"
+            "How many direct replies the tool left out to keep the reading under #{AtMcp.Reading.page_chars()} characters. replies_omitted includes them."
         },
         "op_thread_index" => %{
           "type" => ["integer", "null"],
           "description" =>
-            "This post's place, from 1, in the thread's author's own run of posts from the root"
+            "Where this post falls, counting from 1, in the series of posts the original poster wrote in a row from the root"
         },
         "op_thread_count" => %{
           "type" => ["integer", "null"],
-          "description" => "How many posts that run has"
+          "description" => "The number of posts in that series"
         },
         "hidden_by_threadgate" => %{
           "type" => ["boolean", "null"],
@@ -1521,24 +1523,26 @@ defmodule AtMcp.MCP.Schemas do
       Map.merge(properties, %{
         "since" =>
           nullable_string(
-            "With since: the time items were asked for after; null when last_read was asked and no position was held, so this is the newest page"
+            "The time this read counted new items from. Null when the read passed last_read and the account had no read position in this feed yet, or at_mcp could not load it. The page then starts from the newest item."
           ),
         "new_total" => %{
           "type" => "integer",
           "description" =>
-            "With since: how many items are newer than it, this page's and those after it"
+            "How many items are newer than since, on this page and the pages after it."
         },
         "new_total_exact" => %{
           "type" => "boolean",
           "description" =>
-            "False when there were more to count than were read; new_total is then a lower bound"
+            "False when at_mcp stopped counting before it got back to since. new_total is then a minimum."
         },
         "read_position" =>
-          nullable_string("The account's position in this feed after this read, when it moved"),
+          nullable_string(
+            "The account's read position in this feed after this read. It stays where it was until a read reaches the old position."
+          ),
         "read_position_unsaved" =>
-          nullable_string("Why the position could not be moved, when it could not"),
+          nullable_string("The error that stopped at_mcp from saving the read position."),
         "since_unread" =>
-          nullable_string("With since: last_read, why the position could not be read")
+          nullable_string("The error at_mcp got loading the read position for since: last_read.")
       })
     end)
   end
@@ -1549,12 +1553,12 @@ defmodule AtMcp.MCP.Schemas do
     |> put_in(["properties", "left_out"], %{
       "type" => "integer",
       "description" =>
-        "Items the service sent for this page that were left out to keep its reading within the bound; the cursor continues from them. Absent when none were"
+        "How many items the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no item was dropped."
     })
     |> put_in(["properties", "over_bound"], %{
       "type" => "boolean",
       "description" =>
-        "True when the page reads longer than the bound and the service gave no shorter page that continues it, so it is whole"
+        "True when the text of this page is longer than #{AtMcp.Reading.page_chars()} characters and at_mcp could not get a shorter page that continues it."
     })
   end
 

@@ -32,8 +32,9 @@ defmodule AtMcp.MCP.DSL do
 
     {schemas, body} = Enum.split_with(statements, &match?({:output_schema, _, [_]}, &1))
 
-    # A read is a tool whose `readOnlyHint` is true, the same line
-    # `AtMcp.Grants` draws its read scope on. Each takes `format`.
+    # A tool counts as a read when its `readOnlyHint` is true, which is also
+    # the test `AtMcp.Grants` uses for the read scope. Each read gets a
+    # `format` argument.
     read? =
       Enum.any?(body, fn
         {:annotations, _, [{:%{}, _, pairs}]} -> Keyword.get(pairs, :readOnlyHint) == true
@@ -114,9 +115,11 @@ defmodule AtMcp.MCP.DSL do
         schemas = unquote(Macro.escape(schemas))
         reads = unquote(Macro.escape(reads))
 
-        # A read's schema still checks its json, but is not declared: a tool
-        # that declares one must return structured content, and a read's is
-        # text unless asked (`AtMcp.MCP.Output`).
+        # `tools/list` leaves out a read's output schema, because MCP requires
+        # a tool with a declared schema to return structured content, and a
+        # read returns text unless asked for json (`AtMcp.MCP.Output`).
+        # `__output_schemas__/0` keeps the schema, and tests use it to check
+        # json results.
         tools =
           Enum.map(tools, fn tool ->
             if MapSet.member?(reads, tool.name),

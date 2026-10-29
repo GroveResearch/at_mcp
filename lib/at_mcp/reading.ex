@@ -53,31 +53,34 @@ defmodule AtMcp.Reading do
   """
   import AtMcp.Reading.Text
 
-  # The most characters a page of posts is read in, when it can be cut
+  # The most characters of text a page of posts may have, when it can be cut
   # (`AtMcp.MCP.Tools.page/4`). Claude Code puts a result over 50,000
-  # characters in a file instead of before the model; a recorded 50-post
-  # author feed reads in about 35,000 (#203), so a page is cut only when its
-  # posts are long, and the lines after it still fit.
+  # characters in a file instead of in front of the model. A recorded 50-post
+  # author feed is about 35,000 characters (#203), so a page is cut only when
+  # its posts are long, and the notes `AtMcp.MCP.Input` and
+  # `AtMcp.MCP.WebLinks` append after the page still fit under 50,000.
   @page_chars 40_000
 
-  @doc "The most characters a page of posts is read in, when it can be cut."
+  @doc "The most characters of text a page of posts may have, when it can be cut."
   def page_chars, do: @page_chars
 
   @doc "A page of posts: timelines, feeds, search results, `get_posts`."
   def posts(page), do: post_page(page, ~L"post", ~L"posts")
 
   @doc """
-  A page of posts one line each, for skimming (`detail: "brief"`): who wrote
-  it, when, its text's first line, its counts and its uri, which `get_posts`
-  reads whole. The one place a post's text is shortened, and it says so.
+  A page of posts with one line per post, for skimming (`detail: "brief"`).
+  Each line has the author, the time, the first line of the text, the counts
+  and the uri, which `get_posts` takes to return the whole post. This is the
+  only reading that shortens a post's text, and the line marks where it was
+  cut.
   """
   def brief_posts(%{"items" => items} = page) when is_list(items) do
     header =
       cat([
         count(length(items), ~L"post", ~L"posts"),
-        ~L", one line each; get_posts reads them whole.",
+        ~L", one line each. Pass a uri to get_posts to read the whole post.",
         news(page),
-        left_out(page),
+        left_out(page, ~L"post", ~L"posts"),
         next_page(page),
         unsaved(page)
       ])
@@ -104,7 +107,7 @@ defmodule AtMcp.Reading do
         count(length(items), one, many),
         ~L".",
         news(page),
-        left_out(page),
+        left_out(page, one, many),
         next_page(page),
         unsaved(page)
       ])
@@ -130,7 +133,7 @@ defmodule AtMcp.Reading do
             do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])
           ),
           news(page),
-          left_out(page),
+          left_out(page, ~L"notification group", ~L"notification groups"),
           next_page(page),
           unsaved(page)
         ])
@@ -139,7 +142,7 @@ defmodule AtMcp.Reading do
           count(length(items), ~L"notification", ~L"notifications"),
           ~L".",
           news(page),
-          left_out(page),
+          left_out(page, ~L"notification", ~L"notifications"),
           next_page(page),
           unsaved(page)
         ])
@@ -193,15 +196,16 @@ defmodule AtMcp.Reading do
 
   def thread(_other), do: nil
 
-  # A post in the thread author's own run of posts from the root, numbered as
-  # the app numbers it.
+  # A post in the original poster's own series of posts from the root,
+  # numbered from 1 as the service numbers it.
   defp op_run(%{"op_thread_index" => n, "op_thread_count" => of})
        when is_integer(n) and is_integer(of) and of > 1,
-       do: cat([~L" (the author's thread, ", int(n), ~L" of ", int(of), ~L")"])
+       do:
+         cat([~L" (post ", int(n), ~L" of ", int(of), ~L" in the original poster's own thread)"])
 
   defp op_run(_post), do: nil
 
-  # Direct replies left out to keep the thread within the bound.
+  # Direct replies left out to keep the thread under `@page_chars`.
   defp cut_replies(%{"replies_cut" => n}) when is_integer(n) and n > 0,
     do: [
       cat([
@@ -210,15 +214,17 @@ defmodule AtMcp.Reading do
         if(n == 1, do: ~L" more direct reply was", else: ~L" more direct replies were"),
         ~L" left out to keep this under ",
         int(@page_chars),
-        ~L" characters. A smaller depth or breadth reads more of them; get_thread on one reply reads its branch.)"
+        ~L" characters. To read more of them, call get_thread again with a smaller depth or breadth, or call get_thread on a single reply to read the replies under it.)"
       ])
     ]
 
   defp cut_replies(_node), do: []
 
-  # Replies the app leaves out, when include_hidden was not asked for.
+  # Replies hidden from the thread, when include_hidden was not asked for.
   defp others(%{"other_replies" => true} = node) when not is_map_key(node, "hidden_replies"),
-    do: [~L"(The app leaves some replies out of this thread. include_hidden reads them.)"]
+    do: [
+      ~L"(Some replies to this thread are hidden, either by its author or by this account's settings. Call get_thread with include_hidden set to true to read them.)"
+    ]
 
   defp others(_node), do: []
 
@@ -1463,7 +1469,7 @@ defmodule AtMcp.Reading do
 
         if rest == [] and shortened == line,
           do: literal(line),
-          else: cat([literal(shortened), ~L" (more)"])
+          else: cat([literal(shortened), ~L" (continues)"])
     end
   end
 
@@ -2325,26 +2331,27 @@ defmodule AtMcp.Reading do
 
   defp earlier(_n), do: nil
 
-  defp left_out(%{"left_out" => n}) when is_integer(n) and n > 0,
+  defp left_out(%{"left_out" => n}, one, many) when is_integer(n) and n > 0,
     do:
       cat([
         ~L" ",
         int(n),
-        if(n == 1, do: ~L" more on this page was", else: ~L" more on this page were"),
-        ~L" left out to keep it under ",
+        ~L" more ",
+        if(n == 1, do: one, else: many),
+        ~L" did not fit in ",
         int(@page_chars),
-        ~L" characters; the cursor continues from them."
+        ~L" characters. The cursor below starts with them."
       ])
 
-  defp left_out(%{"over_bound" => true}),
+  defp left_out(%{"over_bound" => true}, _one, _many),
     do:
       cat([
-        ~L" This page reads longer than ",
+        ~L" This page is longer than ",
         int(@page_chars),
-        ~L" characters: the service gave no shorter page that continues it. A smaller limit reads less."
+        ~L" characters."
       ])
 
-  defp left_out(_page), do: nil
+  defp left_out(_page, _one, _many), do: nil
 
   # A read asked for what is newer than a position: how many are new, or why
   # it read the newest page instead.
@@ -2363,18 +2370,24 @@ defmodule AtMcp.Reading do
   defp news(%{"since" => nil, "since_unread" => why}) when is_binary(why),
     do:
       cat([
-        ~L" The read position could not be read (",
-        literal(why),
-        ~L"), so this is the newest page."
+        ~L" at_mcp could not load this account's read position for this feed (",
+        ident(why),
+        ~L"), so this page starts from the newest item and may repeat items the account has read."
       ])
 
   defp news(%{"since" => nil}),
-    do: ~L" No read position is held for this feed yet, so this is the newest page."
+    do:
+      ~L" This was the first read of this feed with last_read, so the page starts from the newest item. To read further back, pass the cursor without since."
 
   defp news(_page), do: nil
 
   defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
-    do: cat([~L" The read position was not moved: ", literal(why), ~L"."])
+    do:
+      cat([
+        ~L" at_mcp could not save the read position (",
+        ident(why),
+        ~L"), so the next read with last_read returns these items again."
+      ])
 
   defp unsaved(_page), do: nil
 
@@ -2382,9 +2395,9 @@ defmodule AtMcp.Reading do
        when is_binary(cursor) and is_binary(at),
        do:
          cat([
-           ~L" For the rest of the new ones, pass cursor: ",
+           ~L" To get the rest of the new items, pass cursor: ",
            ident(cursor),
-           ~L" and since: ",
+           ~L" with since: ",
            if(page["since_asked"] == "last_read", do: ~L"last_read", else: time(at))
          ])
 

@@ -128,7 +128,7 @@ defmodule AtMcp.PageBoundTest do
 
       [_, kept, left] =
         Regex.run(
-          ~r/^(\d+) \w+\. (\d+) more on this page were left out to keep it under 40000 characters/,
+          ~r/^(\d+) \w+\. (\d+) more \w+ did not fit in 40000 characters/,
           text
         )
 
@@ -153,11 +153,11 @@ defmodule AtMcp.PageBoundTest do
     # The second read's cursor would skip from the cut to post 50, so the
     # first page is read whole, saying it is longer than the bound.
     assert text =~
-             "50 posts. This page reads longer than 40000 characters: the service gave no shorter page that continues it."
+             "50 posts. This page is longer than 40000 characters."
 
     assert text =~ "uri: #{uri(49)}"
     assert text =~ "pass cursor: 50"
-    refute text =~ "left out"
+    refute text =~ "did not fit"
   end
 
   test "the cursor of a page cut short continues from its first post left out", ctx do
@@ -183,7 +183,7 @@ defmodule AtMcp.PageBoundTest do
     assert length(page["items"]) == 5
     refute Map.has_key?(page, "left_out")
     assert page["cursor"] == "5"
-    refute text(call(ctx.state, "get_timeline", %{"limit" => 5})) =~ "left out"
+    refute text(call(ctx.state, "get_timeline", %{"limit" => 5})) =~ "did not fit"
   end
 
   test "brief reads each post on one line, a small part of reading it whole", ctx do
@@ -199,7 +199,7 @@ defmodule AtMcp.PageBoundTest do
       )
 
     [header | lines] = String.split(brief, "\n")
-    assert header =~ "15 posts, one line each; get_posts reads them whole."
+    assert header =~ "15 posts, one line each. Pass a uri to get_posts to read the whole post."
     assert length(lines) == 15
 
     for {line, n} <- Enum.with_index(lines) do
@@ -207,7 +207,7 @@ defmodule AtMcp.PageBoundTest do
       assert String.ends_with?(line, uri(n))
       # The first line of the text, shortened, and saying so outside the quotes.
       assert line =~ ~s|"Post #{n}. A sentence of a long post.|
-      assert line =~ ~s|" (more)|
+      assert line =~ ~s|" (continues)|
     end
 
     assert String.length(brief) * 5 < String.length(full)

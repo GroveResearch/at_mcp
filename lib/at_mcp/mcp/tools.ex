@@ -580,15 +580,20 @@ defmodule AtMcp.MCP.Tools do
   def respond(result, state, _reading), do: respond(result, state)
 
   @doc """
-  `respond/3` for a page of posts or notifications, read by `fetch`, a
-  function of the limit to ask the service for (`nil` for the caller's) and
-  the cursor.
+  `respond/3` for a page of posts or notifications. `fetch` reads the page;
+  it takes the limit to ask the service for (`nil` means the caller's limit)
+  and the cursor.
 
-  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page whose
-  reading would pass `AtMcp.Reading.page_chars/0` is asked for again with the
-  number of items that fit, and the second answer is taken only when it
-  plainly begins the first (`bounded/4`). A page asked for as JSON is for a
-  program, which pages by count, and is bounded by its `limit` alone.
+  With `detail: "brief"` the page is shown with `AtMcp.Reading.brief_posts/1`.
+  When the text would be longer than `AtMcp.Reading.page_chars/0`, the page is
+  read again with the number of items that fit. The cursor is then the
+  service's own and starts with the first item that was dropped, and the page
+  says how many were dropped. An item hidden from the page is not counted, so
+  the cursor never skips an item, though it may repeat one. If the second read
+  fails or does not return fewer items, the whole first page is returned: a
+  page that is too long is better than lost items. If not even one item fits,
+  the page has that one item. A page asked for as JSON keeps every item up to
+  `limit`.
 
   `feed`, for a feed whose read position is held (`AtMcp.ReadPositions.key/2`),
   takes `since` and `mark_read`: see `positioned/6`.
@@ -613,11 +618,10 @@ defmodule AtMcp.MCP.Tools do
   end
 
   @doc """
-  `respond/3` for `get_thread`, its reading bounded as a page's is
-  (`AtMcp.Reading.page_chars/0`). A thread that would read longer keeps its
-  first direct replies, each whole with the replies under it, in the order
-  the service gave them, and says how many it left out; the post's
-  `replies_omitted` counts them. A thread asked for as JSON is whole.
+  Responds to `get_thread`. For a text reading longer than
+  `AtMcp.Reading.page_chars/0`, it keeps as many direct replies as fit, in
+  the service's order and each with its own replies, adds the rest to the
+  post's `replies_omitted`, and sets `replies_cut`. JSON output is not cut.
   """
   def thread(result, args, state) do
     if AtMcp.MCP.DSL.format(args, state) == "json",
@@ -633,6 +637,7 @@ defmodule AtMcp.MCP.Tools do
       cut =
         Map.merge(data, %{
           "replies" => Enum.take(data["replies"], kept),
+          "replies_omitted" => (data["replies_omitted"] || 0) + count - kept,
           "replies_cut" => count - kept
         })
 
@@ -655,8 +660,9 @@ defmodule AtMcp.MCP.Tools do
 
   defp bounded_thread(result), do: result
 
-  # The largest n in low..high for which fits?.(n) holds, fits? holding for
-  # every n below one it holds for; `low` when none does.
+  # Binary search for the largest n in low..high where fits?.(n) is true.
+  # It assumes fits? is true for every n below one where it is true, and
+  # returns `low` when fits? is false everywhere.
   defp most(low, high, _fits?) when low >= high, do: low
 
   defp most(low, high, fits?) do
@@ -664,15 +670,16 @@ defmodule AtMcp.MCP.Tools do
     if fits?.(mid), do: most(mid, high, fits?), else: most(low, mid - 1, fits?)
   end
 
-  # The cut page is the service's second answer, so it is taken only when it
-  # is plainly the first page's beginning: the same first posts, in order, and
-  # a cursor of its own. A custom feed's generator need not honour `limit`,
-  # and the AppView then cuts its skeleton and passes the generator's cursor
-  # on unchanged, which would skip every post between the cut and that
-  # cursor; a feed that changed between the two reads, or that answers each
-  # read differently, gives other posts. Either way the first page is
-  # returned whole, saying it is longer than the bound. So is a page whose
-  # second read would not answer before the endpoint stops waiting.
+  # The shorter page comes from a second read, so it is used only when it
+  # starts the same way as the first page: the same first posts, in the same
+  # order, with a different cursor. A custom feed's generator may ignore
+  # `limit`. The AppView then cuts the generator's posts to the limit but
+  # passes on the generator's cursor unchanged, and that cursor skips every
+  # post between the cut and the cursor. A feed that changed between the two
+  # reads, or answers each read differently, gives different posts. In either
+  # case the first page is returned whole, with a note that it is longer than
+  # the limit. The same happens when the second read would not finish before
+  # the endpoint stops waiting.
   defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
     with {:ok, json} <- Jason.encode(page),
          %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
@@ -744,19 +751,16 @@ defmodule AtMcp.MCP.Tools do
 
       _ ->
         {:error,
-         {:invalid_argument, "since",
-          "must be last_read or a time such as 2026-10-29T08:00:00Z; nothing was read"}}
+         {:invalid_argument, "since", "must be last_read or a time such as 2026-10-29T08:00:00Z"}}
     end
   end
 
-  # The read position, after the read: the account has a session by then, so
-  # its DID is known. `since` keeps only the items newer than the position
-  # (`last_read`) or the time given. A read moves the position only when it
-  # asks to (`marks?/1`), and only once it has reached the position it read
-  # from: a page that is all newer, whose older items are still unread, holds
-  # its newest time as pending, and the read that reaches the position (the
-  # same `since: "last_read"` with the cursor) commits it. So no read, cut
-  # short or interrupted, moves the position past items not yet returned.
+  # positioned/6 loads the read position after the fetch, since the fetch
+  # logs in and the DID is known only then. It filters the page to items
+  # newer than the position (for last_read) or the given time, then calls
+  # mark/5 when the read asks to move the position. If the page is all new
+  # and more wait below it, mark/5 stores its newest time as pending. The
+  # later read that gets back to the position commits it.
   defp positioned({:ok, %{items: items} = page}, args, state, feed, fetch, started)
        when is_binary(feed) and is_list(items) do
     did = account(state)
@@ -765,10 +769,10 @@ defmodule AtMcp.MCP.Tools do
     case did && AtMcp.ReadPositions.get(did, feed) do
       {:ok, %{at: held}} ->
         since = if asked == "last_read", do: held, else: asked
-        reached? = reached?(page, held)
+        reached? = reached?(page, held, feed)
 
         page
-        |> newer(since, asked, fetch, started)
+        |> newer(since, asked, fetch, started, feed)
         |> mark(marks?(args) && reached?, marks?(args), did, feed)
 
       nil ->
@@ -776,18 +780,32 @@ defmodule AtMcp.MCP.Tools do
         # even after it: say so rather than read as if no position were held.
         {:error, :not_connected}
 
-      {:error, why} ->
+      # A read since a time needs no position, so only last_read says it
+      # could not be loaded.
+      {:error, why} when asked == "last_read" ->
         {:ok,
          Map.merge(page, %{
-           since: if(asked == "last_read", do: nil, else: asked),
+           since: nil,
            since_asked: asked,
-           since_unread: if(asked == "last_read", do: inspect(why)),
-           read_position_unsaved: if(marks?(args), do: inspect(why))
+           since_unread: plain(why),
+           read_position_unsaved: if(marks?(args), do: plain(why))
          })}
+
+      {:error, why} ->
+        {:ok,
+         page
+         |> newer(asked, asked, fetch, started, feed)
+         |> Map.merge(%{read_position_unsaved: if(marks?(args), do: plain(why))})}
     end
   end
 
   defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
+
+  # A read-position failure in a word the reading can show: AtMcp's own
+  # reason, else that the store failed in a way it did not name.
+  defp plain(why) when is_atom(why), do: Atom.to_string(why)
+  defp plain({:error, why}), do: plain(why)
+  defp plain(_why), do: "unexpected_error"
 
   defp account(%{effects: effects}), do: AtMcp.Effects.account_did(effects)
   defp account(_state), do: nil
@@ -801,26 +819,25 @@ defmodule AtMcp.MCP.Tools do
 
   # Whether a page reaches back to the position: it holds an item at or before
   # it, or nothing comes after it. With no position held, any page does.
-  defp reached?(_page, nil), do: true
+  defp reached?(_page, nil, _feed), do: true
 
-  defp reached?(page, held),
-    do: not is_binary(page[:cursor]) or Enum.any?(page.items, &(not later?(&1, held)))
+  defp reached?(page, held, feed),
+    do: not is_binary(page[:cursor]) or Enum.any?(page.items, &(not later?(&1, held, feed)))
 
   # How many items past a page a read with `since` counts, to say how many are
   # new: four more pages of the largest size.
   @count_pages 4
 
-  # Only the page's items newer than `since`, newest first as the service
-  # sends them. When the whole page is newer, it reads on only to count how
-  # many are, and keeps its cursor, which continues into them with the same
-  # `since`; otherwise there is no more to read.
-  defp newer(page, since, asked, fetch, started) when is_binary(since) do
-    new = Enum.filter(page.items, &later?(&1, since))
+  # newer/6 keeps the page's items newer than since. If every item is newer
+  # and there is a cursor, it fetches up to four more pages to count the new
+  # items and keeps the cursor for the caller.
+  defp newer(page, since, asked, fetch, started, feed) when is_binary(since) do
+    new = Enum.filter(page.items, &later?(&1, since, feed))
     rest? = length(new) == length(page.items) and is_binary(page[:cursor])
 
     {more, exact?} =
       if rest?,
-        do: count_newer(fetch, page[:cursor], since, @count_pages, started),
+        do: count_newer(fetch, page[:cursor], since, @count_pages, started, feed),
         else: {0, true}
 
     Map.merge(page, %{
@@ -836,23 +853,23 @@ defmodule AtMcp.MCP.Tools do
 
   # `last_read` with no position held: everything is new, and this is the
   # newest page.
-  defp newer(page, nil, "last_read", _fetch, _started),
+  defp newer(page, nil, "last_read", _fetch, _started, _feed),
     do: Map.merge(page, %{since: nil, since_asked: "last_read"})
 
-  defp newer(page, _since, _asked, _fetch, _started), do: page
+  defp newer(page, _since, _asked, _fetch, _started, _feed), do: page
 
-  defp count_newer(_fetch, _cursor, _at, 0, _started), do: {0, false}
+  defp count_newer(_fetch, _cursor, _at, 0, _started, _feed), do: {0, false}
 
-  defp count_newer(fetch, cursor, at, pages, started) do
+  defp count_newer(fetch, cursor, at, pages, started, feed) do
     with true <- time_left?(started),
          {:ok, %{items: items} = page} when is_list(items) <-
            fetch.(AtMcp.Effects.page_limits().max, cursor) do
-      new = Enum.count(items, &later?(&1, at))
+      new = Enum.count(items, &later?(&1, at, feed))
 
       if new < length(items) or not is_binary(page[:cursor]) do
         {new, true}
       else
-        {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1, started)
+        {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1, started, feed)
         {new + more, exact?}
       end
     else
@@ -860,17 +877,22 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
-  defp later?(item, at) do
-    case when_listed(item) do
+  defp later?(item, at, feed) do
+    case when_listed(item, feed) do
       time when is_binary(time) -> AtMcp.ReadPositions.later?(time, at)
       _ -> false
     end
   end
 
-  # Where an item sits in its feed's order: a repost at the repost's time;
-  # anything else at the earlier of when it says it was made and when the
-  # service indexed it, as the AppView sorts a feed (`sortAt`).
-  defp when_listed(item) when is_map(item) do
+  # An item's time. A notification is new by when the service indexed it, as
+  # the AppView compares it with `seenAt`, so a reply indexed late is still
+  # new. In a feed, a repost is at the repost's time and anything else at the
+  # earlier of when it says it was made and when the service indexed it, as
+  # the AppView sorts a feed (`sortAt`).
+  defp when_listed(item, "notifications") when is_map(item),
+    do: item[:indexed_at] || item[:created_at]
+
+  defp when_listed(item, _feed) when is_map(item) do
     reason = item[:reason]
 
     case {is_map(reason) && reason[:at], item[:created_at], item[:indexed_at]} do
@@ -880,14 +902,14 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
-  defp when_listed(_item), do: nil
+  defp when_listed(_item, _feed), do: nil
 
   defp earlier(a, b), do: if(AtMcp.ReadPositions.later?(a, b), do: b, else: a)
 
   # Commit the newest item returned when the read reached the position, or
   # hold it as pending when it did not; nothing when the read does not mark.
   defp mark(page, commit?, marks?, did, feed) do
-    newest = page.items |> Enum.map(&when_listed/1) |> Enum.reduce(nil, &newest/2)
+    newest = page.items |> Enum.map(&when_listed(&1, feed)) |> Enum.reduce(nil, &newest/2)
 
     cond do
       not marks? or is_nil(newest) ->
@@ -896,7 +918,7 @@ defmodule AtMcp.MCP.Tools do
       true ->
         case AtMcp.ReadPositions.advance(did, feed, newest, commit?) do
           {:ok, %{at: at}} -> {:ok, Map.put(page, :read_position, at)}
-          {:error, reason} -> {:ok, Map.put(page, :read_position_unsaved, inspect(reason))}
+          {:error, reason} -> {:ok, Map.put(page, :read_position_unsaved, plain(reason))}
         end
     end
   end
@@ -1171,12 +1193,12 @@ defmodule AtMcp.MCP.Tools do
 
   defp encode(value), do: inspect(value, limit: 30)
 
-  # A summary is returned twice: as the JSON text every MCP client can read,
-  # and as structured content for clients that validate against the tool's
-  # declared output schema. Both carry the same JSON values, so a client
-  # reading either sees one result. Only objects can be structured content.
-  # `respond/3` replaces the text with a reading of the same structured
-  # content for results made of posts.
+  # `encode/1` puts the summary in both halves of a result: the JSON text, and
+  # the structured content a client validates against the tool's output
+  # schema. `respond/3` swaps the text for `AtMcp.Reading`'s text of the same
+  # summary, and `AtMcp.MCP.Output.shape/3` then removes the structured content
+  # from a read unless the caller asked for json. Only an object can be
+  # structured content.
   defp structured(json) do
     case Jason.decode(json) do
       {:ok, data} when is_map(data) ->

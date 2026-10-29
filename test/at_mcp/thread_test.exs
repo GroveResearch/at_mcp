@@ -163,7 +163,7 @@ defmodule AtMcp.ThreadTest do
     [recorded_first | _] = for item <- ctx.recorded["thread"], item["depth"] == 1, do: item
     assert first["replies_omitted"] == recorded_first["value"]["moreReplies"]
 
-    # The root and the post continue the author's own run, which the app numbers.
+    # The root and the post are in the original poster's own series, numbered from 1.
     assert thread["parent"]["op_thread_index"] ==
              hd(ctx.recorded["thread"])["value"]["opThreadPostIndex"]
 
@@ -180,8 +180,15 @@ defmodule AtMcp.ThreadTest do
     assert text =~ "[reply 1]"
     assert text =~ "[reply 1.1.1]"
 
+    %{"opThreadPostIndex" => n, "opThreadPostCount" => of} = hd(ctx.recorded["thread"])["value"]
+    assert text =~ "(post #{n} of #{of} in the original poster's own thread)"
+
     if thread["other_replies"],
-      do: assert(text =~ "The app leaves some replies out of this thread.")
+      do:
+        assert(
+          text =~
+            "Some replies to this thread are hidden, either by its author or by this account's settings."
+        )
   end
 
   test "a parent's replies not returned are counted from its reply count, as before V2", ctx do

@@ -20,58 +20,64 @@ This release is 0.3.0: what read tools return has changed.
   `tools/list` is smaller. Write tools are unchanged.
 - A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
   `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) reads in at most 40,000 characters; a page asked for as
-  JSON is bounded by its `limit` alone. Claude Code moves a
-  result over 50,000 characters to a file, so a page of long posts never
-  reached the model. A page that would read longer ends early, says how
-  many posts it left out, and its cursor continues from the first of them.
-  The same posts are left out with `format: "json"`, where the page carries
-  `left_out`. These reads also take `detail: "brief"`, one line per post:
-  on a recorded 50-post page, 12.5K characters instead of 35.6K.
+  `get_bookmarks`) is now at most 40,000 characters of text. Claude Code
+  saves a result over 50,000 characters to a file, so a page of long posts
+  never got to the model. When a page would be longer, at_mcp asks the
+  service for fewer posts, says how many it dropped, and returns a cursor
+  that starts with them. A page asked for as JSON keeps every post up to
+  `limit`.
+- The same reads take `detail: "brief"`, which shows one line per post. A
+  recorded 50-post page was 12.5K characters this way, and 35.6K in full.
 
-- `get_thread` reads a thread as the app does (#137): with
-  `getPostThreadV2`, every parent, and the replies in the order the app
-  shows for this account's thread sort (`top` unless it chose another).
-  By default it reads as the app's view: 10 levels of replies, every direct
-  reply and one reply per post below them; with the app's tree view on, 4
-  levels and 10 per post. New optional arguments `depth` (0-20 levels) and
-  `breadth` (0-100 replies per post below the first level) read more or
-  less. Before, it read 2 levels each way and the first 20 replies per post
-  in the service's own order. The summary keeps its nesting, with these
-  changes: `type` is now `…unspecced.defs#threadItemPost`,
-  `#threadItemNotFound` or `#threadItemBlocked` instead of
-  `…feed.defs#threadViewPost`, `#notFoundPost` or `#blockedPost`;
-  `context` says `depth`, `breadth`, `sort` and `view`, and no longer
-  `parent_height` or `max_replies_per_node`. A thread that would read longer
-  than 40,000 characters keeps its first direct replies and says how many it
-  left out (`replies_cut`); asked for as JSON it is whole. A post in its author's own
-  run from the root carries `op_thread_index` and `op_thread_count`, and
-  `other_replies` says when the app leaves replies out (`include_hidden`
-  reads them).
+- `get_thread` reads threads with `getPostThreadV2`, the way the app does (#137).
+  - It returns every parent and sorts replies by the account's thread sort,
+    `top` by default.
+  - By default it follows the account's thread view: the linear view reads
+    10 levels with a single reply under each reply, the tree view 4 levels
+    with 10. Before this change it read 2 levels each way and the first 20
+    replies per post, in the service's order.
+  - New optional arguments: `depth` (0-20 levels) and `breadth` (0-100
+    replies under each reply).
+  - `type` values change from `app.bsky.feed.defs#threadViewPost`,
+    `#notFoundPost` and `#blockedPost` to
+    `app.bsky.unspecced.defs#threadItemPost`, `#threadItemNotFound` and
+    `#threadItemBlocked`.
+  - `context` now holds `depth`, `breadth`, `sort` and `view`.
+    `parent_height` and `max_replies_per_node` are gone.
+  - When the text reading would pass 40,000 characters, it ends after the
+    direct replies that fit, and `replies_cut` gives the count of the rest.
+    JSON output is not cut.
+  - New fields: `op_thread_index` and `op_thread_count` for posts in the
+    original poster's own series, and `other_replies` for hidden replies
+    (read them with `include_hidden`).
 
-- at_mcp keeps the account's read position in the timeline, each list
-  feed and author feed it reads, and the notifications: the time of the
-  newest item a read returned (#204). `get_timeline`, `get_author_feed`,
-  `get_list_feed` and `get_notifications` take `since`: `"last_read"`
-  returns only the items newer than the position, newest first, says how
-  many are new, and gives the cursor that reads the rest; a time does the
-  same from that time. Only a read with `since: "last_read"` moves the
-  position, unless it passes `mark_read: false`; a read since a time never
-  does, and a read without `since` only with `mark_read: true`. A position moves only once a read has reached it,
-  so a page cut short never passes over items not yet returned. Every
-  client of the account shares one position per feed, kept in
-  `read-positions.json` in the state directory, so it survives a restart.
-  A custom feed has no position: its generator orders it as it chooses.
-  Notifications keep their own seen marker (`update_seen`) as before.
+- at_mcp remembers how far each account has read in the timeline, list
+  feeds, author feeds and notifications (#204). `get_timeline`,
+  `get_author_feed`, `get_list_feed` and `get_notifications` take `since`
+  and `mark_read`:
+  - `since: "last_read"` returns only the items newer than that point, says
+    how many are new, and moves the point forward. Pass `mark_read: false`
+    to read without moving it.
+  - `since` with a time returns the items newer than that time and leaves
+    the point alone.
+  - A read without `since` moves the point only with `mark_read: true`.
+  - When the new items run past one page, the point moves once the agent
+    follows the cursor back to it, so a page cut short doesn't skip
+    anything.
+
+  The positions live in `read-positions.json` in the state directory, and
+  every client of the account shares them. Custom feeds have no position.
+  The notifications' seen marker (`update_seen`) works as before.
 
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass
 `"format": "json"` in each read's arguments, or issue its client a new grant
 with `--format json` and revoke the old one. A program that reads only write
-results needs nothing. To roll back, the `format` argument is not known to
-0.2.18, which ignores it and says so in the result's text; structured
-content returns. 0.2.18 reads a grant issued with `--format` as one without.
+results needs nothing. Rolling back to 0.2.18 is safe. That release does
+not know `format`: it ignores the argument, says so in the result's text,
+and returns structured content as before. It also treats a grant issued
+with `--format` like any other grant.
 
 ## 0.2.18
 

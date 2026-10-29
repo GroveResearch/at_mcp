@@ -9,11 +9,16 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 ## Reads
 
-A read answers in text written for a model, and nothing else, so every host's model reads the same thing. A program that parses results passes `"format": "json"` and gets the full summary as structured content and as JSON text, or holds a grant issued with `--format json`, which makes json its default.
+Reads return readable text, so a model gets the same result in every host. A program that parses results can pass `"format": "json"` to get the full summary as structured content and as JSON text. Issuing its grant with `--format json` makes json the default instead.
 
-A page of posts reads in at most 40000 characters. A page that would read longer ends early, says how many posts it left out, and its cursor continues from the first of them; a page asked for as JSON is bounded by its `limit` alone. With `"detail": "brief"` a page reads each post on one line: who, when, the first line of its text, its counts and its uri, which `get_posts` reads whole.
+A page of posts is at most 40000 characters of text. When a page would be longer, at_mcp returns fewer posts, says how many it dropped, and returns a cursor that starts with them. A page asked for as JSON keeps every post up to `limit`. With `"detail": "brief"`, each post gets one line: the author, the time, the first line of the text, the counts and the uri. `get_posts` returns a post in full.
 
-`get_timeline`, `get_author_feed`, `get_list_feed` and `get_notifications` keep the account's read position in each feed: the time of the newest item a read that marks it returned. With `"since": "last_read"` a read returns only what is newer, says how many are new, and moves the position to the newest of them. Every client of the account shares one position per feed, and it survives a restart. A read moves it only once it has reached it, so no item is passed over. A read with a time as `since` never moves it; a read without `since` moves it only with `"mark_read": true`. A custom feed has no position: its generator orders it as it chooses.
+at_mcp remembers how far the account has read in the timeline, each list feed, each author feed and the notifications. A read of one of these with `"since": "last_read"` returns only the items newer than that point, newest first, and says how many are new. It then moves the point to the newest item it returned.
+
+- Every client of the account shares these positions, and they survive a restart.
+- When more new items wait below the first page, the position moves after the agent follows the cursor down to the old position, so the agent doesn't skip any item.
+- A read with a time as `since` leaves the position alone. A read without `since` moves it only when it passes `"mark_read": true`.
+- Custom feeds have no read position, because each feed's generator decides the order of its own posts.
 
 | Tool | What it does |
 | --- | --- |
@@ -55,7 +60,7 @@ A page of posts reads in at most 40000 characters. A page that would read longer
 | `get_suggested_feeds` | List custom feeds the service currently suggests. |
 | `get_suggested_follows` | Accounts the service suggests following. |
 | `get_suggested_starter_packs` | List starter packs the service suggests: named sets of accounts and feeds to follow at once. |
-| `get_thread` | Read what surrounds a post: every parent, then the replies nested below it in the order the app shows them, by this account's thread sort. |
+| `get_thread` | Read the posts around a post: every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. |
 | `get_thread_chain` | Read the conversation leading to a post: every ancestor from the thread root down to it, as a flat list in order, plus the replies directly under it. |
 | `get_timeline` | Read this account's home timeline. |
 | `get_trends` | Read what is trending on the network, as the app's Explore page shows it. |
