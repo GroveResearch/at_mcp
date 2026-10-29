@@ -312,9 +312,12 @@ jobs:
   # What a host's model receives from a read, through the host itself:
   # test/at_mcp/hosts_test.exs runs a read through the Claude Code CLI against
   # the running endpoint. It is tagged :hosts and left out of the suite,
-  # because the CLI calls a model (haiku, the cheapest that calls the tool)
-  # with the ANTHROPIC_API_KEY repository secret. Without the secret this job
-  # says so and runs nothing. `test` does not wait for it.
+  # because the CLI calls a model (haiku, the cheapest that calls the tool).
+  # It authenticates with the CLAUDE_CODE_OAUTH_TOKEN repository secret (a
+  # subscription token from `claude setup-token`) or the ANTHROPIC_API_KEY
+  # one. Only the test step sees them, and it sets just one: Claude Code warns
+  # when both are set, so the subscription token wins. Without either, this
+  # job says so and runs nothing. `test` does not wait for it.
   hosts:
     if: github.ref_type != 'tag'
     # On build's runner, to share its dependency cache, whose key names it.
@@ -322,30 +325,30 @@ jobs:
     timeout-minutes: 15
     env:
       MIX_ENV: test
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CREDENTIAL: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' || secrets.ANTHROPIC_API_KEY != '' }}
     steps:
-      - name: Without the secret, say so and stop
-        if: env.ANTHROPIC_API_KEY == ''
+      - name: Without a credential, say so and stop
+        if: env.CREDENTIAL != 'true'
         run: |
-          echo "::notice title=hosts skipped::The ANTHROPIC_API_KEY secret is not set, so Claude Code cannot call a model and test/at_mcp/hosts_test.exs did not run."
+          echo "::notice title=hosts skipped::Neither the CLAUDE_CODE_OAUTH_TOKEN nor the ANTHROPIC_API_KEY secret is set, so Claude Code cannot call a model and test/at_mcp/hosts_test.exs did not run."
 
       - uses: actions/checkout@v7
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CREDENTIAL == 'true'
 
       # Pinned with build's runtime; see the reason there.
       - uses: erlef/setup-beam@v1
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CREDENTIAL == 'true'
         with:
           elixir-version: "1.19.6"
           otp-version: "28.5.0.7"
 
       - uses: actions/setup-node@v7
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CREDENTIAL == 'true'
         with:
           node-version: "22"
 
       - uses: actions/cache/restore@v6
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CREDENTIAL == 'true'
         with:
           path: |
             deps
@@ -355,15 +358,25 @@ jobs:
           restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - name: Install Claude Code
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CREDENTIAL == 'true'
         run: |
           npm install --prefix "$RUNNER_TEMP/claude" --no-audit --no-fund \
             @anthropic-ai/claude-code@2.1.312
           echo "$RUNNER_TEMP/claude/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: A read through Claude Code
-        if: env.ANTHROPIC_API_KEY != ''
+        if: env.CREDENTIAL == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          # One credential only, the subscription token first; an unset
+          # secret arrives as an empty variable, which is unset too.
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            unset ANTHROPIC_API_KEY
+          else
+            unset CLAUDE_CODE_OAUTH_TOKEN
+          fi
           mix deps.get
           mix test --only hosts test/at_mcp/hosts_test.exs
 
