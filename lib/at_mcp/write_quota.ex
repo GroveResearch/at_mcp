@@ -34,13 +34,12 @@ defmodule AtMcp.WriteQuota do
   visible failure: the refusal and `identity_status` name the limit and the
   reset time.
 
-  Why this number and window: 16 is the per-turn write budget an earlier
-  version had. It was kept when the bound moved from the turn to the account
-  and the hour (decisions.md, 2026-09-13), and it has not been measured
-  against how accounts publish. An hour bounds a loop to 16 posts before it
-  stops, and an account that reaches the limit can write again within the
-  hour. It is a cautious starting point, not a measured one. An account in a
-  busy conversation reaches it at one reply every four minutes.
+  Why this number and window: 16 writes an hour is a cautious default that
+  has not been measured against how accounts publish (decisions.md). An hour
+  bounds a loop to 16 posts before it stops, and an account that reaches the
+  limit can write again within the hour. An account in a busy conversation
+  reaches it at one reply every four minutes. An operator changes it with
+  `AT_MCP_WRITE_LIMIT`, or for one account as below.
 
   ## Each account's own limit
 
@@ -53,9 +52,10 @@ defmodule AtMcp.WriteQuota do
   from this server's own options, which a release sets from
   `AT_MCP_WRITE_LIMIT` and `AT_MCP_WRITE_WINDOW_SECONDS`
   (`config/runtime.exs`): they are the default for every account that sets
-  none, so an installation where no account sets one behaves as before.
+  none, so an installation where no account sets one holds every account to
+  the same limit.
 
-  The ledger is still one count per DID. The limit is read on every call, so a
+  The ledger keeps one count per DID. The limit is read on every call, so a
   changed limit applies to the window already open. A shorter window also
   applies to the window already open, which then ends that much sooner after
   it opened, so an account is never held longer than the window it is told

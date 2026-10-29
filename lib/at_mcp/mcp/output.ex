@@ -10,13 +10,16 @@ defmodule AtMcp.MCP.Output do
 
   A read that returned both halves would put JSON in front of the first group
   of models, at several times the size of the text. A read therefore returns
-  only `content` (`AtMcp.Reading`'s text, plus any images) and declares no
-  output schema, because MCP requires a tool with a declared schema to return
-  structured content. A caller that passes `format: "json"`, or holds a grant
-  with a json default, gets the summary in both halves, so it gets JSON from
-  either kind of host.
+  only `content` (`AtMcp.Reading`'s text, plus any images). A caller that
+  passes `format: "json"`, or holds a grant with a json default, gets the
+  summary in both halves, so it gets JSON from either kind of host.
 
-  A write returns its summary in both halves and declares its output schema.
+  A write returns its summary in both halves.
+
+  `tools/list` lists no output schema for any tool (`AtMcp.MCP.DSL`, #220),
+  because MCP requires a tool with a listed schema to return structured
+  content. `validate/3` checks the structured content of every result against
+  its tool's schema and logs a mismatch.
   """
   require Logger
   alias ExMCP.Content.SchemaPolicy

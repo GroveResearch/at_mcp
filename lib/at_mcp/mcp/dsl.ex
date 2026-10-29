@@ -20,9 +20,10 @@ defmodule AtMcp.MCP.DSL do
 
   # Keep output schemas beside their tools, but do not pass them to ExMCP's
   # post-handler validation. Upstream 1.5.0 converts a validation timeout into
-  # isError after a write has already completed. AtMcp owns that policy instead:
-  # validation diagnoses our response contract, never changes the action's
-  # outcome. Remove this adapter when upstream supports that policy directly.
+  # isError after a write has already completed. AtMcp validates results itself
+  # (`AtMcp.MCP.Output`), so a diagnostic about a result leaves the action's
+  # outcome as it was. Remove this adapter when upstream supports that policy
+  # directly.
   defmacro tool(name, description, do: block) do
     statements =
       case block do
@@ -133,9 +134,10 @@ defmodule AtMcp.MCP.DSL do
         # tools/list includes no output schemas. A tool that lists one has to
         # return structured content, and reads return text unless the caller
         # asks for json (`AtMcp.MCP.Output`). Write results are small and come
-        # back both as structured content and as the same JSON in text. After
-        # #210, the write schemas were 243 KB of a 338 KB list. `AtMcp.MCP.Output`
-        # still validates every result against its schema (`__output_schemas__/0`).
+        # back both as structured content and as the same JSON in text. Listed,
+        # the output schemas would make a list of about 338 KB, 243 KB of it
+        # write schemas (#220). `AtMcp.MCP.Output` validates every result
+        # against its schema (`__output_schemas__/0`).
         {:ok, AtMcp.MCP.DSL.offered(tools, state), next, state}
       end
 

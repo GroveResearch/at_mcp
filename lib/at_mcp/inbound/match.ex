@@ -9,11 +9,11 @@ defmodule AtMcp.Inbound.Match do
 
   ## Match reasons
 
-  - `:mention` — a richtext mention facet naming our DID
-  - `:reply` — `reply.parent` / `reply.root` AT-URI repo is our DID
-  - `:quote` — embed record / recordWithMedia AT-URI repo is our DID
-  - `:like` — a like record whose subject AT-URI repo is our DID
-  - `:repost` — a repost record whose subject AT-URI repo is our DID
+  - `:mention` — a richtext mention facet naming a tracked DID
+  - `:reply` — `reply.parent` / `reply.root` AT-URI repo is a tracked DID
+  - `:quote` — embed record / recordWithMedia AT-URI repo is a tracked DID
+  - `:like` — a like record whose subject AT-URI repo is a tracked DID
+  - `:repost` — a repost record whose subject AT-URI repo is a tracked DID
   - `:own_repo` — commit author DID is tracked (optional outbound echo)
   """
 

@@ -703,10 +703,10 @@ defmodule AtMcp.ATProto do
 
   # --- com.atproto.repo: the methods AtMcp writes through ---
   #
-  # These four NSIDs are literals, and correctly so: the rename between
-  # namespaces does not touch `com.atproto.*`. What varies between networks is
-  # the collection they are given and the `$type` inside the record, and both
-  # come from `AtMcp.Network` through the builders below.
+  # These four NSIDs are literals, because `com.atproto.*` is the same on
+  # every network. What varies between networks is the collection they are
+  # given and the `$type` inside the record, and both come from
+  # `AtMcp.Network` through the builders below.
 
   @repo_write %{
     repo: {:required, :string},
@@ -739,10 +739,10 @@ defmodule AtMcp.ATProto do
 
   This validates the request envelope, not the contents of `record`. Callers
   make selected checks, such as the network's post text limits; those are not
-  full lexicon validation. We bypass `ProtoRune.Atproto.Repo.create_record/3`
+  full lexicon validation. AtMcp bypasses `ProtoRune.Atproto.Repo.create_record/3`
   because its `app.bsky` Peri schemas discard fields they do not declare.
 
-  The optional `validate` flag is forwarded only when supplied. Our normal
+  The optional `validate` flag is forwarded only when supplied. AtMcp's own
   write calls omit it. A PDS that does not know the record's lexicon, such as an
   external PDS receiving `town.delve` records, may accept the record without
   checking that schema. A successful write does not prove schema validity.

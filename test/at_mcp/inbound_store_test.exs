@@ -305,7 +305,7 @@ defmodule AtMcp.Inbound.StoreTest do
 
   test "a cold VM restores a pending event whose keys no loaded module defines", %{dir: dir} do
     # The checkpoint is AtMcp's own file, so it is decoded as trusted input. The
-    # regression this pins: a key like :thread_root_uri lives only in the
+    # failure this pins: a key like :thread_root_uri lives only in the
     # collector that produced it, and a fresh VM has not loaded that collector
     # when the store starts. :field_no_module_defines stands for any such key,
     # including one a later refactor moves somewhere the store does not preload.
