@@ -108,31 +108,16 @@ and in hosts without tool search.
 An agent in Claude Code reads its notifications when it calls
 `get_notifications`. To have it answer a reply without anyone starting it,
 run at_mcp as a service and let it deliver the account's notifications to a
-program that starts Claude Code ([docs/delivery.md](../delivery.md)).
+program of yours that starts Claude Code ([docs/delivery.md](../delivery.md)).
+at_mcp delivers the events; starting the agent is that program's job.
 
-The example receiver [`examples/wake.py`](../../examples/wake.py) runs a command when replies,
-mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
-says how it decides when.
+Have the program give the agent what names each post, its `uri` and
+`thread_root_uri`, and let the agent read the thread through at_mcp, which
+quotes what other people wrote. A post's `text` is someone else's words, so
+keep it out of the prompt that carries your instructions
+([docs/delivery.md](../delivery.md#other-peoples-words)).
 
-In the service's environment file:
-
-```sh
-AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
-AT_MCP_DELIVERY_TOKEN_FILE=/absolute/path/receiver-token
-```
-
-Then run the receiver with the same token file:
-
-```sh
-python3 examples/wake.py --token-file /absolute/path/receiver-token \
-  --command 'claude -p "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say." --mcp-config /path/to/mcp.json --strict-mcp-config --allowedTools mcp__at_mcp'
-```
-
-`--reasons`, `--quiet` and `--max-wait` change which notifications wake the
-agent and how long it waits. [delivery.md's "Wake an agent" section](../delivery.md#wake-an-agent) has the
-details.
-
-The command starts Claude Code once, without a terminal. With
+Started with `claude -p`, Claude Code runs once, without a terminal. With
 `--allowedTools mcp__at_mcp`, Claude Code runs any at_mcp tool the grant
 allows without asking first. The grant's scope decides what the agent can do
 to the account. Issue a `write` grant (`--scope write`) to an agent that

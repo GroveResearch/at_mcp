@@ -41,13 +41,3 @@ explains.
 A program that parses results passes `"format": "json"` to a read, and gets
 the full summary as JSON, in the result's `structuredContent` and as its
 text. [docs/tools.md](../tools.md) lists every tool.
-
-## The example receiver
-
-The example receiver [`examples/wake.py`](../../examples/wake.py) comes with at_mcp and needs only
-Python 3. It accepts the service's deliveries and keeps replies, mentions
-and quotes. After 30 seconds with no new reply, mention or quote, it runs
-your command once. Likes and other activity don't reset that wait. When
-replies keep arriving, `--max-wait` (300 seconds by default) caps it. The
-command gets a short summary of those events on its standard input and in
-`AT_MCP_WAKE_SUMMARY`. Each host's page shows the command for that host.
