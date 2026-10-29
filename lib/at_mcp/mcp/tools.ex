@@ -580,17 +580,18 @@ defmodule AtMcp.MCP.Tools do
   def respond(result, state, _reading), do: respond(result, state)
 
   @doc """
-  `respond/3` for a page of posts, read by `fetch`, a function of the limit
-  to ask the service for (`nil` for the caller's).
+  `respond/3` for a page of posts. `fetch` reads the page; it takes the limit
+  to ask the service for (`nil` means the caller's limit).
 
-  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page whose
-  reading would pass `AtMcp.Reading.page_chars/0` is asked for again with the
-  number of posts that fit, so its cursor is the service's own and continues
-  from the first post left out; the page says how many were left out. A post
-  hidden from a page is not counted in it, so the cursor never skips a post,
-  and may at most repeat one. If that second read fails or returns nothing
-  fewer, the whole first page is returned instead: a page too long is better
-  than posts lost. A page that would not fit one post is that one post.
+  With `detail: "brief"` the page is shown with `AtMcp.Reading.brief_posts/1`.
+  When the text would be longer than `AtMcp.Reading.page_chars/0`, the page is
+  read again with the number of posts that fit. The cursor is then the
+  service's own and starts with the first post that was dropped, and the page
+  says how many were dropped. A post hidden from the page is not counted, so
+  the cursor never skips a post, though it may repeat one. If the second read
+  fails or does not return fewer posts, the whole first page is returned: a
+  page that is too long is better than lost posts. If not even one post fits,
+  the page has that one post.
   """
   def page(fetch, args, state, reading) do
     reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
@@ -603,15 +604,16 @@ defmodule AtMcp.MCP.Tools do
       else: result |> bounded(fetch, reading, started) |> respond(state, reading)
   end
 
-  # The cut page is the service's second answer, so it is taken only when it
-  # is plainly the first page's beginning: the same first posts, in order, and
-  # a cursor of its own. A custom feed's generator need not honour `limit`,
-  # and the AppView then cuts its skeleton and passes the generator's cursor
-  # on unchanged, which would skip every post between the cut and that
-  # cursor; a feed that changed between the two reads, or that answers each
-  # read differently, gives other posts. Either way the first page is
-  # returned whole, saying it is longer than the bound. So is a page whose
-  # second read would not answer before the endpoint stops waiting.
+  # The shorter page comes from a second read, so it is used only when it
+  # starts the same way as the first page: the same first posts, in the same
+  # order, with a different cursor. A custom feed's generator may ignore
+  # `limit`. The AppView then cuts the generator's posts to the limit but
+  # passes on the generator's cursor unchanged, and that cursor skips every
+  # post between the cut and the cursor. A feed that changed between the two
+  # reads, or answers each read differently, gives different posts. In either
+  # case the first page is returned whole, with a note that it is longer than
+  # the limit. The same happens when the second read would not finish before
+  # the endpoint stops waiting.
   defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
     with {:ok, json} <- Jason.encode(page),
          %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),

@@ -11,7 +11,7 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 Reads return readable text, so a model gets the same result in every host. A program that parses results can pass `"format": "json"` to get the full summary as structured content and as JSON text. Issuing its grant with `--format json` makes json the default instead.
 
-A page of posts reads in at most 40000 characters. A page that would read longer ends early, says how many posts it left out, and its cursor continues from the first of them; a page asked for as JSON is bounded by its `limit` alone. With `"detail": "brief"` a page reads each post on one line: who, when, the first line of its text, its counts and its uri, which `get_posts` reads whole.
+A page of posts is at most 40000 characters of text. When a page would be longer, at_mcp returns fewer posts, says how many it dropped, and returns a cursor that starts with them. A page asked for as JSON keeps every post up to `limit`. With `"detail": "brief"`, each post gets one line: the author, the time, the first line of the text, the counts and the uri. `get_posts` returns a post in full.
 
 | Tool | What it does |
 | --- | --- |

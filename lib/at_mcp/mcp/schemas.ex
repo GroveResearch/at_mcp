@@ -190,7 +190,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro post_detail do
     Macro.escape(
       description:
-        "full (the default) reads each post whole; brief reads each on one line: who, when, its text's first line, its counts and its uri, for get_posts to read whole",
+        "How much of each post to show. \"full\" (the default) shows the whole post. \"brief\" shows one line per post: the author, the time, the first line of the text, the counts and the uri. Pass a uri to get_posts to read that post in full.",
       schema: %{type: "string", enum: ["full", "brief"]}
     )
   end
@@ -1463,12 +1463,12 @@ defmodule AtMcp.MCP.Schemas do
     |> put_in(["properties", "left_out"], %{
       "type" => "integer",
       "description" =>
-        "Posts the service sent for this page that were left out to keep its reading within the bound; the cursor continues from them. Absent when none were"
+        "How many posts the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no post was dropped."
     })
     |> put_in(["properties", "over_bound"], %{
       "type" => "boolean",
       "description" =>
-        "True when the page reads longer than the bound and the service gave no shorter page that continues it, so it is whole"
+        "True when the text of this page is longer than #{AtMcp.Reading.page_chars()} characters and at_mcp could not get a shorter page that continues it."
     })
   end
 
