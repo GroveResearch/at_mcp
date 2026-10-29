@@ -9,7 +9,9 @@ defmodule AtMcp.ReadPositions do
   and its DID hold separate positions), and the notifications. Every client
   of an account shares its positions, as they share its write quota.
 
-  A position only moves forward: a read of an older page, or one whose newest
+  A position moves only on a read that asks it to: one with `since`, unless
+  it passes `mark_read: false`, or one with `mark_read: true`. A plain read,
+  by an operator or another client, leaves it alone. It only moves forward: a read of an older page, or one whose newest
   item is older than the position, leaves it where it is. Positions live in
   `read-positions.json` in the state directory beside the write quota
   (`AtMcp.Inbound.Store.default_dir/0`), rewritten whole under

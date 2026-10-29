@@ -70,10 +70,12 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
 
     `get_timeline`, `get_author_feed`, `get_feed`, `get_list_feed` and \
     `get_notifications` keep the account's read position in each feed: the \
-    time of the newest item a read returned. With `"since": "last_read"` a \
-    read returns only what is newer, and says how many are new. Every client \
-    of the account shares one position per feed, and it survives a restart. \
-    `"mark_read": false` reads without moving it.
+    time of the newest item a read that marks it returned. With \
+    `"since": "last_read"` a read returns only what is newer, says how many \
+    are new, and moves the position to the newest of them. Every client of \
+    the account shares one position per feed, and it survives a restart. A \
+    read without `since` leaves it alone unless it passes `"mark_read": true`, \
+    and one with `since` and `"mark_read": false` reads without moving it.
 
     | Tool | What it does |
     | --- | --- |

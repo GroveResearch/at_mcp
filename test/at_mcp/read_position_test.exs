@@ -146,7 +146,7 @@ defmodule AtMcp.ReadPositionTest do
   test "more new than a page holds: the page counts them all, and its cursor reads the rest",
        ctx do
     posted(2)
-    timeline(ctx.state)
+    timeline(ctx.state, %{"mark_read" => true})
     posted(9)
 
     {page, _} = timeline(ctx.state, %{"since" => "last_read", "limit" => 3})
@@ -169,9 +169,22 @@ defmodule AtMcp.ReadPositionTest do
     assert at == post(9)["indexedAt"]
   end
 
+  test "a read without since leaves the position, unless it asks to move it", ctx do
+    posted(3)
+    timeline(ctx.state, %{"mark_read" => true})
+    posted(6)
+
+    # An operator's or another client's plain read: the agent's new posts stay new.
+    {plain, _} = timeline(ctx.state)
+    assert length(plain["items"]) == 6
+    refute Map.has_key?(plain, "read_position")
+    assert ReadPositions.get(ctx.did, "timeline") == {:ok, post(3)["indexedAt"]}
+    assert text(ctx.state, %{"since" => "last_read", "mark_read" => false}) =~ "3 new since"
+  end
+
   test "mark_read false leaves the position where it was", ctx do
     posted(3)
-    timeline(ctx.state)
+    timeline(ctx.state, %{"mark_read" => true})
     posted(6)
     {page, _} = timeline(ctx.state, %{"since" => "last_read", "mark_read" => false})
     assert length(page["items"]) == 3
@@ -182,7 +195,7 @@ defmodule AtMcp.ReadPositionTest do
   test "the position outlives the process that saved it, and every client of the account shares it",
        ctx do
     posted(4)
-    timeline(ctx.state)
+    timeline(ctx.state, %{"mark_read" => true})
 
     # Another client, with a session of its own and no memory of the first:
     # the position is on disk, in the state directory, and nowhere else.

@@ -605,7 +605,7 @@ defmodule AtMcp.MCP.Tools do
         fetch.(Map.get(args, :limit), cursor)
         |> bounded(&fetch.(&1, cursor), reading)
         |> newer(since, fetch)
-        |> held(Map.get(args, :mark_read) != false, state, feed)
+        |> held(marks?(args), state, feed)
         |> respond(state, reading)
 
       error ->
@@ -712,8 +712,13 @@ defmodule AtMcp.MCP.Tools do
 
   defp when_listed(_item), do: nil
 
-  # Every read of a feed whose position is held moves it to its newest item,
-  # unless the caller passed `mark_read: false`.
+  # A read moves the position only when it asked to: with `since`, unless it
+  # passed `mark_read: false`, or with `mark_read: true`. A plain read, by an
+  # operator or another client, leaves an agent's new items new.
+  defp marks?(%{mark_read: mark}) when is_boolean(mark), do: mark
+  defp marks?(args), do: not is_nil(Map.get(args, :since))
+
+  # A read that marks moves the position to its newest item.
   defp held({:ok, %{items: [_ | _] = items} = page}, true, state, feed) when is_binary(feed) do
     newest = items |> Enum.map(&when_listed/1) |> Enum.reduce(nil, &newest/2)
 

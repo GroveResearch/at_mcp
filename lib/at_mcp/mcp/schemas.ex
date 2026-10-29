@@ -229,7 +229,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro mark_read do
     Macro.escape(
       description:
-        "false to leave the read position where it is. Otherwise a read that returns items moves it to the newest of them"
+        "Whether this read moves the read position to its newest item. A read with since does unless this is false; a read without since does only if this is true"
     )
   end
 

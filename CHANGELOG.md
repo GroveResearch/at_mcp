@@ -48,8 +48,9 @@ This release is 0.3.0: what read tools return has changed.
   `get_author_feed`, `get_feed`, `get_list_feed` and `get_notifications`
   take `since`: `"last_read"` returns only the items newer than the
   position, newest first, and says how many are new, or a time does the
-  same from that time. `mark_read: false` reads without moving the
-  position. Every client of the account shares one position per feed, kept
+  same from that time. Only a read with `since` moves the position (to
+  its newest item), unless it passes `mark_read: false`; a read without
+  `since` moves it only with `mark_read: true`. Every client of the account shares one position per feed, kept
   in `read-positions.json` in the state directory, so it survives a
   restart. Notifications keep their own seen marker (`update_seen`) as
   before.
