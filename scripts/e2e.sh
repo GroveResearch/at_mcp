@@ -4,13 +4,15 @@
 # round trips").
 #
 #   scripts/e2e.sh [mix test arguments]
+#   scripts/e2e.sh --build-only
 #
 # Builds `@atproto/dev-env` from the atproto commit the vendored lexicons come
-# from (once; kept under AT_MCP_E2E_DIR, default _build/e2e), starts a private
-# Postgres and Redis unless DB_POSTGRES_URL and REDIS_HOST name running ones,
-# runs `mix test --only e2e`, which starts the network and stops it when the
-# suite ends, and stops what it started. Everything listens on localhost; the
-# network reaches nothing beyond it.
+# from (once; kept under AT_MCP_E2E_DIR, default _build/e2e); given
+# --build-only, it stops there, which is how cache.yml keeps the build for CI.
+# Otherwise it starts a private Postgres and Redis unless DB_POSTGRES_URL and
+# REDIS_HOST name running ones, runs `mix test --only e2e`, which starts the
+# network and stops it when the suite ends, and stops what it started.
+# Everything listens on localhost; the network reaches nothing beyond it.
 #
 # Needs git, Node 22.19 or later, pnpm 11.11.0, and, without DB_POSTGRES_URL
 # and REDIS_HOST, initdb, pg_ctl and redis-server on PATH.
@@ -59,6 +61,8 @@ if [ ! -f "$atproto/.built-$ATPROTO_COMMIT" ]; then
     pnpm build)
   touch "$atproto/.built-$ATPROTO_COMMIT"
 fi
+
+[ "${1:-}" = --build-only ] && exit 0
 
 export AT_MCP_E2E_DEV_ENV=$atproto/packages/dev-env
 

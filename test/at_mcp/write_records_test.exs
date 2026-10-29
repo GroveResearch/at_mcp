@@ -363,10 +363,13 @@ defmodule AtMcp.WriteRecordsTest do
                    delete_by(action, ctx.session, uri)
 
           assert message =~ "record"
-          assert result.structuredContent == %{code: "wrong_record_kind"}
+
+          assert %{code: "wrong_record_kind", retry: "change_argument", argument: "uri"} =
+                   result.structuredContent
+
           # AtMcp's message, as one literal (`AtMcp.MCP.Tools`).
           assert Enum.find(result.content, &(&1.type == "text")).text ==
-                   "error: " <> Jason.encode!(message)
+                   "error: " <> Jason.encode!(message) <> " Change uri and try again."
 
           assert message =~ "nothing was sent"
           refute Enum.find(result.content, &(&1.type == "text")).text =~ "may have completed"
