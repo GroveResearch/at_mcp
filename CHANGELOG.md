@@ -93,7 +93,7 @@ This release is 0.3.0: what read tools return has changed.
   the whole text as `message`. A read that timed out says whether its
   request reached the service (`sent`).
 - `docs/hosts/` has a setup page for each kind of client: Claude Code,
-  Codex, Imp and Dwell, and a plain script. Each says how to connect, what
+  Codex, Imp, and a plain script. Each says how to connect, what
   the model receives, how to ask for JSON or the full tool set, and how to
   be woken.
 - A new README section, "Using an account from several clients", explains

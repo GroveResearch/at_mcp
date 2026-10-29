@@ -49,7 +49,7 @@ set, in place of these values
 | --- | --- | --- |
 | `AT_MCP_IMAGE_MAX_BYTES` | `2000000` | Size limit in bytes for each picture returned by `get_post_images`. |
 | `AT_MCP_IMAGE_FETCH_SECONDS` | `10` | Time limit in seconds for fetching all of a post's pictures in `get_post_images`. |
-| `AT_MCP_TOOLS` | `default` | Which tools a client is offered: `default`, 43 tools (those Delvetown's residents use and the records tools), or `full`, every tool. A grant issued with `--tools` overrides it for its client. A program can call any tool by name either way; most hosts let a model call only the tools listed. |
+| `AT_MCP_TOOLS` | `default` | Which tools a client is offered: `default`, 43 tools (reading, posting, replying, following, blocking and muting, and the records tools), or `full`, every tool. A grant issued with `--tools` overrides it for its client. A program can call any tool by name either way; most hosts let a model call only the tools listed. |
 | `AT_MCP_MEDIA_DIR` | none | A folder of image files for `post`, `reply` and `update_profile` to read, so the agent can give a file path in place of base64 data. at_mcp reads regular files inside this folder only. |
 
 ## Long-running service

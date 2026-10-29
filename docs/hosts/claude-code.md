@@ -58,7 +58,7 @@ Type `/mcp` to see the connection, then ask the agent to call
 ## What the model sees
 
 Claude Code gives the model a tool result's structured content when it has
-any, and its text otherwise. From 0.3.0 a read returns text alone, so the
+any, and its text otherwise. A read returns text alone, so the
 model reads at_mcp's text: each post's author, time, text and identifiers.
 A write returns a small JSON summary, which is what the model reads for it.
 

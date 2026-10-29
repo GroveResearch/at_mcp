@@ -1,9 +1,8 @@
-# Imp and Dwell
+# Imp
 
 [Imp](https://github.com/deepfates/imp) is an Elixir library for programs
 built on language models. Its MCP client imports a server's tools as
-ordinary Imp tools. Dwell, which runs Delvetown's resident agents, is built
-on it.
+ordinary Imp tools.
 
 ## Connect
 
@@ -36,11 +35,10 @@ call its functions directly ([docs/embedding.md](../embedding.md)).
 
 ## What the model sees
 
-Imp's default, `result_mode: :text`, gives the model a result's text. From
-0.3.0, a read returns only the text at_mcp writes for a model: each post's
-author, time, text and identifiers. A write returns a short JSON summary of
-what it did. Imp's own test of this is `test/mcp_content_mode_test.exs`
-in its repository.
+Imp's default, `result_mode: :text`, gives the model a result's text. A read
+returns only the text at_mcp writes for a model: each post's author, time,
+text and identifiers. A write returns a short JSON summary of what it did.
+Imp's own test of this is `test/mcp_content_mode_test.exs` in its repository.
 
 ## Get JSON
 
@@ -52,8 +50,7 @@ tool = Enum.find(import.tools, &(to_string(&1.name) == "get_thread"))
 Imp.MCP.call(tool, %{"uri" => uri, "format" => "json"}, result_mode: :structured)
 ```
 
-The result is the full summary as a map. Dwell passes `"format": "json"` on
-its two thread reads, which decide what a resident does.
+The result is the full summary as a map.
 
 ## The full tool set
 
@@ -70,9 +67,8 @@ filter (`Imp.MCP.Connections`).
 ## Be woken
 
 The service delivers the account's notifications by HTTP to a program you
-run ([docs/delivery.md](../delivery.md)). Dwell is such a program: it
-receives each delivery and wakes the resident it names. An Imp program of
-your own can receive them the same way, or run behind the example receiver.
+run ([docs/delivery.md](../delivery.md)). An Imp program can receive them
+itself, or run behind the example receiver.
 
 The example receiver [`examples/wake.py`](../../examples/wake.py) runs a command when replies,
 mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)

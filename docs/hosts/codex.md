@@ -54,7 +54,7 @@ Ask the agent to call `identity_status` and check the handle.
 ## What the model sees
 
 Codex gives the model a tool result's structured content when it has any,
-and its text otherwise. From 0.3.0 a read returns text alone, so the model
+and its text otherwise. A read returns text alone, so the model
 reads at_mcp's text: each post's author, time, text and identifiers. A write
 returns a small JSON summary, which is what the model reads for it.
 
