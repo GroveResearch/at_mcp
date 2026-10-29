@@ -276,6 +276,44 @@ defmodule AtMcp.ReplyReferenceTest do
     assert Agent.get(calls, & &1) == []
   end
 
+  # 0.2.18 promised this for every tool argument that names a post. The reads
+  # (get_thread's V2 path among them) and repost sent the URI on and told the
+  # caller the post was missing.
+  test "a read or a repost naming a post by a key no post can have is refused before anything is read",
+       %{calls: calls, effects: effects, state: state} do
+    bad = "at://did:plc:xyz/app.bsky.feed.post/notatid"
+
+    for {tool, arguments, path} <- [
+          {"get_thread", %{"uri" => bad}, "uri"},
+          {"get_thread_chain", %{"uri" => bad}, "uri"},
+          {"get_posts", %{"uris" => [@readable, bad]}, "uris"},
+          {"get_post_images", %{"uri" => bad}, "uri"},
+          {"get_likes", %{"uri" => bad}, "uri"},
+          {"get_reposted_by", %{"uri" => bad}, "uri"},
+          {"get_quotes", %{"uri" => bad}, "uri"},
+          {"repost", %{"uri" => bad}, "uri"}
+        ] do
+      # A read's refusal is structured when the call asks for json.
+      arguments = if tool == "repost", do: arguments, else: Map.put(arguments, "format", "json")
+
+      assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(tool, arguments, state)
+      assert result.structuredContent.code == "invalid_arguments", tool
+      assert [%{path: ^path}] = result.structuredContent.problems
+
+      text = Enum.find(result.content, &(&1.type == "text")).text
+      assert text =~ "its record key notatid is 7 characters", tool
+      refute text =~ "deleted", tool
+    end
+
+    assert Agent.get(calls, & &1) == []
+    assert AtMcp.Effects.quota_status(effects).used == 0
+
+    # A URI naming something other than a post is left to the tool, as before.
+    feed = "at://did:plc:other/app.bsky.feed.generator/notatid"
+    AtMcp.MCP.Server.handle_call_tool("get_likes", %{"uri" => feed}, state)
+    assert Enum.any?(Agent.get(calls, & &1), &(&1.method == "app.bsky.feed.getLikes"))
+  end
+
   # The app renders `embed.record` for a feed, a list, a starter pack or a
   # labeler as a card, so a quote of one is a quote like any other.
   test "a quote of a list is written as a record embed", %{calls: calls, state: state} do

@@ -60,10 +60,10 @@ defmodule AtMcp.PostImagesTest do
   def red, do: @red
   def blue, do: @blue
 
-  @two "at://did:plc:author/app.bsky.feed.post/two"
-  @none "at://did:plc:author/app.bsky.feed.post/none"
-  @mixed "at://did:plc:author/app.bsky.feed.post/mixed"
-  @gone "at://did:plc:author/app.bsky.feed.post/gone"
+  @two "at://did:plc:author/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("two")}"
+  @none "at://did:plc:author/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("none")}"
+  @mixed "at://did:plc:author/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("mixed")}"
+  @gone "at://did:plc:author/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("gone")}"
 
   defp view(uri, embed) do
     %{

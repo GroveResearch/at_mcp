@@ -19,7 +19,10 @@ let timelineUnimplemented = false;
 let timelineRequests = 0;
 function send(res, status, body) { res.writeHead(status, {'content-type':'application/json'}); res.end(JSON.stringify(body)); }
 async function body(req) { let data=''; for await (const chunk of req) data+=chunk; return data ? JSON.parse(data) : {}; }
-function view(record, n) { return {uri:`at://${did}/town.delve.feed.post/${n}`, cid:`bafy${n}`, author:{did,handle:'external.test'}, record, viewer:{}}; }
+// A post's record key is a TID, and at_mcp refuses a post URI whose key is not one.
+const TID='234567abcdefghijklmnopqrstuvwxyz';
+function tid(n) { return ('3k'+[...n.toString(32)].map(c=>TID[parseInt(c,32)]).join('')).padEnd(13,'2'); }
+function view(record, n) { return {uri:`at://${did}/town.delve.feed.post/${tid(n)}`, cid:`bafy${n}`, author:{did,handle:'external.test'}, record, viewer:{}}; }
 const appview = http.createServer(async (req,res) => {
   const url = new URL(req.url,'http://localhost');
   calls.push(url.pathname);
@@ -61,7 +64,7 @@ const pds = http.createServer(async (req,res) => {
       assert.equal(data.repo,did); assert.equal(data.collection,'town.delve.feed.post');
       assert.equal(data.record.$type,'town.delve.feed.post'); writes.push(data.record);
       if(data.record.text==='uncertain') {req.socket.destroy(); return;}
-      return send(res,200,{uri:`at://${did}/${data.collection}/${writes.length}`,cid:`bafy${writes.length}`});
+      return send(res,200,{uri:`at://${did}/${data.collection}/${tid(writes.length)}`,cid:`bafy${writes.length}`});
     }
     return send(res,404,{error:'UnsupportedFixtureCall'});
   } catch(e) { faults.push(e.message); send(res,500,{error:'FixtureAssertion',message:e.message}); }

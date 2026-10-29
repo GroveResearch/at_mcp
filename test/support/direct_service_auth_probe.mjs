@@ -93,7 +93,7 @@ try {
   assert.equal(appCalls,count+1);assert.equal(issuance,issued+1);assert.equal(logins,1);
  }
  assert.equal(refreshes,0);mode='home-expired';const issuedBeforeRecovery=issuance;await call('get_timeline');assert.equal(refreshes,1);assert.equal(issuance,issuedBeforeRecovery+2);assert.equal(logins,1);
- mode='ok';await call('get_posts',{uris:[`at://${did}/town.delve.feed.post/1`,`at://${did}/town.delve.feed.post/2`]});const result=await call('post',{text:'uncertain'},true);assert.equal(result.structuredContent.outcome,'unknown');assert.equal(writes,1);
+ mode='ok';await call('get_posts',{uris:[`at://${did}/town.delve.feed.post/3kone22222222`,`at://${did}/town.delve.feed.post/3ktwo22222222`]});const result=await call('post',{text:'uncertain'},true);assert.equal(result.structuredContent.outcome,'unknown');assert.equal(writes,1);
  await call('mute',{actor:did},true);assert.equal(proxyCalls,1);
  assert.deepEqual(faults,[]);console.log('direct_service_auth_passed');
 } catch(e){console.error(diagnostics);throw e;} finally {await client.close();pds.closeAllConnections();app.closeAllConnections();await Promise.all([new Promise(r=>pds.close(r)),new Promise(r=>app.close(r))]);await rm(root,{recursive:true,force:true});}

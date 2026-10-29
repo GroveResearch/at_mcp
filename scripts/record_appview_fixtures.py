@@ -93,7 +93,9 @@ def did(value):
 
 
 def tid(value):
-    return letters("tid", value, TID, 13)
+    # A TID's top bit is zero, so its first character is 2-7 or a-j.
+    t = letters("tid", value, TID, 13)
+    return TID[TID.index(t[0]) % 16] + t[1:]
 
 
 def cid(value):

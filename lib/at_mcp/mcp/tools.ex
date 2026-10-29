@@ -1230,7 +1230,7 @@ defmodule AtMcp.MCP.Tools do
   fetched from the URLs that read returned, outside the account's call.
   """
   def get_post_images(effects, uri, state) do
-    case AtMcp.Effects.get_posts(effects, [uri]) do
+    case AtMcp.Effects.get_posts(effects, [uri], "uri") do
       {:ok, %{items: [post | _]}} ->
         {:ok, AtMcp.PostImages.result(uri, post), state}
 

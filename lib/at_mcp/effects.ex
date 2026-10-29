@@ -324,6 +324,12 @@ defmodule AtMcp.Effects do
   `hidden_replies_unread`.
   """
   def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
+    with :ok <- post_key_of(uri, "uri") do
+      read_thread(effects, uri, opts)
+    end
+  end
+
+  defp read_thread(effects, uri, opts) do
     with_session(effects, fn backend, session ->
       with {:ok, thread} <-
              backend.get_thread(session, uri, Keyword.take(opts, [:depth, :breadth])) do
@@ -407,7 +413,8 @@ defmodule AtMcp.Effects do
   end
 
   def get_thread_chain(effects, uri, opts \\ []) when is_binary(uri) and is_list(opts) do
-    with :ok <- validate_before(Keyword.get(opts, :before)),
+    with :ok <- post_key_of(uri, "uri"),
+         :ok <- validate_before(Keyword.get(opts, :before)),
          :ok <- validate_include_replies(Keyword.get(opts, :include_replies, true)) do
       with_session(effects, fn backend, session ->
         session |> backend.get_thread_chain(uri, opts) |> moderated(backend, session, :chain)
@@ -470,8 +477,9 @@ defmodule AtMcp.Effects do
     end
   end
 
-  def get_posts(effects, uris) when is_list(uris) do
-    with :ok <- validate_batch(uris) do
+  def get_posts(effects, uris, field \\ "uris") when is_list(uris) do
+    with :ok <- validate_batch(uris),
+         :ok <- Enum.reduce_while(uris, :ok, &post_keys_of(&1, &2, field)) do
       with_session(effects, fn backend, session ->
         session |> backend.get_posts(uris) |> moderated(backend, session, :posts)
       end)
@@ -677,19 +685,25 @@ defmodule AtMcp.Effects do
   # --- engagement reads ---
 
   def get_likes(effects, uri, opts \\ []) when is_binary(uri) do
-    paged(effects, opts, fn backend, session, opts -> backend.get_likes(session, uri, opts) end)
+    with :ok <- post_key_of(uri, "uri") do
+      paged(effects, opts, fn backend, session, opts -> backend.get_likes(session, uri, opts) end)
+    end
   end
 
   def get_reposted_by(effects, uri, opts \\ []) when is_binary(uri) do
-    paged(effects, opts, fn backend, session, opts ->
-      backend.get_reposted_by(session, uri, opts)
-    end)
+    with :ok <- post_key_of(uri, "uri") do
+      paged(effects, opts, fn backend, session, opts ->
+        backend.get_reposted_by(session, uri, opts)
+      end)
+    end
   end
 
   def get_quotes(effects, uri, opts \\ []) when is_binary(uri) do
-    paged(effects, opts, fn backend, session, opts ->
-      session |> backend.get_quotes(uri, opts) |> moderated(backend, session, :posts)
-    end)
+    with :ok <- post_key_of(uri, "uri") do
+      paged(effects, opts, fn backend, session, opts ->
+        session |> backend.get_quotes(uri, opts) |> moderated(backend, session, :posts)
+      end)
+    end
   end
 
   def get_actor_likes(effects, actor, opts \\ []) when is_binary(actor) do
@@ -1039,7 +1053,8 @@ defmodule AtMcp.Effects do
   # repost whose subject is a handle-form AT URI nowhere.
   def repost(effects, uri, cid \\ nil)
       when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
-    with {:ok, _} <- at_uri_argument(uri, "uri") do
+    with {:ok, _} <- at_uri_argument(uri, "uri"),
+         :ok <- post_key_of(uri, "uri") do
       take_and_write(
         effects,
         :repost,
@@ -2946,6 +2961,31 @@ defmodule AtMcp.Effects do
         :ok
     end
   end
+
+  # A URI argument a read or a repost may take for more than a post (or in a
+  # form `post_uri/2` refuses, which the tool leaves to the service). Where it
+  # names a post, its key must be one a post can have (`post_key/3`), so a URI
+  # copied wrong is refused as such, not read back as a deleted post.
+  defp post_key_of(uri, field) do
+    case AtMcp.ATProto.parse_uri(uri) do
+      {:ok, {_repo, collection, rkey}} ->
+        if AtMcp.Network.collection?(collection, :post),
+          do: post_key(field, collection, rkey),
+          else: :ok
+
+      {:error, _} ->
+        :ok
+    end
+  end
+
+  defp post_keys_of(uri, :ok, field) when is_binary(uri) do
+    case post_key_of(uri, field) do
+      :ok -> {:cont, :ok}
+      error -> {:halt, error}
+    end
+  end
+
+  defp post_keys_of(_uri, :ok, _field), do: {:cont, :ok}
 
   # A tool argument that names a post, checked before a session is taken: an
   # AT URI whose collection is a post on either network. What is wrong is said
