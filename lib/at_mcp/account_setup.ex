@@ -447,7 +447,7 @@ defmodule AtMcp.AccountSetup do
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
 
   defp message(:invalid_format),
-    do: "Choose --format text (reads answer as text, the default) or json."
+    do: "Choose --format text (the default) or json."
 
   defp message(:unknown_grant),
     do: "No grant has that id. Use grants to list the ones this installation holds."
