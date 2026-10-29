@@ -12,29 +12,39 @@ This release is 0.3.0: what read tools return has changed.
 - Read tools return the text written for a model, and no structured content,
   unless asked. Claude Code, Codex and VS Code Copilot give a model only a
   result's structured content when there is any, so an agent in those hosts
-  read every page as JSON: on a 20-post page, 37.7 KB instead of 14.9 KB of
-  text. Every read takes an optional `format`: `"json"` returns the full
-  summary as structured content and as the same JSON in the text. A grant
+  read every page as JSON: on a recorded page of 23 posts, 59,604 characters
+  of JSON against 19,532 of text. Every read takes an optional `format`:
+  `"json"` returns the full summary as structured content and as the same
+  JSON in the text. A grant
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
-- `tools/list` offers a default set of 46 tools, about 52,000 characters,
-  where 0.2.18 listed 101 tools with their output schemas in 994 KB. On
-  Bluesky, which publishes no policy pages for `get_policy`, the set is 45. To list every tool,
-  set `AT_MCP_TOOLS=full` for `at_mcp-stdio`, or issue the client's grant with
+- `tools/list` offers a default set of 46 tools in about 52,000 characters,
+  where 0.2.18 listed 101 tools with their output schemas in about 994,000.
+  The set covers reading, posting, replying, following, blocking and muting,
+  a post's pictures (`get_post_images`), pinning a post (`pin_post`), the
+  network's policies (`get_policy`) and the records tools. On Bluesky, which
+  publishes no policy pages for `get_policy`, the list leaves that tool out
+  and has 45. To list every tool, set `AT_MCP_TOOLS=full` for
+  `at_mcp-stdio`, or issue the client's grant with
   `at_mcp-accounts connection NAME --tools full`. `tools/call` accepts every
   tool, listed or not. No tool lists an output schema, but write tools still
   return their structured result.
 - A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
   `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) is now at most 40,000 characters of text. Claude Code
-  saves a result over 50,000 characters to a file, so a page of long posts
-  never got to the model. When a page would be longer, at_mcp asks the
-  service for fewer posts, says how many it dropped, and returns a cursor
-  that starts with them. A page asked for as JSON keeps every post up to
-  `limit`.
-- The same reads take `detail: "brief"`, which shows one line per post. A
-  recorded 50-post page was 12.5K characters this way, and 35.6K in full.
+  `get_bookmarks`) is now at most 40,000 characters of text, its header
+  included. Claude Code saves a result over 50,000 characters to a file, so
+  a page of long posts never got to the model. When a page would be longer,
+  at_mcp asks the service for fewer posts, says how many it dropped, and
+  returns a cursor that starts with them. A page asked for as JSON keeps
+  every post up to `limit`.
+- The same reads take `detail: "brief"`, which shows one line per post. The
+  recorded page of 23 posts above reads in 6,947 characters this way,
+  against 19,532 in full.
+- The text of a read gives each post, notification and feed its uri, and
+  leaves out its cid: `like` and `repost` look the cid up when given none,
+  and every other tool takes the uri. A read asked for `format: "json"`
+  still returns the cid.
 - `get_thread` reads threads with `getPostThreadV2`, the way the app does.
   - It returns every parent and sorts replies by the account's thread sort,
     `top` by default.
@@ -68,6 +78,11 @@ This release is 0.3.0: what read tools return has changed.
   - When the new items run past one page, the point moves once the agent
     follows the cursor back to it, so a page cut short doesn't skip
     anything.
+  - The notifications start, before their first read with `last_read`,
+    where the account last marked them seen in the app, so that read
+    returns what the app shows as unread. The ungrouped notifications page
+    gives that time as `seen_at`. A feed has no such marker and starts from
+    its newest item.
 
   The positions live in `read-positions.json` in the state directory, and
   every client of the account shares them. Custom feeds have no position.
@@ -84,7 +99,11 @@ This release is 0.3.0: what read tools return has changed.
   records of other applications in the account's own repository, such as
   issues on Tangled. Each call counts against the write quota. For posts,
   likes and the other records at_mcp has its own tools for, they refuse the
-  call and give the tool to use.
+  call and give the tool to use. `put_record`'s result has
+  `validation_status`: `valid` when the account's server checked the record
+  against the collection's lexicon, `unknown` when nothing checked it. The
+  README's example files a Tangled issue as Tangled's lexicon defines it,
+  with `repo` as the repository's DID.
 - When `post` leaves out `reply_rule` or `quotes`, the post takes them from
   the account's saved settings for new posts, as the app's composer does:
   the app's "Post interaction settings", which `get_preferences` shows as
@@ -116,7 +135,9 @@ This release is 0.3.0: what read tools return has changed.
 - `docs/hosts/` has a setup page for each kind of client: Claude Code,
   Codex, Imp, and a plain script. Each says how to connect, what
   the model receives, how to ask for JSON or the full tool set, and how to
-  be woken.
+  be woken. The Claude Code page says that Claude Code defers MCP tools
+  behind tool search by default, so there the full set costs little more
+  context than the default set.
 - A new README section, "Using an account from several clients", explains
   when to run `at_mcp-stdio` and when to run the service.
 - When a second `at_mcp-stdio` for the same account fails to start, its error
