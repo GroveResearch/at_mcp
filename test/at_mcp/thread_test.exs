@@ -183,4 +183,58 @@ defmodule AtMcp.ThreadTest do
     if thread["other_replies"],
       do: assert(text =~ "The app leaves some replies out of this thread.")
   end
+
+  test "a parent's replies not returned are counted from its reply count, as before V2", ctx do
+    thread = read(ctx.state, %{"uri" => ctx.anchor})
+    [root | _] = ctx.recorded["thread"]
+    assert root["value"]["moreReplies"] == 0
+    assert thread["parent"]["replies_omitted"] == root["value"]["post"]["replyCount"] - 1
+  end
+
+  test "a thread too long to read is cut to its first direct replies, and says so; JSON is whole",
+       ctx do
+    [parent, anchor | _] = ctx.recorded["thread"]
+    [reply | _] = for item <- ctx.recorded["thread"], item["depth"] == 1, do: item
+    long = String.duplicate("A sentence of a long reply. ", 70)
+
+    replies =
+      for n <- 1..120 do
+        reply
+        |> put_in(["uri"], "at://did:plc:many/app.bsky.feed.post/3kmany#{n}")
+        |> put_in(["value", "post", "uri"], "at://did:plc:many/app.bsky.feed.post/3kmany#{n}")
+        |> put_in(["value", "post", "record", "text"], "Reply #{n}. " <> long)
+        |> put_in(["value", "moreReplies"], 0)
+      end
+
+    anchor = put_in(anchor, ["value", "post", "replyCount"], 120)
+
+    Application.put_env(:at_mcp, :thread_test_body, %{
+      ctx.recorded
+      | "thread" => [parent, anchor | replies]
+    })
+
+    text = text(ctx.state, %{"uri" => ctx.anchor})
+    assert String.length(text) <= AtMcp.Reading.page_chars()
+
+    [_, left] =
+      Regex.run(
+        ~r/\((\d+) more direct replies were left out to keep this under 40000 characters/,
+        text
+      )
+
+    kept = 120 - String.to_integer(left)
+    assert kept > 0
+    assert text =~ "[reply #{kept}] "
+    refute text =~ "[reply #{kept + 1}] "
+    assert text =~ "(#{left} more replies to #{ctx.anchor} not shown)"
+
+    whole = read(ctx.state, %{"uri" => ctx.anchor})
+    assert length(whole["replies"]) == 120
+  end
+
+  defp text(state, args) do
+    state = Map.delete(state, :format)
+    {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool("get_thread", args, state)
+    hd(result.content).text
+  end
 end

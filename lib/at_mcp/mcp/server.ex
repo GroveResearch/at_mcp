@@ -172,14 +172,14 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
+      AtMcp.MCP.Tools.thread(
         AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri),
           include_hidden: Map.get(a, :include_hidden) == true,
           depth: Map.get(a, :depth),
           breadth: Map.get(a, :breadth)
         ),
-        state,
-        :thread
+        a,
+        state
       )
     end)
   end

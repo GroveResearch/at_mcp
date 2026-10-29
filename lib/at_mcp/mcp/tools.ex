@@ -603,6 +603,58 @@ defmodule AtMcp.MCP.Tools do
       else: result |> bounded(fetch, reading, started) |> respond(state, reading)
   end
 
+  @doc """
+  `respond/3` for `get_thread`, its reading bounded as a page's is
+  (`AtMcp.Reading.page_chars/0`). A thread that would read longer keeps its
+  first direct replies, each whole with the replies under it, in the order
+  the service gave them, and says how many it left out; the post's
+  `replies_omitted` counts them. A thread asked for as JSON is whole.
+  """
+  def thread(result, args, state) do
+    if AtMcp.MCP.DSL.format(args, state) == "json",
+      do: respond(result, state, :thread),
+      else: result |> bounded_thread() |> respond(state, :thread)
+  end
+
+  defp bounded_thread({:ok, %{replies: [_ | _] = replies} = thread} = result) do
+    data = Jason.decode!(Jason.encode!(thread))
+    count = length(replies)
+
+    reads_in? = fn kept ->
+      cut =
+        Map.merge(data, %{
+          "replies" => Enum.take(data["replies"], kept),
+          "replies_cut" => count - kept
+        })
+
+      String.length(AtMcp.Reading.thread(cut) || "") <= AtMcp.Reading.page_chars()
+    end
+
+    case most(0, count, reads_in?) do
+      ^count ->
+        result
+
+      kept ->
+        {:ok,
+         Map.merge(thread, %{
+           replies: Enum.take(replies, kept),
+           replies_omitted: (thread[:replies_omitted] || 0) + count - kept,
+           replies_cut: count - kept
+         })}
+    end
+  end
+
+  defp bounded_thread(result), do: result
+
+  # The largest n in low..high for which fits?.(n) holds, fits? holding for
+  # every n below one it holds for; `low` when none does.
+  defp most(low, high, _fits?) when low >= high, do: low
+
+  defp most(low, high, fits?) do
+    mid = div(low + high + 1, 2)
+    if fits?.(mid), do: most(mid, high, fits?), else: most(low, mid - 1, fits?)
+  end
+
   # The cut page is the service's second answer, so it is taken only when it
   # is plainly the first page's beginning: the same first posts, in order, and
   # a cursor of its own. A custom feed's generator need not honour `limit`,

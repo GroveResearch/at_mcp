@@ -5738,18 +5738,35 @@ defmodule AtMcp.Effects.ProtoRune do
       above
       |> Enum.sort_by(&depth/1)
       |> Enum.reduce(nil, fn item, ancestor ->
-        item |> thread_item() |> Map.put(:parent, ancestor)
+        item |> thread_item() |> unreturned(1) |> Map.put(:parent, ancestor)
       end)
+
+    replies = thread_replies(below, 0)
 
     case Enum.find(rest, &(depth(&1) == 0)) do
       nil -> placeholder(nil) |> Map.put(:not_found, true)
-      anchor -> thread_item(anchor)
+      anchor -> anchor |> thread_item() |> unreturned(length(replies))
     end
-    |> Map.merge(%{parent: parent, replies: thread_replies(below, 0)})
+    |> Map.merge(%{parent: parent, replies: replies})
     |> Map.put(:other_replies, flag(thread, [:has_other_replies, :hasOtherReplies]))
   end
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
+
+  # A post's replies this read did not return, when its own count says more
+  # than the service did. V2 sends `moreReplies: 0` for every parent, whatever
+  # its replies (the one shown under it is all it returns), and can return
+  # fewer direct replies than the post has without saying so. A post without
+  # a count keeps what the service said.
+  defp unreturned(node, shown) do
+    case node[:reply_count] do
+      count when is_integer(count) ->
+        Map.put(node, :replies_omitted, max(node[:replies_omitted] || 0, count - shown))
+
+      _ ->
+        node
+    end
+  end
 
   defp depth(item) do
     case field(item, :depth) do

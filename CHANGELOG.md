@@ -37,8 +37,14 @@ This release is 0.3.0: what read tools return has changed.
   levels and 10 per post. New optional arguments `depth` (0-20 levels) and
   `breadth` (0-100 replies per post below the first level) read more or
   less. Before, it read 2 levels each way and the first 20 replies per post
-  in the service's own order. The summary keeps its shape. `context` now
-  says `depth`, `breadth`, `sort` and `view`. A post in its author's own
+  in the service's own order. The summary keeps its nesting, with these
+  changes: `type` is now `…unspecced.defs#threadItemPost`,
+  `#threadItemNotFound` or `#threadItemBlocked` instead of
+  `…feed.defs#threadViewPost`, `#notFoundPost` or `#blockedPost`;
+  `context` says `depth`, `breadth`, `sort` and `view`, and no longer
+  `parent_height` or `max_replies_per_node`. A thread that would read longer
+  than 40,000 characters keeps its first direct replies and says how many it
+  left out (`replies_cut`); asked for as JSON it is whole. A post in its author's own
   run from the root carries `op_thread_index` and `op_thread_count`, and
   `other_replies` says when the app leaves replies out (`include_hidden`
   reads them).

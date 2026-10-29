@@ -211,7 +211,7 @@ defmodule AtMcp.MCP.Schemas do
 
     Macro.escape(
       description:
-        "Replies to read under each post below the first level (0-#{max}); every direct reply to the post is read whatever this is. Omit for the app's",
+        "Replies to read under each post below the first level (0-#{max}); the direct replies to the post are as many as the service gives, whatever this is. Omit for the app's",
       schema: %{type: "integer", minimum: 0, maximum: max}
     )
   end
@@ -400,7 +400,7 @@ defmodule AtMcp.MCP.Schemas do
     |> String.replace("{batch}", "1-#{AtMcp.Effects.max_batch()}")
     |> String.replace(
       "{thread}",
-      "every parent, then the replies nested below it in the order the app shows them, by this account's thread sort. As the app's default view reads it: #{linear.depth} levels of replies, every direct reply and #{linear.breadth} reply per post below them; with the app's tree view on, #{tree.depth} levels and #{tree.breadth} per post"
+      "every parent, then the replies nested below it in the order the app shows them, by this account's thread sort. As the app's default view reads it: #{linear.depth} levels of replies, the direct replies the service gives and #{linear.breadth} reply per post below them; with the app's tree view on, #{tree.depth} levels and #{tree.breadth} per post. A thread that would read longer than #{AtMcp.Reading.page_chars()} characters keeps its first direct replies and says how many it left out"
     )
   end
 
@@ -596,6 +596,11 @@ defmodule AtMcp.MCP.Schemas do
           "type" => ["boolean", "null"],
           "description" =>
             "True when the app leaves replies out of this thread; include_hidden reads them"
+        },
+        "replies_cut" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "Direct replies left out of the reading to keep it within the bound; replies_omitted counts them too"
         },
         "op_thread_index" => %{
           "type" => ["integer", "null"],
