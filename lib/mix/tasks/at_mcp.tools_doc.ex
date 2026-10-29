@@ -86,6 +86,9 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     doesn't skip any item.
     - A read with a time as `since` leaves the position alone. A read without \
     `since` moves it only when it passes `"mark_read": true`.
+    - Before the first read of the notifications with `last_read`, their \
+    position is where the account last marked them seen, as the app shows \
+    them unread.
     - Custom feeds have no read position, because each feed's generator \
     decides the order of its own posts.
 

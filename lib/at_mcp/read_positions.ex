@@ -12,6 +12,11 @@ defmodule AtMcp.ReadPositions do
   Custom feeds get no key, because their generators order posts in their own
   way.
 
+  With no position held, a read with `since: "last_read"` of the notifications
+  starts where the account last marked them seen, from the page's `seen_at`
+  (`AtMcp.MCP.Tools.page/5`). A feed has no such marker, and starts from its
+  newest item.
+
   A read moves a position only when it asks to: `since: "last_read"` without
   `mark_read: false`, or a read without `since` that passes `mark_read: true`.
   When a read returns a page with every item newer than the position, older

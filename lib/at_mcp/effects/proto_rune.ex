@@ -109,10 +109,19 @@ defmodule AtMcp.Effects.ProtoRune do
       |> Keyword.put_new(:limit, 20)
 
     case AtMcp.ATProto.list_notifications(session, AtMcp.ATProto.params(Map.new(pr_opts))) do
-      {:ok, notifs} -> page(notifs, :notifications, &notif_item/1)
+      {:ok, notifs} -> summarize(:notifications, notifs)
       {:error, reason} -> {:error, failure(reason)}
     end
   end
+
+  defp seen_at(%{} = response) do
+    case AtMcp.Response.fetch(response, :seen_at) do
+      {:ok, at} when is_binary(at) -> at
+      _ -> nil
+    end
+  end
+
+  defp seen_at(_response), do: nil
 
   @doc """
   A page of notification groups, each hydrated from the response's related
@@ -6060,7 +6069,12 @@ defmodule AtMcp.Effects.ProtoRune do
     do: {:ok, pack_view(field(response, :starter_pack))}
 
   def summarize(:starter_packs, response), do: page(response, :starter_packs, &pack_view/1)
-  def summarize(:notifications, response), do: page(response, :notifications, &notif_item/1)
+
+  def summarize(:notifications, response) do
+    with {:ok, page} <- page(response, :notifications, &notif_item/1),
+         do: {:ok, Map.put(page, :seen_at, seen_at(response))}
+  end
+
   # Read from the raw body, as `get_grouped_notifications/2` reads it.
   def summarize(:grouped_notifications, response), do: grouped(response)
 

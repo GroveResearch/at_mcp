@@ -28,7 +28,8 @@ defmodule AtMcp.ReadPositionTest do
           String.ends_with?(uri.path, ".notification.listNotifications") ->
             %{
               "notifications" =>
-                Application.get_env(:at_mcp, :read_position_test_notifications, [])
+                Application.get_env(:at_mcp, :read_position_test_notifications, []),
+              "seenAt" => Application.get_env(:at_mcp, :read_position_test_seen_at)
             }
 
           true ->
@@ -107,6 +108,7 @@ defmodule AtMcp.ReadPositionTest do
       restore(:at_mcp, :network, network)
       Application.delete_env(:at_mcp, :read_position_test_posts)
       Application.delete_env(:at_mcp, :read_position_test_notifications)
+      Application.delete_env(:at_mcp, :read_position_test_seen_at)
       Application.delete_env(:at_mcp, :read_position_test_owner)
     end)
 
@@ -292,6 +294,50 @@ defmodule AtMcp.ReadPositionTest do
     page = notifications.(%{})
     assert Enum.map(page["items"], & &1["uri"]) == [uri(2)]
     assert page["new_total"] == 1
+  end
+
+  test "the first notifications read with last_read starts where the account last marked them seen",
+       ctx do
+    notifications = fn ->
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_call_tool(
+          "get_notifications",
+          %{"since" => "last_read"},
+          Map.delete(ctx.state, :format)
+        )
+
+      refute result[:isError], inspect(result)
+      hd(result.content).text
+    end
+
+    # Five replies, indexed 10:01 to 10:05, newest first; the app marked them
+    # seen up to 10:02, so it shows three as unread.
+    at = &"2026-10-29T10:0#{&1}:00.000Z"
+    Application.put_env(:at_mcp, :read_position_test_seen_at, at.(2))
+
+    Application.put_env(
+      :at_mcp,
+      :read_position_test_notifications,
+      Enum.map(5..1//-1, &reply(&1, at.(&1), at.(&1)))
+    )
+
+    first = notifications.()
+    assert first =~ "3 notifications. Seen up to "
+    assert first =~ " 3 new since "
+    assert Enum.filter([1, 2, 3, 4, 5], &(first =~ uri(&1))) == [3, 4, 5]
+    assert {:ok, %{at: "2026-10-29T10:05:00.000Z"}} = ReadPositions.get(ctx.did, "notifications")
+
+    second = notifications.()
+    assert second =~ "0 notifications. Seen up to "
+    assert second =~ " 0 new since "
+  end
+
+  test "a feed with no position held starts from its newest item, as it has no seen marker",
+       ctx do
+    posted(3)
+    {page, _json} = timeline(ctx.state, %{"since" => "last_read"})
+    assert uris(page) == Enum.map(3..1//-1, &uri/1)
+    assert page["since"] == nil
   end
 
   test "since last_read on an account that cannot log in is a plain refusal, not a crash" do
