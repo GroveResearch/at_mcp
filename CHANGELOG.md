@@ -7,6 +7,10 @@ itself.
 
 ## Unreleased
 
+- The README says when to use `at_mcp-stdio` and when to run the service
+  ("One client or several?"), and a second `at_mcp-stdio` for the same
+  account now points there when it refuses to start.
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write

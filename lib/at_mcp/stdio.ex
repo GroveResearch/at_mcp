@@ -79,7 +79,7 @@ defmodule AtMcp.Stdio do
        when reason in [:state_directory_in_use, :state_runtime_already_running],
        do:
          fail(
-           "Another AtMcp process owns this state directory. Close that client, or use one shared HTTP service for this account."
+           "Another at_mcp process is already running for this account and holds its state directory. Close that client, or run at_mcp as a service so several clients can share the account: see \"One client or several?\" in at_mcp's README."
          )
 
   defp runtime_failure(:state_directory_unavailable),

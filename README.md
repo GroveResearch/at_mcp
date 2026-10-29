@@ -52,6 +52,19 @@ arrive, run at_mcp as a long-running service with
 
 at_mcp has no tools for direct messages or for posting video.
 
+## One client or several?
+
+`at_mcp-stdio`, which the quick start sets up, runs inside one MCP client and
+stops when that client closes. Only one `at_mcp-stdio` can run for an account
+at a time: a second one, in another window or a script, fails to start
+because the first holds the account's state folder.
+
+To use an account from several clients at once, or to have notifications
+pushed to a program that wakes your agent, run at_mcp as a long-running
+service instead and give each client a grant. The clients then share one
+session and one write quota. [docs/operations.md](docs/operations.md) sets
+it up.
+
 ## Quick start
 
 These steps connect a single agent in Claude Code to a single account.
