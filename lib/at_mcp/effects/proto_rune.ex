@@ -1468,7 +1468,7 @@ defmodule AtMcp.Effects.ProtoRune do
       status: upstream.status,
       message:
         "#{landed} of #{total} commits landed, deleting #{Enum.join(deleted, ", ")}. " <>
-          "#{rest}#{said}. Call again to delete what is left.",
+          "#{rest}#{said}.",
       detail: {:partially_written, deleted, upstream}
     )
   end
@@ -2987,9 +2987,7 @@ defmodule AtMcp.Effects.ProtoRune do
   # read and the write, and the write did not happen.
   defp changed_meanwhile(what) do
     AtMcp.Effects.Failure.new(:refused,
-      message:
-        "#{what} changed between reading it and writing it, so nothing was written. " <>
-          "Read it again and retry if the change still applies.",
+      message: "#{what} changed between reading it and writing it, so nothing was written.",
       detail: {:changed_meanwhile, what}
     )
   end
@@ -5070,8 +5068,7 @@ defmodule AtMcp.Effects.ProtoRune do
         {:error,
          AtMcp.Effects.Failure.new(:refused,
            message:
-             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved. " <>
-               "Call save_draft without an id to keep the text as a new draft.",
+             "The draft #{id} was deleted before the update reached it, and the service ignores an update to a draft it does not hold, so nothing was saved.",
            detail: {:draft_gone, id}
          )}
 

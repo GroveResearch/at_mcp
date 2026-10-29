@@ -183,17 +183,22 @@ defmodule AtMcp.MCP.SharedStdio do
         {:ok, result, state}
 
       _ ->
+        {sentence, fields} = AtMcp.MCP.Tools.advice_for(:check_first)
+
+        text =
+          "AtMcp could not confirm the upstream tool outcome. The operation may have completed. " <>
+            sentence
+
         {:ok,
          %{
            isError: true,
-           content: [
-             %{
-               type: "text",
-               text:
-                 "AtMcp could not confirm the upstream tool outcome. The operation may have completed. Inspect the account state before retrying a write."
-             }
-           ],
-           structuredContent: %{code: "upstream_outcome_unknown", outcome: "unknown"}
+           content: [%{type: "text", text: text}],
+           structuredContent:
+             Map.merge(fields, %{
+               code: "upstream_outcome_unknown",
+               outcome: "unknown",
+               message: text
+             })
          }, state}
     end
   end

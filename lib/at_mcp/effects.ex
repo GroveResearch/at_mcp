@@ -51,8 +51,9 @@ defmodule AtMcp.Effects do
   - a call still waiting for the account changed nothing:
     `:call_deadline_exceeded`;
   - a running call is stopped; a write that reached the backend is
-    `{:write_outcome_unknown, :call_deadline_exceeded}`, anything else is
-    `:call_deadline_exceeded`.
+    `{:write_outcome_unknown, :call_deadline_exceeded}`, a read whose request
+    went to the service is `{:call_deadline_exceeded, :sent}`, and anything
+    else is `:call_deadline_exceeded`.
 
   The caller waits `@answer_grace_ms` past the deadline for that answer, which
   covers the owner's own scheduling and nothing else; the longest any caller
@@ -3026,9 +3027,22 @@ defmodule AtMcp.Effects do
   defp with_session(effects, fun) do
     run(effects, :read, fn ->
       with {:ok, backend, session} <- ready_session() do
+        mark_sent()
         invoke_with_recovery(backend, session, fun)
       end
     end)
+  end
+
+  # Just before a read goes to the service, it sends the owner
+  # `{@call, :sent, id}`. If the deadline then stops the read, the owner
+  # answers `{:call_deadline_exceeded, :sent}`. Without the mark, it answers
+  # `:call_deadline_exceeded`, which means the read was still waiting for the
+  # account's session or for an earlier write.
+  defp mark_sent do
+    case Process.get(@call) do
+      %{owner: owner, id: id} -> send(owner, {@call, :sent, id})
+      _ -> :ok
+    end
   end
 
   # Every dispatch that reaches a backend takes its own slot, including the one
@@ -3355,7 +3369,8 @@ defmodule AtMcp.Effects do
       deadline_at: deadline_at,
       timer: timer,
       task: nil,
-      dispatched: false
+      dispatched: false,
+      sent: false
     }
 
     state = %{
@@ -3442,6 +3457,9 @@ defmodule AtMcp.Effects do
 
   def handle_info({@call, :dispatched, id}, %{calls: calls} = state) when is_map_key(calls, id),
     do: {:noreply, put_in(state.calls[id].dispatched, true)}
+
+  def handle_info({@call, :sent, id}, %{calls: calls} = state) when is_map_key(calls, id),
+    do: {:noreply, put_in(state.calls[id].sent, true)}
 
   def handle_info({@call, :deadline, id}, state) do
     {:noreply, deadline(state, id, Map.get(state.calls, id))}
@@ -3550,6 +3568,7 @@ defmodule AtMcp.Effects do
       cond do
         result -> answer(result, dispatched?)
         dispatched? -> {:error, {:write_outcome_unknown, :call_deadline_exceeded}}
+        call.sent -> {:error, {:call_deadline_exceeded, :sent}}
         true -> {:error, :call_deadline_exceeded}
       end
 

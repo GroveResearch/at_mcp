@@ -226,10 +226,22 @@ tools for are refused, and the error gives the tool to use.
 
 ## Failed tool calls
 
-Each failed call returns a code and a reason for the agent to read. Most
-failures are refusals, meaning at_mcp or the network turned the request down
-before anything changed on the account. A refusal for the write quota includes
-the time when the quota resets.
+Each failed call returns a reason for the agent to read, ending with one
+sentence that says what the agent can do. When the result has structured
+content (a write, or a read asked for `format: "json"`), it also carries a
+`code`, and a `retry` field that says the same as that sentence:
+
+| `retry` | What the agent can do |
+| --- | --- |
+| `now` | Try again now. |
+| `after` | Try again later: after the time in `retry_after` when there is one, such as when the write quota resets, otherwise after the wait the message states. |
+| `change_argument` | Change the call's arguments and try again. When one argument caused the error, `argument` gives its name. |
+| `check_first` | Read the account before trying again: the write's outcome is unknown. |
+| `no` | Don't try again: the service does not offer this, or the account needs its operator. |
+| `unknown` | at_mcp did not recognize the failure, so it can't say whether trying again will help. |
+
+When a call times out, the reason says whether at_mcp had sent the request to
+the service (`sent`, in structured content). When a read fails, the result is an error and holds no items.
 
 An `outcome: "unknown"` result comes from a timed-out write, as described
 under [Limits](#limits).
