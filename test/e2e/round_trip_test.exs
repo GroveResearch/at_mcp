@@ -36,6 +36,9 @@ defmodule AtMcp.E2E.RoundTripTest do
           # The network's moderation service is ozone's, as the PDS and the
           # AppView are configured with it.
           moderation_service: info["moderation"],
+          # The reference network runs no card service, and Bluesky's is past
+          # this machine: a link card here shows the caller's text.
+          card_service: nil,
           appview: [
             service: info["appview_did"] <> "#bsky_appview",
             url: info["appview"] <> "/xrpc"

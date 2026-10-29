@@ -79,6 +79,10 @@ defmodule AtMcp.Network do
       # @atproto/api's const.ts, the app's `appLabelers`), and where a report
       # goes when no other service is chosen.
       moderation_service: "did:plc:ar7c4by46qjdydhdevvrndac",
+      # Where the app looks up a link card's title, description and image:
+      # Bluesky's card service (`PROD_LINK_META_PROXY` in social-app's
+      # src/lib/constants.ts at 62b95002). `AtMcp.LinkCards`.
+      card_service: "https://cardyb.bsky.app/v1/extract",
       app_pinned_feeds: [],
       policies: %{}
     },
@@ -100,6 +104,11 @@ defmodule AtMcp.Network do
       # 2026-10-19). The AppView's own DID document names no labeler; that is
       # the AppView's account, not the town's moderation account.
       moderation_service: "did:plc:7voo3hmmzshypkn34iam3mg5",
+      # No card service: a town account's links are not sent to Bluesky's
+      # until the town's maintainers decide they may be (deepfates is asking,
+      # 2026-10-29), so its link cards are the caller's own text. Naming
+      # Bluesky's here, as `bluesky` does, turns lookups on.
+      card_service: nil,
       # The Town feed, which the town's web app pins as a tab for every
       # account without storing it in the account's preferences. It is the
       # `town` feed generator record of the delve.town account, whose DID
@@ -435,6 +444,18 @@ defmodule AtMcp.Network do
     Enum.find_value(@post_keys, fn {namespace, key} ->
       if collection == namespace <> "." <> Map.fetch!(@collections, :post), do: key
     end)
+  end
+
+  @doc """
+  The service that reads a page for a link card (`AtMcp.LinkCards`), or nil
+  when this network looks none up. `config :at_mcp, card_service: url_or_nil`
+  replaces it; only tests set it, to a card service on localhost or to none.
+  """
+  def card_service do
+    case Application.fetch_env(:at_mcp, :card_service) do
+      {:ok, url} when is_binary(url) or is_nil(url) -> url
+      :error -> @networks |> Map.fetch!(name()) |> Map.fetch!(:card_service)
+    end
   end
 
   @doc "Where this network's app is on the web: the origin of every web link to it."

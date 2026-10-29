@@ -1798,6 +1798,7 @@ defmodule AtMcp.Effects.ProtoRune do
   def prepare_post(session, text, opts) do
     with :ok <- validate_post_languages(opts),
          {rich_text, unresolved} = rich_text(text, session, Keyword.get(opts, :facets)),
+         {opts, link_card} = link_card(opts, rich_text),
          {:ok, opts} <- resolve_references(session, opts),
          {:ok, opts} <- resolve_reply_lists(session, opts),
          {:ok, images} <- upload_images(session, Keyword.get(opts, :images)),
@@ -1823,7 +1824,8 @@ defmodule AtMcp.Effects.ProtoRune do
          reply: Keyword.get(opts, :reply),
          declared_root: get_in(opts, [:reply_ref, :declared_root]),
          rkey: rkey,
-         gates: gates
+         gates: gates,
+         link_card: link_card
        }}
     else
       {:error, {:referenced_record_unreadable, _uri, _cause}} = error -> error
@@ -1912,6 +1914,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
         {:ok,
          summary
+         |> with_link_card(prepared)
          |> mention_warnings(prepared.unresolved)
          |> root_warning(Map.get(prepared, :declared_root), record)}
 
@@ -1928,6 +1931,7 @@ defmodule AtMcp.Effects.ProtoRune do
 
         {:ok,
          summary
+         |> with_link_card(prepared)
          |> mention_warnings(unresolved)
          |> root_warning(Map.get(prepared, :declared_root), record)}
 
@@ -4470,6 +4474,91 @@ defmodule AtMcp.Effects.ProtoRune do
       {:error, reason} -> {:error, failure(reason)}
     end
   end
+
+  # --- a post's link card ---
+
+  # The link card a post carries, and how it came to: `{opts, report}`.
+  #
+  #   * `given`: the caller wrote the card's title or description, or gave a
+  #     thumbnail; it is written as given.
+  #   * `card_service`: the caller gave only the url, and the card was looked
+  #     up (`AtMcp.LinkCards`).
+  #   * `text`: the caller gave no card, images or quote, and the post's text
+  #     links a page: the app's composer adds a card for the first link, and so
+  #     does this, looked up the same way.
+  #   * `url_only`: the caller gave only the url and nothing was looked up.
+  #
+  # A link in text published without facets (`facets: :none`) is the caller's
+  # quoted text, not its own: no card is added for it. A network with no card
+  # service adds none for a link in text either.
+  defp link_card(opts, rich_text) do
+    link = Keyword.get(opts, :link)
+
+    cond do
+      link && given_card?(link) ->
+        {opts, %{url: link.url, from: :given}}
+
+      link && AtMcp.LinkCards.looked_up?(link.url) ->
+        card = AtMcp.LinkCards.lookup(link.url)
+        {Keyword.put(opts, :link, Map.delete(card, :note)), report(card, :card_service)}
+
+      link ->
+        {opts, %{url: link.url, from: :url_only, note: url_only_note(link.url)}}
+
+      Keyword.get(opts, :facets) != :none and blank?(Keyword.get(opts, :images)) and
+          is_nil(Keyword.get(opts, :quote)) ->
+        with url when is_binary(url) <- first_link(rich_text.facets),
+             true <- AtMcp.LinkCards.looked_up?(url) do
+          card = AtMcp.LinkCards.lookup(url)
+          {Keyword.put(opts, :link, Map.delete(card, :note)), report(card, :text)}
+        else
+          _ -> {opts, nil}
+        end
+
+      true ->
+        {opts, nil}
+    end
+  end
+
+  defp given_card?(link),
+    do:
+      Map.get(link, :title, "") != "" or Map.get(link, :description, "") != "" or
+        not is_nil(Map.get(link, :thumb))
+
+  defp report(card, from),
+    do:
+      %{url: card.url, from: from}
+      |> then(&if(card.note, do: Map.put(&1, :note, card.note), else: &1))
+
+  defp url_only_note(url) do
+    if is_nil(AtMcp.Network.card_service()),
+      do:
+        "This network looks up no link card, so the card shows only the link. Pass the link's title and description to show them.",
+      else:
+        "The card shows only the link: at_mcp looks up no card for #{url}, as the app does not for a link into the app itself or to an image."
+  end
+
+  defp blank?(nil), do: true
+  defp blank?([]), do: true
+  defp blank?(_), do: false
+
+  defp first_link(facets) do
+    link_type = AtMcp.Network.type(:link_facet)
+
+    Enum.find_value(facets || [], fn facet ->
+      Enum.find_value(Map.get(facet, :features, []), fn feature ->
+        if feature[:"$type"] == link_type and http?(feature[:uri]), do: feature[:uri]
+      end)
+    end)
+  end
+
+  defp http?(url) when is_binary(url), do: URI.parse(url).scheme in ["http", "https"]
+  defp http?(_), do: false
+
+  defp with_link_card(summary, %{link_card: %{} = card}),
+    do: Map.put(summary, :link_card, Map.update!(card, :from, &Atom.to_string/1))
+
+  defp with_link_card(summary, _prepared), do: summary
 
   # --- a post's gates ---
 
