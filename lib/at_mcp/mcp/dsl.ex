@@ -13,6 +13,7 @@ defmodule AtMcp.MCP.DSL do
       import ExMCP.Server.DSL, except: [tool: 3]
       import AtMcp.MCP.DSL, only: [tool: 3, write_description: 2, write_annotations: 2]
       Module.register_attribute(__MODULE__, :at_mcp_output_schemas, accumulate: true)
+      Module.register_attribute(__MODULE__, :at_mcp_reads, accumulate: true)
       @before_compile AtMcp.MCP.DSL
     end
   end
@@ -31,6 +32,22 @@ defmodule AtMcp.MCP.DSL do
 
     {schemas, body} = Enum.split_with(statements, &match?({:output_schema, _, [_]}, &1))
 
+    # A tool counts as a read when its `readOnlyHint` is true, which is also
+    # the test `AtMcp.Grants` uses for the read scope. Each read gets a
+    # `format` argument. The annotations are evaluated as ExMCP evaluates
+    # them, so the hint read here is the one the tool publishes whatever
+    # expression gives it; `__before_compile__/1` checks the two agree.
+    read? =
+      Enum.any?(body, fn
+        {:annotations, _, [annotations]} -> read_only?(annotations, __CALLER__)
+        _ -> false
+      end)
+
+    body =
+      if read?,
+        do: body ++ [quote(do: param(:format, :string, AtMcp.MCP.Schemas.read_format()))],
+        else: body
+
     schema =
       case schemas do
         [{:output_schema, _, [schema]}] -> schema
@@ -39,6 +56,7 @@ defmodule AtMcp.MCP.DSL do
 
     quote do
       @at_mcp_output_schemas {unquote(name), unquote(schema)}
+      @at_mcp_reads unquote(if read?, do: name)
       ExMCP.Server.DSL.tool unquote(name), unquote(description) do
         unquote({:__block__, [], body})
       end
@@ -47,6 +65,24 @@ defmodule AtMcp.MCP.DSL do
 
   defmacro __before_compile__(env) do
     schemas = env.module |> Module.get_attribute(:at_mcp_output_schemas) |> Map.new()
+
+    reads =
+      env.module |> Module.get_attribute(:at_mcp_reads) |> Enum.reject(&is_nil/1) |> MapSet.new()
+
+    published =
+      for {definition, _handler, _params} <- Module.get_attribute(env.module, :ex_mcp_dsl_tools),
+          read_only_hint?(definition),
+          into: MapSet.new(),
+          do: definition.name
+
+    # The reads given `format`, and stripped of their output schema, are the
+    # tools whose published `readOnlyHint` is true, or the build stops.
+    unless MapSet.equal?(reads, published) do
+      raise CompileError,
+        description:
+          "AtMcp.MCP.DSL found reads #{inspect(Enum.sort(reads))} but the tools publish " <>
+            "readOnlyHint on #{inspect(Enum.sort(published))}"
+    end
 
     # Read the schema already built by ExMCP from each tool's params. Keeping
     # it here avoids a second declaration or validation after effects ran.
@@ -82,6 +118,11 @@ defmodule AtMcp.MCP.DSL do
       end
 
       @doc false
+      # Every tool's output schema, the reads' included, which `tools/list`
+      # leaves out: what a read's json is checked against.
+      def __output_schemas__, do: unquote(Macro.escape(schemas))
+
+      @doc false
       def __server_info__,
         do: Map.new(server_info(), fn {key, value} -> {to_string(key), value} end)
 
@@ -89,7 +130,20 @@ defmodule AtMcp.MCP.DSL do
       def handle_list_tools(cursor, state) do
         {:ok, tools, next, state} = super(cursor, state)
         schemas = unquote(Macro.escape(schemas))
-        tools = Enum.map(tools, &Map.put(&1, :outputSchema, Map.fetch!(schemas, &1.name)))
+        reads = unquote(Macro.escape(reads))
+
+        # `tools/list` leaves out a read's output schema, because MCP requires
+        # a tool with a declared schema to return structured content, and a
+        # read returns text unless asked for json (`AtMcp.MCP.Output`).
+        # `__output_schemas__/0` keeps the schema, and tests use it to check
+        # json results.
+        tools =
+          Enum.map(tools, fn tool ->
+            if MapSet.member?(reads, tool.name),
+              do: tool,
+              else: Map.put(tool, :outputSchema, Map.fetch!(schemas, tool.name))
+          end)
+
         {:ok, AtMcp.MCP.DSL.offered(tools, state), next, state}
       end
 
@@ -114,7 +168,12 @@ defmodule AtMcp.MCP.DSL do
                       |> AtMcp.MCP.Input.note_ignored(AtMcp.MCP.Input.ignored(arguments, schema))
                       |> AtMcp.MCP.WebLinks.note(resolved)
 
-                    AtMcp.MCP.Output.validate(result, name, unquote(Macro.escape(compiled)))
+                    result
+                    |> AtMcp.MCP.Output.validate(name, unquote(Macro.escape(compiled)))
+                    |> AtMcp.MCP.Output.shape(
+                      AtMcp.MCP.DSL.format(arguments, state),
+                      MapSet.member?(unquote(Macro.escape(reads)), name)
+                    )
 
                   {:error, reason} ->
                     AtMcp.MCP.Tools.respond({:error, reason}, state)
@@ -148,6 +207,14 @@ defmodule AtMcp.MCP.DSL do
 
   def offered(tools, state) when is_map(state), do: AtMcp.MCP.Served.offered(tools)
   def offered(tools, _state), do: tools
+
+  # The format a read was asked for, else the grant's default
+  # (`AtMcp.Grants`), else text.
+  @doc false
+  def format(arguments, state) do
+    Map.get(arguments, "format") || Map.get(arguments, :format) ||
+      (is_map(state) && Map.get(state, :format)) || "text"
+  end
 
   defp compile_schemas(schemas) do
     Map.new(schemas, fn {name, schema} ->
@@ -183,4 +250,19 @@ defmodule AtMcp.MCP.DSL do
     counts? = AtMcp.Effects.counts_against_quota?(verb)
     {:%{}, meta, pairs ++ [{:"at_mcp/publicWrite", counts?}]}
   end
+
+  # Whether a tool's `annotations(...)` argument sets `readOnlyHint` to true,
+  # evaluated in the caller as ExMCP's DSL evaluates it.
+  defp read_only?(annotations, caller) do
+    {value, _binding} = annotations |> Macro.expand(caller) |> Code.eval_quoted([], caller)
+    read_only_hint?(%{annotations: value})
+  end
+
+  defp read_only_hint?(%{annotations: annotations}) when is_map(annotations),
+    do: Map.get(annotations, :readOnlyHint, Map.get(annotations, "readOnlyHint")) == true
+
+  defp read_only_hint?(%{annotations: annotations}) when is_list(annotations),
+    do: read_only_hint?(%{annotations: Map.new(annotations)})
+
+  defp read_only_hint?(_definition), do: false
 end

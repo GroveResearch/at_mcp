@@ -30,7 +30,9 @@ defmodule AtMcp.RoundTripFindingsTest do
     %{effects: effects, pds: pds, state: %{effects: effects}}
   end
 
+  # These tests are about what a program reads: a read's summary.
   defp call(state, name, arguments) do
+    state = Map.put(state, :format, "json")
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
   end

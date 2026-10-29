@@ -84,8 +84,7 @@ defmodule AtMcp.ReadingTest do
     # A label carries only the keys the service sent: no null neg or exp.
     assert [%{"val" => "bot", "src" => ^did} = label] = item["author_labels"]
     assert Map.keys(label) |> Enum.sort() == ["src", "val"]
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-    schema = Enum.find(tools, &(&1.name == "get_posts")).outputSchema
+    schema = AtMcp.MCP.Server.__output_schemas__()["get_posts"]
     assert AtMcp.Test.Schema.valid?(data, schema)
     assert schema["properties"]["items"]["items"]["properties"]["author_labels"]
 
@@ -255,8 +254,11 @@ defmodule AtMcp.ReadingTest do
     state = %{effects: effects}
     uri = "at://did:plc:mock/app.bsky.feed.post/2"
 
-    assert {:ok, %{content: [%{text: text}], structuredContent: data}, ^state} =
+    # The text alone, as every host's model receives it.
+    assert {:ok, %{content: [%{text: text}]} = result, ^state} =
              AtMcp.MCP.Server.handle_call_tool("get_thread_chain", %{"uri" => uri}, state)
+
+    refute Map.has_key?(result, :structuredContent)
 
     assert text =~ "A conversation of 2 posts, oldest first."
 
@@ -269,6 +271,14 @@ defmodule AtMcp.ReadingTest do
     assert text =~ "uri: #{uri} · cid: bafyTHREADCID"
     refute text =~ "null"
     refute text =~ "{"
+
+    # A program asks for the summary.
+    assert {:ok, %{structuredContent: data}, ^state} =
+             AtMcp.MCP.Server.handle_call_tool(
+               "get_thread_chain",
+               %{"uri" => uri, "format" => "json"},
+               state
+             )
 
     assert data["chain_truncated"] == false
     assert Enum.map(data["chain"], & &1["author_did"]) == ["did:plc:alice", "did:plc:alice"]
@@ -615,8 +625,7 @@ defmodule AtMcp.ReadingTest do
              """
 
     assert data["pinned_post"] == "at://did:plc:a/app.bsky.feed.post/1"
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-    schema = Enum.find(tools, &(&1.name == "get_profile")).outputSchema
+    schema = AtMcp.MCP.Server.__output_schemas__()["get_profile"]
     assert AtMcp.Test.Schema.valid?(data, schema)
   end
 

@@ -167,7 +167,7 @@ defmodule AtMcp.PostImagesTest do
     %{headers: Grant.session!(Grant.token(id, :read)), requests: requests}
   end
 
-  defp call(headers, uri) do
+  defp call(headers, uri, format \\ "json") do
     Req.post!(Grant.url(),
       headers: headers,
       retry: false,
@@ -175,7 +175,7 @@ defmodule AtMcp.PostImagesTest do
         jsonrpc: "2.0",
         id: System.unique_integer([:positive]),
         method: "tools/call",
-        params: %{name: "get_post_images", arguments: %{uri: uri}}
+        params: %{name: "get_post_images", arguments: %{uri: uri, format: format}}
       }
     ).body["result"]
   end
@@ -206,8 +206,13 @@ defmodule AtMcp.PostImagesTest do
              ]
            } = result["structuredContent"]
 
+    # By default the same pictures arrive, with the text and no structured content.
+    plain = call(headers, @two, "text")
+    assert [%{"type" => "text"}, ^red, ^blue] = plain["content"]
+    refute Map.has_key?(plain, "structuredContent")
+
     # The full-size URLs, not the thumbnails, and nothing of the account's.
-    assert Enum.sort(requested(requests)) == ["/img/blue", "/img/red"]
+    assert Enum.sort(Enum.uniq(requested(requests))) == ["/img/blue", "/img/red"]
 
     for {_path, request_headers} <- Agent.get(requests, & &1) do
       refute List.keymember?(request_headers, "authorization", 0)
