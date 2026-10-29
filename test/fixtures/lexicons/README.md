@@ -13,6 +13,11 @@ namespace; the checker reads another network's `$type`s back into it.
 Upstream copyright and license terms are in
 [`licenses/lexicons`](../../../licenses/lexicons/NOTICE.md).
 
+`sh/tangled/repo/issue.json` is copied unchanged from Tangled's `core`
+repository, `lexicons/issue/issue.json` at
+`dfcc014ecfdce4e4fc5e4b33691c8ba17ea61a47`, for the README's `put_record`
+example; its MIT license is in [`licenses/tangled`](../../../licenses/tangled/NOTICE.md).
+
 `town/delve/actor/profile.json` is copied unchanged from Delvetown's own
 lexicon for `town.delve.actor.profile`. Town's signed `presentation` field
 is deliberately absent from the Bluesky profile schema, so Town Save tests

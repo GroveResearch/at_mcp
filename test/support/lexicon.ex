@@ -10,7 +10,7 @@ defmodule AtMcp.Test.Lexicon do
 
   This checks the parts of the lexicon language AtMcp's records use: objects
   (required keys, and no key the lexicon does not declare), strings (length,
-  graphemes, and the `at-uri` and `datetime` formats), integers, booleans,
+  graphemes, and the `at-uri`, `did` and `datetime` formats), integers, booleans,
   arrays (length and items), refs, closed unions and blobs. It returns the
   problems it found, each with the path to the value; `[]` means it matches.
   """
@@ -119,6 +119,12 @@ defmodule AtMcp.Test.Lexicon do
 
   defp format(value, "at-uri", path) do
     if String.starts_with?(value, "at://"), do: nil, else: "#{path}: not an AT URI"
+  end
+
+  defp format(value, "did", path) do
+    if Regex.match?(~r/\Adid:[a-z]+:[A-Za-z0-9._:%-]+\z/, value),
+      do: nil,
+      else: "#{path}: not a DID"
   end
 
   defp format(value, "datetime", path) do

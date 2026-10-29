@@ -88,4 +88,47 @@ defmodule AtMcp.RecordsToolsTest do
     assert sent == Map.put(record, "$type", "sh.tangled.repo.issue")
     assert AtMcp.Effects.quota_status(effects).used == 1
   end
+
+  test "put_record says whether the account's server checked the record against its lexicon" do
+    {session, pds} = AtMcp.Test.FakePDS.start()
+
+    effects =
+      start_supervised!(
+        {AtMcp.Effects,
+         backend: AtMcp.Effects.ProtoRune,
+         backend_state: session,
+         write_quota: AtMcp.Test.QuotaFixture.quota(5)},
+        id: make_ref()
+      )
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        result =
+          call(%{effects: effects}, "put_record", %{
+            "collection" => "sh.tangled.repo.issue",
+            "record" => %{"repo" => "did:plc:examplerepo", "title" => "t"}
+          })
+
+        refute result[:isError], hd(result.content).text
+        assert result.structuredContent["validation_status"] == "unknown"
+      end)
+
+    refute log =~ "unvalidated"
+    assert [_] = AtMcp.Test.FakePDS.sent(pds, "com.atproto.repo.createRecord")
+  end
+
+  # Tangled's issue lexicon, copied under test/fixtures/lexicons, names the
+  # repository by its DID.
+  test "the README's put_record example is a record Tangled's issue lexicon accepts" do
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    [_, json] =
+      Regex.run(
+        ~r/To file an issue on a Tangled repository, an agent calls:\s+```json\n(.*?)```/s,
+        readme
+      )
+
+    assert %{"collection" => "sh.tangled.repo.issue", "record" => record} = Jason.decode!(json)
+    assert AtMcp.Test.Lexicon.problems(record, "sh.tangled.repo.issue") == []
+  end
 end
