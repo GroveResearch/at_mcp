@@ -20,7 +20,8 @@ This release is 0.3.0: what read tools return has changed.
   `tools/list` is smaller. Write tools are unchanged.
 - A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
   `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
-  `get_bookmarks`) is at most 40,000 characters, as text or as JSON. Claude Code moves a
+  `get_bookmarks`) reads in at most 40,000 characters; a page asked for as
+  JSON is bounded by its `limit` alone. Claude Code moves a
   result over 50,000 characters to a file, so a page of long posts never
   reached the model. A page that would read longer ends early, says how
   many posts it left out, and its cursor continues from the first of them.
@@ -36,8 +37,14 @@ This release is 0.3.0: what read tools return has changed.
   levels and 10 per post. New optional arguments `depth` (0-20 levels) and
   `breadth` (0-100 replies per post below the first level) read more or
   less. Before, it read 2 levels each way and the first 20 replies per post
-  in the service's own order. The summary keeps its shape. `context` now
-  says `depth`, `breadth`, `sort` and `view`. A post in its author's own
+  in the service's own order. The summary keeps its nesting, with these
+  changes: `type` is now `…unspecced.defs#threadItemPost`,
+  `#threadItemNotFound` or `#threadItemBlocked` instead of
+  `…feed.defs#threadViewPost`, `#notFoundPost` or `#blockedPost`;
+  `context` says `depth`, `breadth`, `sort` and `view`, and no longer
+  `parent_height` or `max_replies_per_node`. A thread that would read longer
+  than 40,000 characters keeps its first direct replies and says how many it
+  left out (`replies_cut`); asked for as JSON it is whole. A post in its author's own
   run from the root carries `op_thread_index` and `op_thread_count`, and
   `other_replies` says when the app leaves replies out (`include_hidden`
   reads them).
@@ -49,8 +56,8 @@ This release is 0.3.0: what read tools return has changed.
   returns only the items newer than the position, newest first, says how
   many are new, and gives the cursor that reads the rest; a time does the
   same from that time. Only a read with `since: "last_read"` moves the
-  position, unless it passes `mark_read: false`, and any other read only
-  with `mark_read: true`. A position moves only once a read has reached it,
+  position, unless it passes `mark_read: false`; a read since a time never
+  does, and a read without `since` only with `mark_read: true`. A position moves only once a read has reached it,
   so a page cut short never passes over items not yet returned. Every
   client of the account shares one position per feed, kept in
   `read-positions.json` in the state directory, so it survives a restart.

@@ -584,24 +584,26 @@ defmodule AtMcp.MCP.Tools do
   function of the limit to ask the service for (`nil` for the caller's) and
   the cursor.
 
-  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page longer
-  than `AtMcp.Reading.page_chars/0`, measured as the caller receives it, is
-  asked for again with the number of items that fit, and the second answer is
-  taken only when it plainly begins the first: see `bounded/4`.
+  `detail: "brief"` reads it with `AtMcp.Reading.brief_posts/1`. A page whose
+  reading would pass `AtMcp.Reading.page_chars/0` is asked for again with the
+  number of items that fit, and the second answer is taken only when it
+  plainly begins the first (`bounded/4`). A page asked for as JSON is for a
+  program, which pages by count, and is bounded by its `limit` alone.
 
   `feed`, for a feed whose read position is held (`AtMcp.ReadPositions.key/2`),
   takes `since` and `mark_read`: see `positioned/6`.
   """
   def page(fetch, args, state, reading, feed \\ nil) do
     reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
-    measure = if AtMcp.MCP.DSL.format(args, state) == "json", do: :json, else: reading
+    json? = AtMcp.MCP.DSL.format(args, state) == "json"
     cursor = Map.get(args, :cursor)
     started = System.monotonic_time(:millisecond)
 
     case valid_since(Map.get(args, :since), feed) do
       :ok ->
-        fetch.(Map.get(args, :limit), cursor)
-        |> bounded(&fetch.(&1, cursor), measure, started)
+        result = fetch.(Map.get(args, :limit), cursor)
+
+        if(json?, do: result, else: bounded(result, &fetch.(&1, cursor), reading, started))
         |> positioned(args, state, feed, fetch, started)
         |> respond(state, reading)
 
@@ -610,19 +612,84 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
+  @doc """
+  `respond/3` for `get_thread`, its reading bounded as a page's is
+  (`AtMcp.Reading.page_chars/0`). A thread that would read longer keeps its
+  first direct replies, each whole with the replies under it, in the order
+  the service gave them, and says how many it left out; the post's
+  `replies_omitted` counts them. A thread asked for as JSON is whole.
+  """
+  def thread(result, args, state) do
+    if AtMcp.MCP.DSL.format(args, state) == "json",
+      do: respond(result, state, :thread),
+      else: result |> bounded_thread() |> respond(state, :thread)
+  end
+
+  defp bounded_thread({:ok, %{replies: [_ | _] = replies} = thread} = result) do
+    data = Jason.decode!(Jason.encode!(thread))
+    count = length(replies)
+
+    reads_in? = fn kept ->
+      cut =
+        Map.merge(data, %{
+          "replies" => Enum.take(data["replies"], kept),
+          "replies_cut" => count - kept
+        })
+
+      String.length(AtMcp.Reading.thread(cut) || "") <= AtMcp.Reading.page_chars()
+    end
+
+    case most(0, count, reads_in?) do
+      ^count ->
+        result
+
+      kept ->
+        {:ok,
+         Map.merge(thread, %{
+           replies: Enum.take(replies, kept),
+           replies_omitted: (thread[:replies_omitted] || 0) + count - kept,
+           replies_cut: count - kept
+         })}
+    end
+  end
+
+  defp bounded_thread(result), do: result
+
+  # The largest n in low..high for which fits?.(n) holds, fits? holding for
+  # every n below one it holds for; `low` when none does.
+  defp most(low, high, _fits?) when low >= high, do: low
+
+  defp most(low, high, fits?) do
+    mid = div(low + high + 1, 2)
+    if fits?.(mid), do: most(mid, high, fits?), else: most(low, mid - 1, fits?)
+  end
+
   # The cut page is the service's second answer, so it is taken only when it
-  # is plainly the first page's beginning: the same first items, in order, and
+  # is plainly the first page's beginning: the same first posts, in order, and
   # a cursor of its own. A custom feed's generator need not honour `limit`,
   # and the AppView then cuts its skeleton and passes the generator's cursor
   # on unchanged, which would skip every post between the cut and that
   # cursor; a feed that changed between the two reads, or that answers each
   # read differently, gives other posts. Either way the first page is
-  # returned whole: a page too long is better than posts lost.
-  defp bounded({:ok, %{} = page} = result, fetch, measure, started) do
+  # returned whole, saying it is longer than the bound. So is a page whose
+  # second read would not answer before the endpoint stops waiting.
+  defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
     with {:ok, json} <- Jason.encode(page),
          %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
-         fit when fit < length(items) <- fitting(data, items, measure),
-         true <- time_left?(started),
+         fit when fit < length(items) <- fitting(data, items, reading) do
+      case cut(page, fetch, fit, items, started) do
+        {:ok, smaller} -> {:ok, smaller}
+        :error -> {:ok, Map.put(page, :over_bound, true)}
+      end
+    else
+      _ -> result
+    end
+  end
+
+  defp bounded(result, _fetch, _reading, _started), do: result
+
+  defp cut(page, fetch, fit, items, started) do
+    with true <- time_left?(started),
          {:ok, %{items: [_ | _] = shown} = smaller} <- fetch.(fit),
          true <- length(shown) < length(items),
          true <- uris(shown) == uris(Enum.take(page.items, length(shown))),
@@ -630,17 +697,15 @@ defmodule AtMcp.MCP.Tools do
          true <- cursor != page[:cursor] do
       {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
     else
-      _ -> result
+      _ -> :error
     end
   end
-
-  defp bounded(result, _fetch, _measure, _started), do: result
 
   defp uris(items), do: Enum.map(items, &(&1[:uri] || &1["uri"]))
 
   # An account call answers within `AtMcp.Effects.answered_within/0`, and the
   # endpoint waits `AtMcp.MCP.HTTP.handler_call_timeout/0` for the whole tool
-  # call, which is sized for one. A read makes another only while the
+  # call, which is sized for one. A read makes a second only while the
   # endpoint would still be waiting when it answered, so every call is still
   # answered by AtMcp rather than abandoned by ExMCP.
   @result_margin_ms 3_000
@@ -652,18 +717,12 @@ defmodule AtMcp.MCP.Tools do
       AtMcp.MCP.HTTP.handler_call_timeout()
   end
 
-  # How many of the page's first items fit within the bound, measured as the
-  # caller receives them: the reading, or the JSON when it asked for that; at
-  # least one.
-  defp fitting(data, items, measure) do
+  # How many of the page's first items its reading holds within the bound;
+  # at least one.
+  defp fitting(data, items, reading) do
     fits? = fn n ->
       page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
-
-      text =
-        if measure == :json,
-          do: Jason.encode!(page),
-          else: apply(AtMcp.Reading, measure, [page])
-
+      text = apply(AtMcp.Reading, reading, [page])
       not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
     end
 
@@ -712,9 +771,12 @@ defmodule AtMcp.MCP.Tools do
         |> newer(since, asked, fetch, started)
         |> mark(marks?(args) && reached?, marks?(args), did, feed)
 
-      other ->
-        why = if is_nil(did), do: :no_session, else: elem(other, 1)
+      nil ->
+        # The read itself logs in, so this is an account that has no session
+        # even after it: say so rather than read as if no position were held.
+        {:error, :not_connected}
 
+      {:error, why} ->
         {:ok,
          Map.merge(page, %{
            since: if(asked == "last_read", do: nil, else: asked),
@@ -730,8 +792,10 @@ defmodule AtMcp.MCP.Tools do
   defp account(%{effects: effects}), do: AtMcp.Effects.account_did(effects)
   defp account(_state), do: nil
 
-  # Whether this read moves the position: as `mark_read` says, else when it
-  # asked for what is new since the position.
+  # Whether this read moves the position. A read since a time looks back and
+  # never marks; otherwise as `mark_read` says, else when it asked for what
+  # is new since the position.
+  defp marks?(%{since: since}) when is_binary(since) and since != "last_read", do: false
   defp marks?(%{mark_read: mark}) when is_boolean(mark), do: mark
   defp marks?(args), do: Map.get(args, :since) == "last_read"
 

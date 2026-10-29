@@ -200,8 +200,22 @@ defmodule AtMcp.ReadPositionTest do
     assert uris(page) == Enum.map(5..4//-1, &uri/1)
     refute Map.has_key?(page, "read_position")
 
+    # Not even when it asks to: a look-back is not a mark.
+    {asked, _} = timeline(ctx.state, %{"since" => post(3)["indexedAt"], "mark_read" => true})
+    refute Map.has_key?(asked, "read_position")
+
     assert ReadPositions.get(ctx.did, "timeline") ==
              {:ok, %{at: post(2)["indexedAt"], pending: nil}}
+  end
+
+  test "since last_read on an account that cannot log in is a plain refusal, not a crash" do
+    {:ok, effects} = AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend)
+    state = %{effects: effects}
+
+    assert {:ok, %{isError: true} = result, ^state} =
+             AtMcp.MCP.Server.handle_call_tool("get_timeline", %{"since" => "last_read"}, state)
+
+    assert hd(result.content).text =~ "not connected"
   end
 
   test "since last_read before the account has a session reads, rather than failing" do

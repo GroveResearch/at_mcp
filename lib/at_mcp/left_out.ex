@@ -50,7 +50,7 @@ defmodule AtMcp.LeftOut do
 
     # Who may reply.
     {"threadgate",
-     "The thread's gate beside the thread: get_thread marks the replies it hides, and `reply_rule` reads who may reply from the same gate on the first post's view; its uri, cid and time are not what the app shows"},
+     "The thread's gate beside the thread: get_thread reads which replies it hides from each item's `hiddenByThreadgate`, and `reply_rule` reads who may reply from the same gate on the first post's view; its uri, cid and time are not what the app shows"},
     {"**.post.threadgate",
      "The gate on a thread's first post beyond who may reply, which `reply_rule` and `reply_lists` read: get_thread marks the replies it hides, and its uri, cid and time are not what the app shows"},
 

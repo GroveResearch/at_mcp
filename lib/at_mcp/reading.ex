@@ -185,7 +185,7 @@ defmodule AtMcp.Reading do
           omitted ++
           above ++
           [post(node, cat([~L"[this post]", op_run(node)]))] ++
-          replies(node, []) ++ hidden(node) ++ others(node),
+          replies(node, []) ++ cut_replies(node) ++ hidden(node) ++ others(node),
         :blank
       )
     )
@@ -200,6 +200,21 @@ defmodule AtMcp.Reading do
        do: cat([~L" (the author's thread, ", int(n), ~L" of ", int(of), ~L")"])
 
   defp op_run(_post), do: nil
+
+  # Direct replies left out to keep the thread within the bound.
+  defp cut_replies(%{"replies_cut" => n}) when is_integer(n) and n > 0,
+    do: [
+      cat([
+        ~L"(",
+        int(n),
+        if(n == 1, do: ~L" more direct reply was", else: ~L" more direct replies were"),
+        ~L" left out to keep this under ",
+        int(@page_chars),
+        ~L" characters. A smaller depth or breadth reads more of them; get_thread on one reply reads its branch.)"
+      ])
+    ]
+
+  defp cut_replies(_node), do: []
 
   # Replies the app leaves out, when include_hidden was not asked for.
   defp others(%{"other_replies" => true} = node) when not is_map_key(node, "hidden_replies"),
@@ -2319,6 +2334,14 @@ defmodule AtMcp.Reading do
         ~L" left out to keep it under ",
         int(@page_chars),
         ~L" characters; the cursor continues from them."
+      ])
+
+  defp left_out(%{"over_bound" => true}),
+    do:
+      cat([
+        ~L" This page reads longer than ",
+        int(@page_chars),
+        ~L" characters: the service gave no shorter page that continues it. A smaller limit reads less."
       ])
 
   defp left_out(_page), do: nil

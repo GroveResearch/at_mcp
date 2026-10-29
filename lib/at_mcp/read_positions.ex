@@ -12,7 +12,8 @@ defmodule AtMcp.ReadPositions do
   quota.
 
   A position moves only on a read that asks it to (`since: "last_read"`,
-  unless it passes `mark_read: false`, or any read with `mark_read: true`),
+  unless it passes `mark_read: false`, or a read without `since` that passes
+  `mark_read: true`; never a read since a time, which looks back),
   only forward, and only once the read has reached it: a page whose items
   are all newer leaves items between it and the position unread, so its
   newest time is held as pending until the read that reaches the position

@@ -61,9 +61,10 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     as JSON text, or holds a grant issued with `--format json`, which makes \
     json its default.
 
-    A page of posts is at most #{AtMcp.Reading.page_chars()} characters, \
-    as text or as JSON. A page that would be longer ends early, says how \
-    many posts it left out, and its cursor continues from the first of them. \
+    A page of posts reads in at most #{AtMcp.Reading.page_chars()} \
+    characters. A page that would read longer ends early, says how many \
+    posts it left out, and its cursor continues from the first of them; a \
+    page asked for as JSON is bounded by its `limit` alone. \
     With `"detail": "brief"` a page reads each post on one line: who, when, \
     the first line of its text, its counts and its uri, which `get_posts` \
     reads whole.
@@ -75,8 +76,8 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     are new, and moves the position to the newest of them. Every client of \
     the account shares one position per feed, and it survives a restart. A \
     read moves it only once it has reached it, so no item is passed over. A \
-    read with a time as `since`, or without `since`, leaves it alone unless \
-    it passes `"mark_read": true`. A custom feed has no position: its \
+    read with a time as `since` never moves it; a read without `since` \
+    moves it only with `"mark_read": true`. A custom feed has no position: its \
     generator orders it as it chooses.
 
     | Tool | What it does |

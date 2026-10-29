@@ -54,7 +54,9 @@ defmodule AtMcp.MCP.ReadPagesTest do
                     depth: -2,
                     value: %{"$type": "app.bsky.unspecced.defs#threadItemNotFound"}
                   },
-                  thread_item(post(-1), -1, moreReplies: 2),
+                  # As V2 sends every parent: moreReplies 0, whatever its
+                  # replies; its replyCount says how many it has.
+                  thread_item(Map.put(post(-1), :replyCount, 3), -1),
                   thread_item(post(0), 0, moreReplies: 5),
                   %{
                     uri: "at://blocked",
@@ -403,6 +405,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert get_in(Enum.at(thread["replies"], 1), ["replies", Access.at(0), "replies_omitted"]) ==
              2
 
+    # A parent's count leaves out the post shown under it.
     assert thread["parent"]["replies_omitted"] == 2
     assert thread["other_replies"] == false
 
