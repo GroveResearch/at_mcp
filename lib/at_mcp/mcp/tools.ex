@@ -22,7 +22,8 @@ defmodule AtMcp.MCP.Tools do
         error(
           state,
           "membership_not_supported",
-          ~L"Membership status is available through the Delvetown backend. This connection does not support it; no request was sent."
+          ~L"Membership status is available through the Delvetown backend. This connection does not support it; no request was sent.",
+          stop()
         )
 
   def respond(
@@ -37,7 +38,8 @@ defmodule AtMcp.MCP.Tools do
             ~L"error: Invitation codes are delve.town's, and this account is on ",
             ident(AtMcp.Network.label()),
             ~L". Nothing was sent."
-          ])
+          ]),
+          stop()
         )
 
   def respond(
@@ -52,29 +54,36 @@ defmodule AtMcp.MCP.Tools do
             ~L"error: The policy pages are delve.town's, and this account is on ",
             ident(AtMcp.Network.label()),
             ~L". Nothing was sent."
-          ])
+          ]),
+          stop()
         )
 
   # A web page of the network's, such as a policy page, that could not be
   # read. The account's service took no part.
   def respond({:error, %AtMcp.Effects.Failure{detail: {:web_page, address}} = failure}, state) do
-    {code, what} =
+    {code, what, advice} =
       case failure do
         %{kind: :unreadable} ->
-          {"page_unreadable",
-           ~L" answered, and its text could not be read from the answer. Retrying will return the same result."}
+          {"page_unreadable", ~L" answered, and its text could not be read from the answer.",
+           stop(
+             ~L"Trying again will return the same result. Tell the account's operator about this error."
+           )}
+
+        %{status: status} when is_integer(status) and status in 400..499 ->
+          {"page_unavailable", cat([~L" answered HTTP ", int(status), ~L"."]), stop()}
 
         %{status: status} when is_integer(status) ->
-          {"page_unavailable", cat([~L" answered HTTP ", int(status), ~L"."])}
+          {"page_unavailable", cat([~L" answered HTTP ", int(status), ~L"."]), wait(60)}
 
         _ ->
-          {"page_unavailable", ~L" did not answer."}
+          {"page_unavailable", ~L" did not answer.", wait(60)}
       end
 
     error(
       state,
       code,
       cat([~L"error: ", url(address), what, ~L" Nothing else was sent."]),
+      advice,
       Map.reject(%{http_status: failure.status}, fn {_, v} -> is_nil(v) end)
     )
   end
@@ -95,6 +104,7 @@ defmodule AtMcp.MCP.Tools do
           literal(evidence),
           ~L". Nothing was sent and nothing was counted against the write quota."
         ]),
+        stop(),
         %{method: nsid}
       )
 
@@ -111,9 +121,12 @@ defmodule AtMcp.MCP.Tools do
           ident(nsid),
           ~L": ",
           literal(evidence),
-          ~L". Nothing was sent and nothing was counted against the write quota. ",
-          ~L"get_notifications without grouped reads the same notifications one at a time."
+          ~L". Nothing was sent and nothing was counted against the write quota."
         ]),
+        change(
+          "grouped",
+          ~L"Call get_notifications again without grouped: it reads the same notifications one at a time."
+        ),
         %{method: nsid}
       )
 
@@ -124,7 +137,7 @@ defmodule AtMcp.MCP.Tools do
          %AtMcp.Effects.Failure{kind: :refused, detail: {:wrong_record_kind, _, _}} = failure},
         state
       ),
-      do: error(state, "wrong_record_kind", composed(failure))
+      do: error(state, "wrong_record_kind", composed(failure), change("uri"))
 
   # A compare-and-swap write the service refused because the record changed
   # after AtMcp read it. Nothing was written; the message says what changed.
@@ -133,7 +146,13 @@ defmodule AtMcp.MCP.Tools do
          %AtMcp.Effects.Failure{kind: :refused, detail: {:changed_meanwhile, _}} = failure},
         state
       ),
-      do: error(state, "changed_meanwhile", composed(failure))
+      do:
+        error(
+          state,
+          "changed_meanwhile",
+          composed(failure),
+          now(~L"Read it again, then try again now if the change still applies.")
+        )
 
   # A deletion too large for one commit that stopped part way: the commits
   # that landed deleted `deleted`, and the message says what became of the
@@ -149,6 +168,7 @@ defmodule AtMcp.MCP.Tools do
           state,
           "partially_written",
           composed(failure),
+          now(~L"Call it again now to delete what is left."),
           Map.reject(%{deleted: deleted, http_status: failure.status}, fn {_, v} -> is_nil(v) end)
         )
 
@@ -156,7 +176,14 @@ defmodule AtMcp.MCP.Tools do
         {:error, %AtMcp.Effects.Failure{kind: :refused, detail: {:draft_gone, id}} = failure},
         state
       ),
-      do: error(state, "draft_not_found", composed(failure), %{id: id})
+      do:
+        error(
+          state,
+          "draft_not_found",
+          composed(failure),
+          change("id", ~L"Call save_draft without id to keep the text as a new draft."),
+          %{id: id}
+        )
 
   # A read of a record, list or starter pack the service says does not exist.
   def respond(
@@ -174,6 +201,7 @@ defmodule AtMcp.MCP.Tools do
             ident(uri),
             ~L": it was deleted, taken down, or never existed. Nothing was changed."
           ]),
+          stop(),
           %{uri: uri}
         )
 
@@ -182,7 +210,10 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "not_connected",
-        ~L"error: this account is not connected: it has no credentials. Configure it in at_mcp's accounts file."
+        ~L"error: this account is not connected: it has no credentials.",
+        stop(
+          ~L"Trying again will not help until its operator configures it in at_mcp's accounts file."
+        )
       )
 
   # A profile write with links whose outcome is unknown: the new link records
@@ -202,8 +233,11 @@ defmodule AtMcp.MCP.Tools do
         join(Enum.map(created, &ident/1), :comma),
         ~L". If the profile was not changed, nothing shows them. The link records it would stop showing were not deleted: ",
         join(Enum.map(removed, &ident/1), :comma),
-        ~L". Read the profile record before deciding whether to retry. AtMcp did not retry this uncertain write."
+        ~L". AtMcp did not retry it."
       ]),
+      check_first(
+        ~L"Don't retry until you have read the profile record, because the change may already be saved."
+      ),
       %{outcome: "unknown", created: created, not_removed: removed}
     )
   end
@@ -220,53 +254,90 @@ defmodule AtMcp.MCP.Tools do
       cat([
         ~L"error: the record was written at ",
         ident(written.uri),
-        ~L", but whether it takes effect could not be confirmed. Read the account's identity state and visible result before deciding whether to retry. AtMcp did not retry this uncertain write."
+        ~L", but whether it takes effect could not be confirmed. AtMcp did not retry it."
       ]),
+      check_first(
+        ~L"Don't retry until you have read the account's identity state and the visible result."
+      ),
       %{outcome: "unknown", written: Map.take(written, [:uri, :cid])}
     )
   end
 
-  def respond({:error, {:write_outcome_unknown, _reason}}, state) do
+  def respond({:error, {:write_outcome_unknown, reason}}, state) do
     error(
       state,
       "write_outcome_unknown",
-      ~L"error: write outcome unknown; the action may have completed. Inspect the account's current records before deciding whether to retry. AtMcp did not retry this uncertain write.",
+      cat([
+        ~L"error: write outcome unknown: ",
+        unknown_cause(reason),
+        ~L" The action may have completed, and AtMcp did not retry it."
+      ]),
+      check_first(),
       %{outcome: "unknown"}
     )
   end
 
   # AtMcp stopped the call at its deadline before anything was sent that could
   # change the account; a write that had been sent is `write_outcome_unknown`.
+  # A read says whether its request went to the service.
   def respond({:error, :call_deadline_exceeded}, state) do
-    seconds = div(AtMcp.Effects.call_deadline() + 999, 1000)
-
     error(
       state,
       "call_deadline_exceeded",
       cat([
         ~L"error: AtMcp stopped waiting after ",
-        int(seconds),
-        ~L" seconds: the account's service, or an earlier request on this account, did not answer in time. Nothing was changed. Retrying later may succeed."
-      ])
+        int(deadline_seconds()),
+        ~L" seconds. The request was not sent: it was still waiting for this account's session (a login or refresh) or for an earlier write on the account. Nothing was changed."
+      ]),
+      now(),
+      %{sent: false}
+    )
+  end
+
+  def respond({:error, {:call_deadline_exceeded, :sent}}, state) do
+    error(
+      state,
+      "call_deadline_exceeded",
+      cat([
+        ~L"error: AtMcp sent this read to the account's service and stopped waiting after ",
+        int(deadline_seconds()),
+        ~L" seconds without an answer. Nothing was changed, and no results were read."
+      ]),
+      now(
+        ~L"Trying again now is safe. If this tool takes a limit, a smaller one may get an answer sooner."
+      ),
+      %{sent: true}
     )
   end
 
   @account_errors %{
     account_disconnected:
-      ~L"This account is disconnected. Reconnect it through at_mcp's account controls; opening another client does not reconnect it.",
+      {~L"This account is disconnected. Its operator can reconnect it through at_mcp's account controls.",
+       {:stop, ~L"Until then, trying again will not help."}},
     account_identity_changed:
-      ~L"The login identity does not match this connection's expected account. Stop using this connection and repair its account configuration.",
+      {~L"The login identity does not match this connection's expected account.",
+       {:stop,
+        ~L"Trying again will not help: stop using this connection and repair its account configuration."}},
     account_runtime_unavailable:
-      ~L"The account runtime is unavailable. Inspect the account status with at_mcp-accounts. If a write was in progress, inspect the account records before retrying it.",
+      {~L"The account runtime is unavailable. at_mcp-accounts shows the account's status.",
+       {:check_first,
+        ~L"If you were writing, read the account's records before you try again, because the write may have been saved."}},
     account_authentication_failed:
-      ~L"The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied. Check the app password and reconnect; retrying the same request will not help.",
+      {~L"The account's credential was refused and could not be renewed, so this account is logged out. Nothing was applied.",
+       {:stop,
+        ~L"Trying again will not help until the app password is checked and the account reconnected."}},
     invalid_image:
-      ~L"An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type` (or `mimeType`, not two that differ), and for a post `alt` text; nothing was sent.",
+      {~L"An image could not be read. Each entry needs either base64 `data` or a file `path`, a `mime_type` (or `mimeType`, not two that differ), and for a post `alt` text; nothing was sent.",
+       {:change, "images"}},
     media_dir_unset:
-      ~L"This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Send the image as base64 `data` instead; nothing was sent.",
+      {~L"This server does not read image files: its operator has not set AT_MCP_MEDIA_DIR. Nothing was sent.",
+       {:change, "path", ~L"Send the image as base64 data instead of a path."}},
     invalid_post_text:
-      ~L"Post/reply text must be valid UTF-8. Nothing was attempted and nothing was counted against the write quota.",
-    empty_batch: ~L"Supply at least one URI or actor. Nothing was attempted."
+      {~L"Post/reply text must be valid UTF-8. Nothing was attempted and nothing was counted against the write quota.",
+       {:change, "text"}},
+    empty_batch:
+      {~L"The list of URIs or actors is empty. Nothing was attempted.",
+       {:change_any, ~L"Pass at least one URI or actor in the list and try again."}}
   }
 
   def respond({:error, :batch_too_large}, state),
@@ -277,8 +348,9 @@ defmodule AtMcp.MCP.Tools do
         cat([
           ~L"error: Ask for at most ",
           int(AtMcp.Effects.max_batch()),
-          ~L" URIs or actors in one call. Nothing was attempted; split the list and call again."
-        ])
+          ~L" URIs or actors in one call. Nothing was attempted."
+        ]),
+        change_any(~L"Split the list and call again with each part.")
       )
 
   def respond({:error, {:media_path_refused, path}}, state) do
@@ -292,6 +364,7 @@ defmodule AtMcp.MCP.Tools do
         literal(AtMcp.MediaFile.dir()),
         ~L". A path is relative to that directory, or absolute and inside it. Nothing was sent."
       ]),
+      change("path"),
       %{path: path}
     )
   end
@@ -301,16 +374,18 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "media_too_large",
-        cat([~L"error: an image file may be at most ", int(bytes), ~L" bytes. Nothing was sent."])
+        cat([
+          ~L"error: an image file may be at most ",
+          int(bytes),
+          ~L" bytes. Nothing was sent."
+        ]),
+        change("path")
       )
 
-  def respond({:error, reason}, state) when is_map_key(@account_errors, reason),
-    do:
-      error(
-        state,
-        Atom.to_string(reason),
-        cat([~L"error: ", Map.fetch!(@account_errors, reason)])
-      )
+  def respond({:error, reason}, state) when is_map_key(@account_errors, reason) do
+    {message, advice} = Map.fetch!(@account_errors, reason)
+    error(state, Atom.to_string(reason), cat([~L"error: ", message]), advice(advice))
+  end
 
   # The numbers in this one are the configured network's, not Bluesky's. An
   # agent told "at most 300 graphemes" on a network that takes 100,000 has been
@@ -327,7 +402,8 @@ defmodule AtMcp.MCP.Tools do
         ~L" Unicode graphemes and ",
         int(bytes),
         ~L" UTF-8 bytes. Nothing was attempted and nothing was counted against the write quota."
-      ])
+      ]),
+      change("text")
     )
   end
 
@@ -338,7 +414,8 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "invalid_before",
-        ~L"error: before must be the AT URI a previous call returned in chain_before. Nothing was read."
+        ~L"error: before must be the AT URI a previous call returned in chain_before. Nothing was read.",
+        change("before")
       )
 
   def respond({:error, :invalid_search_sort}, state),
@@ -346,7 +423,8 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "invalid_search_sort",
-        ~L"error: sort must be latest or top. Nothing was read."
+        ~L"error: sort must be latest or top. Nothing was read.",
+        change("sort")
       )
 
   def respond({:error, :invalid_search_filter}, state),
@@ -354,7 +432,8 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "invalid_search_filter",
-        ~L"error: author, mentions, since, until and lang must be strings when set. Nothing was read."
+        ~L"error: author, mentions, since, until and lang must be strings when set. Nothing was read.",
+        change_any(~L"Change those arguments and try again.")
       )
 
   def respond({:error, :write_quota_unavailable}, state),
@@ -362,7 +441,8 @@ defmodule AtMcp.MCP.Tools do
       error(
         state,
         "write_quota_unavailable",
-        ~L"error: account write quota unavailable; writes remain paused until AtMcp recovers"
+        ~L"error: account write quota unavailable; writes are paused until AtMcp recovers it. Nothing was sent.",
+        wait(60)
       )
 
   # A like or repost whose CID was left out, of a subject the AppView has no
@@ -374,8 +454,9 @@ defmodule AtMcp.MCP.Tools do
       cat([
         ~L"error: the AppView has no view of ",
         ident(uri),
-        ~L" (not indexed yet, deleted, or hidden by a block), so its CID could not be read. Nothing was sent. Check the URI, or pass cid if you have it (get_record gives it)."
+        ~L" (not indexed yet, deleted, or hidden by a block), so its CID could not be read. Nothing was sent."
       ]),
+      change("cid", ~L"Check the URI, or pass cid (get_record gives it) and try again."),
       %{uri: uri}
     )
   end
@@ -393,10 +474,16 @@ defmodule AtMcp.MCP.Tools do
         ident(uri),
         ~L"; the record's CID is ",
         ident(current),
-        ~L". Nothing was sent. Pass cid ",
-        ident(current),
-        ~L", or leave cid out to use the AppView's CID for it."
+        ~L". Nothing was sent."
       ]),
+      change(
+        "cid",
+        cat([
+          ~L"Pass cid ",
+          ident(current),
+          ~L", or leave cid out to use the AppView's, and try again."
+        ])
+      ),
       %{uri: uri, cid: given, current_cid: current}
     )
   end
@@ -421,6 +508,7 @@ defmodule AtMcp.MCP.Tools do
         why,
         ~L". Nothing was written and nothing was counted against the write quota."
       ]),
+      change_any(~L"Refer to another record, or check the URI, and try again."),
       Map.merge(%{uri: uri}, details)
     )
   end
@@ -436,6 +524,7 @@ defmodule AtMcp.MCP.Tools do
         ident(uri),
         ~L"; the app disables reply to it too. Nothing was written and nothing was counted against the write quota."
       ]),
+      stop(~L"Trying again will not help unless the thread's author changes the rule."),
       %{uri: uri}
     )
   end
@@ -452,6 +541,7 @@ defmodule AtMcp.MCP.Tools do
         ident(handle),
         ~L". Nothing was counted against the write quota."
       ]),
+      change("actor"),
       %{handle: handle}
     )
   end
@@ -472,6 +562,7 @@ defmodule AtMcp.MCP.Tools do
         literal(message),
         ~L". Nothing was sent and nothing was counted against the write quota."
       ]),
+      change(path),
       %{problems: [%{path: path, message: message}]}
     )
   end
@@ -482,14 +573,12 @@ defmodule AtMcp.MCP.Tools do
     error(
       state,
       "write_quota_exhausted",
-      cat([~L"error: account write quota exhausted; resets at ", time(reset)]),
+      ~L"error: account write quota exhausted. Nothing was sent.",
+      later(reset),
       %{resets_at: reset}
     )
   end
 
-  # An application service refusing or failing a request is an ordinary outcome
-  # an agent must be able to act on. Report what it said and whether retrying
-  # could help, without publishing the internals of the client library.
   # AtMcp could not read what the service sent. Saying "the request did not
   # complete" would be false twice over — it completed, and the service answered
   # — and it would send an agent into a retry loop against a condition that is
@@ -501,53 +590,108 @@ defmodule AtMcp.MCP.Tools do
       cat([
         ~L"error: ",
         literal(upstream.message),
-        ~L" Nothing was applied and nothing was read. Retrying will return the same result; report this rather than repeating it."
+        ~L" Nothing was applied and nothing was read."
       ]),
+      stop(
+        ~L"Trying again will return the same result. Tell the account's operator about this error."
+      ),
       Map.reject(%{http_status: upstream.status}, fn {_, v} -> is_nil(v) end)
     )
   end
 
+  # An application service refusing or failing a request is an ordinary outcome
+  # an agent must be able to act on. Report what it said and whether retrying
+  # could help, without publishing the internals of the client library. When
+  # the service fails a read, this clause reports an error with no items, so a
+  # search that got no answer doesn't look like a search with no matches.
   def respond({:error, %AtMcp.Effects.Failure{kind: kind} = upstream}, state)
       when kind in [:refused, :auth_refused, :indeterminate] do
     status = upstream.status
     detail = upstream_detail(upstream)
 
-    {code, guidance} =
+    {code, guidance, advice} =
       cond do
         status == 501 ->
           {"upstream_not_implemented",
-           ~L"The account's service reports that this operation is not implemented. Repeating the same request is not expected to help; check which operations the service supports."}
+           ~L"The account's service does not implement this operation.",
+           stop(~L"Trying again will not help: the service does not offer it.")}
 
         status == 429 ->
-          {"upstream_rate_limited",
-           ~L"The account's service is rate limiting this client. Wait before retrying."}
+          {"upstream_rate_limited", ~L"The account's service is rate limiting this client.",
+           wait(60)}
 
         is_integer(status) and status >= 500 ->
           {"upstream_unavailable",
-           ~L"The account's service is unavailable. The request was not applied; retrying later may succeed."}
+           ~L"The account's service is unavailable. The request was not applied.", wait(30)}
 
         is_integer(status) and status in 400..499 ->
-          {"upstream_rejected",
-           ~L"The account's service rejected this request. Check the request before retrying it unchanged."}
+          {"upstream_rejected", ~L"The account's service rejected this request.",
+           change_any(
+             ~L"Change the request before trying again, because the same request will be refused again."
+           )}
+
+        # A failure with no status: a read that got no answer, or a request
+        # refused before it was sent (a write that may have been sent is a
+        # write_outcome_unknown, not this).
+        kind == :indeterminate ->
+          {"upstream_failed",
+           ~L"The request to the account's service did not complete, so nothing was changed and no results were read.",
+           now()}
 
         true ->
-          {"upstream_failed", ~L"The request to the account's service did not complete."}
+          {"upstream_rejected", ~L"The request was refused before it was applied.",
+           change_any(
+             ~L"Change the request before trying again, because the same request will be refused again."
+           )}
       end
 
     error(
       state,
       code,
       cat([~L"error: ", detail, ~L" ", guidance]),
+      advice,
       Map.reject(%{http_status: status, upstream_message: upstream.message}, fn {_, v} ->
         is_nil(v)
       end)
     )
   end
 
+  # A reason with no shape of its own. A string is AtMcp refusing an argument
+  # in its own words; an atom names a refusal of AtMcp's.
+  def respond({:error, reason}, state) when is_binary(reason),
+    do:
+      error(
+        state,
+        "invalid_arguments",
+        cat([~L"error: ", literal(reason), ~L"."]),
+        change_any(~L"Change the arguments and try again.")
+      )
+
+  def respond({:error, :invalid_include_replies}, state),
+    do:
+      error(
+        state,
+        "invalid_arguments",
+        ~L"error: include_replies must be true or false. Nothing was read.",
+        change("include_replies")
+      )
+
+  # A reason AtMcp did not classify. Writes whose outcome is unknown arrive as
+  # `write_outcome_unknown` above, so this is not one; but AtMcp cannot say
+  # whether trying again will help.
   def respond({:error, reason}, state),
     do:
-      {:ok, ExMCP.Server.DSL.Result.error(to_text(cat([~L"error: ", reason_text(reason)]))),
-       state}
+      error(
+        state,
+        "failed",
+        cat([~L"error: ", reason_text(reason), ~L"."]),
+        %{
+          retry: "unknown",
+          sentence:
+            ~L"AtMcp did not recognize this failure, so it can't say whether trying again will help.",
+          fields: %{}
+        }
+      )
 
   def respond(other, state), do: {:ok, encode(other), state}
 
@@ -754,6 +898,7 @@ defmodule AtMcp.MCP.Tools do
             ident(uri),
             ~L" could be read. It may be deleted, not indexed yet, or not a post. No image was fetched."
           ]),
+          change("uri"),
           %{uri: uri}
         )
 
@@ -912,11 +1057,109 @@ defmodule AtMcp.MCP.Tools do
      ]), Map.reject(%{cause: "refused", service_error: name}, fn {_, v} -> is_nil(v) end)}
   end
 
+  # Every error ends with one sentence saying what the agent can do about it,
+  # and says the same in `retry` (with `retry_after` or `argument` where it
+  # names one), so an agent reading either half of the result can act:
+  #
+  #   * `now`: trying again now is safe and may succeed;
+  #   * `after`: try again later, after `retry_after` when the write quota gave
+  #     a time, otherwise after the wait the sentence states;
+  #   * `change_argument`: change the arguments and try again, the one named
+  #     in `argument` when one caused the error;
+  #   * `check_first`: a write's outcome is unknown, so read before retrying;
+  #   * `no`: trying again will not help;
+  #   * `unknown`: AtMcp did not recognize the failure.
+  #
+  # The structured result carries the whole text as `message` too: some hosts
+  # give the model only the structured half.
+  #
   # `message` is a piece; `to_text/1` takes nothing else.
-  defp error(state, code, message, details \\ %{}) do
-    result = ExMCP.Server.DSL.Result.error(to_text(message))
-    {:ok, Map.put(result, :structuredContent, Map.merge(%{code: code}, details)), state}
+  defp error(state, code, message, %{retry: _} = advice, details \\ %{}) do
+    text = to_text(cat([message, ~L" ", advice.sentence]))
+
+    structured =
+      %{code: code, message: text, retry: advice.retry}
+      |> Map.merge(advice.fields)
+      |> Map.merge(details)
+
+    {:ok, Map.put(ExMCP.Server.DSL.Result.error(text), :structuredContent, structured), state}
   end
+
+  @doc false
+  # The advice for a refusal made outside this module (`AtMcp.MCP.Input`), as
+  # the sentence's text and the structured fields to merge.
+  def advice_for({:change, argument}) do
+    advice =
+      if argument,
+        do: change(argument),
+        else: change_any(~L"Change the arguments and try again.")
+
+    {to_text(advice.sentence), Map.put(advice.fields, :retry, advice.retry)}
+  end
+
+  def advice_for(:check_first) do
+    advice = check_first()
+    {to_text(advice.sentence), %{retry: advice.retry}}
+  end
+
+  defp advice({:stop, sentence}), do: stop(sentence)
+  defp advice({:check_first, sentence}), do: check_first(sentence)
+  defp advice({:change, argument}), do: change(argument)
+  defp advice({:change, argument, sentence}), do: change(argument, sentence)
+  defp advice({:change_any, sentence}), do: change_any(sentence)
+
+  defp now(sentence \\ ~L"Trying again now is safe and may succeed."),
+    do: %{retry: "now", sentence: sentence, fields: %{}}
+
+  # A wait AtMcp chose, with no time the service gave: the sentence says
+  # roughly how long, and no `retry_after` is given, since none is known.
+  defp wait(seconds) do
+    how_long = if seconds >= 60, do: ~L"about a minute", else: ~L"about half a minute"
+    %{retry: "after", sentence: cat([~L"Wait ", how_long, ~L", then try again."]), fields: %{}}
+  end
+
+  defp later(at),
+    do: %{
+      retry: "after",
+      sentence: cat([~L"Try again after ", time(at), ~L"."]),
+      fields: %{retry_after: at}
+    }
+
+  defp change(argument),
+    do: change(argument, cat([~L"Change ", ident(argument), ~L" and try again."]))
+
+  defp change(argument, sentence),
+    do: %{retry: "change_argument", sentence: sentence, fields: %{argument: argument}}
+
+  # An argument should change, and no one argument can be named.
+  defp change_any(sentence), do: %{retry: "change_argument", sentence: sentence, fields: %{}}
+
+  defp check_first(
+         sentence \\ ~L"Don't retry until you have read the account's records: the write may have happened."
+       ),
+       do: %{retry: "check_first", sentence: sentence, fields: %{}}
+
+  defp stop(sentence \\ ~L"Trying again will not help."),
+    do: %{retry: "no", sentence: sentence, fields: %{}}
+
+  defp deadline_seconds, do: div(AtMcp.Effects.call_deadline() + 999, 1000)
+
+  # What left a write's outcome unknown, as far as AtMcp knows it.
+  defp unknown_cause(:call_deadline_exceeded),
+    do:
+      cat([
+        ~L"the write was sent and no answer came within ",
+        int(deadline_seconds()),
+        ~L" seconds."
+      ])
+
+  defp unknown_cause(:account_runtime_stopped),
+    do: ~L"the account's runtime stopped after the write was sent."
+
+  defp unknown_cause(%AtMcp.Effects.Failure{} = failure),
+    do: cat([upstream_detail(failure), ~L" The answer doesn't say whether the write was saved."])
+
+  defp unknown_cause(_reason), do: ~L"the answer to the write was lost."
 
   defp maybe_kw(kw, _key, nil), do: kw
   defp maybe_kw(kw, key, value), do: Keyword.put(kw, key, value)
