@@ -227,6 +227,8 @@ defmodule AtMcp.MCP.ToolsTest do
     {"mute", %{"actor" => "alice.test"}},
     {"unmute", %{"actor" => "alice.test"}},
     {"delete_post", %{"uri" => "at://did:plc:mock/app.bsky.feed.post/3k22222222222"}},
+    {"put_record", %{"collection" => "sh.tangled.repo.issue", "record" => %{"title" => "t"}}},
+    {"delete_record", %{"collection" => "sh.tangled.repo.issue", "rkey" => "3k22222222222"}},
     {"update_profile",
      %{
        "display_name" => "AtMcp",

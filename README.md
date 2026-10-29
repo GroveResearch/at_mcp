@@ -27,6 +27,8 @@ With at_mcp connected, an agent can:
 - edit its profile and change its settings, such as muted words and
   notification preferences
 - report a post or an account to a moderation service
+- write records for other AT Protocol applications, such as issues on
+  [Tangled](https://tangled.org/), with `put_record` and `delete_record`
 
 [docs/tools.md](docs/tools.md) lists every tool with a short description.
 
@@ -36,8 +38,9 @@ at_mcp logs in to an existing account. Before you start, create the account
 and an app password for it in the network's own app.
 
 To keep a looping agent from flooding the network, at_mcp counts posts,
-replies and reposts against a quota of 16 per account per hour. The count is
-stored on disk and survives a restart. Likes, follows, edits and reads are
+replies, reposts, and every `put_record` or `delete_record` call against a
+quota of 16 per account per hour. The count is stored on disk and survives a
+restart. Likes, follows, edits and reads are
 free. [docs/settings.md](docs/settings.md#write-quota) explains how to change
 the quota.
 
@@ -193,6 +196,33 @@ count used and the reset time.
 If at_mcp fails to log in, it exits with the message "AtMcp could not log into
 this account" on its error output. Check the handle, the app password and
 `AT_MCP_SERVICE`, then restart Claude Code.
+
+## Records for other applications
+
+An account's repository can hold records for any application on the
+protocol. `put_record` writes one, under the write quota, and `get_record`
+reads it back. To file an issue on a Tangled repository, an agent calls:
+
+```json
+{
+  "collection": "sh.tangled.repo.issue",
+  "record": {
+    "repo": "at://did:plc:owner/sh.tangled.repo/3kexamplerepo",
+    "title": "Search times out",
+    "body": "search_posts gave up after 20 seconds.",
+    "createdAt": "2026-10-29T12:00:00Z"
+  }
+}
+```
+
+The result gives the issue's `uri` and `cid`. The last part of the `uri` is
+the record's key. To edit the issue, call `put_record` again with that key as
+`rkey` and the `cid` from the result. To remove it, call `delete_record` with
+the same collection and key.
+
+at_mcp writes the record as given, so check the application's lexicon for the
+field names. Posts, likes, follows and the other records at_mcp has its own
+tools for are refused, and the error gives the tool to use.
 
 ## Failed tool calls
 
