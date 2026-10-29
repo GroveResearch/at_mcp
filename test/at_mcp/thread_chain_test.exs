@@ -3,12 +3,12 @@ defmodule AtMcp.ThreadChainTest do
 
   alias AtMcp.Effects.ProtoRune, as: Backend
 
-  @root "at://did:plc:rootauthor/app.bsky.feed.post/root"
-  @upper "at://did:plc:other/app.bsky.feed.post/upper"
-  @mid "at://did:plc:self/app.bsky.feed.post/mid"
-  @leaf "at://did:plc:other/app.bsky.feed.post/leaf"
-  @gone "at://did:plc:other/app.bsky.feed.post/gone"
-  @blocked "at://did:plc:blockedauthor/app.bsky.feed.post/blocked"
+  @root "at://did:plc:rootauthor/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("root")}"
+  @upper "at://did:plc:other/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("upper")}"
+  @mid "at://did:plc:self/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("mid")}"
+  @leaf "at://did:plc:other/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("leaf")}"
+  @gone "at://did:plc:other/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("gone")}"
+  @blocked "at://did:plc:blockedauthor/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("blocked")}"
 
   # Taller than the chain can carry, so the cut is visible: elements 0 (the
   # requested post) through 150 (the root).
@@ -302,7 +302,7 @@ defmodule AtMcp.ThreadChainTest do
   # Every read makes progress and none of them reaches the declared root: the
   # form the walk limit exists for.
   def body(:never_reaches_root, uri) do
-    n = uri |> Path.basename() |> String.replace("step", "") |> String.to_integer()
+    n = uri |> Path.basename() |> AtMcp.Test.Keys.number("step")
 
     %{
       "thread" => %{
@@ -355,10 +355,10 @@ defmodule AtMcp.ThreadChainTest do
     }
   end
 
-  def page_uri(n), do: "at://did:plc:other/app.bsky.feed.post/page#{n}"
+  def page_uri(n), do: "at://did:plc:other/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("page", n)}"
 
   defp page_index(uri),
-    do: uri |> Path.basename() |> String.replace("page", "") |> String.to_integer()
+    do: uri |> Path.basename() |> AtMcp.Test.Keys.number("page")
 
   # Index 0 is the requested post and @page_height is the root, so a parent
   # link counts upward.
@@ -377,8 +377,8 @@ defmodule AtMcp.ThreadChainTest do
   defp page_post(n),
     do: post(page_uri(n), "did:plc:other", reply: {page_uri(@page_height), page_uri(n + 1)})
 
-  def deep_uri(n), do: "at://did:plc:other/app.bsky.feed.post/deep#{n}"
-  def step_uri(n), do: "at://did:plc:other/app.bsky.feed.post/step#{n}"
+  def deep_uri(n), do: "at://did:plc:other/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("deep", n)}"
+  def step_uri(n), do: "at://did:plc:other/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("step", n)}"
 
   defp tall_parent(n) when n < @tall_height do
     %{
@@ -417,7 +417,8 @@ defmodule AtMcp.ThreadChainTest do
     }
   end
 
-  def reply_uri(n), do: "at://did:plc:replier/app.bsky.feed.post/reply#{n}"
+  def reply_uri(n),
+    do: "at://did:plc:replier/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("reply", n)}"
 
   defp label, do: %{"src" => @labeler, "val" => "custom", "uri" => @leaf}
 

@@ -255,7 +255,7 @@ defmodule AtMcp.ReadingTest do
 
     assert {:ok, _} = AtMcp.Effects.login(effects)
     state = %{effects: effects}
-    uri = "at://did:plc:mock/app.bsky.feed.post/2"
+    uri = "at://did:plc:mock/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("two")}"
 
     # The text alone, as every host's model receives it.
     assert {:ok, %{content: [%{text: text}]} = result, ^state} =

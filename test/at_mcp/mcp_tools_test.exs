@@ -138,7 +138,9 @@ defmodule AtMcp.MCP.ToolsTest do
     {:ok, effects} = AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend)
     assert {:ok, _} = AtMcp.Effects.login(effects)
 
-    oversized = Enum.map(1..26, &"at://did:plc:mock/app.bsky.feed.post/#{&1}")
+    oversized =
+      Enum.map(1..26, &"at://did:plc:mock/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", &1)}")
+
     assert {:error, :batch_too_large} = AtMcp.Effects.get_posts(effects, oversized)
     assert {:error, :batch_too_large} = AtMcp.Effects.get_profiles(effects, oversized)
     assert {:error, :empty_batch} = AtMcp.Effects.get_posts(effects, [])

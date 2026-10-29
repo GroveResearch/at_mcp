@@ -192,7 +192,9 @@ defmodule AtMcp.MCP.ReadPagesTest do
 
     defp post(n),
       do: %{
-        uri: "at://did:plc:fixture/app.bsky.feed.post/#{n}",
+        # A post's key is a TID; the parents above post 0 are numbered below it.
+        uri:
+          "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid(if(n < 0, do: "above", else: "post"), abs(n))}",
         cid: "cid#{n}",
         record: %{text: String.duplicate("🪁日本語é", 60)},
         author: %{did: "did:plc:author#{n}", handle: "author#{n}.example"}
@@ -267,7 +269,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert {"limit", "30"} in pairs
     refute List.keymember?(pairs, "cursor", 0)
 
-    assert item.uri == "at://did:plc:fixture/app.bsky.feed.post/1"
+    assert item.uri == "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", 1)}"
     assert item.cid == "cid1"
     assert item.indexed_at == "2026-09-13T12:34:56.123Z"
     assert item.subject_uri == "at://did:plc:parent/app.bsky.feed.post/p"
@@ -391,8 +393,14 @@ defmodule AtMcp.MCP.ReadPagesTest do
   test "thread context retains nesting and unavailable nodes and reports omitted siblings", %{
     client: client
   } do
-    thread = call(client, "get_thread", %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/0"})
-    assert thread["uri"] == "at://did:plc:fixture/app.bsky.feed.post/0"
+    thread =
+      call(client, "get_thread", %{
+        "uri" => "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", 0)}"
+      })
+
+    assert thread["uri"] ==
+             "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", 0)}"
+
     assert thread["parent"]["parent"]["not_found"]
     assert thread["parent"]["parent"]["uri"] == "at://missing"
     assert hd(thread["replies"])["blocked"]
@@ -507,11 +515,14 @@ defmodule AtMcp.MCP.ReadPagesTest do
      :profile},
     {"get_blocks", %{}, "app.bsky.graph.getBlocks", :profile},
     {"get_mutes", %{}, "app.bsky.graph.getMutes", :profile},
-    {"get_likes", %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/0"},
+    {"get_likes",
+     %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", 0)}"},
      "app.bsky.feed.getLikes", :profile},
-    {"get_reposted_by", %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/0"},
+    {"get_reposted_by",
+     %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", 0)}"},
      "app.bsky.feed.getRepostedBy", :profile},
-    {"get_quotes", %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/0"},
+    {"get_quotes",
+     %{"uri" => "at://did:plc:fixture/app.bsky.feed.post/#{AtMcp.Test.Keys.tid("post", 0)}"},
      "app.bsky.feed.getQuotes", :post},
     {"get_actor_likes", %{"actor" => "reader.example"}, "app.bsky.feed.getActorLikes", :post},
     {"get_feed", %{"feed" => "at://did:plc:gen/app.bsky.feed.generator/hot"},

@@ -211,7 +211,7 @@ try {
   assert.equal(timeline.items[0].author_did, 'did:plc:other');
   assert.equal(timeline.items[0].viewer.like, 'at://did:plc:alice/app.bsky.feed.like/1');
   assert.equal(timeline.cursor, '2026-09-08T00:00:00Z::1');
-  const thread = await call(a, 'get_thread', {uri: 'at://did:plc:other/app.bsky.feed.post/2'});
+  const thread = await call(a, 'get_thread', {uri: 'at://did:plc:other/app.bsky.feed.post/3ktwo22222222'});
   assert.equal(thread.text, 'node 2 🪁');
   assert.equal(thread.parent.uri, 'at://did:plc:root/app.bsky.feed.post/1');
   assert.equal(thread.replies.length, 1);
