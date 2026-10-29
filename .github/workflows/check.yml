@@ -94,19 +94,25 @@ jobs:
           elixir-version: "1.19.6"
           otp-version: "28.5.0.7"
 
+      # The cache holds compiled dependencies only, for one runner image: the
+      # key names the image the jobs below run on, and `_build/*/rel` is kept
+      # out. A release left in a cached `_build` survived `mix release
+      # --overwrite`, which keeps any erts file already there, so the suite
+      # ran an erts built on a newer Ubuntu than this runner (#210).
       - uses: actions/cache@v6
         with:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
       # AtMcp itself is always compiled whole, so `--warnings-as-errors` sees
       # every file and the native lock is built from this checkout.
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       - run: mix format --check-formatted
 
@@ -180,12 +186,13 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       # The official client packages gate the independent MCP checks. Without
       # them those tests skip, which is the failure this job exists to catch.
@@ -267,12 +274,13 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       - name: Build documentation and the local Hex package
         run: |
@@ -307,7 +315,8 @@ jobs:
   # says so and runs nothing. `test` does not wait for it.
   hosts:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # On build's runner, to share its dependency cache, whose key names it.
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
       MIX_ENV: test
@@ -339,8 +348,9 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - name: Install Claude Code
         if: env.ANTHROPIC_API_KEY != ''
