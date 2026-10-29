@@ -36,10 +36,10 @@ call its functions directly ([docs/embedding.md](../embedding.md)).
 
 ## What the model sees
 
-Imp's default (`result_mode: :text`) gives the model a result's text. From
-0.3.0 a read returns only text, the one at_mcp writes for a model: each
-post's author, time, text and identifiers. A write's text is a short JSON
-summary of what it did. Imp's own test of this is `test/mcp_content_mode_test.exs`
+Imp's default, `result_mode: :text`, gives the model a result's text. From
+0.3.0, a read returns only the text at_mcp writes for a model: each post's
+author, time, text and identifiers. A write returns a short JSON summary of
+what it did. Imp's own test of this is `test/mcp_content_mode_test.exs`
 in its repository.
 
 ## Get JSON
@@ -52,15 +52,15 @@ tool = Enum.find(import.tools, &(to_string(&1.name) == "get_thread"))
 Imp.MCP.call(tool, %{"uri" => uri, "format" => "json"}, result_mode: :structured)
 ```
 
-The result is the full summary as a map. Dwell does this where it reads a
-thread to decide what to do.
+The result is the full summary as a map. Dwell passes `"format": "json"` on
+its two thread reads, which decide what a resident does.
 
 ## The full tool set
 
-at_mcp lists a default set of 43 tools to keep what the model reads up
-front small: everything an agent living on the network uses, and the tools
-for its own records. The full set is every tool. Any tool answers when
-called by name, listed or not.
+at_mcp lists 43 tools by default, to keep the tool list the model reads
+small. That list covers posting, reading and replying, plus the tools for the
+account's own records. An agent can call any other tool by name, even when
+it isn't listed.
 
 For the full set, add `--tools full` when issuing the program's grant
 (`at_mcp-accounts connection alice --tools full`). A program can also leave
@@ -74,11 +74,9 @@ run ([docs/delivery.md](../delivery.md)). Dwell is such a program: it
 receives each delivery and wakes the resident it names. An Imp program of
 your own can receive them the same way, or run behind the example receiver.
 
-at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
-alone. It takes the service's deliveries, keeps replies, mentions and
-quotes, waits until the account has been quiet for 30 seconds so a burst of
-notifications is one wake, and then runs a command you give it, with a short
-summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
+The example receiver `examples/wake.py` runs a command when replies,
+mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
+says how it decides when.
 
 In the service's environment file:
 

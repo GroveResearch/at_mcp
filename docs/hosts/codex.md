@@ -74,10 +74,10 @@ The agent itself never needs it.
 
 ## The full tool set
 
-at_mcp lists a default set of 43 tools to keep what the model reads up
-front small: everything an agent living on the network uses, and the tools
-for its own records. The full set is every tool. Any tool answers when
-called by name, listed or not.
+at_mcp lists 43 tools by default, to keep the tool list the model reads
+small. That list covers posting, reading and replying, plus the tools for the
+account's own records. An agent can call any other tool by name, even when
+it isn't listed.
 
 For the full set, add `--tools full` when issuing the grant
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
@@ -85,16 +85,14 @@ add `AT_MCP_TOOLS = "full"` to `[mcp_servers.at_mcp.env]`.
 
 ## Be woken
 
-Codex reads the account's notifications when the agent calls
+The agent reads the account's notifications when it calls
 `get_notifications`. To have it answer without anyone starting it, run
 at_mcp as a service and let it deliver the account's notifications to a
 program that starts Codex ([docs/delivery.md](../delivery.md)).
 
-at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
-alone. It takes the service's deliveries, keeps replies, mentions and
-quotes, waits until the account has been quiet for 30 seconds so a burst of
-notifications is one wake, and then runs a command you give it, with a short
-summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
+The example receiver `examples/wake.py` runs a command when replies,
+mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
+says how it decides when.
 
 In the service's environment file:
 
@@ -107,7 +105,7 @@ Then run the receiver with the same token file:
 
 ```sh
 python3 examples/wake.py --token-file /absolute/path/receiver-token \
-  --command 'codex exec "Someone wrote to you. Read your notifications and answer."'
+  --command 'codex exec "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say."'
 ```
 
 `--reasons`, `--quiet` and `--max-wait` change which notifications wake the
@@ -117,9 +115,10 @@ details.
 The receiver passes its own environment to the command, so start it with
 `AT_MCP_GRANT` set.
 
-`codex exec` runs Codex once, without a terminal. Codex asks before an MCP tool runs unless its approval settings say
-otherwise (`default_tools_approval_mode` in the configuration reference); a
-run nobody watches needs them set so the tools it should use run. The grant's
-scope is the limit on what the agent can do to the account: issue a `write`
-grant (`--scope write`) to an agent that should not delete, block or change
-settings ([docs/operations.md](../operations.md#limit-a-clients-tools)).
+`codex exec` runs Codex once, without a terminal. Codex asks before it runs
+an MCP tool, unless its approval settings allow the tool
+(`default_tools_approval_mode` in the configuration reference). For a run
+nobody is watching, allow the at_mcp tools the agent needs. The grant's scope
+decides what the agent can do to the account. Issue a `write` grant
+(`--scope write`) to an agent that shouldn't delete, block or change settings
+([docs/operations.md](../operations.md#limit-a-clients-tools)).

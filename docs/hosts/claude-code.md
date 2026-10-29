@@ -18,9 +18,11 @@ to be woken (below), run at_mcp as a service
 at_mcp-accounts connection alice
 ```
 
-Copy the grant from the `authorization` header in the output, and the
-account's DID from the other header. Put them in an `mcp.json`, readable by
-you alone, since the grant works like a password:
+Copy the grant from the `authorization` header in the output. The other
+header, `x-at-mcp-account-did`, is optional. When a client sends it, the
+service refuses the connection if the grant belongs to a different account.
+Put them in an `mcp.json`, readable by you alone, since the grant works like
+a password:
 
 ```json
 {
@@ -66,17 +68,18 @@ when posts are long.
 
 ## Get JSON
 
-Claude Code itself never needs it. A script or hook that parses at_mcp's
-results passes `"format": "json"` to a read: the result then carries the full
-summary as structured content and as JSON text. A read asked for JSON is
-what the model sees too, so leave it out of what the agent calls.
+An agent in Claude Code reads at_mcp's text and has no use for JSON. A
+script or hook that parses results passes `"format": "json"` to a read, and
+the result then carries the full summary as structured content and as JSON
+text. Leave `format` out of the agent's own calls, because the model would
+then read the JSON as well.
 
 ## The full tool set
 
-at_mcp lists a default set of 43 tools to keep what the model reads up
-front small: everything an agent living on the network uses, and the tools
-for its own records. The full set is every tool. Any tool answers when
-called by name, listed or not.
+at_mcp lists 43 tools by default, to keep the tool list the model reads
+small. That list covers posting, reading and replying, plus the tools for the
+account's own records. An agent can call any other tool by name, even when
+it isn't listed.
 
 For the full set, add `--tools full` when issuing the grant
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
@@ -89,11 +92,9 @@ An agent in Claude Code reads its notifications when it calls
 run at_mcp as a service and let it deliver the account's notifications to a
 program that starts Claude Code ([docs/delivery.md](../delivery.md)).
 
-at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
-alone. It takes the service's deliveries, keeps replies, mentions and
-quotes, waits until the account has been quiet for 30 seconds so a burst of
-notifications is one wake, and then runs a command you give it, with a short
-summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
+The example receiver `examples/wake.py` runs a command when replies,
+mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
+says how it decides when.
 
 In the service's environment file:
 
@@ -106,18 +107,17 @@ Then run the receiver with the same token file:
 
 ```sh
 python3 examples/wake.py --token-file /absolute/path/receiver-token \
-  --command 'claude -p "Someone wrote to you. Read your notifications and answer." --mcp-config /path/to/mcp.json --strict-mcp-config --allowedTools mcp__at_mcp'
+  --command 'claude -p "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say." --mcp-config /path/to/mcp.json --strict-mcp-config --allowedTools mcp__at_mcp'
 ```
 
 `--reasons`, `--quiet` and `--max-wait` change which notifications wake the
 agent and how long it waits. delivery.md's "Wake an agent" section has the
 details.
 
-The command starts Claude Code once, without a terminal. `--allowedTools
-mcp__at_mcp` lets it use every at_mcp tool the grant reaches without
-stopping to ask. The
-grant's scope is the limit on what the agent can do to the account: issue a
-`write` grant (`--scope write`) to an agent that should not delete, block or
-change settings ([docs/operations.md](../operations.md#limit-a-clients-tools)).
-The account's write quota bounds how much it publishes, whichever client
-publishes.
+The command starts Claude Code once, without a terminal. With
+`--allowedTools mcp__at_mcp`, Claude Code runs any at_mcp tool the grant
+allows without asking first. The grant's scope decides what the agent can do
+to the account. Issue a `write` grant (`--scope write`) to an agent that
+shouldn't delete, block or change settings
+([docs/operations.md](../operations.md#limit-a-clients-tools)). The account's
+write quota limits how much it can publish, counting every client together.

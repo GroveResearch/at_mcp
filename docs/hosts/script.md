@@ -1,8 +1,8 @@
 # A plain script
 
-A program with no MCP library can still use at_mcp: the service speaks MCP
-as JSON over HTTP on this machine, and a script needs only an HTTP client
-and a JSON parser.
+A program with no MCP library can still use at_mcp: the service accepts MCP
+messages as JSON over HTTP on this machine, so a script needs only an HTTP
+client and a JSON parser.
 
 ## Connect
 
@@ -71,17 +71,19 @@ written for a model, which a script should not parse. A write always
 returns its JSON summary. [docs/tools.md](../tools.md) lists every tool and
 its arguments.
 
-A failed call has `isError: true` and its reason as text. A write's
-refusal, and a read's asked for JSON, also carry a `code` in the structured
-content. A write whose outcome is unknown says `outcome: "unknown"`: it may
-have happened, so read the account before trying again.
+A failed call has `isError: true` and a reason in its text. A failed write,
+and a failed read that passed `"format": "json"`, also have a `code` in
+their structured content; a read without it returns text alone, errors
+included. When a write's outcome is unknown, the result says
+`outcome: "unknown"`. The write may have happened, so read the account
+before trying again.
 
 ## The full tool set
 
-at_mcp lists a default set of 43 tools to keep what the model reads up
-front small: everything an agent living on the network uses, and the tools
-for its own records. The full set is every tool. Any tool answers when
-called by name, listed or not.
+at_mcp lists 43 tools by default, to keep the tool list the model reads
+small. That list covers posting, reading and replying, plus the tools for the
+account's own records. An agent can call any other tool by name, even when
+it isn't listed.
 
 A script that calls tools by name needs no setting. To list every tool
 with `tools/list`, issue the grant with `--tools full`.
@@ -93,11 +95,9 @@ receives each one as an HTTP `POST` with a JSON body
 ([docs/delivery.md](../delivery.md), "Write a receiver"). Or run it as the
 command the example receiver starts when notifications arrive.
 
-at_mcp ships an example receiver, `examples/wake.py`, which needs Python 3
-alone. It takes the service's deliveries, keeps replies, mentions and
-quotes, waits until the account has been quiet for 30 seconds so a burst of
-notifications is one wake, and then runs a command you give it, with a short
-summary of what arrived on the command's input and in `AT_MCP_WAKE_SUMMARY`.
+The example receiver `examples/wake.py` runs a command when replies,
+mentions or quotes arrive; [the hosts overview](README.md#the-example-receiver)
+says how it decides when.
 
 In the service's environment file:
 

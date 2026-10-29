@@ -22,9 +22,9 @@ client at a time: a second client on the same account cannot start.
 
 **Several clients, or an agent that is woken:** run at_mcp as a service,
 which stays up on its own and serves every client over HTTP on this
-machine. Each client holds a grant, a token naming the account and how much
-of it the client may use (`at_mcp-accounts connection NAME`). Only the
-service can deliver the account's notifications to a program that wakes the
+machine. Each client holds a grant: a token for one account that sets which
+of the account's tools the client may use (`at_mcp-accounts connection
+NAME`). Only the service can deliver the account's notifications to a program that wakes the
 agent. [docs/operations.md](../operations.md) sets it up, and the
 README's "One client or several?" section says which to choose.
 
@@ -33,9 +33,20 @@ README's "One client or several?" section says which to choose.
 From 0.3.0, every read tool answers with text written for a model: who
 wrote each post, when, what it says (each line of someone else's words
 after `> `), and the identifiers the write tools take. A write answers with
-a short JSON summary of what it did. Every host shows the model the same
-thing.
+a short JSON summary of what it did. All of these hosts give the model the
+same text. Some of them shorten or move a long result, as each host's page
+explains.
 
 A program that parses results passes `"format": "json"` to a read, and gets
 the full summary as JSON, in the result's `structuredContent` and as its
 text. [docs/tools.md](../tools.md) lists every tool.
+
+## The example receiver
+
+The example receiver `examples/wake.py` comes with at_mcp and needs only
+Python 3. It accepts the service's deliveries and keeps replies, mentions
+and quotes. After 30 seconds with no new reply, mention or quote, it runs
+your command once. Likes and other activity don't reset that wait. When
+replies keep arriving, `--max-wait` (300 seconds by default) caps it. The
+command gets a short summary of those events on its standard input and in
+`AT_MCP_WAKE_SUMMARY`. Each host's page shows the command for that host.
