@@ -207,6 +207,51 @@ defmodule AtMcp.InputSchemaTest do
     assert text =~ "images/0: " <> message
   end
 
+  test "a value outside an enum is refused with the values the schema allows there" do
+    assert {:ok, %{isError: true} = result, :state} =
+             AtMcp.MCP.Server.handle_call_tool("get_policy", %{"page" => "nope"}, :state)
+
+    assert %{problems: [%{path: "page", message: message}]} = result.structuredContent
+    allowed = published()["get_policy"]["properties"]["page"]["enum"]
+    assert message == "Value is not allowed in enum. Allowed values: #{Enum.join(allowed, ", ")}."
+    assert hd(result.content).text =~ "page: " <> message
+
+    # Every enum argument of every tool, so none is left saying only "not allowed".
+    enums =
+      for {tool, schema} <- published(),
+          {name, %{"enum" => values}} <- Map.get(schema, "properties", %{}),
+          Enum.all?(values, &is_binary/1),
+          do: {tool, name, values}
+
+    assert length(enums) > 10
+
+    for {tool, name, values} <- enums do
+      {:ok, %{isError: true} = result, :state} =
+        AtMcp.MCP.Server.handle_call_tool(tool, %{name => "not-a-value"}, :state)
+
+      assert %{message: message} =
+               Enum.find(result.structuredContent.problems, &(&1.path == name)),
+             "#{tool} #{name}"
+
+      assert message =~ "Allowed values: #{Enum.join(values, ", ")}.", "#{tool} #{name}"
+    end
+  end
+
+  # An enum inside a list is found by the problem's path through the schema.
+  test "an enum inside a list names the values allowed there" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "rules" => %{"type" => "array", "items" => %{"type" => "string", "enum" => ["a", "b"]}}
+      }
+    }
+
+    assert {:error, result} = AtMcp.MCP.Input.validate(%{"rules" => ["a", "c"]}, schema)
+
+    assert [%{path: "rules/1", message: "Value is not allowed in enum. Allowed values: a, b."}] =
+             result.structuredContent.problems
+  end
+
   test "every failure is named, up to five" do
     args = %{"text" => 1, "langs" => Enum.to_list(1..7)}
 

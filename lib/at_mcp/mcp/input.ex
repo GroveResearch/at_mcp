@@ -15,7 +15,7 @@ defmodule AtMcp.MCP.Input do
         :ok
 
       {:error, errors} when is_list(errors) ->
-        {:error, invalid(Enum.map(errors, &problem/1))}
+        {:error, invalid(Enum.map(errors, &(&1 |> problem() |> allowed(schema))))}
 
       {:error, :duplicate_keys} ->
         {:error, invalid([%{path: "", message: "An argument is given twice."}])}
@@ -319,6 +319,48 @@ defmodule AtMcp.MCP.Input do
 
   defp problem({message, path}) when is_binary(path), do: %{path: path, message: message}
   defp problem(other), do: %{path: "", message: inspect(other)}
+
+  # The validator says only that a value is not in the enum. The values the
+  # schema allows there are what the caller needs to correct the call, so the
+  # refusal lists them.
+  @not_in_enum "Value is not allowed in enum."
+
+  defp allowed(%{message: @not_in_enum, path: path} = problem, schema) do
+    segments = if path == "", do: [], else: String.split(path, "/")
+
+    case enum_at(declared(schema), segments) do
+      [_ | _] = values ->
+        %{
+          problem
+          | message: "#{@not_in_enum} Allowed values: #{Enum.map_join(values, ", ", &shown/1)}."
+        }
+
+      _ ->
+        problem
+    end
+  end
+
+  defp allowed(problem, _schema), do: problem
+
+  defp declared(%ExJsonSchema.Schema.Root{schema: schema}), do: schema
+  defp declared(schema), do: schema
+
+  defp enum_at(%{"enum" => values}, []), do: values
+
+  defp enum_at(%{"properties" => properties}, [key | rest]) when is_map_key(properties, key),
+    do: enum_at(properties[key], rest)
+
+  defp enum_at(%{"items" => items}, [index | rest]) when is_map(items) do
+    case Integer.parse(index) do
+      {_, ""} -> enum_at(items, rest)
+      _ -> nil
+    end
+  end
+
+  defp enum_at(_schema, _path), do: nil
+
+  defp shown(value) when is_binary(value), do: value
+  defp shown(value), do: Jason.encode!(value)
 
   defp refusal(code, message) do
     ExMCP.Server.DSL.Result.error(message)
