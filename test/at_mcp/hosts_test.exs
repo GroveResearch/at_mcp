@@ -11,6 +11,9 @@ defmodule AtMcp.HostsTest do
   """
   use ExUnit.Case, async: false
 
+  # Left out of the suite (test/test_helper.exs): it calls a model.
+  @moduletag :hosts
+
   alias AtMcp.Summary
   alias AtMcp.Test.Grant
 
@@ -43,8 +46,9 @@ defmodule AtMcp.HostsTest do
     %{token: Grant.token(id, :read), post: post}
   end
 
-  # The CLI calls a model, so it needs the CLI and a credential for it; CI
-  # installs one and supplies the other (.github/workflows/check.yml).
+  # The CLI calls a model, so it needs the CLI and a credential for it; the
+  # `hosts` job in .github/workflows/check.yml installs one and supplies the
+  # other.
   @tag timeout: 240_000
   @tag skip:
          is_nil(System.find_executable("claude")) &&
