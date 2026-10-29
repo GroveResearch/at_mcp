@@ -51,8 +51,7 @@ defmodule AtMcp.FeedContextTest do
     assert {:ok, %{content: [%{type: "text", text: text}], structuredContent: data}, :state} =
              AtMcp.MCP.Tools.respond({:ok, page}, :state, :posts)
 
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-    schema = Enum.find(tools, &(&1.name == "get_author_feed")).outputSchema
+    schema = AtMcp.MCP.Server.__output_schemas__()["get_author_feed"]
     assert AtMcp.Test.Schema.valid?(data, schema)
 
     {text, data["items"]}

@@ -7,13 +7,25 @@ itself.
 
 ## Unreleased
 
+This release is 0.3.0: what read tools return has changed.
+
+- Read tools return the text written for a model, and no structured content,
+  unless asked. Claude Code, Codex and VS Code Copilot give a model only a
+  result's structured content when there is any, so an agent in those hosts
+  read every page as JSON: on a 20-post page, 37.7 KB instead of 14.9 KB of
+  text. Every read takes an optional `format`: `"json"` returns the full
+  summary as structured content and as the same JSON in the text. A grant
+  issued with `at_mcp-accounts connection NAME --format json` makes json the
+  default for its client. Reads no longer declare an output schema, so
+  `tools/list` is smaller. Write tools are unchanged.
 - Every tool error ends with one sentence saying what the agent can do: try
   again now, try again after a stated time, change a named argument, read the
   account first, or not retry; when at_mcp can't classify a failure, it says
-  so. The structured result carries the same advice as `retry` (with
-  `retry_after` when a real time is known, or `argument` when one argument
-  caused the error) and the whole text as `message`. A read that timed out says whether its request reached the
-  service (`sent`).
+  so. Where an error has structured content (a write, or a read asked for
+  json), it carries the same advice as `retry` (with `retry_after` when a
+  real time is known, or `argument` when one argument caused the error) and
+  the whole text as `message`. A read that timed out says whether its
+  request reached the service (`sent`).
 - A new README section, "Using an account from several clients", explains
   when to run `at_mcp-stdio` and when to run the service.
 - When a second `at_mcp-stdio` for the same account fails to start, its error
@@ -25,6 +37,16 @@ itself.
 - On a busy machine, a correct tool call is no longer refused as
   `input_validation_unavailable`. The argument and result checks now wait
   up to one second instead of 100 ms.
+
+### Upgrade
+
+Any program that parses read results as JSON must ask for JSON: pass
+`"format": "json"` in each read's arguments, or issue its client a new grant
+with `--format json` and revoke the old one. A program that reads only write
+results needs nothing. Rolling back to 0.2.18 is safe. That release does
+not know `format`: it ignores the argument, says so in the result's text,
+and returns structured content as before. It also treats a grant issued
+with `--format` like any other grant.
 
 ## 0.2.18
 

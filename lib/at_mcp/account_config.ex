@@ -139,7 +139,7 @@ defmodule AtMcp.AccountConfig do
 
       nil ->
         scope = Keyword.get(dependencies, :scope, :manage)
-        opts = [scope: scope] ++ Keyword.take(dependencies, [:path])
+        opts = [scope: scope] ++ Keyword.take(dependencies, [:format, :path])
 
         case AtMcp.Grants.issue(account["id"], opts) do
           {:ok, %{token: token}} -> {:ok, token}

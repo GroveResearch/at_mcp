@@ -25,9 +25,17 @@ defmodule AtMcp.DiscoveryTest do
     %{effects: effects}
   end
 
+  # These tests are about what a program reads: a read's summary.
   defp call(state, name, arguments) do
+    state = Map.put(state, :format, "json")
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
+  end
+
+  # What a model reads: a read's text, as it comes without format.
+  defp text(state, name, arguments) do
+    {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+    hd(result.content).text
   end
 
   defp refused(result, path) do
@@ -123,7 +131,7 @@ defmodule AtMcp.DiscoveryTest do
     test "reads are text a model reads, with the uri and cid a write tool takes" do
       state = mock()
 
-      feeds = hd(call(state, "get_feed_info", %{"uris" => [@feed]}).content).text
+      feeds = text(state, "get_feed_info", %{"uris" => [@feed]})
       assert feeds =~ ~s(1 feed.)
 
       assert feeds =~
@@ -131,13 +139,13 @@ defmodule AtMcp.DiscoveryTest do
 
       assert feeds =~ "uri: #{@feed} · cid: bafyGEN"
 
-      trends = hd(call(state, "get_trends", %{"kind" => "topics"}).content).text
+      trends = text(state, "get_trends", %{"kind" => "topics"})
       assert trends =~ "[1] \"Gliders\" · hot · sports · 12 posts · since 2026-10-18T00:00:00Z"
       assert trends =~ ~s|Posting: "Alice" (@alice.test)|
       assert trends =~ "link: /search?q=gliders"
       assert trends =~ ~s(Suggested beside them: "Gliders" · /search?q=gliders)
 
-      codes = hd(call(state, "get_invite_codes", %{}).content).text
+      codes = text(state, "get_invite_codes", %{})
       assert codes =~ "1 invitation code. Earned codes: enabled."
       assert codes =~ "[1] town-abcde · 1 of 1 uses left"
     end

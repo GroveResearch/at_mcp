@@ -196,9 +196,10 @@ this account" on its error output. Check the handle, the app password and
 
 ## Failed tool calls
 
-Each failed call returns a code and a reason for the agent to read. The reason
-ends with one sentence saying what the agent can do, and the result's `retry`
-field says the same:
+Each failed call returns a reason for the agent to read, ending with one
+sentence that says what the agent can do. When the result has structured
+content (a write, or a read asked for `format: "json"`), it also carries a
+`code`, and a `retry` field that says the same as that sentence:
 
 | `retry` | What the agent can do |
 | --- | --- |
@@ -209,8 +210,8 @@ field says the same:
 | `no` | Don't try again: the service does not offer this, or the account needs its operator. |
 | `unknown` | at_mcp did not recognize the failure, so it can't say whether trying again will help. |
 
-When a call times out, `sent` tells you whether at_mcp had sent the request to
-the service. When a read fails, the result is an error and holds no items.
+When a call times out, the reason says whether at_mcp had sent the request to
+the service (`sent`, in structured content). When a read fails, the result is an error and holds no items.
 
 An `outcome: "unknown"` result comes from a timed-out write, as described
 under [Limits](#limits).

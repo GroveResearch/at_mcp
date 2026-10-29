@@ -387,7 +387,11 @@ defmodule AtMcp.MCP.ReadPagesTest do
     Application.put_env(:at_mcp, :read_pages_test_shape, :unrecognized)
     on_exit(fn -> Application.delete_env(:at_mcp, :read_pages_test_shape) end)
 
-    assert {:ok, result} = ExMCP.Client.call_tool(client, "get_unread_count", %{}, format: :map)
+    assert {:ok, result} =
+             ExMCP.Client.call_tool(client, "get_unread_count", %{"format" => "json"},
+               format: :map
+             )
+
     assert result["isError"] || result[:isError]
     structured = result["structuredContent"] || result[:structuredContent]
     assert (structured["code"] || structured[:code]) == "response_unreadable"
@@ -399,17 +403,16 @@ defmodule AtMcp.MCP.ReadPagesTest do
     Application.put_env(:at_mcp, :read_pages_test_shape, :unrecognized)
     on_exit(fn -> Application.delete_env(:at_mcp, :read_pages_test_shape) end)
 
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-
     for name <- ["get_timeline", "get_notifications", "search_actors", "get_unread_count"] do
       args = if name == "search_actors", do: %{"query" => "at_mcp"}, else: %{}
+      args = Map.put(args, "format", "json")
       assert {:ok, result} = ExMCP.Client.call_tool(client, name, args, format: :map)
 
       assert result["isError"] || result[:isError],
              "#{name} reported an unreadable page as a result"
 
       structured = result["structuredContent"] || result[:structuredContent]
-      schema = Enum.find(tools, &(&1.name == name)).outputSchema
+      schema = AtMcp.MCP.Server.__output_schemas__()[name]
       assert Schema.valid?(structured, schema), "#{name} returned #{inspect(structured)}"
 
       structured_code = structured["code"] || structured[:code]
@@ -434,14 +437,17 @@ defmodule AtMcp.MCP.ReadPagesTest do
     Application.put_env(:at_mcp, :read_pages_test_shape, :malformed_thread)
     on_exit(fn -> Application.delete_env(:at_mcp, :read_pages_test_shape) end)
 
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-
     assert {:ok, result} =
-             ExMCP.Client.call_tool(client, "get_thread", %{"uri" => "at://x"}, format: :map)
+             ExMCP.Client.call_tool(
+               client,
+               "get_thread",
+               %{"uri" => "at://x", "format" => "json"},
+               format: :map
+             )
 
     refute result["isError"] || result[:isError]
     structured = result["structuredContent"] || result[:structuredContent]
-    schema = Enum.find(tools, &(&1.name == "get_thread")).outputSchema
+    schema = AtMcp.MCP.Server.__output_schemas__()["get_thread"]
     assert Schema.valid?(structured, schema)
 
     assert structured["replies"] == []
@@ -475,8 +481,6 @@ defmodule AtMcp.MCP.ReadPagesTest do
   test "graph, engagement and feed reads traverse complete pages like every other read", %{
     client: client
   } do
-    {:ok, tools, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
-
     for {name, args, path, kind} <- @audience_reads do
       first = call(client, name, Map.put(args, "limit", 30))
       assert first["count"] == 30, "#{name} did not return the page the service sent"
@@ -505,7 +509,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
 
       assert length(Enum.uniq(Enum.map(items, & &1[identity]))) == 32
 
-      schema = Enum.find(tools, &(&1.name == name)).outputSchema
+      schema = AtMcp.MCP.Server.__output_schemas__()[name]
       assert Schema.valid?(first, schema), "#{name} returned #{inspect(first)}"
     end
   end
@@ -575,6 +579,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
   end
 
   defp call(client, name, args) do
+    args = Map.put(args, "format", "json")
     assert {:ok, result} = ExMCP.Client.call_tool(client, name, args, format: :map)
     refute result["isError"] || result[:isError]
     # These reads are about what a program gets: pages, cursors, nesting. A

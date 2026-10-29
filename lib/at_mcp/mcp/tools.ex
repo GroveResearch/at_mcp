@@ -1084,12 +1084,12 @@ defmodule AtMcp.MCP.Tools do
 
   defp encode(value), do: inspect(value, limit: 30)
 
-  # A summary is returned twice: as the JSON text every MCP client can read,
-  # and as structured content for clients that validate against the tool's
-  # declared output schema. Both carry the same JSON values, so a client
-  # reading either sees one result. Only objects can be structured content.
-  # `respond/3` replaces the text with a reading of the same structured
-  # content for results made of posts.
+  # `encode/1` puts the summary in both halves of a result: the JSON text, and
+  # the structured content a client validates against the tool's output
+  # schema. `respond/3` swaps the text for `AtMcp.Reading`'s text of the same
+  # summary, and `AtMcp.MCP.Output.shape/3` then removes the structured content
+  # from a read unless the caller asked for json. Only an object can be
+  # structured content.
   defp structured(json) do
     case Jason.decode(json) do
       {:ok, data} when is_map(data) ->

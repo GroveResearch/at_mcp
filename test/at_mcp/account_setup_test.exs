@@ -79,6 +79,32 @@ defmodule AtMcp.AccountSetupTest do
     assert AtMcp.Grants.resolve(stdio_token, path: grants) == {:ok, "reader"}
 
     refute Jason.encode!(stdio.mcp) =~ "private-password"
+
+    # A program's grant can answer its reads in json without asking each time.
+    assert {:ok, json} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "connection",
+               "reader",
+               "--format",
+               "json"
+             ])
+
+    assert json.grant == %{scope: :manage, format: "json"}
+    [%{value: "Bearer " <> json_token} | _] = json.mcp.headers
+    assert {:ok, %{format: "json"}} = AtMcp.Grants.request(json_token, path: grants)
+
+    assert {:error, :invalid_format} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "connection",
+               "reader",
+               "--format",
+               "xml"
+             ])
+
     refute Jason.encode!(stdio.mcp) =~ path
     assert Process.whereis(AtMcp.Accounts)
     # Setup changed only configuration, not the already-running runtime.

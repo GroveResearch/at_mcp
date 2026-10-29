@@ -110,20 +110,31 @@ const ACCOUNT_READINGS = new Set(['get_profile', 'get_profiles', 'search_actors'
   'get_follows', 'get_known_followers', 'get_suggested_follows', 'get_blocks', 'get_mutes',
   'get_likes', 'get_reposted_by']);
 
+// A read (a tool that takes `format`) answers in text alone unless asked for
+// json; then its structured content is the summary and its text that JSON.
+let reads;
 async function call(connection, name, args = {}) {
-  const result = await connection.client.callTool({name, arguments: args});
+  reads ??= new Set((await connection.client.listTools()).tools
+    .filter(t => t.inputSchema.properties?.format).map(t => t.name));
+  const read = reads.has(name);
+  const result = await connection.client.callTool({name, arguments: read ? {...args, format: 'json'} : args});
   assert.ok(!result.isError, JSON.stringify(result));
-  const text = result.content.find(c => c.type === 'text').text;
-  // A declared output schema is only worth having if the structured content
-  // carries the same result the text does: the same JSON, or for posts and
-  // accounts, text naming every post or account in it.
+  const json = result.content.find(c => c.type === 'text').text;
+  assert.deepEqual(result.structuredContent, JSON.parse(json), `${name} structured content`);
+  if (!read) return result.structuredContent;
+  const plain = await connection.client.callTool({name, arguments: args});
+  assert.ok(!plain.isError, JSON.stringify(plain));
+  assert.equal(plain.structuredContent, undefined, `${name} returned structured content unasked`);
+  const text = plain.content.find(c => c.type === 'text').text;
+  // The text carries the same result: for posts and accounts, text naming
+  // every post or account in it; for anything else, the same JSON.
   if (READINGS.has(name)) {
     for (const uri of postUris(result.structuredContent)) assert.ok(text.includes(uri), `${name} text omits ${uri}`);
   } else if (ACCOUNT_READINGS.has(name)) {
     const accounts = result.structuredContent.items ?? [result.structuredContent];
     for (const {handle} of accounts) assert.ok(text.includes(`@${handle}`), `${name} text omits @${handle}`);
   } else {
-    assert.deepEqual(result.structuredContent, JSON.parse(text), `${name} structured content`);
+    assert.deepEqual(JSON.parse(text), result.structuredContent, `${name} text`);
   }
   return result.structuredContent;
 }
@@ -173,10 +184,15 @@ try {
     await close(legacy);
   }
   const {tools} = await a.client.listTools();
-  // No count is pinned here. The loop below fails by name on any tool missing a
-  // schema, and the Elixir side compares the number reported back against the
-  // tools the server declares, so a new tool needs no edit in either place.
+  // No count is pinned here. The loop below fails by name on any write missing
+  // a schema or any read declaring one, and the Elixir side compares the number
+  // reported back against the tools the server declares one for, so a new
+  // tool needs no edit in either place.
   for (const tool of tools) {
+    if (tool.annotations?.readOnlyHint) {
+      assert.equal(tool.outputSchema, undefined, `${tool.name} is a read and declares an output schema`);
+      continue;
+    }
     assert.equal(tool.outputSchema?.type, 'object', `${tool.name} declares no output schema`);
     assert.ok(tool.outputSchema.properties.code, `${tool.name} cannot report a failure code`);
   }

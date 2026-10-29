@@ -75,7 +75,8 @@ defmodule AtMcp.SearchPostsFiltersTest do
                  "query" => "at_mcp",
                  "author" => "@writer.example",
                  "mentions" => "@reader.example",
-                 "sort" => "top"
+                 "sort" => "top",
+                 "format" => "json"
                },
                state
              )

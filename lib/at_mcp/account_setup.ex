@@ -8,6 +8,7 @@ defmodule AtMcp.AccountSetup do
     handle: :string,
     service: :string,
     scope: :string,
+    format: :string,
     password_stdin: :boolean,
     transport: :string,
     url: :string,
@@ -57,19 +58,20 @@ defmodule AtMcp.AccountSetup do
   # the ones nobody holds.
   defp dispatch(["connection", id], opts, dependencies) do
     with {:ok, scope} <- scope(opts),
+         {:ok, format} <- format(opts),
          {:ok, accounts} <- AccountConfig.load(path(opts)),
          {:ok, account} <- find(accounts, id),
          {:ok, descriptor} <-
            descriptor(
              account,
              opts[:transport] || "http",
-             [scope: scope, path: grants_path(opts)] ++ dependencies
+             [scope: scope, format: format, path: grants_path(opts)] ++ dependencies
            ) do
       {:ok,
        %{
          account: public(account),
          mcp: descriptor,
-         grant: %{scope: scope},
+         grant: Map.reject(%{scope: scope, format: format}, fn {_, v} -> is_nil(v) end),
          service_configuration: %{AT_MCP_ACCOUNTS_FILE: path(opts)}
        }}
     end
@@ -366,6 +368,18 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  defp format(opts) do
+    case opts[:format] do
+      nil ->
+        {:ok, nil}
+
+      format ->
+        if format in AtMcp.MCP.Output.formats(),
+          do: {:ok, format},
+          else: {:error, :invalid_format}
+    end
+  end
+
   defp find(accounts, id) do
     case Enum.find(accounts, &(&1["id"] == id)) do
       nil -> {:error, :not_found}
@@ -403,7 +417,7 @@ defmodule AtMcp.AccountSetup do
       write-quota NAME --default
       list
       connection NAME [--transport http|stdio]
-                      [--scope read|write|manage]
+                      [--scope read|write|manage] [--format text|json]
       grants
       revoke GRANT_ID
 
@@ -431,6 +445,9 @@ defmodule AtMcp.AccountSetup do
       "Use a simple account name and a valid PDS URL; a write limit and window are positive integers."
 
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
+
+  defp message(:invalid_format),
+    do: "Choose --format text (the default) or json."
 
   defp message(:unknown_grant),
     do: "No grant has that id. Use grants to list the ones this installation holds."

@@ -1,7 +1,8 @@
 defmodule AtMcp.RetryAdviceTest do
   @moduledoc """
   Every error an agent reads ends with one sentence saying what it can do, and
-  says the same in the structured result's `retry`: try again now (`now`),
+  a result with structured content (a write's, or a read's asked for json)
+  says the same in `retry`: try again now (`now`),
   after a stated time (`after`, with `retry_after`), with an argument changed
   (`change_argument`, naming `argument`), not until the account has been read
   (`check_first`, for a write whose outcome is unknown), or not at all (`no`).
@@ -138,7 +139,7 @@ defmodule AtMcp.RetryAdviceTest do
       end)
     end
 
-    defp search(login_ms, search_ms) do
+    defp search(login_ms, search_ms, format) do
       {:ok, effects} =
         AtMcp.Test.QuotaFixture.start_effects(
           backend: SlowBackend,
@@ -149,13 +150,25 @@ defmodule AtMcp.RetryAdviceTest do
       state = %{effects: effects}
 
       {:ok, result, ^state} =
-        AtMcp.MCP.Server.handle_call_tool("search_posts", %{"query" => "x"}, state)
+        AtMcp.MCP.Server.handle_call_tool(
+          "search_posts",
+          %{"query" => "x", "format" => format},
+          state
+        )
 
       result
     end
 
+    # A read in text, the default, has no structured content: the advice is
+    # the text's last sentence. Asked for json, the refusal also carries it.
+
     test "says the request reached the service when it did" do
-      result = search(0, 5_000)
+      text = search(0, 5_000, "text")
+      refute Map.has_key?(text, :structuredContent)
+      assert hd(text.content).text =~ "sent this read to the account's service"
+      assert hd(text.content).text =~ @endings["now"]
+
+      result = search(0, 5_000, "json")
 
       assert result.isError
 
@@ -166,7 +179,12 @@ defmodule AtMcp.RetryAdviceTest do
     end
 
     test "says the request was never sent when it was waiting for the account's session" do
-      result = search(5_000, 0)
+      text = search(5_000, 0, "text")
+      refute Map.has_key?(text, :structuredContent)
+      assert hd(text.content).text =~ "was not sent"
+      assert hd(text.content).text =~ @endings["now"]
+
+      result = search(5_000, 0, "json")
 
       assert result.isError
 
@@ -191,8 +209,18 @@ defmodule AtMcp.RetryAdviceTest do
     {:ok, _} = AtMcp.Effects.login(effects)
     state = %{effects: effects}
 
-    {:ok, result, ^state} =
+    {:ok, text_result, ^state} =
       AtMcp.MCP.Server.handle_call_tool("search_posts", %{"query" => "gliders"}, state)
+
+    assert text_result.isError
+    assert hd(text_result.content).text =~ @endings["now"]
+
+    {:ok, result, ^state} =
+      AtMcp.MCP.Server.handle_call_tool(
+        "search_posts",
+        %{"query" => "gliders", "format" => "json"},
+        state
+      )
 
     assert result.isError
     refute Map.has_key?(result.structuredContent, :items)
