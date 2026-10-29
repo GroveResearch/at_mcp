@@ -213,8 +213,9 @@ defmodule AtMcp.PostGatesTest do
       :ok
     end
 
-    defp pds(records \\ %{}, answers \\ %{}) do
-      {session, pds} = FakePDS.start(records: records, answers: answers)
+    defp pds(records \\ %{}, answers \\ %{}, preferences \\ []) do
+      {session, pds} =
+        FakePDS.start(records: records, answers: answers, preferences: preferences)
 
       effects =
         start_supervised!(
@@ -225,7 +226,7 @@ defmodule AtMcp.PostGatesTest do
           id: make_ref()
         )
 
-      %{effects: effects, pds: pds, state: %{effects: effects}}
+      %{effects: effects, pds: pds, session: session, state: %{effects: effects}}
     end
 
     @mine "at://did:plc:self/app.bsky.feed.post/3kmine2222222"
@@ -387,6 +388,187 @@ defmodule AtMcp.PostGatesTest do
       assert result.structuredContent.code == "changed_meanwhile"
       assert hd(result.content).text =~ "nothing was written"
       assert FakePDS.record(pds, @postgate) == nil
+    end
+
+    # What the app saved as the account's settings for new posts: only
+    # people it follows may reply, and nobody may quote.
+    @saved [
+      %{
+        "$type" => "app.bsky.actor.defs#postInteractionSettingsPref",
+        "threadgateAllowRules" => [%{"$type" => "app.bsky.feed.threadgate#followingRule"}],
+        "postgateEmbeddingRules" => [%{"$type" => "app.bsky.feed.postgate#disableRule"}]
+      }
+    ]
+
+    test "a post that leaves its rules out takes the account's saved ones, as the app does" do
+      %{effects: effects, pds: pds} = pds(%{}, %{}, @saved)
+      assert {:ok, result} = AtMcp.Effects.post(effects, "as saved")
+
+      assert [_post, threadgate, postgate] = applied(pds)
+
+      assert threadgate["value"]["allow"] == [
+               %{"$type" => "app.bsky.feed.threadgate#followingRule"}
+             ]
+
+      assert postgate["value"]["embeddingRules"] == [
+               %{"$type" => "app.bsky.feed.postgate#disableRule"}
+             ]
+
+      valid!(threadgate["value"], "app.bsky.feed.threadgate")
+      valid!(postgate["value"], "app.bsky.feed.postgate")
+      assert result.from_saved_settings == ["reply_rule", "quotes"]
+      assert AtMcp.Effects.quota_status(effects).used == 1
+
+      # Through the tool, the result says so within its declared schema.
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          result = call(%{effects: effects}, "post", %{"text" => "as saved, by tool"})
+          refute result[:isError], hd(result.content).text
+          assert result.structuredContent["from_saved_settings"] == ["reply_rule", "quotes"]
+        end)
+
+      refute log =~ "unvalidated"
+    end
+
+    test "a rule given wins over the saved one, everyone and allowed included" do
+      %{effects: effects, pds: pds} = pds(%{}, %{}, @saved)
+
+      assert {:ok, result} =
+               AtMcp.Effects.post(effects, "open", reply_rule: ["everyone"], quotes: "allowed")
+
+      assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+      assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+      refute Map.has_key?(result, :threadgate_uri)
+      refute Map.has_key?(result, :from_saved_settings)
+
+      # One rule given, the other taken from what was saved.
+      %{effects: effects, pds: pds} = pds(%{}, %{}, @saved)
+      assert {:ok, result} = AtMcp.Effects.post(effects, "quotable", quotes: "allowed")
+      assert [_post, threadgate] = applied(pds)
+      assert threadgate["collection"] == "app.bsky.feed.threadgate"
+      assert result.from_saved_settings == ["reply_rule"]
+    end
+
+    test "a reply takes the saved quote rule and no reply rule" do
+      parent = "at://did:plc:other/app.bsky.feed.post/3kparent22222"
+      %{effects: effects, pds: pds} = pds(%{parent => post("theirs")}, %{}, @saved)
+
+      assert {:ok, result} = AtMcp.Effects.reply(effects, parent, "a reply")
+      assert [_reply, postgate] = applied(pds)
+      assert postgate["collection"] == "app.bsky.feed.postgate"
+      assert result.from_saved_settings == ["quotes"]
+      refute Map.has_key?(result, :threadgate_uri)
+    end
+
+    test "saved settings that cannot be read leave the post unsent and uncounted, quoting the service" do
+      unreadable = %{
+        "app.bsky.actor.getPreferences" => {500, %{error: "InternalServerError", message: "down"}}
+      }
+
+      unknown = [
+        %{
+          "$type" => "app.bsky.actor.defs#postInteractionSettingsPref",
+          "threadgateAllowRules" => [%{"$type" => "app.bsky.feed.threadgate#somedayRule"}]
+        }
+      ]
+
+      for {answers, preferences, says, advice} <- [
+            # The service's answer is its own, quoted; the rest is at_mcp's,
+            # and one sentence says what to do.
+            {unreadable, [],
+             ~s|the account's service answered 500: "down". The account's saved settings for who may reply to and quote a new post could not be read|,
+             "Pass reply_rule and quotes to post without the saved settings, or wait a short while and try again."},
+            {%{}, unknown,
+             ~s|has a rule at_mcp cannot read ("app.bsky.feed.threadgate#somedayRule")|,
+             "Pass reply_rule to choose who may reply, and try again."}
+          ] do
+        %{effects: effects, pds: pds, state: state} = pds(%{}, answers, preferences)
+        result = call(state, "post", %{"text" => "x"})
+        text = hd(result.content).text
+
+        assert result.isError
+        assert result.structuredContent.code == "saved_settings_unreadable"
+        assert result.structuredContent.retry == "change_argument"
+        assert text =~ says
+        assert String.ends_with?(text, advice)
+        refute text =~ "Wait about"
+        assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+        assert FakePDS.sent(pds, "com.atproto.repo.createRecord") == []
+        assert AtMcp.Effects.quota_status(effects).used == 0
+
+        if answers == unreadable,
+          do: assert(result.structuredContent.upstream_message == "down")
+
+        # Given both rules, the post needs nothing saved and is sent.
+        assert {:ok, _} =
+                 AtMcp.Effects.post(effects, "x", reply_rule: ["everyone"], quotes: "allowed")
+      end
+    end
+
+    test "a service that does not serve preferences has none saved: the post is sent open, and says so" do
+      for {status, body} <- [
+            {404, %{error: "NotFound"}},
+            {501, %{error: "MethodNotImplemented", message: "Method Not Implemented"}},
+            {400, %{error: "MethodNotImplemented"}}
+          ] do
+        unserved = %{"app.bsky.actor.getPreferences" => {status, body}}
+        %{effects: effects, pds: pds, state: state} = pds(%{}, unserved)
+
+        assert {:ok, result} = AtMcp.Effects.post(effects, "open")
+        assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+        assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
+        refute Map.has_key?(result, :from_saved_settings)
+
+        assert result.warning =~
+                 "does not serve saved preferences (it answered #{status}), so no saved interaction settings were taken"
+
+        # A rule given is still written; the note stands beside it.
+        assert {:ok, gated} = AtMcp.Effects.post(effects, "gated", quotes: "disabled")
+        assert [_post, _postgate] = applied(pds)
+        assert gated.warning =~ "does not serve saved preferences"
+        assert AtMcp.Effects.quota_status(effects).used == 2
+
+        log =
+          ExUnit.CaptureLog.capture_log(fn ->
+            result = call(state, "post", %{"text" => "open, by tool"})
+            refute result[:isError], hd(result.content).text
+            assert result.structuredContent["warning"] =~ "does not serve saved preferences"
+          end)
+
+        refute log =~ "unvalidated"
+      end
+    end
+
+    test "the saved settings are read once a minute at most, and a change made here applies at once" do
+      %{effects: effects, pds: pds, session: session} = pds(%{}, %{}, @saved)
+      reads = fn -> length(FakePDS.sent(pds, "app.bsky.actor.getPreferences")) end
+
+      assert {:ok, %{from_saved_settings: ["reply_rule", "quotes"]}} =
+               AtMcp.Effects.post(effects, "one")
+
+      assert {:ok, %{from_saved_settings: ["reply_rule", "quotes"]}} =
+               AtMcp.Effects.post(effects, "two")
+
+      assert reads.() == 1
+
+      # set_preference writes the preferences, and what it wrote is kept.
+      assert {:ok, _} =
+               AtMcp.Effects.set_preference(effects, "interaction_defaults", %{
+                 reply_rule: ["everyone"],
+                 quotes: "allowed"
+               })
+
+      before = reads.()
+      assert {:ok, open} = AtMcp.Effects.post(effects, "three")
+      refute Map.has_key?(open, :from_saved_settings)
+      assert reads.() == before
+
+      # Kept longer than a minute, the settings are read again.
+      key = {session.did, session.service_url}
+      stale = System.monotonic_time(:millisecond) - AtMcp.PostDefaults.ttl_ms() - 1
+      true = :ets.update_element(AtMcp.PostDefaults, key, {3, stale})
+      assert {:ok, _} = AtMcp.Effects.post(effects, "four")
+      assert reads.() == before + 1
     end
 
     test "a post without gates is written as before, and quotes allowed writes no postgate" do

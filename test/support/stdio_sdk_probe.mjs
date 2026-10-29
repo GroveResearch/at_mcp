@@ -51,6 +51,9 @@ const pds = http.createServer(async (req, res) => {
     result = {hasOtherReplies: false, thread: [
       item(post(1, 'did:plc:root'), -1), item(post(2, 'did:plc:other'), 0),
       item(post(3, 'did:plc:alice'), 1)]};
+  } else if (url.pathname.endsWith('/app.bsky.actor.getPreferences')) {
+    // No saved settings for new posts: a post leaving its rules out is open.
+    result = {preferences: []};
   } else if (url.pathname.endsWith('/com.atproto.repo.createRecord')) {
     const name = req.headers.authorization?.replace('Bearer fixture-', '');
     assert.equal(body.repo, `did:plc:${name}`);

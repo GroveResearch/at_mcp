@@ -932,6 +932,9 @@ defmodule AtMcp.Effects do
   exactly as given, with no mention, link or tag facets, for a caller that
   quotes text it did not write. The MCP tools do not offer it, because the
   app's composer detects facets whenever a person publishes (#163).
+  A `reply_rule` or `quotes` left out is the account's saved one for new
+  posts, as in the app; pass `reply_rule: ["everyone"], quotes: "allowed"` to
+  post open whatever is saved.
   """
   def post(effects, text, opts \\ []) when is_binary(text) and is_list(opts),
     do: publish(effects, :post, text, opts)

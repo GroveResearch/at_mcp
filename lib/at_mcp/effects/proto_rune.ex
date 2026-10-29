@@ -1797,6 +1797,7 @@ defmodule AtMcp.Effects.ProtoRune do
   @impl true
   def prepare_post(session, text, opts) do
     with :ok <- validate_post_languages(opts),
+         {:ok, opts} <- saved_interactions(session, opts),
          {rich_text, unresolved} = rich_text(text, session, Keyword.get(opts, :facets)),
          {opts, link_card} = link_card(opts, rich_text),
          {:ok, opts} <- resolve_references(session, opts),
@@ -1825,11 +1826,15 @@ defmodule AtMcp.Effects.ProtoRune do
          declared_root: get_in(opts, [:reply_ref, :declared_root]),
          rkey: rkey,
          gates: gates,
+         saved: Keyword.get(opts, :saved_interactions, []),
+         saved_unserved: Keyword.get(opts, :saved_interactions_unserved),
          link_card: link_card
        }}
     else
       {:error, {:referenced_record_unreadable, _uri, _cause}} = error -> error
       {:error, {:reply_disabled, _uri}} = error -> error
+      {:error, {:saved_interactions_unreadable, _failure}} = error -> error
+      {:error, {:saved_reply_rule_unreadable, _words}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
     end
   rescue
@@ -1912,11 +1917,18 @@ defmodule AtMcp.Effects.ProtoRune do
         summary =
           if prepared.reply, do: Map.put(summary, :reply_to, prepared.reply), else: summary
 
+        summary =
+          case Map.get(prepared, :saved, []) do
+            [] -> summary
+            saved -> Map.put(summary, :from_saved_settings, Enum.map(saved, &Atom.to_string/1))
+          end
+
         {:ok,
          summary
          |> with_link_card(prepared)
          |> mention_warnings(prepared.unresolved)
-         |> root_warning(Map.get(prepared, :declared_root), record)}
+         |> root_warning(Map.get(prepared, :declared_root), record)
+         |> unserved_warning(Map.get(prepared, :saved_unserved))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -1933,7 +1945,8 @@ defmodule AtMcp.Effects.ProtoRune do
          summary
          |> with_link_card(prepared)
          |> mention_warnings(unresolved)
-         |> root_warning(Map.get(prepared, :declared_root), record)}
+         |> root_warning(Map.get(prepared, :declared_root), record)
+         |> unserved_warning(Map.get(prepared, :saved_unserved))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -4566,19 +4579,108 @@ defmodule AtMcp.Effects.ProtoRune do
 
   # --- a post's gates ---
 
+  # Who may reply to and quote a post, when the call leaves a rule out, is
+  # what the account saved for new posts (`postInteractionSettingsPref`, the
+  # preference `interaction_defaults`), as the app's composer starts each post
+  # from it (social-app 62b95002, `createComposerState`). A reply takes the
+  # saved quote rule; its thread's reply rule belongs to the thread's first
+  # post, so it takes none. A rule given, `everyone` and `allowed` included,
+  # wins. Settings that cannot be read leave the post unsent rather than open
+  # to everyone: the account chose them. `:saved_interactions` names the
+  # rules taken from them that wrote a gate.
+  defp saved_interactions(session, opts) do
+    reply? = Keyword.has_key?(opts, :reply)
+    want_rule? = not reply? and not Keyword.has_key?(opts, :reply_rule)
+    want_quotes? = not Keyword.has_key?(opts, :quotes)
+
+    if want_rule? or want_quotes? do
+      with {:ok, saved} when is_map(saved) <- saved_settings(session),
+           {:ok, rule} <- saved_rule(saved.reply_rule),
+           {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
+        taken =
+          if(want_rule? and rule != :everyone, do: [reply_rule: rule], else: []) ++
+            if(want_quotes? and quotes == :disabled, do: [quotes: quotes], else: [])
+
+        {:ok,
+         opts
+         |> Keyword.merge(taken)
+         |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
+      else
+        {:ok, {:unserved, status}} ->
+          {:ok, Keyword.put(opts, :saved_interactions_unserved, status)}
+
+        error ->
+          error
+      end
+    else
+      {:ok, opts}
+    end
+  end
+
+  # Kept for a minute after the preferences were last read or written
+  # (`AtMcp.PostDefaults`), else read now. A service that does not serve
+  # preferences at all (404, 501, MethodNotImplemented) has none saved, so the
+  # post is written open, as before saved settings were read, and says so. A
+  # read that should have worked and failed keeps the service's own answer, for
+  # `AtMcp.MCP.Tools` to quote as the service's.
+  defp saved_settings(session) do
+    case AtMcp.PostDefaults.known(session) do
+      {:ok, saved} ->
+        {:ok, saved}
+
+      :error ->
+        case AtMcp.ATProto.preferences_as_stored(session) do
+          {:ok, preferences} when is_list(preferences) ->
+            {:ok, AtMcp.Preferences.kind_view(preferences, "interaction_defaults")}
+
+          {:error, reason} ->
+            case failure(reason) do
+              %{status: status} = failure when status in [404, 501] ->
+                {:ok, {:unserved, failure.status}}
+
+              %{detail: detail} = failure
+              when detail in [:method_not_implemented, "method_not_implemented"] ->
+                {:ok, {:unserved, failure.status}}
+
+              failure ->
+                {:error, {:saved_interactions_unreadable, failure}}
+            end
+        end
+    end
+  end
+
+  defp unserved_warning(result, nil), do: result
+
+  defp unserved_warning(result, status) do
+    note =
+      "The account's service does not serve saved preferences (it answered #{status}), so no saved interaction settings were taken: reply_rule and quotes are as given, and open to everyone where left out."
+
+    Map.update(result, :warning, note, &(&1 <> " " <> note))
+  end
+
+  # A saved rule at_mcp cannot read is not taken as everyone.
+  defp saved_rule(words) do
+    case AtMcp.Interactions.reply_rule(words) do
+      {:ok, rule} -> {:ok, rule}
+      {:error, _} -> {:error, {:saved_reply_rule_unreadable, words}}
+    end
+  end
+
   # The gates a new post is written with, and the record key they share with
   # it. A post with none is written as before, under a key the PDS picks.
+  # `everyone` and `allowed` are the open defaults and write no gate.
   defp post_gates(session, record, opts) do
     quotes = Keyword.get(opts, :quotes)
+    reply_rule = Keyword.get(opts, :reply_rule, :everyone)
 
-    if Keyword.has_key?(opts, :reply_rule) or quotes == :disabled do
+    if reply_rule != :everyone or quotes == :disabled do
       rkey = AtMcp.ATProto.tid()
       uri = "at://#{session.did}/#{AtMcp.Network.collection(:post)}/#{rkey}"
       created = %{"createdAt" => record["createdAt"]}
 
       gates =
         [
-          if(Keyword.has_key?(opts, :reply_rule),
+          if(reply_rule != :everyone,
             do:
               {:threadgate,
                AtMcp.ATProto.threadgate_record(

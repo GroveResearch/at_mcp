@@ -1178,6 +1178,45 @@ defmodule AtMcp.E2E.RoundTripTest do
       {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before)
     end
 
+    test "post and reply take the saved interaction defaults for rules they leave out; a rule given wins",
+         %{net: net, me: me, them: them, session: session} do
+      {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
+
+      call!(me, "set_preference", %{
+        "kind" => "interaction_defaults",
+        "reply_rule" => ["following"],
+        "quotes" => "disabled"
+      })
+
+      saved = post!(me, "posted with the saved rules")
+      assert saved["from_saved_settings"] == ["reply_rule", "quotes"]
+
+      assert %{"allow" => [%{"$type" => "app.bsky.feed.threadgate#followingRule"}]} =
+               record(me, saved["threadgate_uri"])
+
+      assert %{"embeddingRules" => [%{"$type" => "app.bsky.feed.postgate#disableRule"}]} =
+               record(me, saved["postgate_uri"])
+
+      open = post!(me, "open to all", %{"reply_rule" => ["everyone"], "quotes" => "allowed"})
+      assert open["threadgate_uri"] == nil and open["postgate_uri"] == nil
+      assert open["from_saved_settings"] == nil
+
+      reply = call!(me, "reply", %{"uri" => open["uri"], "text" => "replying, quotes off"})
+      assert reply["from_saved_settings"] == ["quotes"]
+      assert reply["threadgate_uri"] == nil
+      sync(net)
+
+      # The AppView reads the gates as written: another account may not quote
+      # the saved post, and may quote the open one.
+      assert only_post(them, saved["uri"])["viewer"]["embedding_disabled"] == true
+      refute only_post(them, open["uri"])["viewer"]["embedding_disabled"]
+
+      for uri <- [reply["uri"], open["uri"], saved["uri"]],
+          do: call!(me, "delete_post", %{"uri" => uri})
+
+      {:ok, _} = AtMcp.ATProto.put_preferences_as_stored(session, before)
+    end
+
     test "set_preference discoverable and activity_subscriptions: the declaration records, read back by get_preferences, get_record and another account's get_profile, then undone",
          %{net: net, me: me, them: them} do
       assert %{"hide_from_recommendations" => false} =

@@ -61,6 +61,8 @@ defmodule AtMcp.CallDeadlineTest do
     # The AppView has no view of the parent, so no reply rule is in the way.
     defp answer("/xrpc/app.bsky.feed.getPosts", _opts), do: {200, %{posts: []}}
 
+    # No saved settings for new posts: a post leaving its rules out is open.
+    defp answer("/xrpc/app.bsky.actor.getPreferences", _opts), do: {200, %{preferences: []}}
     defp answer(_path, _opts), do: {404, %{error: "NotFound"}}
   end
 

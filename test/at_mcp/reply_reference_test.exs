@@ -89,6 +89,8 @@ defmodule AtMcp.ReplyReferenceTest do
     defp response("com.atproto.repo.createRecord", _conn),
       do: {200, %{uri: "at://did:plc:self/app.bsky.feed.post/new", cid: "bafyreinew"}}
 
+    # No saved settings for new posts: a post leaving its rules out is open.
+    defp response("app.bsky.actor.getPreferences", _conn), do: {200, %{preferences: []}}
     defp response(_method, _conn), do: {200, %{}}
   end
 
@@ -348,10 +350,12 @@ defmodule AtMcp.ReplyReferenceTest do
     offline = %{state | effects: effects}
     used = AtMcp.Effects.quota_status(effects).used
 
+    # The quote rule given, so the account's saved one is not read first:
+    # the parent's read is the one that fails.
     assert {:ok, result, ^offline} =
              AtMcp.MCP.Server.handle_call_tool(
                "reply",
-               %{"uri" => @readable, "text" => "hello"},
+               %{"uri" => @readable, "text" => "hello", "quotes" => "allowed"},
                offline
              )
 

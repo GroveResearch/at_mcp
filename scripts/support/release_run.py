@@ -66,7 +66,10 @@ def poll(fn, tries=150, pause=0.4):
 
 class FakePDS:
     """A PDS on loopback that logs in any handle whose password is PASSWORD and
-    accepts any record it is asked to create."""
+    accepts any record it is asked to create.
+
+    It serves no preferences, answering 404 as a service that does not run
+    getPreferences does: a post must still be written there, open to everyone."""
 
     PASSWORD = "fixture-app-password"
     created = 0

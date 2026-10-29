@@ -54,6 +54,10 @@ defmodule AtMcp.RichTextTest do
           # account out.
           "/xrpc/app.bsky.feed.getPosts" ->
             {200, %{posts: []}}
+
+          # No saved settings for new posts: a post leaving its rules out is open.
+          "/xrpc/app.bsky.actor.getPreferences" ->
+            {200, %{preferences: []}}
         end
 
       conn
@@ -109,7 +113,7 @@ defmodule AtMcp.RichTextTest do
            ]
 
     refute Jason.encode!(result) =~ "private"
-    resolver = hd(requests)
+    resolver = Enum.find(requests, &String.ends_with?(&1.path, "resolveHandle"))
     refute Enum.any?(resolver.headers, fn {key, _} -> key == "authorization" end)
     assert List.last(requests).body["repo"] == "did:plc:owner"
   end

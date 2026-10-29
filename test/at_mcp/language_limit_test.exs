@@ -86,10 +86,17 @@ defmodule AtMcp.LanguageLimitTest do
 
     test "#{network}: allowed and omitted language arrays are preserved", ctx do
       Application.put_env(:at_mcp, :network, @network)
+      # Both rules given, so the account's saved ones are not read and
+      # nothing is sent.
+      open = [reply_rule: :everyone, quotes: :allowed]
 
       for langs <- [[], ["fr", "en"], List.duplicate("en", maximum(@path))] do
         assert {:ok, %{record: record}} =
-                 AtMcp.Effects.ProtoRune.prepare_post(ctx.session, "hello #tag", langs: langs)
+                 AtMcp.Effects.ProtoRune.prepare_post(
+                   ctx.session,
+                   "hello #tag",
+                   [langs: langs] ++ open
+                 )
 
         assert record["langs"] == langs
         assert record["text"] == "hello #tag"
@@ -98,7 +105,7 @@ defmodule AtMcp.LanguageLimitTest do
       end
 
       assert {:ok, %{record: record}} =
-               AtMcp.Effects.ProtoRune.prepare_post(ctx.session, "hello", [])
+               AtMcp.Effects.ProtoRune.prepare_post(ctx.session, "hello", open)
 
       refute Map.has_key?(record, "langs")
       assert Agent.get(ctx.ledger, & &1) == []
