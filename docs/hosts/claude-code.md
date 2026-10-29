@@ -81,7 +81,7 @@ small. That list covers posting, reading and replying, plus the tools for the
 account's own records. An agent can call any other tool by name, even when
 it isn't listed.
 
-For the full set, add `--tools full` when issuing the grant
+For the full set ([docs/operations.md](../operations.md#offer-a-client-every-tool)), add `--tools full` when issuing the grant
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
 put `"AT_MCP_TOOLS": "full"` in its `env`.
 
