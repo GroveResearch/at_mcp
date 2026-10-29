@@ -7,9 +7,10 @@ itself.
 
 ## Unreleased
 
-- The README says when to use `at_mcp-stdio` and when to run the service
-  ("One client or several?"), and a second `at_mcp-stdio` for the same
-  account now points there when it refuses to start.
+- A new README section, "Using an account from several clients", explains
+  when to run `at_mcp-stdio` and when to run the service.
+- When a second `at_mcp-stdio` for the same account fails to start, its error
+  message refers to that section.
 
 ## 0.2.18
 

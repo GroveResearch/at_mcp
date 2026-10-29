@@ -68,15 +68,18 @@ defmodule AtMcp.StdioStartupTest do
     {:ok, lock} = AtMcp.NativeLock.flock(Path.join(collision, ".owner.lock"), wait: false)
 
     try do
-      fails(root, "occupied-state", ~s(see "One client or several?" in at_mcp's README), env,
-        state: collision
-      )
+      fails(
+        root,
+        "occupied-state",
+        ~s(the README section "Using an account from several clients"),
+        env, state: collision)
     after
       :ok = AtMcp.NativeLock.unflock(lock)
     end
 
-    # The section that message names is there to be found.
-    assert File.read!(Path.expand("../../README.md", __DIR__)) =~ "\n## One client or several?\n"
+    # The error message refers to this README heading, so check that the heading exists.
+    assert File.read!(Path.expand("../../README.md", __DIR__)) =~
+             "\n## Using an account from several clients\n"
 
     unavailable = Path.join(root, "unavailable")
     File.write!(unavailable, "a file cannot contain state")

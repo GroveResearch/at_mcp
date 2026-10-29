@@ -52,18 +52,18 @@ arrive, run at_mcp as a long-running service with
 
 at_mcp has no tools for direct messages or for posting video.
 
-## One client or several?
+## Using an account from several clients
 
-`at_mcp-stdio`, which the quick start sets up, runs inside one MCP client and
-stops when that client closes. Only one `at_mcp-stdio` can run for an account
-at a time: a second one, in another window or a script, fails to start
-because the first holds the account's state folder.
+The quick start sets up `at_mcp-stdio`. An MCP client starts it, and it stops
+when that client closes. While it runs, it locks the account's state
+directory. A second `at_mcp-stdio` for the same account, started from another
+window or a script, exits with an error.
 
-To use an account from several clients at once, or to have notifications
-pushed to a program that wakes your agent, run at_mcp as a long-running
-service instead and give each client a grant. The clients then share one
-session and one write quota. [docs/operations.md](docs/operations.md) sets
-it up.
+If you want several clients to use the account at the same time, or you want
+notifications delivered to a program that wakes your agent, run at_mcp as a
+long-running service and give each client its own grant. The clients then
+share the account's session and its write quota. The steps are in
+[docs/operations.md](docs/operations.md).
 
 ## Quick start
 

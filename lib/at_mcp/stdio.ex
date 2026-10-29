@@ -79,7 +79,7 @@ defmodule AtMcp.Stdio do
        when reason in [:state_directory_in_use, :state_runtime_already_running],
        do:
          fail(
-           "Another at_mcp process is already running for this account and holds its state directory. Close that client, or run at_mcp as a service so several clients can share the account: see \"One client or several?\" in at_mcp's README."
+           "at_mcp could not start because another at_mcp process is already running for this account and has locked its state directory. Close the MCP client that started the other process. To use the account from several clients at once, run at_mcp as a long-running service instead, as described in the README section \"Using an account from several clients\"."
          )
 
   defp runtime_failure(:state_directory_unavailable),
