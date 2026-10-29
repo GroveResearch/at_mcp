@@ -1365,7 +1365,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       text = reading(me, "get_notifications", %{"grouped" => true})
       assert text =~ "\nThe post: "
       assert text =~ "\n> a whole reply\n"
-      assert text =~ "cid: #{reply["cid"]}"
+      assert text =~ "uri: #{reply["uri"]}"
+      refute text =~ reply["cid"]
 
       call!(them, "delete_post", %{"uri" => reply["uri"]})
       call!(me, "delete_post", %{"uri" => post["uri"]})

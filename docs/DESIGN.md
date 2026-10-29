@@ -138,7 +138,7 @@ For writes and for reads with no reading of their own, the text is the
 result's JSON. For reads made of posts,
 such as feeds, notifications, searches and threads, `AtMcp.Reading` writes
 readable text. Each post shows its author, time, parent post, text,
-attachments, counts and labels, plus the `uri` and `cid` the write tools take.
+attachments, counts and labels, plus the `uri` the write tools take.
 Accounts, lists and starter packs read the same way. A post reads the same in
 every tool showing it.
 

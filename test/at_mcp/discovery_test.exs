@@ -128,7 +128,7 @@ defmodule AtMcp.DiscoveryTest do
       )
     end
 
-    test "reads are text a model reads, with the uri and cid a write tool takes" do
+    test "reads are text a model reads, with the uri a write tool takes" do
       state = mock()
 
       feeds = text(state, "get_feed_info", %{"uris" => [@feed]})
@@ -137,7 +137,8 @@ defmodule AtMcp.DiscoveryTest do
       assert feeds =~
                ~s([1] "What's hot" · by @alice.bsky.social · 3 likes · takes feedback · online)
 
-      assert feeds =~ "uri: #{@feed} · cid: bafyGEN"
+      assert feeds =~ "uri: #{@feed}"
+      refute feeds =~ "bafyGEN"
 
       trends = text(state, "get_trends", %{"kind" => "topics"})
       assert trends =~ "[1] \"Gliders\" · hot · sports · 12 posts · since 2026-10-18T00:00:00Z"

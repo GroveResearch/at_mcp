@@ -826,7 +826,7 @@ defmodule AtMcp.PreferencesTest do
                "\nThe post: @alice.test · 2026-10-17T00:00:00.000Z · replying to at://did:plc:self/app.bsky.feed.post/p\n> nice wing @self.test <did:plc:self>\n"
 
       assert text =~ "uri: at://did:plc:alice/app.bsky.feed.post/r"
-      assert text =~ "cid: bafyreply"
+      refute text =~ "bafyreply"
     end
 
     test "reasons is the ungrouped read's and feed the grouped one's; nothing is sent for either" do
