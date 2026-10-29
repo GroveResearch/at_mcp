@@ -1,20 +1,22 @@
 defmodule AtMcp.MCP.Output do
   @moduledoc """
-  What a tool's result carries for the caller that asked.
+  Shapes each tool result for its caller.
 
-  A read is text first. MCP does not say which half of a result a host gives
-  its model: Claude Code, Codex and VS Code give it `structuredContent` only,
-  Gemini CLI, Goose and Imp's default `content` only. A read that returned
-  both would reach half of them as JSON, several times the size of the text
-  written for a model. So a read declares no output schema (a tool that
-  declares one must return structured content) and, by default, returns only
-  `content`: `AtMcp.Reading`'s text, and any images. A caller that wants the
-  summary passes `format: "json"`, or holds a grant whose default is json,
-  and gets it as `structuredContent` and as the same JSON in `content`, so it
-  is JSON whichever half its host reads.
+  MCP leaves it to the host to pick which half of a result to show its model.
 
-  A write keeps its small structured result, whose text is the same JSON, and
-  its output schema.
+    * Claude Code, Codex and VS Code show `structuredContent` whenever a
+      result has it.
+    * Gemini CLI, Goose and Imp (by default) show `content`.
+
+  A read that returned both halves would put JSON in front of the first group
+  of models, at several times the size of the text. A read therefore returns
+  only `content` (`AtMcp.Reading`'s text, plus any images) and declares no
+  output schema, because MCP requires a tool with a declared schema to return
+  structured content. A caller that passes `format: "json"`, or holds a grant
+  with a json default, gets the summary in both halves, so it gets JSON from
+  either kind of host.
+
+  A write returns its summary in both halves and declares its output schema.
   """
   require Logger
   alias ExMCP.Content.SchemaPolicy

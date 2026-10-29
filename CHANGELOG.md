@@ -34,9 +34,10 @@ This release is 0.3.0: what read tools return has changed.
 Any program that parses read results as JSON must ask for JSON: pass
 `"format": "json"` in each read's arguments, or issue its client a new grant
 with `--format json` and revoke the old one. A program that reads only write
-results needs nothing. To roll back, the `format` argument is not known to
-0.2.18, which ignores it and says so in the result's text; structured
-content returns. 0.2.18 reads a grant issued with `--format` as one without.
+results needs nothing. Rolling back to 0.2.18 is safe. That release does
+not know `format`: it ignores the argument, says so in the result's text,
+and returns structured content as before. It also treats a grant issued
+with `--format` like any other grant.
 
 ## 0.2.18
 
