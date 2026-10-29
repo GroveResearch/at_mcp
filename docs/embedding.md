@@ -80,8 +80,8 @@ MCP tools. `AtMcp.Accounts` pauses and resumes accounts.
 
 ## Write quota
 
-Each account starts with the default quota of 16 posts, replies and reposts
-per hour. To change the default for every account, set
+Each account starts with the default quota of 16 posts, replies, reposts and
+record writes per hour. To change the default for every account, set
 `config :at_mcp, write_quota: [limit: ..., window_seconds: ...]`. To give a
 single account its own limit, pass `write_limit:` and `write_window_seconds:`
 to `start_identity`, as positive whole numbers. at_mcp keeps a single count
