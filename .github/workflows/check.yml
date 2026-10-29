@@ -65,7 +65,13 @@ jobs:
   # against, built once and handed to every suite partition.
   build:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The same runner as the release job, so the release the suite tests is
+    # built as the published one is: on the oldest Ubuntu GitHub still runs,
+    # with the system OpenSSL the release job's notices name. ubuntu-latest
+    # moves under us (it became 26.04, OpenSSL 3.5.5, and the release refused
+    # to build without that notice). Moving the release to a newer Ubuntu is
+    # its own change: the release job, these jobs and rel/notices together.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
       MIX_ENV: test
@@ -149,7 +155,8 @@ jobs:
   suite:
     needs: build
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The release job's runner, as build's: the suite runs that release.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -239,7 +246,8 @@ jobs:
   # rather than start a minute later with build's.
   package:
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The release job's runner, as build's: this job builds and runs a release.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
