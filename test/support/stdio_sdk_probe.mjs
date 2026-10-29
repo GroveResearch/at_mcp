@@ -39,16 +39,18 @@ const pds = http.createServer(async (req, res) => {
       record: {$type: 'app.bsky.feed.post', text: 'timeline café 🪁', createdAt: '2026-09-08T00:00:00Z'},
       viewer: {like: 'at://did:plc:alice/app.bsky.feed.like/1', repost: undefined},
       replyCount: 1, likeCount: 2, indexedAt: '2026-09-08T00:00:00Z'}}]};
-  } else if (url.pathname.endsWith('/app.bsky.feed.getPostThread')) {
+  } else if (url.pathname.endsWith('/app.bsky.unspecced.getPostThreadV2')) {
     const post = (n, did) => ({
       uri: `at://${did}/app.bsky.feed.post/${n}`, cid: `bafy${n}`,
       author: {did, handle: `${did.split(':').pop()}.test`},
       record: {$type: 'app.bsky.feed.post', text: `node ${n} 🪁`, createdAt: '2026-09-08T00:00:00Z'},
       viewer: {}, indexedAt: '2026-09-08T00:00:00Z'});
-    result = {thread: {
-      $type: 'app.bsky.feed.defs#threadViewPost', post: post(2, 'did:plc:other'),
-      parent: {$type: 'app.bsky.feed.defs#threadViewPost', post: post(1, 'did:plc:root')},
-      replies: [{$type: 'app.bsky.feed.defs#threadViewPost', post: post(3, 'did:plc:alice')}]}};
+    const item = (p, depth) => ({uri: p.uri, depth, value: {
+      $type: 'app.bsky.unspecced.defs#threadItemPost', post: p, moreParents: false, moreReplies: 0,
+      opThread: false, hiddenByThreadgate: false, mutedByViewer: false}});
+    result = {hasOtherReplies: false, thread: [
+      item(post(1, 'did:plc:root'), -1), item(post(2, 'did:plc:other'), 0),
+      item(post(3, 'did:plc:alice'), 1)]};
   } else if (url.pathname.endsWith('/com.atproto.repo.createRecord')) {
     const name = req.headers.authorization?.replace('Bearer fixture-', '');
     assert.equal(body.repo, `did:plc:${name}`);
@@ -214,7 +216,7 @@ try {
   assert.equal(thread.text, 'node 2 🪁');
   assert.equal(thread.parent.uri, 'at://did:plc:root/app.bsky.feed.post/1');
   assert.equal(thread.replies.length, 1);
-  assert.equal(thread.context.max_replies_per_node, 20);
+  assert.deepEqual(thread.context, {depth: 10, breadth: 1, sort: 'top', view: 'linear'});
   const post = await call(a, 'post', {text: 'café 日本語 🪁'});
   assert.ok(post.uri.startsWith('at://did:plc:alice/'));
   const before = (await call(a, 'identity_status')).write_quota;

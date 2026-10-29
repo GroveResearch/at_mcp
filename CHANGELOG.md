@@ -28,6 +28,20 @@ This release is 0.3.0: what read tools return has changed.
   `left_out`. These reads also take `detail: "brief"`, one line per post:
   on a recorded 50-post page, 12.5K characters instead of 35.6K.
 
+- `get_thread` reads a thread as the app does (#137): with
+  `getPostThreadV2`, every parent, and the replies in the order the app
+  shows for this account's thread sort (`top` unless it chose another).
+  By default it reads as the app's view: 10 levels of replies, every direct
+  reply and one reply per post below them; with the app's tree view on, 4
+  levels and 10 per post. New optional arguments `depth` (0-20 levels) and
+  `breadth` (0-100 replies per post below the first level) read more or
+  less. Before, it read 2 levels each way and the first 20 replies per post
+  in the service's own order. The summary keeps its shape. `context` now
+  says `depth`, `breadth`, `sort` and `view`. A post in its author's own
+  run from the root carries `op_thread_index` and `op_thread_count`, and
+  `other_replies` says when the app leaves replies out (`include_hidden`
+  reads them).
+
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass

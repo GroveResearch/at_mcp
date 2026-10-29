@@ -30,33 +30,48 @@ defmodule AtMcp.MCP.ReadPagesTest do
             # A page whose list arrived under a name AtMcp does not know.
             %{"records" => [], "cursor" => nil}
 
-          String.ends_with?(uri.path, "getPostThread") and
+          String.ends_with?(uri.path, "getPostThreadV2") and
               Application.get_env(:at_mcp, :read_pages_test_shape) == :malformed_thread ->
-            # A node whose `post` is not an object and whose `replies` is not an
-            # array. Real responses do not look like this; a proxy's error page
-            # decoded into the same slot does.
-            %{thread: %{post: "at://not-an-object", replies: "none", notFound: false}}
-
-          String.ends_with?(uri.path, "getPostThread") ->
+            # Items whose `value` is not an object and whose depth is not a
+            # number. Real responses do not look like this; a proxy's error
+            # page decoded into the same slot does.
             %{
-              thread: %{
-                post: post(0),
-                parent: %{
-                  post: Map.put(post(-1), :replyCount, 3),
-                  parent: %{uri: "at://missing", notFound: true}
-                },
-                # The second level is the depth limit: the service sends no
-                # `replies` there, only each post's `replyCount`.
-                replies:
-                  Enum.map(1..25, fn n ->
-                    if n == 1,
-                      do: %{uri: "at://blocked", blocked: true},
-                      else: %{
-                        post: post(n),
-                        replies: [%{post: Map.put(post(n + 100), :replyCount, 2)}]
-                      }
-                  end)
-              }
+              thread: [
+                %{uri: "at://x", depth: 0, value: "at://not-an-object"},
+                %{uri: "at://y", depth: "one", value: %{post: "none"}}
+              ],
+              hasOtherReplies: "maybe"
+            }
+
+          String.ends_with?(uri.path, "getPostThreadV2") ->
+            # getPostThreadV2's flat list: parents root first, the post, then
+            # each reply followed by the replies under it.
+            %{
+              thread:
+                [
+                  %{
+                    uri: "at://missing",
+                    depth: -2,
+                    value: %{"$type": "app.bsky.unspecced.defs#threadItemNotFound"}
+                  },
+                  thread_item(post(-1), -1, moreReplies: 2),
+                  thread_item(post(0), 0, moreReplies: 5),
+                  %{
+                    uri: "at://blocked",
+                    depth: 1,
+                    value: %{
+                      "$type": "app.bsky.unspecced.defs#threadItemBlocked",
+                      author: %{did: "did:plc:blocked"}
+                    }
+                  }
+                ] ++
+                  Enum.flat_map(2..20, fn n ->
+                    [
+                      thread_item(post(n), 1),
+                      thread_item(post(n + 100), 2, moreReplies: 2)
+                    ]
+                  end),
+              hasOtherReplies: false
             }
 
           String.ends_with?(uri.path, "getRelationships") ->
@@ -151,6 +166,26 @@ defmodule AtMcp.MCP.ReadPagesTest do
       |> String.split("&")
       |> Enum.filter(&String.starts_with?(&1, key <> "="))
       |> Enum.map(&(&1 |> String.replace_prefix(key <> "=", "") |> URI.decode_www_form()))
+    end
+
+    defp thread_item(post, depth, fields \\ []) do
+      %{
+        uri: post.uri,
+        depth: depth,
+        value:
+          Map.merge(
+            %{
+              "$type": "app.bsky.unspecced.defs#threadItemPost",
+              post: post,
+              moreParents: false,
+              moreReplies: 0,
+              opThread: false,
+              hiddenByThreadgate: false,
+              mutedByViewer: false
+            },
+            Map.new(fields)
+          )
+      }
     end
 
     defp post(n),
@@ -354,26 +389,26 @@ defmodule AtMcp.MCP.ReadPagesTest do
     assert thread["parent"]["parent"]["not_found"]
     assert thread["parent"]["parent"]["uri"] == "at://missing"
     assert hd(thread["replies"])["blocked"]
+    assert hd(thread["replies"])["author_did"] == "did:plc:blocked"
     assert length(thread["replies"]) == 20
     assert thread["replies_omitted"] == 5
     assert get_in(Enum.at(thread["replies"], 1), ["replies", Access.at(0), "cid"]) == "cid102"
 
-    # Replies the read did not reach are counted, not reported as none.
+    # Replies the service did not send are counted, not reported as none.
     assert get_in(Enum.at(thread["replies"], 1), ["replies", Access.at(0), "replies_omitted"]) ==
              2
 
-    # A parent's count leaves out the post shown under it; a node the service
-    # gave no count for is unknown.
     assert thread["parent"]["replies_omitted"] == 2
-    assert thread["parent"]["parent"]["replies_omitted"] == nil
+    assert thread["other_replies"] == false
 
     assert thread["context"] == %{
-             "depth" => 2,
-             "parent_height" => 2,
-             "max_replies_per_node" => 20
+             "depth" => 10,
+             "breadth" => 1,
+             "sort" => "top",
+             "view" => "linear"
            }
 
-    assert_receive {:request, _, %{"depth" => "2", "parentHeight" => "2"}}
+    assert_receive {:request, _, %{"below" => "10", "branchingFactor" => "1", "sort" => "top"}}
   end
 
   # An unreadable response is reported as unreadable. Summarizing it as a list of

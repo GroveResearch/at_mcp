@@ -10,7 +10,10 @@ one of its posts that has a threadgate:
   the fewest of 100 items that together carry every field path: reposts, a pin,
   replies with their parents, images, video, link cards, quotes, quotes with
   media, and a quoted starter pack.
-- `thread.json`: `app.bsky.feed.getPostThread` of the threadgated post.
+- `thread_v2.json`: `app.bsky.unspecced.getPostThreadV2` of a post, as the
+  app asks for it by default (`sort: top`, `below: 10`, `branchingFactor:
+  1`). The one here was recorded from a busy public thread instead (29 items,
+  replies four levels down), with `--scrub`, which keeps each item's `depth`.
 - `profile.json`, `likes.json`, `feeds.json`: `getProfile`, `getLikes` and
   `getSuggestedFeeds`.
 
@@ -33,7 +36,7 @@ cut to the fewest items that carry every field path.
 Every string is replaced except lexicon enumerations and type names: DIDs,
 record keys, CIDs, handles, URLs and text by salted same-shape stand-ins, and
 timestamps by one random shift. Integers are replaced too, except facet byte
-offsets. Keys and value types are kept. Which account and post they came from
+offsets and a thread item's depth. Keys and value types are kept. Which account and post they came from
 is deliberately not recorded.
 
 Public responses carry no `viewer` state, and notifications need an account,
@@ -42,8 +45,9 @@ so those are recorded from the end-to-end suite's local network instead
 that follows and is followed by another, has pinned a post and bookmarked,
 liked and been mentioned, replied to, quoted, liked and reposted reads
 `feed.getTimeline` (`viewer_timeline.json`), `feed.getAuthorFeed` with pins
-(`viewer_author_feed.json`), `feed.getPostThread` of its post
-(`viewer_thread.json`), `notification.listNotifications`
+(`viewer_author_feed.json`), `unspecced.getPostThreadV2` of its post
+(`viewer_thread.json`, not recorded since get_thread moved to that method;
+the next recording adds it back), `notification.listNotifications`
 (`notifications.json`) and `notification.getGroupedNotifications`
 (`grouped_notifications.json`). The suite writes them raw when
 `AT_MCP_E2E_RECORD` names a directory, and `--scrub` replaces what they say

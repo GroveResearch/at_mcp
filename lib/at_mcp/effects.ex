@@ -321,7 +321,8 @@ defmodule AtMcp.Effects do
   """
   def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
     with_session(effects, fn backend, session ->
-      with {:ok, thread} <- backend.get_thread(session, uri) do
+      with {:ok, thread} <-
+             backend.get_thread(session, uri, Keyword.take(opts, [:depth, :breadth])) do
         if(Keyword.get(opts, :include_hidden) == true,
           do: with_hidden(thread, backend.get_hidden_replies(session, uri)),
           else: {:ok, thread}

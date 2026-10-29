@@ -45,7 +45,7 @@ defmodule AtMcp.Test.MockBackend do
   def get_unread_count(_state), do: {:ok, %{count: 1}}
 
   @impl true
-  def get_thread(_state, uri) do
+  def get_thread(_state, uri, _opts) do
     {:ok,
      %{
        uri: uri,

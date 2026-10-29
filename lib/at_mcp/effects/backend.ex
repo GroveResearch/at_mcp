@@ -81,7 +81,8 @@ defmodule AtMcp.Effects.Backend do
   """
   @callback get_grouped_notifications(state(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
-  @callback get_thread(state(), uri :: String.t()) :: {:ok, summary()} | {:error, reason()}
+  @callback get_thread(state(), uri :: String.t(), opts :: keyword()) ::
+              {:ok, summary()} | {:error, reason()}
   @callback get_thread_chain(state(), uri :: String.t(), opts :: keyword()) ::
               {:ok, summary()} | {:error, reason()}
   @callback get_timeline(state(), opts :: keyword()) :: {:ok, summary()} | {:error, reason()}

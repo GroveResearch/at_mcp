@@ -195,6 +195,27 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`get_thread`'s `depth`: levels of replies, within what the service takes."
+  defmacro thread_depth do
+    %{depth: max} = AtMcp.Effects.ProtoRune.thread_shape()
+
+    Macro.escape(
+      description: "Levels of replies to read below the post (0-#{max}). Omit for the app's",
+      schema: %{type: "integer", minimum: 0, maximum: max}
+    )
+  end
+
+  @doc "`get_thread`'s `breadth`: replies per post below the first level."
+  defmacro thread_breadth do
+    %{breadth: max} = AtMcp.Effects.ProtoRune.thread_shape()
+
+    Macro.escape(
+      description:
+        "Replies to read under each post below the first level (0-#{max}); every direct reply to the post is read whatever this is. Omit for the app's",
+      schema: %{type: "integer", minimum: 0, maximum: max}
+    )
+  end
+
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
@@ -373,14 +394,13 @@ defmodule AtMcp.MCP.Schemas do
   `get_thread` reads.
   """
   defmacro describe(text) do
-    %{parent_height: parents, depth: depth, replies: replies} =
-      AtMcp.Effects.ProtoRune.thread_shape()
+    %{views: %{linear: linear, tree: tree}} = AtMcp.Effects.ProtoRune.thread_shape()
 
     text
     |> String.replace("{batch}", "1-#{AtMcp.Effects.max_batch()}")
     |> String.replace(
       "{thread}",
-      "up to #{parents} parent levels and #{depth} reply levels, nested (#{replies} replies per node)"
+      "every parent, then the replies nested below it in the order the app shows them, by this account's thread sort. As the app's default view reads it: #{linear.depth} levels of replies, every direct reply and #{linear.breadth} reply per post below them; with the app's tree view on, #{tree.depth} levels and #{tree.breadth} per post"
     )
   end
 
@@ -559,7 +579,8 @@ defmodule AtMcp.MCP.Schemas do
         },
         "parent_omitted" => %{
           "type" => ["boolean", "null"],
-          "description" => "True when a parent exists beyond the retained height"
+          "description" =>
+            "True when the service says the conversation goes further up than it returned"
         },
         "replies" => %{"type" => "array", "items" => %{"type" => "object"}},
         "replies_omitted" => %{
@@ -568,7 +589,22 @@ defmodule AtMcp.MCP.Schemas do
         },
         "context" => %{
           "type" => "object",
-          "description" => "The depth, parent height and per-node reply cap applied"
+          "description" =>
+            "How the thread was read: depth (levels of replies), breadth (replies per post below the first level), sort, and view (linear or tree, the account's setting)"
+        },
+        "other_replies" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "True when the app leaves replies out of this thread; include_hidden reads them"
+        },
+        "op_thread_index" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "This post's place, from 1, in the thread's author's own run of posts from the root"
+        },
+        "op_thread_count" => %{
+          "type" => ["integer", "null"],
+          "description" => "How many posts that run has"
         },
         "hidden_by_threadgate" => %{
           "type" => ["boolean", "null"],

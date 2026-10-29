@@ -79,11 +79,15 @@ defmodule AtMcp.LimitsTest do
   end
 
   test "get_thread says the shape the backend reads", %{tools: tools} do
-    %{parent_height: parents, depth: depth, replies: replies} =
+    %{depth: max_depth, breadth: max_breadth, views: %{linear: linear, tree: tree}} =
       AtMcp.Effects.ProtoRune.thread_shape()
 
     assert tools["get_thread"].description =~
-             "up to #{parents} parent levels and #{depth} reply levels, nested (#{replies} replies per node)"
+             "#{linear.depth} levels of replies, every direct reply and #{linear.breadth} reply per post below them"
+
+    assert tools["get_thread"].description =~ "#{tree.depth} levels and #{tree.breadth} per post"
+    assert tools["get_thread"].inputSchema.properties.depth.maximum == max_depth
+    assert tools["get_thread"].inputSchema.properties.breadth.maximum == max_breadth
   end
 
   # The numbers above are written once in lib/, in the module that enforces

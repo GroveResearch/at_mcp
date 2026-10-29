@@ -151,7 +151,7 @@ defmodule AtMcp.Reading do
       parents
       |> Enum.with_index()
       |> Enum.map(fn {parent, index} ->
-        post(parent, parent_label(count - index))
+        post(parent, cat([parent_label(count - index), op_run(parent)]))
       end)
 
     omitted =
@@ -168,13 +168,28 @@ defmodule AtMcp.Reading do
         [shown(node["moderation_unread"])] ++
           omitted ++
           above ++
-          [post(node, ~L"[this post]")] ++ replies(node, []) ++ hidden(node),
+          [post(node, cat([~L"[this post]", op_run(node)]))] ++
+          replies(node, []) ++ hidden(node) ++ others(node),
         :blank
       )
     )
   end
 
   def thread(_other), do: nil
+
+  # A post in the thread author's own run of posts from the root, numbered as
+  # the app numbers it.
+  defp op_run(%{"op_thread_index" => n, "op_thread_count" => of})
+       when is_integer(n) and is_integer(of) and of > 1,
+       do: cat([~L" (the author's thread, ", int(n), ~L" of ", int(of), ~L")"])
+
+  defp op_run(_post), do: nil
+
+  # Replies the app leaves out, when include_hidden was not asked for.
+  defp others(%{"other_replies" => true} = node) when not is_map_key(node, "hidden_replies"),
+    do: [~L"(The app leaves some replies out of this thread. include_hidden reads them.)"]
+
+  defp others(_node), do: []
 
   # Asked for with `include_hidden`: the replies the app leaves out of the
   # thread. Those the read returned are marked where they stand; the rest are
@@ -2236,7 +2251,7 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {reply, n} ->
         place = path ++ [n]
-        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]"])
+        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]", op_run(reply)])
         [post(reply, label) | replies(reply, place)]
       end)
 

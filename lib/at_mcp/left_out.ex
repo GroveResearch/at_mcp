@@ -43,6 +43,11 @@ defmodule AtMcp.LeftOut do
     {"feed[].opThreadPostCount",
      "The length of the author's self-thread (the app's 1/3); `get_thread_chain` reads it"},
 
+    # A thread as getPostThreadV2 lists it.
+    {"thread[].uri", "The item's post uri, which its post carries as `uri`"},
+    {"thread[].value.opThread",
+     "Whether the post is in its author's own run from the root, which `op_thread_index` and `op_thread_count` say with its place"},
+
     # Who may reply.
     {"threadgate",
      "The thread's gate beside the thread: get_thread marks the replies it hides, and `reply_rule` reads who may reply from the same gate on the first post's view; its uri, cid and time are not what the app shows"},
@@ -141,7 +146,6 @@ defmodule AtMcp.LeftOut do
     {"**.labels[].cts", "When the label was signed; its value and who applied it are kept"},
     {"**.labels[].cid",
      "Which record version the label applies to; its value and source are kept"},
-    {"**.labels[].ver", "The label format's version"},
     {"**.aspectRatio", "Layout only: the shape to draw an image or video at"},
     {"**.post.record.$type", "The post record's type; the read already says it is a post"},
     {"**.facets[].$type", "The facet's type tag; each feature's own kind is read"},
