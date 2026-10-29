@@ -1495,10 +1495,16 @@ defmodule AtMcp.MCP.Schemas do
 
   # A page of posts that `AtMcp.MCP.Tools.page/4` cut short.
   defp cut(schema) do
-    put_in(schema, ["properties", "left_out"], %{
+    schema
+    |> put_in(["properties", "left_out"], %{
       "type" => "integer",
       "description" =>
         "Posts the service sent for this page that were left out to keep its reading within the bound; the cursor continues from them. Absent when none were"
+    })
+    |> put_in(["properties", "over_bound"], %{
+      "type" => "boolean",
+      "description" =>
+        "True when the page reads longer than the bound and the service gave no shorter page that continues it, so it is whole"
     })
   end
 
