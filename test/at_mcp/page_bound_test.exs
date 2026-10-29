@@ -57,7 +57,11 @@ defmodule AtMcp.PageBoundTest do
   # Post n: the recorded post with its own uri and about 2,000 characters.
   defp post(n) do
     post = @fixture |> File.read!() |> Jason.decode!()
-    text = "Post #{n}. " <> String.duplicate("A sentence of a long post. ", 75)
+
+    text =
+      "Post #{n}. " <>
+        String.duplicate("A sentence of a long post. ", 75) <>
+        String.duplicate("a", Application.get_env(:at_mcp, :page_bound_test_pad, 0))
 
     post
     |> Map.put("uri", uri(n))
@@ -78,6 +82,7 @@ defmodule AtMcp.PageBoundTest do
     on_exit(fn ->
       restore(:proto_rune, :http_client, previous)
       restore(:at_mcp, :network, network)
+      Application.delete_env(:at_mcp, :page_bound_test_pad)
     end)
 
     {:ok, effects} =
@@ -139,6 +144,27 @@ defmodule AtMcp.PageBoundTest do
       assert length(page["items"]) == 50, name
       refute Map.has_key?(page, "left_out")
     end
+  end
+
+  test "a page read with since fits the bound with its header, which is counted inside it", ctx do
+    # Pad the posts as far as 13 of them still read whole without since, which
+    # is within a few characters of the bound.
+    read = fn pad, args ->
+      Application.put_env(:at_mcp, :page_bound_test_pad, pad)
+      text(call(ctx.state, "get_timeline", Map.put(args, "limit", 13)))
+    end
+
+    pad = Enum.find(200..0//-1, &(read.(&1, %{}) =~ ~r/^13 posts\. For the next page/))
+    plain = read.(pad, %{})
+    assert String.length(plain) in (AtMcp.Reading.page_chars() - 60)..AtMcp.Reading.page_chars()
+    assert plain =~ ~r/^13 posts\./
+
+    # Every post is new since 2020, and the header says so and gives the
+    # cursor for the rest: the page is cut to make room for it.
+    since = read.(pad, %{"since" => "2020-01-01T00:00:00Z"})
+    assert since =~ " new since "
+    assert String.length(since) <= AtMcp.Reading.page_chars(), "read #{String.length(since)}"
+    assert since =~ ~r/^12 posts\. 60 new since [^.]+\. 1 more post did not fit/
   end
 
   test "a feed whose generator ignores limit is not cut, so no post is skipped", ctx do
