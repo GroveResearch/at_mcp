@@ -5,7 +5,8 @@ defmodule AtMcp.MCP.Served do
   Some networks do not serve every method. `AtMcp.Endpoints.deployments/0`
   lists the methods each network leaves out. For a session on such a network,
   `offered/2` removes any argument that depends on an unserved method, and
-  removes a tool when none of its methods are served.
+  removes a tool when none of its methods are served. `get_policy` is offered
+  where the network publishes policy pages.
 
   Offered an argument its network does not serve, an agent may call it, get
   the service's 501 and take that for an empty answer. A refused read of
@@ -58,6 +59,9 @@ defmodule AtMcp.MCP.Served do
       end)
     end
   end
+
+  # get_policy reads a network's published policy pages, and calls no method.
+  defp served?(network, {"get_policy", nil}), do: AtMcp.Network.publishes_policies?(network)
 
   defp served?(network, key) do
     case Map.fetch(@needs, key) do

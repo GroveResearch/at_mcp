@@ -12,7 +12,10 @@ defmodule AtMcp.MCP.ToolSet do
 
   The default set holds the tools an agent on a social network uses most:
   reading, posting and replying, and choosing whom it follows, blocks and
-  mutes. It adds `get_record`, `put_record` and `delete_record` for other
+  mutes. It adds `get_post_images`, so a model can look at the pictures in a
+  post, `pin_post`, to choose the post its profile shows first, and
+  `get_policy`, to read the rules of a network that publishes them. It also
+  holds `get_record`, `put_record` and `delete_record` for other
   applications' records.
 
   `tools/call` accepts every published tool, listed or not, so a program that
@@ -29,6 +32,7 @@ defmodule AtMcp.MCP.ToolSet do
     get_reposted_by get_suggested_follows get_thread get_thread_chain get_timeline
     get_unread_count identity_status like mute post reply repost search_actors
     search_posts unblock unfollow unlike unmute unrepost update_profile update_seen
+    get_post_images pin_post get_policy
     get_record put_record delete_record
   )
 

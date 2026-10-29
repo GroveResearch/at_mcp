@@ -26,11 +26,13 @@ defmodule AtMcp.StdioTest do
     # skipped. No tool lists an output schema. The account started with
     # AT_MCP_TOOLS=full is offered every tool the server declares, through
     # config/runtime.exs as a release reads it; the other, the default set.
+    # Both are cut to what the network serves (`AtMcp.MCP.Served`).
     {:ok, declared, nil, :state} = AtMcp.MCP.Server.handle_list_tools(nil, :state)
+    served = AtMcp.MCP.Served.offered(declared)
+    default = Enum.count(served, &(&1.name in AtMcp.MCP.ToolSet.default()))
     assert output =~ ~s("output_schemas":0)
 
-    assert output =~
-             ~s("listed":{"full":#{length(declared)},"default":#{length(AtMcp.MCP.ToolSet.default())}})
+    assert output =~ ~s("listed":{"full":#{length(served)},"default":#{default}})
 
     assert output =~ ~s("structured_content":true)
     assert output =~ ~s("real_summaries":["get_timeline","get_thread"])

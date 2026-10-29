@@ -80,8 +80,9 @@ then read the JSON as well.
 
 ## The full tool set
 
-at_mcp lists 43 tools by default, to keep the tool list the model reads
-small. That list covers posting, reading and replying, plus the tools for the
+at_mcp lists 46 tools by default (45 on Bluesky), to keep the tool list the
+model reads small. That list covers posting, reading and replying, a post's
+pictures, pinning and the network's policies, plus the tools for the
 account's own records. A script or hook can call any other tool by name,
 even when it isn't listed, but the model in Claude Code can call only the
 tools it was listed. An agent that needs another tool needs the full set.

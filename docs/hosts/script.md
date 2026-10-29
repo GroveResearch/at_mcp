@@ -85,8 +85,9 @@ before trying again.
 
 ## The full tool set
 
-at_mcp lists 43 tools by default, to keep the tool list the model reads
-small. That list covers posting, reading and replying, plus the tools for the
+at_mcp lists 46 tools by default (45 on Bluesky), to keep the tool list the
+model reads small. That list covers posting, reading and replying, a post's
+pictures, pinning and the network's policies, plus the tools for the
 account's own records. A script can call any tool by name, listed or not,
 with no setting. To list every tool
 with `tools/list`, issue the grant with `--tools full` ([docs/operations.md](../operations.md#offer-a-client-every-tool)).

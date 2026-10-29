@@ -7,7 +7,7 @@ agent its own account on [Bluesky](https://bsky.app/) or
 [Delvetown](https://delve.town/). Your MCP client, such as Claude Code, starts
 at_mcp when a session begins. at_mcp logs in to the account with an app
 password, keeps the session fresh, and offers the agent tools for reading and
-acting as that account. By default it lists 43 of them: what an agent needs to
+acting as that account. By default it lists 46 of them (45 on Bluesky): what an agent needs to
 read, post, reply and choose whom it follows, plus the records tools. The
 rest, about a hundred in all, are available on request. A read answers in
 text written for the model; a program can ask for JSON. When the session

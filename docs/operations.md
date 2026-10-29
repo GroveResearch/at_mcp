@@ -221,9 +221,11 @@ outside it. [tools.md](tools.md) gives the scope of each tool.
 
 ### Offer a client every tool
 
-A client is offered the default tool set: 43 tools for reading, posting,
-replying and choosing whom to follow, block and mute, plus the records tools,
-about 49 KB of tool definitions. To
+A client is offered the default tool set: 46 tools for reading, posting,
+replying and choosing whom to follow, block and mute, looking at a post's
+pictures, pinning a post and reading the network's policies, plus the records
+tools. That is about 52,000 characters of tool definitions, and 45 tools on
+Bluesky, which publishes no policies for `get_policy`. To
 list all of them for a client, issue its grant with `--tools full`:
 
 ```sh

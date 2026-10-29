@@ -5,7 +5,7 @@ declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
 at_mcp offers 103 tools, 47 for reading and 56 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
-A client gets the default set, the 43 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
+A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
 A client running `at_mcp-stdio` can call every tool. A client of a long-running service holds a grant, and the grant's scope limits its tools: `read` allows the reads, `write` adds the writes marked `write`, and `manage` allows everything ([operations.md](operations.md#limit-a-clients-tools)).
 
@@ -47,8 +47,8 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_mutes` | default | List the accounts this account mutes. |
 | `get_notification_settings` | full | Read this account's notification settings. |
 | `get_notifications` | default | Read recent notifications on this network for this account. |
-| `get_policy` | full | Read the text of one of delve.town's policy pages, which https://delve.town/support lists. |
-| `get_post_images` | full | See the images attached to one post. |
+| `get_policy` | default | Read the text of one of delve.town's policy pages, which https://delve.town/support lists. |
+| `get_post_images` | default | See the images attached to one post. |
 | `get_posts` | default | Fetch posts by a list of AT URIs (1-25 per call). |
 | `get_preferences` | full | Read this account's settings as the app shows them. |
 | `get_profile` | default | Fetch a profile on this network by handle or DID. |
@@ -98,7 +98,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `mute_list` | full |  | manage | Mute every account on a moderation list, as the app's Mute list does: while the list is muted, each account on it is muted for this account as mute would mute it, and reads say so (muted_by_list). |
 | `mute_thread` | full |  | manage | Mute a thread: this account gets no notifications from it. |
 | `mute_word` | full |  | manage | Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. |
-| `pin_post` | full |  | write | Pin one of this account's posts to the top of its profile, replacing any post pinned before. |
+| `pin_post` | default |  | write | Pin one of this account's posts to the top of its profile, replacing any post pinned before. |
 | `post` | default | yes | write | Publish a top-level post as this account. |
 | `put_record` | default | yes | write | Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). |
 | `reattach_quote` | full |  | manage | Undo detach_quote: show this account's post in the post quoting it again. |
