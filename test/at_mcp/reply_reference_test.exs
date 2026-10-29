@@ -350,10 +350,12 @@ defmodule AtMcp.ReplyReferenceTest do
     offline = %{state | effects: effects}
     used = AtMcp.Effects.quota_status(effects).used
 
+    # The quote rule given, so the account's saved one is not read first:
+    # the parent's read is the one that fails.
     assert {:ok, result, ^offline} =
              AtMcp.MCP.Server.handle_call_tool(
                "reply",
-               %{"uri" => @readable, "text" => "hello"},
+               %{"uri" => @readable, "text" => "hello", "quotes" => "allowed"},
                offline
              )
 

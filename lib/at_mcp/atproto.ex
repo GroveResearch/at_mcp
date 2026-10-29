@@ -119,6 +119,7 @@ defmodule AtMcp.ATProto do
       case Jason.decode(body) do
         {:ok, %{"preferences" => preferences}} when is_list(preferences) ->
           AtMcp.AcceptLabelers.remember(session, preferences)
+          AtMcp.PostDefaults.remember(session, preferences)
           {:ok, preferences}
 
         _ ->
@@ -145,6 +146,7 @@ defmodule AtMcp.ATProto do
 
       written ->
         AtMcp.AcceptLabelers.remember(session, preferences)
+        AtMcp.PostDefaults.remember(session, preferences)
         written
     end
   end

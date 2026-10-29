@@ -226,7 +226,7 @@ defmodule AtMcp.PostGatesTest do
           id: make_ref()
         )
 
-      %{effects: effects, pds: pds, state: %{effects: effects}}
+      %{effects: effects, pds: pds, session: session, state: %{effects: effects}}
     end
 
     @mine "at://did:plc:self/app.bsky.feed.post/3kmine2222222"
@@ -460,7 +460,7 @@ defmodule AtMcp.PostGatesTest do
       refute Map.has_key?(result, :threadgate_uri)
     end
 
-    test "saved settings that cannot be read leave the post unsent and uncounted" do
+    test "saved settings that cannot be read leave the post unsent and uncounted, quoting the service" do
       unreadable = %{
         "app.bsky.actor.getPreferences" => {500, %{error: "InternalServerError", message: "down"}}
       }
@@ -472,25 +472,69 @@ defmodule AtMcp.PostGatesTest do
         }
       ]
 
-      for {answers, preferences, says} <- [
-            {unreadable, [], "could not be read"},
-            {%{}, unknown, "app.bsky.feed.threadgate#somedayRule"}
+      for {answers, preferences, says, advice} <- [
+            # The service's answer is its own, quoted; the rest is at_mcp's,
+            # and one sentence says what to do.
+            {unreadable, [],
+             ~s|the account's service answered 500: "down". The account's saved settings for who may reply to and quote a new post could not be read|,
+             "Pass reply_rule and quotes to post without the saved settings, or wait a short while and try again."},
+            {%{}, unknown,
+             ~s|has a rule at_mcp cannot read ("app.bsky.feed.threadgate#somedayRule")|,
+             "Pass reply_rule to choose who may reply, and try again."}
           ] do
-        %{effects: effects, pds: pds} = pds(%{}, answers, preferences)
+        %{effects: effects, pds: pds, state: state} = pds(%{}, answers, preferences)
+        result = call(state, "post", %{"text" => "x"})
+        text = hd(result.content).text
 
-        assert {:error, %AtMcp.Effects.Failure{message: message}} =
-                 AtMcp.Effects.post(effects, "x")
-
-        assert message =~ says
-        assert message =~ "reply_rule"
+        assert result.isError
+        assert result.structuredContent.code == "saved_settings_unreadable"
+        assert result.structuredContent.retry == "change_argument"
+        assert text =~ says
+        assert String.ends_with?(text, advice)
+        refute text =~ "Wait about"
         assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
         assert FakePDS.sent(pds, "com.atproto.repo.createRecord") == []
         assert AtMcp.Effects.quota_status(effects).used == 0
+
+        if answers == unreadable,
+          do: assert(result.structuredContent.upstream_message == "down")
 
         # Given both rules, the post needs nothing saved and is sent.
         assert {:ok, _} =
                  AtMcp.Effects.post(effects, "x", reply_rule: ["everyone"], quotes: "allowed")
       end
+    end
+
+    test "the saved settings are read once a minute at most, and a change made here applies at once" do
+      %{effects: effects, pds: pds, session: session} = pds(%{}, %{}, @saved)
+      reads = fn -> length(FakePDS.sent(pds, "app.bsky.actor.getPreferences")) end
+
+      assert {:ok, %{from_saved_settings: ["reply_rule", "quotes"]}} =
+               AtMcp.Effects.post(effects, "one")
+
+      assert {:ok, %{from_saved_settings: ["reply_rule", "quotes"]}} =
+               AtMcp.Effects.post(effects, "two")
+
+      assert reads.() == 1
+
+      # set_preference writes the preferences, and what it wrote is kept.
+      assert {:ok, _} =
+               AtMcp.Effects.set_preference(effects, "interaction_defaults", %{
+                 reply_rule: ["everyone"],
+                 quotes: "allowed"
+               })
+
+      before = reads.()
+      assert {:ok, open} = AtMcp.Effects.post(effects, "three")
+      refute Map.has_key?(open, :from_saved_settings)
+      assert reads.() == before
+
+      # Kept longer than a minute, the settings are read again.
+      key = {session.did, session.service_url}
+      stale = System.monotonic_time(:millisecond) - AtMcp.PostDefaults.ttl_ms() - 1
+      true = :ets.update_element(AtMcp.PostDefaults, key, {3, stale})
+      assert {:ok, _} = AtMcp.Effects.post(effects, "four")
+      assert reads.() == before + 1
     end
 
     test "a post without gates is written as before, and quotes allowed writes no postgate" do

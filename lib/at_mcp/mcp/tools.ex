@@ -618,6 +618,42 @@ defmodule AtMcp.MCP.Tools do
   # complete" would be false twice over — it completed, and the service answered
   # — and it would send an agent into a retry loop against a condition that is
   # deterministic in AtMcp's own parser.
+  # A post that left a gate out takes it from the account's saved settings
+  # (`AtMcp.Effects.ProtoRune.prepare_post/3`), and they could not be read: the
+  # post was not sent, since without them it would be open to everyone. The
+  # service's answer is quoted as its own; the rest is at_mcp's.
+  def respond({:error, {:saved_interactions_unreadable, upstream}}, state) do
+    error(
+      state,
+      "saved_settings_unreadable",
+      cat([
+        ~L"error: ",
+        upstream_detail(upstream),
+        ~L" The account's saved settings for who may reply to and quote a new post could not be read, so the post was not sent: without them it would be open to everyone. Nothing was counted against the write quota."
+      ]),
+      change_any(
+        ~L"Pass reply_rule and quotes to post without the saved settings, or wait a short while and try again."
+      ),
+      Map.reject(%{http_status: upstream.status, upstream_message: upstream.message}, fn {_, v} ->
+        is_nil(v)
+      end)
+    )
+  end
+
+  def respond({:error, {:saved_reply_rule_unreadable, words}}, state) do
+    error(
+      state,
+      "saved_settings_unreadable",
+      cat([
+        ~L"error: the account's saved reply setting for new posts has a rule at_mcp cannot read (",
+        join(Enum.map(words, &literal/1), :comma),
+        ~L"), so the post was not sent. Nothing was counted against the write quota."
+      ]),
+      change("reply_rule", ~L"Pass reply_rule to choose who may reply, and try again."),
+      %{saved_reply_rule: words}
+    )
+  end
+
   def respond({:error, %AtMcp.Effects.Failure{kind: :unreadable} = upstream}, state) do
     error(
       state,

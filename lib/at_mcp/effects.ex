@@ -931,6 +931,9 @@ defmodule AtMcp.Effects do
   `AtMcp.Interactions.post_options/2`'s. `facets: :none` publishes `text`
   exactly as given, with no mention, link or tag facets, for a caller that
   quotes text it did not write; the MCP tools do not offer it (decisions.md).
+  A `reply_rule` or `quotes` left out is the account's saved one for new
+  posts, as in the app; pass `reply_rule: ["everyone"], quotes: "allowed"` to
+  post open whatever is saved.
   """
   def post(effects, text, opts \\ []) when is_binary(text) and is_list(opts),
     do: publish(effects, :post, text, opts)

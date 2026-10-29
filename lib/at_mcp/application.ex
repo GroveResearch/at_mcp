@@ -82,6 +82,8 @@ defmodule AtMcp.Application do
         {AtMcp.WriteQuota, Application.get_env(:at_mcp, :write_quota, [])},
         # Which labelers each account's reads ask the AppView for.
         AtMcp.AcceptLabelers,
+        # Each account's saved settings for a new post's gates, kept briefly.
+        AtMcp.PostDefaults,
         # Shared Jetstream inbound ears — N identities track DIDs onto this one WS.
         {AtMcp.Inbound, name: AtMcp.Inbound},
         # N identities (Effects + Listen + optional MCP) — never communal login.

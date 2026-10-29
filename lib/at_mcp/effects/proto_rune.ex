@@ -1830,6 +1830,8 @@ defmodule AtMcp.Effects.ProtoRune do
     else
       {:error, {:referenced_record_unreadable, _uri, _cause}} = error -> error
       {:error, {:reply_disabled, _uri}} = error -> error
+      {:error, {:saved_interactions_unreadable, _failure}} = error -> error
+      {:error, {:saved_reply_rule_unreadable, _words}} = error -> error
       {:error, reason} -> {:error, failure(reason)}
     end
   rescue
@@ -4496,8 +4498,7 @@ defmodule AtMcp.Effects.ProtoRune do
     want_quotes? = not Keyword.has_key?(opts, :quotes)
 
     if want_rule? or want_quotes? do
-      with {:ok, preferences} <- saved_preferences(session),
-           saved = AtMcp.Preferences.kind_view(preferences, "interaction_defaults"),
+      with {:ok, saved} <- saved_settings(session),
            {:ok, rule} <- saved_rule(saved.reply_rule),
            {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
         taken =
@@ -4514,38 +4515,30 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  defp saved_preferences(session) do
-    case AtMcp.ATProto.preferences_as_stored(session) do
-      {:ok, preferences} when is_list(preferences) ->
-        {:ok, preferences}
+  # Kept for a minute after the preferences were last read or written
+  # (`AtMcp.PostDefaults`), else read now. A read that fails keeps the
+  # service's own answer, for `AtMcp.MCP.Tools` to quote as the service's.
+  defp saved_settings(session) do
+    case AtMcp.PostDefaults.known(session) do
+      {:ok, saved} ->
+        {:ok, saved}
 
-      {:ok, _other} ->
-        {:error, unreadable("the account's saved interaction settings", %{})}
+      :error ->
+        case AtMcp.ATProto.preferences_as_stored(session) do
+          {:ok, preferences} when is_list(preferences) ->
+            {:ok, AtMcp.Preferences.kind_view(preferences, "interaction_defaults")}
 
-      {:error, reason} ->
-        {:error,
-         AtMcp.Effects.Failure.new(failure(reason).kind,
-           status: failure(reason).status,
-           message:
-             "The account's saved settings for who may reply to and quote a new post could not be read, so the post was not sent: without them it would be open to everyone. To post without them, pass reply_rule and quotes.",
-           detail: :saved_interactions
-         )}
+          {:error, reason} ->
+            {:error, {:saved_interactions_unreadable, failure(reason)}}
+        end
     end
   end
 
   # A saved rule at_mcp cannot read is not taken as everyone.
   defp saved_rule(words) do
     case AtMcp.Interactions.reply_rule(words) do
-      {:ok, rule} ->
-        {:ok, rule}
-
-      {:error, _} ->
-        {:error,
-         AtMcp.Effects.Failure.new(:refused,
-           message:
-             "The account's saved reply setting has a rule at_mcp cannot read (#{Enum.join(words, ", ")}), so the post was not sent. Pass reply_rule to choose who may reply.",
-           detail: :saved_interactions
-         )}
+      {:ok, rule} -> {:ok, rule}
+      {:error, _} -> {:error, {:saved_reply_rule_unreadable, words}}
     end
   end
 

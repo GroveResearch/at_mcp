@@ -103,6 +103,15 @@ the account on purpose. at_mcp has saved the configuration and left the
 account stopped. Wait for an explicit `AtMcp.Accounts.reconnect/1` before
 starting it.
 
+## Posting
+
+`AtMcp.Effects.post/3` and `reply/4` start each post from the account's saved
+settings for new posts, as the app does: who may reply and whether it may be
+quoted (`interaction_defaults` in `get_preferences`). A gate option you leave
+out takes the saved one, so pass `reply_rule: ["everyone"], quotes: "allowed"`
+to post open whatever is saved. If the saved settings cannot be read, the post
+is not sent.
+
 ## Editing a profile
 
 `AtMcp.Effects.get_own_profile(effects)` returns `{:ok, %{value: record}}`,
