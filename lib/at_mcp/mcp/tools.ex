@@ -801,8 +801,10 @@ defmodule AtMcp.MCP.Tools do
 
   With `detail: "brief"` the page is shown with `AtMcp.Reading.brief_posts/1`.
   When the text would be longer than `AtMcp.Reading.page_chars/0`, the page is
-  read again with the number of items that fit. The cursor is then the
-  service's own and starts with the first item that was dropped, and the page
+  read again with the number of items that fit. The text is measured with the
+  longest header the read can get from `since` and `mark_read`, so the page
+  with its header fits. The cursor is then the service's own and starts with
+  the first item that was dropped, and the page
   says how many were dropped. An item hidden from the page is not counted, so
   the cursor never skips an item, though it may repeat one. If the second read
   fails or does not return fewer items, the whole first page is returned: a
@@ -823,7 +825,10 @@ defmodule AtMcp.MCP.Tools do
       :ok ->
         result = fetch.(Map.get(args, :limit), cursor)
 
-        if(json?, do: result, else: bounded(result, &fetch.(&1, cursor), reading, started))
+        if(json?,
+          do: result,
+          else: bounded(result, &fetch.(&1, cursor), reading, headers(args, feed), started)
+        )
         |> positioned(args, state, feed, fetch, started)
         |> respond(state, reading)
 
@@ -895,10 +900,10 @@ defmodule AtMcp.MCP.Tools do
   # case the first page is returned whole, with a note that it is longer than
   # the limit. The same happens when the second read would not finish before
   # the endpoint stops waiting.
-  defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
+  defp bounded({:ok, %{} = page} = result, fetch, reading, headers, started) do
     with {:ok, json} <- Jason.encode(page),
          %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
-         fit when fit < length(items) <- fitting(data, items, reading) do
+         fit when fit < length(items) <- fitting(data, items, reading, headers) do
       case cut(page, fetch, fit, items, started) do
         {:ok, smaller} -> {:ok, smaller}
         :error -> {:ok, Map.put(page, :over_bound, true)}
@@ -908,7 +913,7 @@ defmodule AtMcp.MCP.Tools do
     end
   end
 
-  defp bounded(result, _fetch, _reading, _started), do: result
+  defp bounded(result, _fetch, _reading, _headers, _started), do: result
 
   defp cut(page, fetch, fit, items, started) do
     with true <- time_left?(started),
@@ -939,18 +944,52 @@ defmodule AtMcp.MCP.Tools do
       AtMcp.MCP.HTTP.handler_call_timeout()
   end
 
-  # How many of the page's first items its reading holds within the bound;
-  # at least one.
-  defp fitting(data, items, reading) do
+  # How many of the page's first items its reading holds within the bound,
+  # with the longest of the headers the read can add after it is cut; at
+  # least one.
+  defp fitting(data, items, reading, headers) do
     fits? = fn n ->
       page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
-      text = apply(AtMcp.Reading, reading, [page])
-      not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
+
+      Enum.all?(headers, fn header ->
+        text = apply(AtMcp.Reading, reading, [Map.merge(page, header)])
+        not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
+      end)
     end
 
     if fits?.(length(items)),
       do: length(items),
       else: Enum.find(length(items)..2//-1, 1, fits?)
+  end
+
+  # The header lines positioned/6 can add to a page once it is cut, as the
+  # fields it sets: for `since`, what is new since a time or that the position
+  # could not be loaded or this is the first read, and for a read that moves
+  # the position, that it could not be saved. Each time and count is as long
+  # as a real one can be, so the page is measured with its header as read.
+  @a_time "2026-10-29T08:00:00.000Z"
+  @a_count 99_999
+
+  defp headers(args, feed) do
+    since = if is_binary(feed), do: Map.get(args, :since)
+
+    shown =
+      if since,
+        do: [
+          %{
+            "since" => @a_time,
+            "since_asked" => since,
+            "new_total" => @a_count,
+            "new_total_exact" => false
+          },
+          %{"since" => nil, "since_asked" => since},
+          %{"since" => nil, "since_asked" => since, "since_unread" => "unexpected_error"}
+        ],
+        else: [%{}]
+
+    if is_binary(feed) and marks?(args),
+      do: Enum.map(shown, &Map.put(&1, "read_position_unsaved", "unexpected_error")),
+      else: shown
   end
 
   # `since` is read only on a feed whose position is held; `search_posts` has
