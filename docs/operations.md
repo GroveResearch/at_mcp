@@ -222,7 +222,7 @@ outside it. [tools.md](tools.md) gives the scope of each tool.
 ### Offer a client every tool
 
 A client is offered the default tool set: 43 tools, those Delvetown's
-residents use plus the records tools, about 42 KB of tool definitions. To
+residents use plus the records tools, about 49 KB of tool definitions. To
 list all of them for a client, issue its grant with `--tools full`:
 
 ```sh
