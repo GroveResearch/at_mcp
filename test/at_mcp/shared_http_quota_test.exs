@@ -24,7 +24,12 @@ defmodule AtMcp.SharedHTTPQuotaTest do
       |> Enum.map(fn {:ok, result} -> result end)
 
     assert Enum.count(results, &(not &1.error)) == 16
-    assert Enum.count(results, &(&1.error and &1.text =~ "quota exhausted; resets at")) == 4
+
+    assert Enum.count(
+             results,
+             &(&1.error and &1.text =~ "quota exhausted. Nothing was sent. Try again after")
+           ) == 4
+
     assert status(first)["write_quota"]["used"] == 16
     assert status(second)["write_quota"]["used"] == 16
     :ok = AtMcp.Accounts.disconnect(id)

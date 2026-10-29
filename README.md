@@ -181,10 +181,20 @@ this account" on its error output. Check the handle, the app password and
 
 ## Failed tool calls
 
-Each failed call returns a code and a reason for the agent to read. Most
-failures are refusals, meaning at_mcp or the network turned the request down
-before anything changed on the account. A refusal for the write quota includes
-the time when the quota resets.
+Each failed call returns a code and a reason for the agent to read. The reason
+ends with one sentence saying what the agent can do, and the result's `retry`
+field says the same:
+
+| `retry` | What the agent can do |
+| --- | --- |
+| `now` | Try again now. |
+| `after` | Try again after the time in `retry_after`, such as when the write quota resets. |
+| `change_argument` | Change the argument named in `argument`, then try again. |
+| `check_first` | Read the account before trying again: the write's outcome is unknown. |
+| `no` | Don't try again: the service does not offer this, or the account needs its operator. |
+
+A call that timed out says whether its request reached the service (`sent`).
+A read that failed is an error, never an empty result.
 
 An `outcome: "unknown"` result comes from a timed-out write, as described
 under [Limits](#limits).

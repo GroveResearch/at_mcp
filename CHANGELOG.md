@@ -7,6 +7,13 @@ itself.
 
 ## Unreleased
 
+- Every tool error ends with one sentence saying what the agent can do: try
+  again now, try again after a stated time, change a named argument, read the
+  account first, or not retry. The structured result carries the same advice
+  as `retry` (with `retry_after` or `argument`) and the whole text as
+  `message`. A read that timed out says whether its request reached the
+  service (`sent`).
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write

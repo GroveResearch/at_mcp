@@ -22,10 +22,11 @@ defmodule AtMcp.MCP.Input do
 
       {:error, _reason} ->
         {:error,
-         refusal(
-           "input_validation_unavailable",
-           "Input validation could not finish. No operation was attempted; you may try again."
-         )}
+         "input_validation_unavailable"
+         |> refusal(
+           "Input validation could not finish. No operation was attempted. Trying again now is safe and may succeed."
+         )
+         |> put_in([:structuredContent, :retry], "now")}
     end
   end
 
@@ -294,12 +295,20 @@ defmodule AtMcp.MCP.Input do
         %{path: p, message: m} -> "#{p}: #{m}"
       end) ++ if(more > 0, do: ["(#{more} more)"], else: [])
 
+    argument =
+      case shown do
+        [%{path: path} | _] when path != "" -> path
+        _ -> "the arguments"
+      end
+
+    {sentence, fields} = AtMcp.MCP.Tools.advice_for({:change, argument})
+
     message =
-      "Arguments do not match this tool's input schema. No operation was attempted. Fix and try again:\n- " <>
-        Enum.join(lines, "\n- ")
+      "Arguments do not match this tool's input schema. No operation was attempted:\n- " <>
+        Enum.join(lines, "\n- ") <> "\n" <> sentence
 
     refusal("invalid_arguments", message)
-    |> put_in([:structuredContent, :problems], shown)
+    |> update_in([:structuredContent], &Map.merge(&1, Map.put(fields, :problems, shown)))
   end
 
   # ExJsonSchema reports `{message, "#/avatar"}`: the path becomes `avatar`,
@@ -312,6 +321,6 @@ defmodule AtMcp.MCP.Input do
 
   defp refusal(code, message) do
     ExMCP.Server.DSL.Result.error(message)
-    |> Map.put(:structuredContent, %{code: code})
+    |> Map.put(:structuredContent, %{code: code, message: message})
   end
 end

@@ -422,7 +422,7 @@ defmodule AtMcp.MCP.ReadPagesTest do
       # answer. Telling an agent the request did not complete invites a retry
       # loop against a condition that is deterministic in AtMcp's own parser.
       refute text =~ "did not complete", "#{name} blames the service for a parse it owns"
-      assert text =~ "Retrying will return the same result"
+      assert text =~ "Trying again will return the same result"
     end
   end
 
