@@ -37,13 +37,22 @@ defmodule AtMcp.ViewerContextTest do
           String.contains?(url, "getPreferences") ->
             %{"preferences" => []}
 
-          String.contains?(url, "getPostThread") ->
-            %{
-              "thread" => %{
-                "post" => post,
-                "parent" => %{"post" => Map.delete(post, "viewer")},
-                "replies" => [%{"post" => Map.put(post, "viewer", %{})}]
+          String.contains?(url, "getPostThreadV2") ->
+            item = fn post, depth ->
+              %{
+                "uri" => post["uri"],
+                "depth" => depth,
+                "value" => %{"$type" => "app.bsky.unspecced.defs#threadItemPost", "post" => post}
               }
+            end
+
+            %{
+              "thread" => [
+                item.(Map.delete(post, "viewer"), -1),
+                item.(post, 0),
+                item.(Map.put(post, "viewer", %{}), 1)
+              ],
+              "hasOtherReplies" => false
             }
 
           String.contains?(url, "getPosts") ->

@@ -383,8 +383,14 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert hidden["subject_uri"] == root["uri"]
       sync(net)
 
+      # getPostThreadV2 leaves a hidden reply out of the thread, and
+      # include_hidden reads it, marked, from getPostThreadOtherV2.
+      assert call!(me, "get_thread", %{"uri" => root["uri"]})["replies"] == []
+
       assert [%{"uri" => uri, "hidden_by_threadgate" => true}] =
-               call!(me, "get_thread", %{"uri" => root["uri"]})["replies"]
+               call!(me, "get_thread", %{"uri" => root["uri"], "include_hidden" => true})[
+                 "hidden_replies"
+               ]
 
       assert uri == reply["uri"]
 
@@ -1984,8 +1990,8 @@ defmodule AtMcp.E2E.RoundTripTest do
           {"viewer_timeline.json", "app.bsky.feed.getTimeline", [limit: 30]},
           {"viewer_author_feed.json", "app.bsky.feed.getAuthorFeed",
            [actor: me.did, includePins: true, filter: "posts_with_replies", limit: 30]},
-          {"viewer_thread.json", "app.bsky.feed.getPostThread",
-           [uri: post["uri"], depth: 2, parentHeight: 2]},
+          {"viewer_thread.json", "app.bsky.unspecced.getPostThreadV2",
+           [anchor: post["uri"], below: 10, branchingFactor: 1, sort: "top"]},
           {"notifications.json", "app.bsky.notification.listNotifications", [limit: 30]},
           {"grouped_notifications.json", "app.bsky.notification.getGroupedNotifications",
            [limit: 30]}

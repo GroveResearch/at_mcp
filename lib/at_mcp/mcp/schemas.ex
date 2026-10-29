@@ -195,6 +195,28 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "`get_thread`'s `depth`: levels of replies, within what the service takes."
+  defmacro thread_depth do
+    %{depth: max} = AtMcp.Effects.ProtoRune.thread_shape()
+
+    Macro.escape(
+      description:
+        "How many levels of replies to read below the post, from 0 to #{max}. Leave it out to use the account's view in the app.",
+      schema: %{type: "integer", minimum: 0, maximum: max}
+    )
+  end
+
+  @doc "`get_thread`'s `breadth`: replies per post below the first level."
+  defmacro thread_breadth do
+    %{breadth: max} = AtMcp.Effects.ProtoRune.thread_shape()
+
+    Macro.escape(
+      description:
+        "How many replies to read under each reply, from 0 to #{max}. The direct replies to the post itself always come back in full, whatever this number is. Leave it out to use the account's view in the app.",
+      schema: %{type: "integer", minimum: 0, maximum: max}
+    )
+  end
+
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
@@ -373,14 +395,14 @@ defmodule AtMcp.MCP.Schemas do
   `get_thread` reads.
   """
   defmacro describe(text) do
-    %{parent_height: parents, depth: depth, replies: replies} =
-      AtMcp.Effects.ProtoRune.thread_shape()
+    %{views: %{linear: linear, tree: tree}} = AtMcp.Effects.ProtoRune.thread_shape()
+    under = if linear.breadth == 1, do: "a single reply", else: "up to #{linear.breadth} replies"
 
     text
     |> String.replace("{batch}", "1-#{AtMcp.Effects.max_batch()}")
     |> String.replace(
       "{thread}",
-      "up to #{parents} parent levels and #{depth} reply levels, nested (#{replies} replies per node)"
+      "every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. By default the tool follows the account's thread view in the app: the linear view (the usual one) reads #{linear.depth} levels of replies, with every direct reply and #{under} under each of those; the tree view reads #{tree.depth} levels, with up to #{tree.breadth} replies under each post. Use depth and breadth to read more or less. If the thread runs past #{AtMcp.Reading.page_chars()} characters, the tool returns as many direct replies as fit and gives the count of the rest"
     )
   end
 
@@ -561,7 +583,8 @@ defmodule AtMcp.MCP.Schemas do
         },
         "parent_omitted" => %{
           "type" => ["boolean", "null"],
-          "description" => "True when a parent exists beyond the retained height"
+          "description" =>
+            "True when the service reports more parent posts above the ones it returned"
         },
         "replies" => %{"type" => "array", "items" => %{"type" => "object"}},
         "replies_omitted" => %{
@@ -570,7 +593,27 @@ defmodule AtMcp.MCP.Schemas do
         },
         "context" => %{
           "type" => "object",
-          "description" => "The depth, parent height and per-node reply cap applied"
+          "description" =>
+            "The settings used to read the thread: depth (levels of replies), breadth (replies under each reply), sort (the order of replies), and view (linear or tree, from the account's settings)"
+        },
+        "other_replies" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "True when some replies to this thread are hidden, by its author or by this account's settings. Call again with include_hidden set to true to read them."
+        },
+        "replies_cut" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "How many direct replies the tool left out to keep the reading under #{AtMcp.Reading.page_chars()} characters. replies_omitted includes them."
+        },
+        "op_thread_index" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "Where this post falls, counting from 1, in the series of posts the original poster wrote in a row from the root"
+        },
+        "op_thread_count" => %{
+          "type" => ["integer", "null"],
+          "description" => "The number of posts in that series"
         },
         "hidden_by_threadgate" => %{
           "type" => ["boolean", "null"],

@@ -53,7 +53,7 @@ A page of posts is at most 40000 characters of text. When a page would be longer
 | `get_suggested_feeds` | List custom feeds the service currently suggests. |
 | `get_suggested_follows` | Accounts the service suggests following. |
 | `get_suggested_starter_packs` | List starter packs the service suggests: named sets of accounts and feeds to follow at once. |
-| `get_thread` | Read what surrounds a post: up to 2 parent levels and 2 reply levels, nested (20 replies per node). |
+| `get_thread` | Read the posts around a post: every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. |
 | `get_thread_chain` | Read the conversation leading to a post: every ancestor from the thread root down to it, as a flat list in order, plus the replies directly under it. |
 | `get_timeline` | Read this account's home timeline. |
 | `get_trends` | Read what is trending on the network, as the app's Explore page shows it. |

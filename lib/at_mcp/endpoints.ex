@@ -45,8 +45,8 @@ defmodule AtMcp.Endpoints do
     # --- Reading posts, threads and feeds ---
     {"app.bsky.feed.getTimeline", {:tool, "get_timeline"}},
     {"app.bsky.feed.getAuthorFeed", {:tool, "get_author_feed"}},
-    {"app.bsky.feed.getPostThread", {:tool, "get_thread"}},
-    {"app.bsky.unspecced.getPostThreadV2", {:todo, @posts}},
+    {"app.bsky.feed.getPostThread", {:tool, "get_thread_chain"}},
+    {"app.bsky.unspecced.getPostThreadV2", {:tool, "get_thread"}},
     {"app.bsky.unspecced.getPostThreadOtherV2", {:tool, "get_thread"}},
     {"app.bsky.feed.getPosts", {:tool, "get_posts"}},
     {"app.bsky.feed.getLikes", {:tool, "get_likes"}},

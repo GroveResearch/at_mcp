@@ -748,6 +748,59 @@ defmodule AtMcp.MCP.Tools do
       else: result |> bounded(fetch, reading, started) |> respond(state, reading)
   end
 
+  @doc """
+  Responds to `get_thread`. For a text reading longer than
+  `AtMcp.Reading.page_chars/0`, it keeps as many direct replies as fit, in
+  the service's order and each with its own replies, adds the rest to the
+  post's `replies_omitted`, and sets `replies_cut`. JSON output is not cut.
+  """
+  def thread(result, args, state) do
+    if AtMcp.MCP.DSL.format(args, state) == "json",
+      do: respond(result, state, :thread),
+      else: result |> bounded_thread() |> respond(state, :thread)
+  end
+
+  defp bounded_thread({:ok, %{replies: [_ | _] = replies} = thread} = result) do
+    data = Jason.decode!(Jason.encode!(thread))
+    count = length(replies)
+
+    reads_in? = fn kept ->
+      cut =
+        Map.merge(data, %{
+          "replies" => Enum.take(data["replies"], kept),
+          "replies_omitted" => (data["replies_omitted"] || 0) + count - kept,
+          "replies_cut" => count - kept
+        })
+
+      String.length(AtMcp.Reading.thread(cut) || "") <= AtMcp.Reading.page_chars()
+    end
+
+    case most(0, count, reads_in?) do
+      ^count ->
+        result
+
+      kept ->
+        {:ok,
+         Map.merge(thread, %{
+           replies: Enum.take(replies, kept),
+           replies_omitted: (thread[:replies_omitted] || 0) + count - kept,
+           replies_cut: count - kept
+         })}
+    end
+  end
+
+  defp bounded_thread(result), do: result
+
+  # Binary search for the largest n in low..high where fits?.(n) is true.
+  # It assumes fits? is true for every n below one where it is true, and
+  # returns `low` when fits? is false everywhere.
+  defp most(low, high, _fits?) when low >= high, do: low
+
+  defp most(low, high, fits?) do
+    mid = div(low + high + 1, 2)
+    if fits?.(mid), do: most(mid, high, fits?), else: most(low, mid - 1, fits?)
+  end
+
   # The shorter page comes from a second read, so it is used only when it
   # starts the same way as the first page: the same first posts, in the same
   # order, with a different cursor. A custom feed's generator may ignore

@@ -495,6 +495,8 @@
     },
     "get_thread": {
       "arguments": {
+        "breadth": "integer",
+        "depth": "integer",
         "format": "string",
         "include_hidden": "boolean",
         "uri": "string"

@@ -133,7 +133,7 @@ defmodule AtMcp.CallDeadlineTest do
   end
 
   test "a reply is sent while a read the service never answers is still waiting" do
-    headers = account("deadline_read", hang: ["getPostThread"])
+    headers = account("deadline_read", hang: ["getPostThreadV2"])
 
     reader =
       Task.async(fn ->
@@ -142,7 +142,7 @@ defmodule AtMcp.CallDeadlineTest do
         })
       end)
 
-    assert_receive {:pds, "/xrpc/app.bsky.feed.getPostThread", held}, 2_000
+    assert_receive {:pds, "/xrpc/app.bsky.unspecced.getPostThreadV2", held}, 2_000
 
     result = post(headers, "reply", reply()).body["result"]
 

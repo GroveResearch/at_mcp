@@ -154,7 +154,7 @@ defmodule AtMcp.Reading do
       parents
       |> Enum.with_index()
       |> Enum.map(fn {parent, index} ->
-        post(parent, parent_label(count - index))
+        post(parent, cat([parent_label(count - index), op_run(parent)]))
       end)
 
     omitted =
@@ -171,13 +171,46 @@ defmodule AtMcp.Reading do
         [shown(node["moderation_unread"])] ++
           omitted ++
           above ++
-          [post(node, ~L"[this post]")] ++ replies(node, []) ++ hidden(node),
+          [post(node, cat([~L"[this post]", op_run(node)]))] ++
+          replies(node, []) ++ cut_replies(node) ++ hidden(node) ++ others(node),
         :blank
       )
     )
   end
 
   def thread(_other), do: nil
+
+  # A post in the original poster's own series of posts from the root,
+  # numbered from 1 as the service numbers it.
+  defp op_run(%{"op_thread_index" => n, "op_thread_count" => of})
+       when is_integer(n) and is_integer(of) and of > 1,
+       do:
+         cat([~L" (post ", int(n), ~L" of ", int(of), ~L" in the original poster's own thread)"])
+
+  defp op_run(_post), do: nil
+
+  # Direct replies left out to keep the thread under `@page_chars`.
+  defp cut_replies(%{"replies_cut" => n}) when is_integer(n) and n > 0,
+    do: [
+      cat([
+        ~L"(",
+        int(n),
+        if(n == 1, do: ~L" more direct reply was", else: ~L" more direct replies were"),
+        ~L" left out to keep this under ",
+        int(@page_chars),
+        ~L" characters. To read more of them, call get_thread again with a smaller depth or breadth, or call get_thread on a single reply to read the replies under it.)"
+      ])
+    ]
+
+  defp cut_replies(_node), do: []
+
+  # Replies hidden from the thread, when include_hidden was not asked for.
+  defp others(%{"other_replies" => true} = node) when not is_map_key(node, "hidden_replies"),
+    do: [
+      ~L"(Some replies to this thread are hidden, either by its author or by this account's settings. Call get_thread with include_hidden set to true to read them.)"
+    ]
+
+  defp others(_node), do: []
 
   # Asked for with `include_hidden`: the replies the app leaves out of the
   # thread. Those the read returned are marked where they stand; the rest are
@@ -2241,7 +2274,7 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {reply, n} ->
         place = path ++ [n]
-        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]"])
+        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]", op_run(reply)])
         [post(reply, label) | replies(reply, place)]
       end)
 

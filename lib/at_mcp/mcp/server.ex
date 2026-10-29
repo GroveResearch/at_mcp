@@ -156,26 +156,31 @@ defmodule AtMcp.MCP.Server do
 
   tool "get_thread",
        AtMcp.MCP.Schemas.describe(
-         "Read what surrounds a post: {thread}. For the conversation leading to a post, use get_thread_chain instead."
+         "Read the posts around a post: {thread}. For the conversation leading to a post, use get_thread_chain instead."
        ) do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.thread())
     param(:uri, :string, required: true, description: "AT URI of the post")
 
+    param(:depth, :integer, AtMcp.MCP.Schemas.thread_depth())
+    param(:breadth, :integer, AtMcp.MCP.Schemas.thread_breadth())
+
     param(:include_hidden, :boolean,
       description:
-        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. A reply this read already shows is marked where it stands; the others are listed after the thread. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
+        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. They are listed after the thread; one the thread already shows is marked there instead. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
     )
 
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
+      AtMcp.MCP.Tools.thread(
         AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri),
-          include_hidden: Map.get(a, :include_hidden) == true
+          include_hidden: Map.get(a, :include_hidden) == true,
+          depth: Map.get(a, :depth),
+          breadth: Map.get(a, :breadth)
         ),
-        state,
-        :thread
+        a,
+        state
       )
     end)
   end

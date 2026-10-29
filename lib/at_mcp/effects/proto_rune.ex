@@ -260,34 +260,54 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  # What `get_thread/2` returns per node, and what its `context` says it
-  # returns per node: one number, because a reader acts on the second and gets
-  # the first. This is not @chain_max_replies — that one bounds a different
-  # read, and the two are free to differ.
-  @thread_max_replies 20
+  # How the app reads a thread (social-app `usePostThread` at 62b95002, its
+  # `const.ts` and `useThreadPreferences.ts`): `getPostThreadV2` with every
+  # parent, the account's thread sort (`threadViewPref.sort`, "top" when it
+  # has none), and its view. The linear view, the default, reads 10 levels of
+  # replies and one reply per post below the first level; the tree view reads
+  # 4 levels (6 on a wide web page) and the service's default of 10. Every
+  # direct reply to the post comes back whatever the breadth (the lexicon's
+  # note on `branchingFactor`), in the service's order for the sort.
+  @thread_views %{linear: %{depth: 10, breadth: 1}, tree: %{depth: 4, breadth: 10}}
 
-  # How far `get_thread/2` reads around a post: two levels of parents, two of
-  # replies. The tool's description states these through `thread_shape/0`.
-  @thread_parent_height 2
-  @thread_depth 2
+  # What `unspecced.getPostThreadV2` accepts: `below` 0-20, `branchingFactor`
+  # 0-100.
+  @thread_limits %{depth: 20, breadth: 100}
 
-  @doc "What `get_thread/2` reads around a post, for the tool that describes it."
-  def thread_shape,
-    do: %{
-      parent_height: @thread_parent_height,
-      depth: @thread_depth,
-      replies: @thread_max_replies
-    }
+  @doc "The levels and breadth `get_thread/3` may be asked for, and how the app reads by default."
+  def thread_shape, do: Map.merge(@thread_limits, %{views: @thread_views})
 
   @impl true
-  def get_thread(session, uri) when is_binary(uri) do
-    case AtMcp.ATProto.get_post_thread(session, %{
-           uri: uri,
-           depth: @thread_depth,
-           parentHeight: @thread_parent_height
+  def get_thread(session, uri, opts \\ []) when is_binary(uri) do
+    %{sort: sort, tree_view: tree?} = thread_preferences(session)
+    view = if tree?, do: :tree, else: :linear
+    depth = Keyword.get(opts, :depth) || @thread_views[view].depth
+    breadth = Keyword.get(opts, :breadth) || @thread_views[view].breadth
+
+    case AtMcp.ATProto.get_post_thread_v2(session, %{
+           anchor: uri,
+           above: true,
+           below: depth,
+           branchingFactor: breadth,
+           sort: sort
          }) do
-      {:ok, thread} -> {:ok, summarize_thread(thread)}
-      {:error, reason} -> {:error, failure(reason)}
+      {:ok, thread} ->
+        {:ok,
+         thread
+         |> summarize_thread()
+         |> Map.put(:context, %{depth: depth, breadth: breadth, sort: sort, view: view})}
+
+      {:error, reason} ->
+        {:error, failure(reason)}
+    end
+  end
+
+  # Reads the account's thread settings. If the read fails, get_thread
+  # falls back to the defaults the app uses for an account with no settings.
+  defp thread_preferences(session) do
+    case stored_preferences(session) do
+      {:ok, preferences} -> AtMcp.Preferences.kind_view(preferences, "threads")
+      {:error, _} -> AtMcp.Preferences.kind_view([], "threads")
     end
   end
 
@@ -5845,80 +5865,114 @@ defmodule AtMcp.Effects.ProtoRune do
   # Read from the raw body, as `get_grouped_notifications/2` reads it.
   def summarize(:grouped_notifications, response), do: grouped(response)
 
+  # `getPostThreadV2` returns a flat list: parents at negative depths with
+  # the root first, the post at depth 0, then the replies depth first, each
+  # followed by its own replies. summarize_thread/1 rebuilds that list into
+  # the post with its `parent` chain and a `replies` list under each post.
   defp summarize_thread(thread) when is_map(thread) do
-    node = field(thread, :thread) || thread
+    items = Enum.filter(of_type(thread, :thread, &is_list/1) || [], &is_map/1)
+    {above, rest} = Enum.split_with(items, &(depth(&1) < 0))
+    below = Enum.filter(rest, &(depth(&1) > 0))
 
-    node
-    |> thread_node(2, 2)
-    |> mark_hidden(hidden_by_threadgate(thread, node))
-    |> Map.put(:context, %{depth: 2, parent_height: 2, max_replies_per_node: @thread_max_replies})
+    parent =
+      above
+      |> Enum.sort_by(&depth/1)
+      |> Enum.reduce(nil, fn item, ancestor ->
+        item |> thread_item() |> unreturned(1) |> Map.put(:parent, ancestor)
+      end)
+
+    replies = thread_replies(below, 0)
+
+    case Enum.find(rest, &(depth(&1) == 0)) do
+      nil -> placeholder(nil) |> Map.put(:not_found, true)
+      anchor -> anchor |> thread_item() |> unreturned(length(replies))
+    end
+    |> Map.merge(%{parent: parent, replies: replies})
+    |> Map.put(:other_replies, flag(thread, [:has_other_replies, :hasOtherReplies]))
   end
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
 
-  # `feed.getPostThread` returns the replies the thread's author hid among the
-  # others, unmarked; the app leaves them out because the thread's threadgate
-  # lists them. The response carries that threadgate (beside the thread, and on
-  # the root post's view when the root is the post read), so each reply it
-  # lists is marked where it stands.
-  defp hidden_by_threadgate(thread, node) do
-    [[:threadgate, :record, :hidden_replies], [:post, :threadgate, :record, :hidden_replies]]
-    |> Enum.zip([thread, node])
-    |> Enum.flat_map(fn {path, from} ->
-      case AtMcp.Response.dig(from, path) do
-        list when is_list(list) -> Enum.filter(list, &is_binary/1)
-        _ -> []
+  # Sets `replies_omitted` from the post's own reply count when the count is
+  # higher than what the service returned. V2 sends `moreReplies: 0` for
+  # every parent, and it can return fewer direct replies than a post has
+  # without saying so. A post without a count keeps the service's number.
+  defp unreturned(node, shown) do
+    case node[:reply_count] do
+      count when is_integer(count) ->
+        Map.put(node, :replies_omitted, max(node[:replies_omitted] || 0, count - shown))
+
+      _ ->
+        node
+    end
+  end
+
+  defp depth(item) do
+    case field(item, :depth) do
+      depth when is_integer(depth) -> depth
+      _ -> 0
+    end
+  end
+
+  # The items at one level below `level`, each with the items under it.
+  defp thread_replies([], _level), do: []
+
+  defp thread_replies([item | rest], level) do
+    {under, siblings} = Enum.split_while(rest, &(depth(&1) > level + 1))
+
+    [
+      item |> thread_item() |> Map.put(:replies, thread_replies(under, level + 1))
+      | thread_replies(siblings, level)
+    ]
+  end
+
+  # One thread item: the post, or what stands in for one the service could
+  # not show, with what the service says about its place in the thread.
+  defp thread_item(item) do
+    value = of_type(item, :value, &is_map/1) || %{}
+    type = field(value, :"$type")
+    post = of_type(value, :post, &is_map/1)
+
+    if(post, do: post_view(post), else: placeholder(field(item, :uri)))
+    |> Map.merge(%{
+      type: type,
+      not_found: is_binary(type) and String.ends_with?(type, "#threadItemNotFound"),
+      blocked: is_binary(type) and String.ends_with?(type, "#threadItemBlocked"),
+      parent: nil,
+      parent_omitted: flag(value, [:more_parents, :moreParents]),
+      replies: [],
+      replies_omitted: integer(value, [:more_replies, :moreReplies]),
+      op_thread_index: integer(value, [:op_thread_post_index, :opThreadPostIndex]),
+      op_thread_count: integer(value, [:op_thread_post_count, :opThreadPostCount])
+    })
+    |> Map.merge(
+      for {key, keys} <- [
+            hidden_by_threadgate: [:hidden_by_threadgate, :hiddenByThreadgate],
+            muted_by_viewer: [:muted_by_viewer, :mutedByViewer]
+          ],
+          flag(value, keys),
+          into: %{},
+          do: {key, true}
+    )
+    |> blocked_author(value)
+  end
+
+  defp blocked_author(%{blocked: true} = node, value) do
+    case AtMcp.Response.dig(value, [:author, :did]) do
+      did when is_binary(did) -> Map.put(node, :author_did, did)
+      _ -> node
+    end
+  end
+
+  defp blocked_author(node, _value), do: node
+
+  defp integer(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case field(map, key) do
+        n when is_integer(n) -> n
+        _ -> nil
       end
     end)
-    |> MapSet.new()
-  end
-
-  defp mark_hidden(node, hidden) do
-    if MapSet.size(hidden) == 0, do: node, else: mark_hidden_node(node, hidden)
-  end
-
-  defp mark_hidden_node(node, hidden) when is_map(node) do
-    node =
-      if MapSet.member?(hidden, node[:uri]),
-        do: Map.put(node, :hidden_by_threadgate, true),
-        else: node
-
-    node
-    |> Map.update(:parent, nil, &mark_hidden_node(&1, hidden))
-    |> Map.update(:replies, [], fn replies -> Enum.map(replies, &mark_hidden_node(&1, hidden)) end)
-  end
-
-  defp mark_hidden_node(other, _hidden), do: other
-
-  # `shown_below` is 1 for a parent: one of its replies is the post this read
-  # shows under it.
-  defp thread_node(node, parents, depth, shown_below \\ 0) when is_map(node) do
-    post = of_type(node, :post, &is_map/1) || node
-    replies = of_type(node, :replies, &is_list/1) || []
-    parent = field(node, :parent)
-    visible = if depth > 0, do: Enum.take(replies, @thread_max_replies), else: []
-
-    post_view(post)
-    |> Map.put(:type, field(node, :"$type"))
-    |> Map.put(:not_found, flag(node, [:not_found, :notFound]))
-    |> Map.put(:blocked, flag(node, [:blocked]))
-    |> Map.put(:parent, if(parent && parents > 0, do: thread_node(parent, parents - 1, 0, 1)))
-    |> Map.put(:parent_omitted, not is_nil(parent) and parents == 0)
-    |> Map.put(:replies, Enum.map(visible, &thread_node(&1, 0, depth - 1)))
-    |> Map.put(:replies_omitted, replies_omitted(node, post, replies, visible, shown_below))
-  end
-
-  # A post at the read's depth limit, and a parent, come back with no `replies`
-  # at all: the service was not asked for them. Counting the list it sent would
-  # say 0 however many replies the post has, so the count is the post's own
-  # `replyCount` (`reply_count` once decoded), less what this read shows, or
-  # nil when the service gave none.
-  defp replies_omitted(node, post, replies, visible, shown_below) do
-    case {field(node, :replies), field(post, :reply_count) || field(post, :replyCount)} do
-      {nil, count} when is_integer(count) -> max(count - shown_below, 0)
-      {nil, _unknown} -> nil
-      _sent -> length(replies) - length(visible)
-    end
   end
 
   # `false` is a value. Read through a chain of `||` fallbacks it becomes the same
