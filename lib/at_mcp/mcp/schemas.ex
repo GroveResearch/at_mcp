@@ -190,7 +190,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro post_detail do
     Macro.escape(
       description:
-        "full (the default) reads each post whole; brief reads each on one line: who, when, its text's first line, its counts and its uri, for get_posts to read whole",
+        "How much of each post to show. \"full\" (the default) shows the whole post. \"brief\" shows one line per post: the author, the time, the first line of the text, the counts and the uri. Pass a uri to get_posts to read that post in full.",
       schema: %{type: "string", enum: ["full", "brief"]}
     )
   end
@@ -200,7 +200,8 @@ defmodule AtMcp.MCP.Schemas do
     %{depth: max} = AtMcp.Effects.ProtoRune.thread_shape()
 
     Macro.escape(
-      description: "Levels of replies to read below the post (0-#{max}). Omit for the app's",
+      description:
+        "How many levels of replies to read below the post, from 0 to #{max}. Leave it out to use the account's view in the app.",
       schema: %{type: "integer", minimum: 0, maximum: max}
     )
   end
@@ -211,7 +212,7 @@ defmodule AtMcp.MCP.Schemas do
 
     Macro.escape(
       description:
-        "Replies to read under each post below the first level (0-#{max}); the direct replies to the post are as many as the service gives, whatever this is. Omit for the app's",
+        "How many replies to read under each reply, from 0 to #{max}. The direct replies to the post itself always come back in full, whatever this number is. Leave it out to use the account's view in the app.",
       schema: %{type: "integer", minimum: 0, maximum: max}
     )
   end
@@ -220,7 +221,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro read_format do
     Macro.escape(
       description:
-        "text (the default) for a reading written for a model; json for the full summary, as structured content and as JSON text",
+        "How the result comes back. \"text\" (the default) gives readable text. \"json\" gives every field as JSON, for a program that parses the result.",
       schema: %{type: "string", enum: AtMcp.MCP.Output.formats()}
     )
   end
@@ -395,12 +396,13 @@ defmodule AtMcp.MCP.Schemas do
   """
   defmacro describe(text) do
     %{views: %{linear: linear, tree: tree}} = AtMcp.Effects.ProtoRune.thread_shape()
+    under = if linear.breadth == 1, do: "a single reply", else: "up to #{linear.breadth} replies"
 
     text
     |> String.replace("{batch}", "1-#{AtMcp.Effects.max_batch()}")
     |> String.replace(
       "{thread}",
-      "every parent, then the replies nested below it in the order the app shows them, by this account's thread sort. As the app's default view reads it: #{linear.depth} levels of replies, the direct replies the service gives and #{linear.breadth} reply per post below them; with the app's tree view on, #{tree.depth} levels and #{tree.breadth} per post. A thread that would read longer than #{AtMcp.Reading.page_chars()} characters keeps its first direct replies and says how many it left out"
+      "every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. By default the tool follows the account's thread view in the app: the linear view (the usual one) reads #{linear.depth} levels of replies, with every direct reply and #{under} under each of those; the tree view reads #{tree.depth} levels, with up to #{tree.breadth} replies under each post. Use depth and breadth to read more or less. If the thread runs past #{AtMcp.Reading.page_chars()} characters, the tool returns as many direct replies as fit and gives the count of the rest"
     )
   end
 
@@ -580,7 +582,7 @@ defmodule AtMcp.MCP.Schemas do
         "parent_omitted" => %{
           "type" => ["boolean", "null"],
           "description" =>
-            "True when the service says the conversation goes further up than it returned"
+            "True when the service reports more parent posts above the ones it returned"
         },
         "replies" => %{"type" => "array", "items" => %{"type" => "object"}},
         "replies_omitted" => %{
@@ -590,26 +592,26 @@ defmodule AtMcp.MCP.Schemas do
         "context" => %{
           "type" => "object",
           "description" =>
-            "How the thread was read: depth (levels of replies), breadth (replies per post below the first level), sort, and view (linear or tree, the account's setting)"
+            "The settings used to read the thread: depth (levels of replies), breadth (replies under each reply), sort (the order of replies), and view (linear or tree, from the account's settings)"
         },
         "other_replies" => %{
           "type" => ["boolean", "null"],
           "description" =>
-            "True when the app leaves replies out of this thread; include_hidden reads them"
+            "True when some replies to this thread are hidden, by its author or by this account's settings. Call again with include_hidden set to true to read them."
         },
         "replies_cut" => %{
           "type" => ["integer", "null"],
           "description" =>
-            "Direct replies left out of the reading to keep it within the bound; replies_omitted counts them too"
+            "How many direct replies the tool left out to keep the reading under #{AtMcp.Reading.page_chars()} characters. replies_omitted includes them."
         },
         "op_thread_index" => %{
           "type" => ["integer", "null"],
           "description" =>
-            "This post's place, from 1, in the thread's author's own run of posts from the root"
+            "Where this post falls, counting from 1, in the series of posts the original poster wrote in a row from the root"
         },
         "op_thread_count" => %{
           "type" => ["integer", "null"],
-          "description" => "How many posts that run has"
+          "description" => "The number of posts in that series"
         },
         "hidden_by_threadgate" => %{
           "type" => ["boolean", "null"],
@@ -1504,12 +1506,12 @@ defmodule AtMcp.MCP.Schemas do
     |> put_in(["properties", "left_out"], %{
       "type" => "integer",
       "description" =>
-        "Posts the service sent for this page that were left out to keep its reading within the bound; the cursor continues from them. Absent when none were"
+        "How many posts the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no post was dropped."
     })
     |> put_in(["properties", "over_bound"], %{
       "type" => "boolean",
       "description" =>
-        "True when the page reads longer than the bound and the service gave no shorter page that continues it, so it is whole"
+        "True when the text of this page is longer than #{AtMcp.Reading.page_chars()} characters and at_mcp could not get a shorter page that continues it."
     })
   end
 

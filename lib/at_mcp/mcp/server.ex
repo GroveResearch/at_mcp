@@ -2,11 +2,12 @@ defmodule AtMcp.MCP.Server do
   @moduledoc """
   HTTP/stdio MCP surface for one identity on this network.
 
-  Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
-  summaries (never raw session dumps): as structured content, and as text for
-  a model, which is the JSON of the summary except for reads made of posts,
-  accounts, lists, starter packs, feeds, trends and invitation codes, where it is
-  `AtMcp.Reading`'s text of it.
+  Each network verb is one MCP tool. A tool calls `AtMcp.Effects` and returns
+  a summary of the result, never a raw session dump. A write returns the
+  summary as structured content and as its JSON text. A read returns
+  `AtMcp.Reading`'s text of the summary, or the JSON for reads without a
+  reading of their own. A read passed `format: "json"` returns the summary the
+  way a write does (`AtMcp.MCP.Output`).
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -155,7 +156,7 @@ defmodule AtMcp.MCP.Server do
 
   tool "get_thread",
        AtMcp.MCP.Schemas.describe(
-         "Read what surrounds a post: {thread}. For the conversation leading to a post, use get_thread_chain instead."
+         "Read the posts around a post: {thread}. For the conversation leading to a post, use get_thread_chain instead."
        ) do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.thread())
@@ -166,7 +167,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:include_hidden, :boolean,
       description:
-        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. A reply this read already shows is marked where it stands; the others are listed after the thread. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
+        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. They are listed after the thread; one the thread already shows is marked there instead. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
     )
 
     run(fn a, state ->

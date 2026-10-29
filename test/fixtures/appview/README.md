@@ -46,8 +46,8 @@ that follows and is followed by another, has pinned a post and bookmarked,
 liked and been mentioned, replied to, quoted, liked and reposted reads
 `feed.getTimeline` (`viewer_timeline.json`), `feed.getAuthorFeed` with pins
 (`viewer_author_feed.json`), `unspecced.getPostThreadV2` of its post
-(`viewer_thread.json`, not recorded since get_thread moved to that method;
-the next recording adds it back), `notification.listNotifications`
+(`viewer_thread.json`: not in the repository yet. The next `AT_MCP_E2E_RECORD`
+run records it with `getPostThreadV2`), `notification.listNotifications`
 (`notifications.json`) and `notification.getGroupedNotifications`
 (`grouped_notifications.json`). The suite writes them raw when
 `AT_MCP_E2E_RECORD` names a directory, and `--scrub` replaces what they say

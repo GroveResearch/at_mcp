@@ -82,10 +82,14 @@ defmodule AtMcp.LimitsTest do
     %{depth: max_depth, breadth: max_breadth, views: %{linear: linear, tree: tree}} =
       AtMcp.Effects.ProtoRune.thread_shape()
 
-    assert tools["get_thread"].description =~
-             "#{linear.depth} levels of replies, the direct replies the service gives and #{linear.breadth} reply per post below them"
+    under = if linear.breadth == 1, do: "a single reply", else: "up to #{linear.breadth} replies"
 
-    assert tools["get_thread"].description =~ "#{tree.depth} levels and #{tree.breadth} per post"
+    assert tools["get_thread"].description =~
+             "reads #{linear.depth} levels of replies, with every direct reply and #{under} under each of those"
+
+    assert tools["get_thread"].description =~
+             "reads #{tree.depth} levels, with up to #{tree.breadth} replies under each post"
+
     assert tools["get_thread"].inputSchema.properties.depth.maximum == max_depth
     assert tools["get_thread"].inputSchema.properties.breadth.maximum == max_breadth
   end

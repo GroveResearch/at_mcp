@@ -119,8 +119,8 @@ A read declares no output schema, since a tool that declares one must return
 structured content. A program passes `"format": "json"`, or holds a grant
 whose default is json, and gets the summary as structured content and as
 JSON text (`AtMcp.MCP.Output`). A write returns its small summary both ways
-and declares its output schema. Every result's structured content is checked
-against its tool's schema, the reads' included.
+and declares its output schema. Tests check every structured result against
+its tool's schema, for reads asked for json as well as for writes.
 
 ### Text for the model
 

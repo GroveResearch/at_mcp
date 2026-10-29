@@ -34,7 +34,8 @@ Every string is replaced unless its key is in KEEP, a short list of keys whose
 values are enumerations from the lexicon rather than content. A key the
 lexicon adds later is therefore scrubbed until someone decides otherwise.
 Integers are replaced too, except facet byte offsets, which must still index
-the (replaced) text, and a thread item's depth. Replacements are deterministic within one run (the same
+the (replaced) text, and a thread item's depth. Replacements are deterministic
+within one run (the same
 DID maps to the same fake DID everywhere, so references still line up) and
 salted with a random value that is not saved, so they cannot be reversed by
 hashing candidates.
@@ -65,8 +66,8 @@ KEEP = {
     "allowGroupInvites", "showButtonTo", "status", "reason",
 }
 
-# Integers that must keep their value: byte offsets into a post's text, and
-# a thread item's depth, which is the thread's shape (getPostThreadV2).
+# Integers that keep their value: byte offsets into a post's text, and
+# each thread item's depth, which getPostThreadV2 uses to nest replies.
 KEEP_INT = {"byteStart", "byteEnd", "depth"}
 
 B32 = "abcdefghijklmnopqrstuvwxyz234567"

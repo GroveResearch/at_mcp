@@ -44,9 +44,9 @@ defmodule AtMcp.LeftOut do
      "The length of the author's self-thread (the app's 1/3); `get_thread_chain` reads it"},
 
     # A thread as getPostThreadV2 lists it.
-    {"thread[].uri", "The item's post uri, which its post carries as `uri`"},
+    {"thread[].uri", "Repeats the post's `uri`"},
     {"thread[].value.opThread",
-     "Whether the post is in its author's own run from the root, which `op_thread_index` and `op_thread_count` say with its place"},
+     "Replaced by `op_thread_index` and `op_thread_count`, which give the post's place in the original poster's series"},
 
     # Who may reply.
     {"threadgate",

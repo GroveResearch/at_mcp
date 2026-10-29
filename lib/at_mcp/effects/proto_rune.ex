@@ -302,8 +302,8 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  # The account's thread settings as the app reads them. A thread is still
-  # read when they cannot be, as the app reads it for an account with none.
+  # Reads the account's thread settings. If the read fails, get_thread
+  # falls back to the defaults the app uses for an account with no settings.
   defp thread_preferences(session) do
     case stored_preferences(session) do
       {:ok, preferences} -> AtMcp.Preferences.kind_view(preferences, "threads")
@@ -5725,10 +5725,10 @@ defmodule AtMcp.Effects.ProtoRune do
   # Read from the raw body, as `get_grouped_notifications/2` reads it.
   def summarize(:grouped_notifications, response), do: grouped(response)
 
-  # `getPostThreadV2` answers a flat list: parents at negative depths, root
-  # first, the post at 0, and the replies below it depth first, each followed
-  # by its own. It is read back into the nested shape `get_thread` has always
-  # returned: the post, its `parent` chain, and `replies` under each post.
+  # `getPostThreadV2` returns a flat list: parents at negative depths with
+  # the root first, the post at depth 0, then the replies depth first, each
+  # followed by its own replies. summarize_thread/1 rebuilds that list into
+  # the post with its `parent` chain and a `replies` list under each post.
   defp summarize_thread(thread) when is_map(thread) do
     items = Enum.filter(of_type(thread, :thread, &is_list/1) || [], &is_map/1)
     {above, rest} = Enum.split_with(items, &(depth(&1) < 0))
@@ -5753,11 +5753,10 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp summarize_thread(other), do: %{value: to_string_safe(other)}
 
-  # A post's replies this read did not return, when its own count says more
-  # than the service did. V2 sends `moreReplies: 0` for every parent, whatever
-  # its replies (the one shown under it is all it returns), and can return
-  # fewer direct replies than the post has without saying so. A post without
-  # a count keeps what the service said.
+  # Sets `replies_omitted` from the post's own reply count when the count is
+  # higher than what the service returned. V2 sends `moreReplies: 0` for
+  # every parent, and it can return fewer direct replies than a post has
+  # without saying so. A post without a count keeps the service's number.
   defp unreturned(node, shown) do
     case node[:reply_count] do
       count when is_integer(count) ->
