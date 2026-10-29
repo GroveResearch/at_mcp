@@ -9,7 +9,7 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 ## Reads
 
-A read answers in text written for a model, and nothing else, so every host's model reads the same thing. A program that parses results passes `"format": "json"` and gets the full summary as structured content and as JSON text, or holds a grant issued with `--format json`, which makes json its default.
+Reads return readable text, so a model gets the same result in every host. A program that parses results can pass `"format": "json"` to get the full summary as structured content and as JSON text. Issuing its grant with `--format json` makes json the default instead.
 
 | Tool | What it does |
 | --- | --- |
