@@ -89,7 +89,7 @@ runs your command once with a summary of what arrived on its standard input:
 
 ```sh
 python3 examples/wake.py --token-file /absolute/path/to/receiver-token \
-  --command 'claude -p "Someone wrote to you. Read your notifications and answer."'
+  --command 'claude -p "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say."'
 ```
 
 It listens on `http://127.0.0.1:4420/inbound`, the address above. Any agent

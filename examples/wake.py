@@ -8,15 +8,16 @@ then runs your command once, with a short summary of what arrived on its
 standard input and in the AT_MCP_WAKE_SUMMARY environment variable.
 
     python3 wake.py --token-file ~/.config/at_mcp/receiver-token \\
-        --command 'claude -p "Someone wrote to you on the network. Read your notifications and answer."'
+        --command 'claude -p "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say."'
 
 Point the service at it with AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
 and AT_MCP_DELIVERY_TOKEN_FILE naming the same token file.
 
-Events are written to a file before they are acknowledged, and removed only
-after the command succeeds, so a crash or a failed run loses nothing: they
-wait for the next wake. A repeat delivery of an event already waiting is
-dropped. Python's standard library only.
+The receiver writes each event to the pending file before it acknowledges the
+delivery, and removes events only after the command exits 0. After a crash or
+a failed run, those events go into the next wake. A repeat delivery of an
+event that is still waiting is dropped. The script uses only Python's
+standard library.
 """
 
 import argparse
@@ -34,13 +35,14 @@ def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--command", required=True, help="shell command to run on each wake")
     p.add_argument("--port", type=int, default=4420, help="port on 127.0.0.1 (default 4420)")
-    p.add_argument("--token-file", help="file holding the token at_mcp sends; none accepts any request")
+    p.add_argument("--token-file", help="file holding the token at_mcp sends; without this option the receiver accepts every request")
     p.add_argument("--reasons", default="reply,mention,quote",
                    help="comma-separated reasons that wake the agent (default reply,mention,quote)")
     p.add_argument("--quiet", type=float, default=30,
                    help="seconds without a new event before waking (default 30)")
     p.add_argument("--max-wait", type=float, default=300,
-                   help="longest a waiting event is held, however busy it gets (default 300)")
+                   help="longest a waiting event is held before a wake starts, however busy it gets; "
+                        "a command still running can extend it (default 300)")
     p.add_argument("--pending", default="wake-pending.jsonl",
                    help="file holding events not yet handed to the command")
     return p.parse_args(argv)
@@ -58,7 +60,8 @@ def reasons_of(event):
 
 
 def summarize(events):
-    lines = [f"{len(events)} new for your account:"]
+    noun = "notification" if len(events) == 1 else "notifications"
+    lines = [f"{len(events)} new {noun} for your account since the last wake:"]
     for e in events:
         who = e.get("author") or e.get("author_did") or "someone"
         what = "/".join(sorted(reasons_of(e))) or "event"
@@ -71,7 +74,7 @@ def summarize(events):
         line += f" ({e.get('uri')})"
         root = e.get("thread_root_uri")
         if root and root != e.get("uri"):
-            line += f", thread {root}"
+            line += f", in the thread that starts at {root}"
         lines.append(line)
     return "\n".join(lines) + "\n"
 
@@ -118,13 +121,17 @@ class Waker:
                 self.first_at = time.monotonic()
             self._schedule()
 
-    # Each new event restarts the quiet period, but never past --max-wait
-    # from the first event waiting, so a steady trickle still wakes the agent.
-    def _schedule(self):
+    # Each new event restarts the quiet period, up to --max-wait seconds after
+    # the first waiting event, so a steady trickle of events still wakes the
+    # agent. `floor` is the least delay: a wake that finds a command still
+    # running waits a quiet period before it looks again, rather than
+    # retrying at once while --max-wait has passed.
+    def _schedule(self, floor=0):
         if self.timer:
             self.timer.cancel()
         first = self.first_at or time.monotonic()
         delay = min(self.args.quiet, max(0, first + self.args.max_wait - time.monotonic()))
+        delay = max(delay, floor)
         self.timer = threading.Timer(delay, self.wake)
         self.timer.daemon = True
         self.timer.start()
@@ -133,7 +140,7 @@ class Waker:
         # One run at a time. Events arriving during a run wait for the next.
         if not self.running.acquire(blocking=False):
             with self.lock:
-                self._schedule()
+                self._schedule(floor=self.args.quiet)
             return
         try:
             with self.lock:

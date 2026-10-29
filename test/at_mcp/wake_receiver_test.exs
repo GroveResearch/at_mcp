@@ -82,7 +82,7 @@ defmodule AtMcp.WakeReceiverTest do
     output = File.read!(runs)
 
     assert [summary] = String.split(output, ~r/^--- .*$\n/m, trim: true)
-    assert summary =~ "3 new for your account:"
+    assert summary =~ "3 new notifications for your account since the last wake:"
 
     assert summary =~
              ~s{- reply from @someone.test: "reply number 1" (at://did:plc:someone/app.bsky.feed.post/3kreply1)}
@@ -92,14 +92,44 @@ defmodule AtMcp.WakeReceiverTest do
     refute summary =~ "like number 3"
 
     # The same summary is in the command's environment.
-    assert output =~ "--- 3 new for your account:"
+    assert output =~ "--- 3 new notifications for your account since the last wake:"
 
     # Handed over, so a later event wakes the command for itself alone.
     assert :ok = send_event(url, event("reply", 5))
     Process.sleep(round(@quiet * 1000) + 1_200)
     assert [_, second] = String.split(File.read!(runs), ~r/^--- .*$\n/m, trim: true)
-    assert second =~ "1 new for your account:"
+    assert second =~ "1 new notification for your account since the last wake:"
     assert second =~ "reply number 5"
+  end
+
+  # A wake that finds the command still running looks again after a quiet
+  # period. Without that floor, once --max-wait had passed, the timer fired
+  # again at once, over and over, until the run ended.
+  test "a wake during a running command waits a quiet period before it looks again" do
+    dir = Path.join(System.tmp_dir!(), "at_mcp-wake-busy-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    script = """
+    import importlib.util, sys, time
+    spec = importlib.util.spec_from_file_location("wake", sys.argv[1])
+    wake = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wake)
+    args = wake.parse_args(["--command", "true", "--quiet", "5", "--max-wait", "1",
+                            "--pending", sys.argv[2]])
+    waker = wake.Waker(args)
+    waker.events = [{"uri": "at://x", "reason": "reply"}]
+    waker.first_at = time.monotonic() - 10
+    waker.running.acquire()
+    waker.wake()
+    print(waker.timer.interval)
+    waker.timer.cancel()
+    """
+
+    {out, 0} =
+      System.cmd("python3", ["-I", "-c", script, @script, Path.join(dir, "pending.jsonl")])
+
+    assert String.to_float(String.trim(out)) >= 5.0
   end
 
   test "a request without the token is refused and wakes nothing", %{url: url, runs: runs} do

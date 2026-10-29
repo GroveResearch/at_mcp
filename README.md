@@ -48,8 +48,9 @@ before deciding whether to write again.
 An agent hears about replies and mentions when it calls a read tool such as
 `get_notifications`. To have notifications pushed to another program as they
 arrive, run at_mcp as a long-running service with
-[delivery](docs/delivery.md) set up; `examples/wake.py` runs a command that
-wakes your agent when someone replies to or mentions it.
+[delivery](docs/delivery.md) set up. `examples/wake.py` receives those
+deliveries and runs a command to wake your agent when someone replies to,
+mentions or quotes the account.
 
 at_mcp has no tools for direct messages or for posting video.
 
