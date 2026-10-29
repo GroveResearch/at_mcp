@@ -18,6 +18,62 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
+- `tools/list` offers a default set of 43 tools, about 49 KB, where 0.2.18
+  listed 101 tools with their output schemas in 994 KB. To list every tool,
+  set `AT_MCP_TOOLS=full` for `at_mcp-stdio`, or issue the client's grant with
+  `at_mcp-accounts connection NAME --tools full`. `tools/call` accepts every
+  tool, listed or not. No tool lists an output schema, but write tools still
+  return their structured result.
+- A page of posts (`get_timeline`, `get_author_feed`, `get_feed`,
+  `get_list_feed`, `get_actor_likes`, `get_quotes`, `search_posts`,
+  `get_bookmarks`) is now at most 40,000 characters of text. Claude Code
+  saves a result over 50,000 characters to a file, so a page of long posts
+  never got to the model. When a page would be longer, at_mcp asks the
+  service for fewer posts, says how many it dropped, and returns a cursor
+  that starts with them. A page asked for as JSON keeps every post up to
+  `limit`.
+- The same reads take `detail: "brief"`, which shows one line per post. A
+  recorded 50-post page was 12.5K characters this way, and 35.6K in full.
+- `get_thread` reads threads with `getPostThreadV2`, the way the app does.
+  - It returns every parent and sorts replies by the account's thread sort,
+    `top` by default.
+  - By default it follows the account's thread view: the linear view reads
+    10 levels with a single reply under each reply, the tree view 4 levels
+    with 10. Before this change it read 2 levels each way and the first 20
+    replies per post, in the service's order.
+  - New optional arguments: `depth` (0-20 levels) and `breadth` (0-100
+    replies under each reply).
+  - `type` values change from `app.bsky.feed.defs#threadViewPost`,
+    `#notFoundPost` and `#blockedPost` to
+    `app.bsky.unspecced.defs#threadItemPost`, `#threadItemNotFound` and
+    `#threadItemBlocked`.
+  - `context` now holds `depth`, `breadth`, `sort` and `view`.
+    `parent_height` and `max_replies_per_node` are gone.
+  - When the text reading would pass 40,000 characters, it ends after the
+    direct replies that fit, and `replies_cut` gives the count of the rest.
+    JSON output is not cut.
+  - New fields: `op_thread_index` and `op_thread_count` for posts in the
+    original poster's own series, and `other_replies` for hidden replies
+    (read them with `include_hidden`).
+- at_mcp remembers how far each account has read in the timeline, list
+  feeds, author feeds and notifications. `get_timeline`, `get_author_feed`,
+  `get_list_feed` and `get_notifications` take `since` and `mark_read`:
+  - `since: "last_read"` returns only the items newer than that point, says
+    how many are new, and moves the point forward. Pass `mark_read: false`
+    to read without moving it.
+  - `since` with a time returns the items newer than that time and leaves
+    the point alone.
+  - A read without `since` moves the point only with `mark_read: true`.
+  - When the new items run past one page, the point moves once the agent
+    follows the cursor back to it, so a page cut short doesn't skip
+    anything.
+
+  The positions live in `read-positions.json` in the state directory, and
+  every client of the account shares them. Custom feeds have no position.
+  The notifications' seen marker (`update_seen`) works as before.
+- When `reply` is called without `langs`, at_mcp copies the parent post's
+  language tags into the reply. If the parent has no tags, the reply has
+  none.
 - On Delvetown, `tools/list` leaves out the `grouped` argument of
   `get_notifications`, the `links` argument of `update_profile`, and the tools
   `get_trends` and `feed_feedback`, because Delvetown's servers do not answer
@@ -36,6 +92,10 @@ This release is 0.3.0: what read tools return has changed.
   real time is known, or `argument` when one argument caused the error) and
   the whole text as `message`. A read that timed out says whether its
   request reached the service (`sent`).
+- `docs/hosts/` has a setup page for each kind of client: Claude Code,
+  Codex, Imp and Dwell, and a plain script. Each says how to connect, what
+  the model receives, how to ask for JSON or the full tool set, and how to
+  be woken.
 - A new README section, "Using an account from several clients", explains
   when to run `at_mcp-stdio` and when to run the service.
 - When a second `at_mcp-stdio` for the same account fails to start, its error
@@ -56,7 +116,15 @@ with `--format json` and revoke the old one. A program that reads only write
 results needs nothing. Rolling back to 0.2.18 is safe. That release does
 not know `format`: it ignores the argument, says so in the result's text,
 and returns structured content as before. It also treats a grant issued
-with `--format` like any other grant.
+with `--format` or `--tools` like any other grant.
+
+An agent whose host gives the model only the listed tools, as most hosts do,
+needs `--tools full` or `AT_MCP_TOOLS=full` to keep any tool outside the
+default set. 0.2.18 does not know `AT_MCP_TOOLS`: unset it before rolling
+back, or 0.2.18 will refuse to start.
+
+A program that reads `get_thread` as JSON must handle the new `type` values
+and `context` keys listed above.
 
 ## 0.2.18
 
