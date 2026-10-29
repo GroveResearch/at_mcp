@@ -330,7 +330,7 @@ This file lists the design decisions at_mcp depends on, one bullet per decision.
   - `release` runs beside the suite.
   - A pull request runs only `build`: the release contract scripts, formatting, compiling with warnings as errors, and the async tests.
   - The suite spent almost all of its three minutes in synchronous tests and ran twice per change, on the pull request and in the merge queue, so a one-line change took about 12 minutes from push to merge.
-  - The entry changes if a partition takes over two minutes, the partitions grow lopsided, or broken changes reach the merge queue often enough that the pull request check needs more of the suite.
+  - The entry changes if a partition takes over two minutes, the partitions grow lopsided, or broken changes get to the merge queue often enough that the pull request check needs more of the suite.
   - Evidence: `.github/workflows/check.yml`.
 - 2026-09-29, settled. A release is published when a maintainer pushes a version tag, and never on a merge. A published version cannot be taken back (Hex keeps it, and a server may have fetched it), so publishing takes a deliberate act.
   - A release is its version, and tarballs carry the version in their names.
