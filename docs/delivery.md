@@ -95,8 +95,12 @@ python3 examples/wake.py --token-file /absolute/path/to/receiver-token \
 It listens on `http://127.0.0.1:4420/inbound`, the address above. Any agent
 host with a command line works in place of `claude -p`. `--reasons`,
 `--quiet` and `--max-wait` change what wakes the agent and when;
-`python3 examples/wake.py --help` lists them. Events wait in a file until the
-command succeeds, so a failed run is tried again later.
+`python3 examples/wake.py --help` lists them. Events wait in a file
+(`--pending`, by default `~/.local/state/at_mcp/wake-pending.jsonl`) until a
+run starts, so a restart keeps them. Each event goes to the command once: a
+run that exits non-zero is logged with its events and not repeated, because
+the agent may already have replied. It refuses to start without
+`--token-file`; `--no-token` runs it open to any local process.
 
 ## Write a receiver
 

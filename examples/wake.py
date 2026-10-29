@@ -14,9 +14,12 @@ Point the service at it with AT_MCP_DELIVERY_URL=http://127.0.0.1:4420/inbound
 and AT_MCP_DELIVERY_TOKEN_FILE naming the same token file.
 
 The receiver writes each event to the pending file before it acknowledges the
-delivery, and removes events only after the command exits 0. After a crash or
-a failed run, those events go into the next wake. A repeat delivery of an
-event that is still waiting is dropped. The script uses only Python's
+delivery, so events waiting for a wake survive a restart. It hands each event
+to the command at most once: it removes the events from the pending file
+before the command starts, and a run that exits non-zero is logged with the
+events it was given, not run again with them. `claude -p` can exit non-zero
+after it has replied, and a second run would reply twice. A repeat delivery of
+an event that is still waiting is dropped. The script uses only Python's
 standard library.
 """
 
@@ -35,7 +38,10 @@ def parse_args(argv):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--command", required=True, help="shell command to run on each wake")
     p.add_argument("--port", type=int, default=4420, help="port on 127.0.0.1 (default 4420)")
-    p.add_argument("--token-file", help="file holding the token at_mcp sends; without this option the receiver accepts every request")
+    auth = p.add_mutually_exclusive_group(required=True)
+    auth.add_argument("--token-file", help="file holding the token at_mcp sends (required unless --no-token)")
+    auth.add_argument("--no-token", action="store_true",
+                      help="accept every request on the port, from any local process, without a token")
     p.add_argument("--reasons", default="reply,mention,quote",
                    help="comma-separated reasons that wake the agent (default reply,mention,quote)")
     p.add_argument("--quiet", type=float, default=30,
@@ -43,9 +49,18 @@ def parse_args(argv):
     p.add_argument("--max-wait", type=float, default=300,
                    help="longest a waiting event is held before a wake starts, however busy it gets; "
                         "a command still running can extend it (default 300)")
-    p.add_argument("--pending", default="wake-pending.jsonl",
-                   help="file holding events not yet handed to the command")
-    return p.parse_args(argv)
+    p.add_argument("--pending", default=default_pending(),
+                   help="file holding events not yet handed to the command "
+                        "(default $XDG_STATE_HOME/at_mcp/wake-pending.jsonl, "
+                        "else ~/.local/state/at_mcp/wake-pending.jsonl)")
+    args = p.parse_args(argv)
+    args.pending = os.path.abspath(os.path.expanduser(args.pending))
+    return args
+
+
+def default_pending():
+    state = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    return os.path.join(state, "at_mcp", "wake-pending.jsonl")
 
 
 def reasons_of(event):
@@ -87,6 +102,7 @@ class Waker:
         self.running = threading.Lock()
         self.timer = None
         self.first_at = None
+        os.makedirs(os.path.dirname(args.pending), mode=0o700, exist_ok=True)
         self.events = self._load()
         if self.events:
             self._schedule()
@@ -143,23 +159,22 @@ class Waker:
                 self._schedule(floor=self.args.quiet)
             return
         try:
+            # Handed over before the command starts, so neither a failed run
+            # nor a restart during one gives the same events to a second run.
             with self.lock:
-                events, self.timer, self.first_at = list(self.events), None, None
+                events, self.events, self.timer, self.first_at = list(self.events), [], None, None
+                if events:
+                    self._save()
             if not events:
                 return
             summary = summarize(events)
             env = dict(os.environ, AT_MCP_WAKE_SUMMARY=summary)
             result = subprocess.run(self.args.command, shell=True, input=summary, text=True, env=env)
             with self.lock:
-                if result.returncode == 0:
-                    handed = {(e.get("matched_did"), e.get("uri")) for e in events}
-                    self.events = [e for e in self.events
-                                   if (e.get("matched_did"), e.get("uri")) not in handed]
-                    self._save()
-                else:
-                    # Kept, and tried again after another quiet period.
-                    print(f"wake: command exited {result.returncode}; keeping "
-                          f"{len(events)} events for the next wake", file=sys.stderr)
+                if result.returncode != 0:
+                    uris = " ".join(str(e.get("uri")) for e in events)
+                    print(f"wake: command exited {result.returncode} with {len(events)} events; "
+                          f"not handing them over again: {uris}", file=sys.stderr, flush=True)
                 if self.events and self.timer is None:
                     self.first_at = time.monotonic()
                     self._schedule()
@@ -202,6 +217,9 @@ def handler(waker, token_file):
 def main(argv=None):
     args = parse_args(argv)
     waker = Waker(args)
+    if args.no_token:
+        print("wake: --no-token: accepting every request on the port without a token",
+              file=sys.stderr, flush=True)
     server = ThreadingHTTPServer(("127.0.0.1", args.port), handler(waker, args.token_file))
     print(f"wake: listening on http://127.0.0.1:{server.server_address[1]}/inbound", file=sys.stderr, flush=True)
     server.serve_forever()
