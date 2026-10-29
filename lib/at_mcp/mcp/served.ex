@@ -1,19 +1,26 @@
 defmodule AtMcp.MCP.Served do
   @moduledoc """
-  What a session is offered of the tools and arguments that need a method
-  this network's deployment does not serve (`AtMcp.Endpoints.deployments/0`).
+  Filters the tool list for the network a session is on.
 
-  An agent offered `grouped` on a network that answers it with 501 took the
-  refusal to mean it had no notifications (dwell#455). So `tools/list` leaves
-  out an argument whose method the network does not serve, and a tool whose
-  every method it does not serve. A call that names one anyway is still
-  accepted and refused before anything is sent, as before: leaving something
-  out of a list does not unpublish it (`test/at_mcp/tool_surface_test.exs`).
+  Some networks do not serve every method. `AtMcp.Endpoints.deployments/0`
+  lists the methods each network leaves out. For a session on such a network,
+  `offered/2` removes any argument that depends on an unserved method, and
+  removes a tool when none of its methods are served.
+
+  The filter exists because of dwell#455. A Delvetown resident called
+  `get_notifications` with `grouped: true`, got a 501, and concluded it had no
+  notifications.
+
+  Leaving a tool or argument out of the list does not unpublish it
+  (`test/at_mcp/tool_surface_test.exs`). If an agent calls one anyway, at_mcp
+  accepts the call and refuses it before sending anything.
   """
 
-  # Each tool, or one of its arguments, and the methods (suffixes of the
-  # network's namespace) it needs. A tool is left out when the network serves
-  # none of them; an argument, when it does not serve its one.
+  # Maps a tool, or one of a tool's arguments, to the methods it calls. Each
+  # method is written as a suffix of `app.bsky`, the spelling
+  # `AtMcp.Endpoints.not_served/2` expects on every network. `offered/2`
+  # removes a tool when the network serves none of its methods, and removes an
+  # argument when the network does not serve its method.
   @needs %{
     {"get_notifications", "grouped"} => ["notification.getGroupedNotifications"],
     {"update_profile", "links"} => ["actor.link"],
@@ -24,7 +31,7 @@ defmodule AtMcp.MCP.Served do
   @doc "The needs above, for tests: `%{{tool, argument | nil} => [suffix]}`."
   def needs, do: @needs
 
-  @doc "`tools` as `network` serves them."
+  @doc "Removes from `tools` the tools and arguments `network` does not serve."
   def offered(tools, network \\ AtMcp.Network.name()) do
     tools
     |> Enum.filter(&served?(network, {&1.name, nil}))

@@ -7,10 +7,11 @@ itself.
 
 ## Unreleased
 
-- On Delvetown, `tools/list` no longer offers what the town does not serve:
-  `get_notifications`'s `grouped`, `update_profile`'s `links`, `get_trends`
-  and `feed_feedback`. A call that names one is still refused as before,
-  with nothing sent.
+- On Delvetown, `tools/list` leaves out the `grouped` argument of
+  `get_notifications`, the `links` argument of `update_profile`, and the tools
+  `get_trends` and `feed_feedback`, because Delvetown's servers do not answer
+  them. If an agent calls one anyway, at_mcp refuses the call before sending
+  anything.
 
 ## 0.2.18
 

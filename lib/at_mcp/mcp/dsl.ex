@@ -136,9 +136,10 @@ defmodule AtMcp.MCP.DSL do
   # either, and no `notifications/tools/list_changed` is owed.
   @doc false
   #
-  # A session is also offered only what its network serves
-  # (`AtMcp.MCP.Served`). Reading the surface without a session's state (the
-  # bare `:state` `AtMcp.Grants` and the tool surface test pass) sees it all.
+  # After the scope filter, `offered/2` removes the tools and arguments the
+  # session's network does not serve (`AtMcp.MCP.Served`). `AtMcp.Grants` and
+  # the tool surface test call it with the atom `:state` in place of a session's
+  # state, and they get every tool.
   def offered(tools, %{scope: scope} = state) when not is_nil(scope),
     do:
       tools

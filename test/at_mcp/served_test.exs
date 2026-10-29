@@ -1,7 +1,9 @@
 defmodule AtMcp.ServedTest do
   @moduledoc """
-  A session is offered only the tools and arguments its network serves
-  (`AtMcp.MCP.Served`), and a call naming one left out still gets its refusal.
+  On Delvetown, `tools/list` leaves out the tools and arguments the town does
+  not serve (`AtMcp.MCP.Served`). On Bluesky it lists all of them.
+  `preferences_test.exs` checks that a call to a left-out argument is still
+  refused.
   """
   use ExUnit.Case, async: false
 
