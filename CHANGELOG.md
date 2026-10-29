@@ -18,6 +18,11 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
+- On Delvetown, `tools/list` leaves out the `grouped` argument of
+  `get_notifications`, the `links` argument of `update_profile`, and the tools
+  `get_trends` and `feed_feedback`, because Delvetown's servers do not answer
+  them. If an agent calls one anyway, at_mcp refuses the call before sending
+  anything.
 - New tools `put_record` and `delete_record` create, replace and delete
   records of other applications in the account's own repository, such as
   issues on Tangled. Each call counts against the write quota. For posts,

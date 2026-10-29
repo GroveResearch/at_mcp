@@ -1806,7 +1806,7 @@ defmodule AtMcp.Effects.ProtoRune do
         AtMcp.ATProto.post_record(
           text: rich_text.text,
           facets: rich_text.facets,
-          langs: Keyword.get(opts, :langs),
+          langs: Keyword.get(opts, :langs) || get_in(opts, [:reply_ref, :parent_langs]),
           reply: Keyword.get(opts, :reply_ref),
           images: images,
           link: link,
@@ -5234,7 +5234,28 @@ defmodule AtMcp.Effects.ProtoRune do
   defp reply_refs(session, uri) when is_binary(uri) do
     with {:ok, parent, response} <- fetch_strong_ref(session, uri),
          :ok <- reply_allowed(session, parent.uri),
-         do: reply_root(session, root_of(response), parent)
+         {:ok, refs} <- reply_root(session, root_of(response), parent) do
+      {:ok, Map.put(refs, :parent_langs, langs_of(response))}
+    end
+  end
+
+  # When the caller gives no languages for a reply, the reply gets its parent's
+  # tags. The app's composer does the same (Composer.tsx in social-app at
+  # 62b95002). Replies are usually in the language of the post they answer,
+  # and feeds and searches that filter by language leave out untagged posts.
+  # langs_of/1 keeps the parent's non-empty string tags, up to the network's
+  # limit for a post, and returns nil if none are left.
+  defp langs_of(response) do
+    with {:ok, value} when is_map(value) <- AtMcp.Response.fetch(response, :value),
+         {:ok, langs} when is_list(langs) <- AtMcp.Response.fetch(value, :langs),
+         [_ | _] = langs <-
+           langs
+           |> Enum.filter(&(is_binary(&1) and &1 != ""))
+           |> Enum.take(AtMcp.Network.post_language_limit()) do
+      langs
+    else
+      _ -> nil
+    end
   end
 
   # The parent's record names the root as its writer spelled it, and a client
