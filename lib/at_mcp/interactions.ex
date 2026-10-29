@@ -161,8 +161,9 @@ defmodule AtMcp.Interactions do
 
   @doc """
   Read a `link` argument into a link card: `%{url, title, description, thumb}`.
-  The url must be http or https. at_mcp does not fetch the page; the title and
-  description are the caller's, empty when not given.
+  The url must be http or https. The title and description are the caller's,
+  empty when not given; a card given only its url is looked up when it is
+  written (`AtMcp.LinkCards`).
   """
   def link(nil), do: {:ok, nil}
 
