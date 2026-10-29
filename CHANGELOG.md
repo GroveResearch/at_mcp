@@ -23,6 +23,11 @@ This release is 0.3.0: what read tools return has changed.
   `get_trends` and `feed_feedback`, because Delvetown's servers do not answer
   them. If an agent calls one anyway, at_mcp refuses the call before sending
   anything.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
 - Every tool error ends with one sentence saying what the agent can do: try
   again now, try again after a stated time, change a named argument, read the
   account first, or not retry; when at_mcp can't classify a failure, it says

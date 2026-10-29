@@ -1737,6 +1737,95 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "put_record",
+       write_description(
+         :put_record,
+         "Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). If the account's server knows the collection's lexicon, it validates the record. Otherwise it stores the record as given, so check the application's lexicon for the fields. Posts, likes, follows, the profile and the other records at_mcp has its own tools for are refused, and the error tells you which tool to use. To replace a record safely, read it with get_record first and pass its cid. If someone changes the record between your read and your write, the write is refused. Returns the record's uri and cid."
+       ) do
+    annotations(
+      # Without rkey, every call creates a new record.
+      write_annotations(:put_record, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.record_write_result())
+
+    param(:collection, :string,
+      required: true,
+      description: "The record's collection, an NSID such as sh.tangled.repo.issue"
+    )
+
+    param(:rkey, :string,
+      description:
+        "The record's key, the last part of the record's uri. If you leave it out, the server picks a new key and creates a new record. If you give it, at_mcp creates the record at that key, or replaces the record already there"
+    )
+
+    param(:record, :object,
+      required: true,
+      description:
+        "The record as a JSON object, with field names exactly as the application's lexicon spells them. If you leave out $type, at_mcp sets it to the collection. If you give a $type, it must equal the collection"
+    )
+
+    param(:cid, :string,
+      description:
+        "The cid that get_record returned for the record you are replacing. Requires rkey. If the record's cid has changed since you read it, nothing is written"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.put_record(
+          state.effects,
+          Map.fetch!(a, :collection),
+          a[:rkey],
+          Map.fetch!(a, :record),
+          a[:cid]
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "delete_record",
+       write_description(
+         :delete_record,
+         "Delete a record from this account's own repository by collection and key. Use it for records of other applications. Posts, likes and the other records at_mcp has its own tools for are refused, and the error tells you which tool to use. If there is no record at that key, nothing is sent, nothing counts against the quota, and the result has unchanged: true."
+       ) do
+    annotations(
+      write_annotations(:delete_record, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.record_write_result())
+
+    param(:collection, :string, required: true, description: "The record's collection, an NSID")
+    param(:rkey, :string, required: true, description: "The record's key")
+
+    param(:cid, :string,
+      description:
+        "The cid that get_record returned for the record. If the record's cid has changed since you read it, nothing is deleted"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.delete_record(
+          state.effects,
+          Map.fetch!(a, :collection),
+          Map.fetch!(a, :rkey),
+          a[:cid]
+        ),
+        state
+      )
+    end)
+  end
+
   tool "update_profile",
        write_description(
          :update_profile,
