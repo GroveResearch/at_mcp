@@ -80,6 +80,24 @@ and sends the queued events to the new address. The old receiver may already
 have stored the cancelled event, so the new receiver should expect possible
 repeats.
 
+## Wake an agent
+
+[`examples/wake.py`](../examples/wake.py) is a receiver you can run as it
+is. It needs Python 3 and nothing else. It keeps replies, mentions and quotes,
+waits until 30 quiet seconds have passed so a burst becomes one wake, then
+runs your command once with a summary of what arrived on its standard input:
+
+```sh
+python3 examples/wake.py --token-file /absolute/path/to/receiver-token \
+  --command 'claude -p "Someone wrote to you. Read your notifications and answer."'
+```
+
+It listens on `http://127.0.0.1:4420/inbound`, the address above. Any agent
+host with a command line works in place of `claude -p`. `--reasons`,
+`--quiet` and `--max-wait` change what wakes the agent and when;
+`python3 examples/wake.py --help` lists them. Events wait in a file until the
+command succeeds, so a failed run is tried again later.
+
 ## Write a receiver
 
 at_mcp sends each event as an HTTP `POST` with a JSON body, plus the header
