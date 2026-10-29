@@ -12,8 +12,13 @@ nothing it does by mistake can post:
 
 ```sh
 at_mcp-accounts connection alice --scope read
-export AT_MCP_GRANT=at_mcp-...   # from the output's authorization header
+export AT_MCP_GRANT=at_mcp-...   # the output's authorization header, after "Bearer "
 ```
+
+`at_mcp-accounts` is in the release's `bin` folder, such as
+`~/at_mcp/current/bin`, and finds the service's accounts through the
+environment file given in `AT_MCP_ENV_FILE`
+([docs/operations.md](../operations.md#add-accounts)).
 
 A session is two requests: `initialize`, whose answer carries the session's
 id in the `Mcp-Session-Id` header, and the `notifications/initialized` note.
@@ -82,10 +87,8 @@ before trying again.
 
 at_mcp lists 43 tools by default, to keep the tool list the model reads
 small. That list covers posting, reading and replying, plus the tools for the
-account's own records. An agent can call any other tool by name, even when
-it isn't listed.
-
-A script that calls tools by name needs no setting. To list every tool
+account's own records. A script can call any tool by name, listed or not,
+with no setting. To list every tool
 with `tools/list`, issue the grant with `--tools full` ([docs/operations.md](../operations.md#offer-a-client-every-tool)).
 
 ## Be woken

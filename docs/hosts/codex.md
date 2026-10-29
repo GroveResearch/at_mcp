@@ -36,8 +36,13 @@ to be woken (below), run at_mcp as a service
 at_mcp-accounts connection alice
 ```
 
-Keep the grant from the output's `authorization` header in an environment
-variable rather than in the file, and point Codex at the service:
+`at_mcp-accounts` is in the release's `bin` folder, such as
+`~/at_mcp/current/bin`, and finds the service's accounts through the
+environment file given in `AT_MCP_ENV_FILE`
+([docs/operations.md](../operations.md#add-accounts)). The output's
+`authorization` header holds `Bearer ` and then the grant. Keep the grant,
+without `Bearer `, in an environment variable rather than in the file, and
+point Codex at the service:
 
 ```toml
 [mcp_servers.at_mcp]
@@ -76,8 +81,9 @@ The agent itself never needs it.
 
 at_mcp lists 43 tools by default, to keep the tool list the model reads
 small. That list covers posting, reading and replying, plus the tools for the
-account's own records. An agent can call any other tool by name, even when
-it isn't listed.
+account's own records. A program can call any other tool by name, even
+when it isn't listed, but the model in Codex can call only the tools it
+was listed. An agent that needs another tool needs the full set.
 
 For the full set ([docs/operations.md](../operations.md#offer-a-client-every-tool)), add `--tools full` when issuing the grant
 (`at_mcp-accounts connection alice --tools full`), or, with `at_mcp-stdio`,
