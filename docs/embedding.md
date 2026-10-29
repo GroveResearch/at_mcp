@@ -40,7 +40,8 @@ config :proto_rune, :retry, false
 For Delvetown, also set `config :at_mcp, network: :delve`. The default is
 `:bluesky`.
 
-`inbound_state_dir` holds the write quota count and any queued notifications.
+`inbound_state_dir` holds the write quota count, each account's read
+positions and any queued notifications.
 Use a single folder per running application, and keep it between restarts.
 
 ## Start an account

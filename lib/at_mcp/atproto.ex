@@ -65,6 +65,17 @@ defmodule AtMcp.ATProto do
         parentHeight: :integer
       )
 
+  # A thread as the app reads it: a flat list around `anchor`.
+  def get_post_thread_v2(session, params),
+    do:
+      read(session, "unspecced.getPostThreadV2", params,
+        anchor: {:required, :string},
+        above: :boolean,
+        below: :integer,
+        branchingFactor: :integer,
+        sort: :string
+      )
+
   # The replies a thread read leaves out: those its author hid, and those the
   # viewer's own settings push down. Below `anchor`, one level at a time.
   def get_post_thread_other(session, params),

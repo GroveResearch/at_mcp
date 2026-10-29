@@ -13,6 +13,15 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 Reads return readable text, so a model gets the same result in every host. A program that parses results can pass `"format": "json"` to get the full summary as structured content and as JSON text. Issuing its grant with `--format json` makes json the default instead.
 
+A page of posts is at most 40000 characters of text. When a page would be longer, at_mcp returns fewer posts, says how many it dropped, and returns a cursor that starts with them. A page asked for as JSON keeps every post up to `limit`. With `"detail": "brief"`, each post gets one line: the author, the time, the first line of the text, the counts and the uri. `get_posts` returns a post in full.
+
+at_mcp remembers how far the account has read in the timeline, each list feed, each author feed and the notifications. A read of one of these with `"since": "last_read"` returns only the items newer than that point, newest first, and says how many are new. It then moves the point to the newest item it returned.
+
+- Every client of the account shares these positions, and they survive a restart.
+- When more new items wait below the first page, the position moves after the agent follows the cursor down to the old position, so the agent doesn't skip any item.
+- A read with a time as `since` leaves the position alone. A read without `since` moves it only when it passes `"mark_read": true`.
+- Custom feeds have no read position, because each feed's generator decides the order of its own posts.
+
 | Tool | Set | What it does |
 | --- | --- | --- |
 | `get_activity_subscriptions` | full | List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription). |
@@ -53,7 +62,7 @@ Reads return readable text, so a model gets the same result in every host. A pro
 | `get_suggested_feeds` | full | List custom feeds the service currently suggests. |
 | `get_suggested_follows` | default | Accounts the service suggests following. |
 | `get_suggested_starter_packs` | full | List starter packs the service suggests: named sets of accounts and feeds to follow at once. |
-| `get_thread` | default | Read what surrounds a post: up to 2 parent levels and 2 reply levels, nested (20 replies per node). |
+| `get_thread` | default | Read the posts around a post: every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. |
 | `get_thread_chain` | default | Read the conversation leading to a post: every ancestor from the thread root down to it, as a flat list in order, plus the replies directly under it. |
 | `get_timeline` | default | Read this account's home timeline. |
 | `get_trends` | full | Read what is trending on the network, as the app's Explore page shows it. |

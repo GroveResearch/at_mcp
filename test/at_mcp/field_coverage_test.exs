@@ -10,7 +10,7 @@ defmodule AtMcp.FieldCoverageTest do
   # the viewer state and notifications a public read does not.
   @fixtures [
     feed: "feed.json",
-    thread: "thread.json",
+    thread: "thread_v2.json",
     profile: "profile.json",
     likes: "likes.json",
     feeds: "feeds.json",
@@ -25,7 +25,6 @@ defmodule AtMcp.FieldCoverageTest do
     topics: "trending_topics.json",
     feed: "viewer_timeline.json",
     feed: "viewer_author_feed.json",
-    thread: "viewer_thread.json",
     notifications: "notifications.json",
     grouped_notifications: "grouped_notifications.json"
   ]

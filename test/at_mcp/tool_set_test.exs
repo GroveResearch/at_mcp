@@ -9,11 +9,14 @@ defmodule AtMcp.ToolSetTest do
   alias AtMcp.Test.Grant
 
   # The default `tools/list`, in bytes of JSON: 41,700 when this was set
-  # (43 tools), from 994,426 for every tool with its output schema. A host
-  # that loads tool definitions into the model's context pays this on every
-  # request; raise it only for a tool agents use.
-  @default_bound 48_000
-  # Every tool, for a client that asks for the full set: 96,719 when set.
+  # (43 tools), from 994,426 for every tool with its output schema; 49,482
+  # once reads took `detail` (#212), `get_thread` `depth` and `breadth`
+  # (#214), and the feeds `since` and `mark_read` (#216). A host that loads
+  # tool definitions into the model's context pays this on every request;
+  # raise it only for a tool or argument agents use.
+  @default_bound 52_000
+  # Every tool, for a client that asks for the full set: 96,719 when set,
+  # 105,329 with those arguments.
   @full_bound 110_000
 
   setup do

@@ -216,6 +216,9 @@ defmodule AtMcp.Effects do
   @doc "The immutable account binding required by named shared connections."
   def expected_did(effects), do: state(effects).expected_did
 
+  @doc "The DID of the account this session acts as, or nil before it has one."
+  def account_did(effects), do: did_of(state(effects).backend_state)
+
   @doc "Whether Effects currently holds a live backend session."
   def logged_in?(effects), do: state(effects).logged_in?
 
@@ -313,16 +316,17 @@ defmodule AtMcp.Effects do
   @doc """
   What surrounds a post. With `include_hidden: true`, the replies the app
   leaves out of the thread, which the thread's author hid or the account's own
-  settings push down, are read too. The thread read already returns most of
-  them, unmarked: each of those is marked where it stands (`left_out`, with
-  `hidden_by_threadgate` or `muted_by_viewer` when the service says which),
-  and `hidden_replies` lists only the ones the thread read did not return. A
+  settings push down, are read too. `getPostThreadV2` leaves them out of the
+  thread, so `hidden_replies` lists them. One the thread read did return
+  anyway is marked where it stands instead (`left_out`, with
+  `hidden_by_threadgate` or `muted_by_viewer` when the service says which). A
   failed read of them leaves the thread as read and says why in
   `hidden_replies_unread`.
   """
   def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
     with_session(effects, fn backend, session ->
-      with {:ok, thread} <- backend.get_thread(session, uri) do
+      with {:ok, thread} <-
+             backend.get_thread(session, uri, Keyword.take(opts, [:depth, :breadth])) do
         if(Keyword.get(opts, :include_hidden) == true,
           do: with_hidden(thread, backend.get_hidden_replies(session, uri)),
           else: {:ok, thread}

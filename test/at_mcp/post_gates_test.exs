@@ -782,39 +782,42 @@ defmodule AtMcp.PostGatesTest do
         record: %{text: text, createdAt: "2026-10-01T00:00:00.000Z"}
       }
 
-    # As `feed.getPostThread` answers: a reply the thread's author hid is among
-    # the replies, unmarked, and the threadgate beside the thread lists it.
+    # As `unspecced.getPostThreadV2` answers: the post, then its replies depth
+    # first, the one the thread's author hid marked so, and the threadgate
+    # that lists it beside the thread.
     defp thread do
       %{
-        thread: %{
-          "$type" => "app.bsky.feed.defs#threadViewPost",
-          post: %{
-            uri: "at://did:plc:self/app.bsky.feed.post/3kmine2222222",
-            cid: "bafymine",
-            author: %{did: "did:plc:self", handle: "self.example"},
-            record: %{text: "mine", createdAt: "2026-10-01T00:00:00.000Z"}
+        thread: [
+          %{
+            uri: @mine,
+            depth: 0,
+            value: %{
+              "$type" => "app.bsky.unspecced.defs#threadItemPost",
+              post: %{
+                uri: @mine,
+                cid: "bafymine",
+                author: %{did: "did:plc:self", handle: "self.example"},
+                record: %{text: "mine", createdAt: "2026-10-01T00:00:00.000Z"}
+              },
+              hiddenByThreadgate: false,
+              mutedByViewer: false,
+              moreParents: false,
+              moreReplies: 0,
+              opThread: true
+            }
           },
-          replies: [
-            %{
-              "$type" => "app.bsky.feed.defs#threadViewPost",
-              post: view(@rude, "rude"),
-              replies: [
-                %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@child, "child")}
-              ]
-            },
-            %{
-              "$type" => "app.bsky.feed.defs#threadViewPost",
-              post: view("at://did:plc:other/app.bsky.feed.post/3kkind2222222", "kind")
-            },
-            %{"$type" => "app.bsky.feed.defs#threadViewPost", post: view(@tagged, "tagged")}
-          ]
-        },
+          put_in(other_item(@rude, "rude", 1, true), [:value, :mutedByViewer], false),
+          unflagged_item(@child, "child", 2),
+          unflagged_item("at://did:plc:other/app.bsky.feed.post/3kkind2222222", "kind", 1),
+          unflagged_item(@tagged, "tagged", 1)
+        ],
+        hasOtherReplies: true,
         threadgate: %{
           uri: "at://did:plc:self/app.bsky.feed.threadgate/3kmine2222222",
           cid: "bafygate",
           record: %{
             "$type" => "app.bsky.feed.threadgate",
-            post: "at://did:plc:self/app.bsky.feed.post/3kmine2222222",
+            post: @mine,
             createdAt: "2026-10-01T00:00:00.000Z",
             hiddenReplies: [@rude]
           }
@@ -845,7 +848,7 @@ defmodule AtMcp.PostGatesTest do
     end
 
     test "a reply the thread's author hid is marked where it stands, without include_hidden" do
-      %{state: state} = pds(%{}, %{"app.bsky.feed.getPostThread" => {200, thread()}})
+      %{state: state} = pds(%{}, %{"app.bsky.unspecced.getPostThreadV2" => {200, thread()}})
 
       result = call(state, "get_thread", %{"uri" => @mine})
       [rude, kind, _tagged] = result.structuredContent["replies"]
@@ -866,7 +869,7 @@ defmodule AtMcp.PostGatesTest do
 
       %{effects: effects, pds: pds, state: state} =
         pds(%{}, %{
-          "app.bsky.feed.getPostThread" => {200, thread()},
+          "app.bsky.unspecced.getPostThreadV2" => {200, thread()},
           "app.bsky.unspecced.getPostThreadOtherV2" => {200, other}
         })
 
@@ -904,7 +907,7 @@ defmodule AtMcp.PostGatesTest do
     test "a service that does not serve hidden replies leaves the thread and says so; the gates are delve's own" do
       %{effects: effects, pds: pds, state: state} =
         pds(%{}, %{
-          "town.delve.feed.getPostThread" => {200, thread()},
+          "town.delve.unspecced.getPostThreadV2" => {200, thread()},
           "town.delve.unspecced.getPostThreadOtherV2" =>
             {501, %{error: "MethodNotImplemented", message: "Method Not Implemented"}}
         })

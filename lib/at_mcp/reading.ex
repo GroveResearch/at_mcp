@@ -44,7 +44,8 @@ defmodule AtMcp.Reading do
   post whose text, or quoted text, holds such an escape says so in one line
   under it.
 
-  It only drops what is absent. A post's text is never shortened, every uri
+  It only drops what is absent. A post's text is never shortened, except on
+  one line of a brief page (`brief_posts/1`), which says so; every uri
   and cid a write tool takes is kept, and a cursor or a `before` uri for the
   next page is stated with the argument to pass it as. Beside the uri of each
   post, account, list, feed, starter pack and labeler is its `link:`, the web
@@ -52,8 +53,47 @@ defmodule AtMcp.Reading do
   """
   import AtMcp.Reading.Text
 
+  # The most characters of text a page of posts may have, when it can be cut
+  # (`AtMcp.MCP.Tools.page/4`). Claude Code puts a result over 50,000
+  # characters in a file instead of in front of the model. A recorded 50-post
+  # author feed is about 35,000 characters (#203), so a page is cut only when
+  # its posts are long, and the notes `AtMcp.MCP.Input` and
+  # `AtMcp.MCP.WebLinks` append after the page still fit under 50,000.
+  @page_chars 40_000
+
+  @doc "The most characters of text a page of posts may have, when it can be cut."
+  def page_chars, do: @page_chars
+
   @doc "A page of posts: timelines, feeds, search results, `get_posts`."
   def posts(page), do: post_page(page, ~L"post", ~L"posts")
+
+  @doc """
+  A page of posts with one line per post, for skimming (`detail: "brief"`).
+  Each line has the author, the time, the first line of the text, the counts
+  and the uri, which `get_posts` takes to return the whole post. This is the
+  only reading that shortens a post's text, and the line marks where it was
+  cut.
+  """
+  def brief_posts(%{"items" => items} = page) when is_list(items) do
+    header =
+      cat([
+        count(length(items), ~L"post", ~L"posts"),
+        ~L", one line each. Pass a uri to get_posts to read the whole post.",
+        news(page),
+        left_out(page, ~L"post", ~L"posts"),
+        next_page(page),
+        unsaved(page)
+      ])
+
+    lines =
+      items
+      |> Enum.with_index(1)
+      |> Enum.map(fn {post, n} -> brief(post, numbered(n)) end)
+
+    to_text(join([header, shown(page["moderation_unread"]) | lines], :line))
+  end
+
+  def brief_posts(_other), do: nil
 
   @doc """
   This account's bookmarks: each post as a page of posts shows it, or one line
@@ -62,7 +102,15 @@ defmodule AtMcp.Reading do
   def bookmarks(page), do: post_page(page, ~L"bookmark", ~L"bookmarks")
 
   defp post_page(%{"items" => items} = page, one, many) when is_list(items) do
-    header = cat([count(length(items), one, many), ~L".", next_page(page)])
+    header =
+      cat([
+        count(length(items), one, many),
+        ~L".",
+        news(page),
+        left_out(page, one, many),
+        next_page(page),
+        unsaved(page)
+      ])
 
     blocks =
       items
@@ -84,13 +132,19 @@ defmodule AtMcp.Reading do
           if(is_binary(page["seen_at"]),
             do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])
           ),
-          next_page(page)
+          news(page),
+          left_out(page, ~L"notification group", ~L"notification groups"),
+          next_page(page),
+          unsaved(page)
         ])
       else
         cat([
           count(length(items), ~L"notification", ~L"notifications"),
           ~L".",
-          next_page(page)
+          news(page),
+          left_out(page, ~L"notification", ~L"notifications"),
+          next_page(page),
+          unsaved(page)
         ])
       end
 
@@ -116,7 +170,7 @@ defmodule AtMcp.Reading do
       parents
       |> Enum.with_index()
       |> Enum.map(fn {parent, index} ->
-        post(parent, parent_label(count - index))
+        post(parent, cat([parent_label(count - index), op_run(parent)]))
       end)
 
     omitted =
@@ -133,13 +187,46 @@ defmodule AtMcp.Reading do
         [shown(node["moderation_unread"])] ++
           omitted ++
           above ++
-          [post(node, ~L"[this post]")] ++ replies(node, []) ++ hidden(node),
+          [post(node, cat([~L"[this post]", op_run(node)]))] ++
+          replies(node, []) ++ cut_replies(node) ++ hidden(node) ++ others(node),
         :blank
       )
     )
   end
 
   def thread(_other), do: nil
+
+  # A post in the original poster's own series of posts from the root,
+  # numbered from 1 as the service numbers it.
+  defp op_run(%{"op_thread_index" => n, "op_thread_count" => of})
+       when is_integer(n) and is_integer(of) and of > 1,
+       do:
+         cat([~L" (post ", int(n), ~L" of ", int(of), ~L" in the original poster's own thread)"])
+
+  defp op_run(_post), do: nil
+
+  # Direct replies left out to keep the thread under `@page_chars`.
+  defp cut_replies(%{"replies_cut" => n}) when is_integer(n) and n > 0,
+    do: [
+      cat([
+        ~L"(",
+        int(n),
+        if(n == 1, do: ~L" more direct reply was", else: ~L" more direct replies were"),
+        ~L" left out to keep this under ",
+        int(@page_chars),
+        ~L" characters. To read more of them, call get_thread again with a smaller depth or breadth, or call get_thread on a single reply to read the replies under it.)"
+      ])
+    ]
+
+  defp cut_replies(_node), do: []
+
+  # Replies hidden from the thread, when include_hidden was not asked for.
+  defp others(%{"other_replies" => true} = node) when not is_map_key(node, "hidden_replies"),
+    do: [
+      ~L"(Some replies to this thread are hidden, either by its author or by this account's settings. Call get_thread with include_hidden set to true to read them.)"
+    ]
+
+  defp others(_node), do: []
 
   # Asked for with `include_hidden`: the replies the app leaves out of the
   # thread. Those the read returned are marked where they stand; the rest are
@@ -1324,6 +1411,70 @@ defmodule AtMcp.Reading do
 
   defp post(other, label), do: unknown(other, label)
 
+  # A post on one line: why a feed shows it, who, when, the first line of its
+  # text, its counts, whether moderation marks it, and its uri.
+  defp brief(%{} = post, label) do
+    case unavailable(post) do
+      nil ->
+        cat([
+          label,
+          ~L" ",
+          join(
+            [
+              brief_reason(post["reason"]),
+              brief_who(post["author"], post["author_did"]),
+              time(post["indexed_at"] || post["created_at"]),
+              if(is_binary(post["reply_to"]), do: ~L"a reply"),
+              first_line(post["raw_text"] || post["text"]),
+              engagement(post),
+              if(AtMcp.ModerationDecision.line(post["moderation"]), do: ~L"marked by moderation"),
+              ident(post["uri"])
+            ],
+            :dot
+          )
+        ])
+
+      why ->
+        cat([label, ~L" ", why])
+    end
+  end
+
+  defp brief(other, label), do: unknown(other, label)
+
+  defp brief_reason(%{"type" => "repost"} = reason),
+    do:
+      cat([~L"reposted by ", who(%{"author" => reason["by"], "author_did" => reason["by_did"]})])
+
+  defp brief_reason(%{"type" => "pin"}), do: ~L"pinned"
+  defp brief_reason(_reason), do: nil
+
+  defp brief_who(handle, _did) when is_binary(handle), do: cat([~L"@", ident(handle)])
+  defp brief_who(_handle, did), do: ident(did)
+
+  @first_line 120
+
+  # The text's first non-blank line, at most @first_line characters, quoted;
+  # what is cut is said outside the quotes. It is read from the text as
+  # written (`raw_text`): cut from the rendered text, a link or mention marker
+  # could be cut in half, and inside one quoted literal no marker is needed.
+  defp first_line(text) when is_binary(text) do
+    lines = text |> String.split(~r/\R/u) |> Enum.map(&one_line/1) |> Enum.reject(&(&1 == ""))
+
+    case lines do
+      [] ->
+        nil
+
+      [line | rest] ->
+        shortened = String.slice(line, 0, @first_line)
+
+        if rest == [] and shortened == line,
+          do: literal(line),
+          else: cat([literal(shortened), ~L" (continues)"])
+    end
+  end
+
+  defp first_line(_text), do: nil
+
   defp unavailable(%{"blocked" => true} = post),
     do: cat([where(post), ~L" is hidden by a block."])
 
@@ -2139,7 +2290,7 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {reply, n} ->
         place = path ++ [n]
-        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]"])
+        label = cat([~L"[reply ", join(Enum.map(place, &int/1), :period), ~L"]", op_run(reply)])
         [post(reply, label) | replies(reply, place)]
       end)
 
@@ -2179,6 +2330,76 @@ defmodule AtMcp.Reading do
     do: cat([int(n), ~L" earlier posts are not shown. "])
 
   defp earlier(_n), do: nil
+
+  defp left_out(%{"left_out" => n}, one, many) when is_integer(n) and n > 0,
+    do:
+      cat([
+        ~L" ",
+        int(n),
+        ~L" more ",
+        if(n == 1, do: one, else: many),
+        ~L" did not fit in ",
+        int(@page_chars),
+        ~L" characters. The cursor below starts with them."
+      ])
+
+  defp left_out(%{"over_bound" => true}, _one, _many),
+    do:
+      cat([
+        ~L" This page is longer than ",
+        int(@page_chars),
+        ~L" characters."
+      ])
+
+  defp left_out(_page, _one, _many), do: nil
+
+  # A read asked for what is newer than a position: how many are new, or why
+  # it read the newest page instead.
+  defp news(%{"since" => at} = page) when is_binary(at) do
+    n = if is_integer(page["new_total"]), do: page["new_total"], else: length(page["items"])
+
+    cat([
+      ~L" ",
+      if(page["new_total_exact"] == false, do: cat([~L"At least ", int(n)]), else: int(n)),
+      ~L" new since ",
+      time(at),
+      ~L"."
+    ])
+  end
+
+  defp news(%{"since" => nil, "since_unread" => why}) when is_binary(why),
+    do:
+      cat([
+        ~L" at_mcp could not load this account's read position for this feed (",
+        ident(why),
+        ~L"), so this page starts from the newest item and may repeat items the account has read."
+      ])
+
+  defp news(%{"since" => nil}),
+    do:
+      ~L" This was the first read of this feed with last_read, so the page starts from the newest item. To read further back, pass the cursor without since."
+
+  defp news(_page), do: nil
+
+  defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
+    do:
+      cat([
+        ~L" at_mcp could not save the read position (",
+        ident(why),
+        ~L"), so the next read with last_read returns these items again."
+      ])
+
+  defp unsaved(_page), do: nil
+
+  defp next_page(%{"cursor" => cursor, "since" => at} = page)
+       when is_binary(cursor) and is_binary(at),
+       do:
+         cat([
+           ~L" To get the rest of the new items, pass cursor: ",
+           ident(cursor),
+           ~L" with since: ",
+           if(page["since_asked"] == "last_read", do: ~L"last_read", else: time(at))
+         ])
 
   defp next_page(%{"cursor" => cursor}) when is_binary(cursor),
     do: cat([~L" For the next page, pass cursor: ", ident(cursor)])

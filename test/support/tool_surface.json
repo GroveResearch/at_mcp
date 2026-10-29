@@ -154,6 +154,7 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer"
       },
@@ -165,8 +166,11 @@
       "arguments": {
         "actor": "string",
         "cursor": "string",
+        "detail": "string",
         "format": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": [
         "actor"
@@ -183,6 +187,7 @@
     "get_bookmarks": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer"
       },
@@ -199,6 +204,7 @@
     "get_feed": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "feed": "string",
         "format": "string",
         "limit": "integer"
@@ -287,9 +293,12 @@
     "get_list_feed": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer",
-        "list": "string"
+        "list": "string",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": [
         "list"
@@ -344,7 +353,9 @@
         "format": "string",
         "grouped": "boolean",
         "limit": "integer",
-        "reasons": "array"
+        "mark_read": "boolean",
+        "reasons": "array",
+        "since": "string"
       },
       "required": []
     },
@@ -400,6 +411,7 @@
     "get_quotes": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
         "limit": "integer",
         "uri": "string"
@@ -489,6 +501,8 @@
     },
     "get_thread": {
       "arguments": {
+        "breadth": "integer",
+        "depth": "integer",
         "format": "string",
         "include_hidden": "boolean",
         "uri": "string"
@@ -511,8 +525,11 @@
     "get_timeline": {
       "arguments": {
         "cursor": "string",
+        "detail": "string",
         "format": "string",
-        "limit": "integer"
+        "limit": "integer",
+        "mark_read": "boolean",
+        "since": "string"
       },
       "required": []
     },
@@ -723,6 +740,7 @@
         "all_time": "boolean",
         "author": "string",
         "cursor": "string",
+        "detail": "string",
         "domains": "array",
         "embeds": "array",
         "exclude_authors": "array",

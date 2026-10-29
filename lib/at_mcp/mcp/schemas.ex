@@ -186,6 +186,54 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc "The `detail` a page of posts takes: see `AtMcp.Reading.brief_posts/1`."
+  defmacro post_detail do
+    Macro.escape(
+      description:
+        "How much of each post to show. \"full\" (the default) shows the whole post. \"brief\" shows one line per post: the author, the time, the first line of the text, the counts and the uri. Pass a uri to get_posts to read that post in full.",
+      schema: %{type: "string", enum: ["full", "brief"]}
+    )
+  end
+
+  @doc "`get_thread`'s `depth`: levels of replies, within what the service takes."
+  defmacro thread_depth do
+    %{depth: max} = AtMcp.Effects.ProtoRune.thread_shape()
+
+    Macro.escape(
+      description:
+        "How many levels of replies to read below the post, from 0 to #{max}. Leave it out to use the account's view in the app.",
+      schema: %{type: "integer", minimum: 0, maximum: max}
+    )
+  end
+
+  @doc "`get_thread`'s `breadth`: replies per post below the first level."
+  defmacro thread_breadth do
+    %{breadth: max} = AtMcp.Effects.ProtoRune.thread_shape()
+
+    Macro.escape(
+      description:
+        "How many replies to read under each reply, from 0 to #{max}. The direct replies to the post itself always come back in full, whatever this number is. Leave it out to use the account's view in the app.",
+      schema: %{type: "integer", minimum: 0, maximum: max}
+    )
+  end
+
+  @doc "`since` on a read whose position is held (`AtMcp.ReadPositions`)."
+  defmacro since do
+    Macro.escape(
+      description:
+        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item, and every app using the account shares it. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest.",
+      schema: %{type: "string"}
+    )
+  end
+
+  @doc "`mark_read` beside `since`."
+  defmacro mark_read do
+    Macro.escape(
+      description:
+        "Set to false to read with since: last_read and leave the read position where it is. Set to true to move the read position on a read without since. A read with since set to a time leaves the position alone. When more new items wait below this page, the position moves only after you follow the cursor back to the old position."
+    )
+  end
+
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
@@ -364,14 +412,14 @@ defmodule AtMcp.MCP.Schemas do
   `get_thread` reads.
   """
   defmacro describe(text) do
-    %{parent_height: parents, depth: depth, replies: replies} =
-      AtMcp.Effects.ProtoRune.thread_shape()
+    %{views: %{linear: linear, tree: tree}} = AtMcp.Effects.ProtoRune.thread_shape()
+    under = if linear.breadth == 1, do: "a single reply", else: "up to #{linear.breadth} replies"
 
     text
     |> String.replace("{batch}", "1-#{AtMcp.Effects.max_batch()}")
     |> String.replace(
       "{thread}",
-      "up to #{parents} parent levels and #{depth} reply levels, nested (#{replies} replies per node)"
+      "every parent post above it, then the replies below it, nested and sorted the way the network's official app sorts them for this account. By default the tool follows the account's thread view in the app: the linear view (the usual one) reads #{linear.depth} levels of replies, with every direct reply and #{under} under each of those; the tree view reads #{tree.depth} levels, with up to #{tree.breadth} replies under each post. Use depth and breadth to read more or less. If the thread runs past #{AtMcp.Reading.page_chars()} characters, the tool returns as many direct replies as fit and gives the count of the rest"
     )
   end
 
@@ -383,11 +431,11 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro profile_view, do: Macro.escape(unread(object(profile_view_schema()["properties"])))
 
-  defmacro post_page, do: Macro.escape(unread(page(post_view_schema())))
+  defmacro post_page, do: Macro.escape(unread(held(cut(page(post_view_schema())))))
 
   defmacro profile_page, do: Macro.escape(unread(page(profile_view_schema())))
 
-  defmacro bookmark_page, do: Macro.escape(unread(page(bookmark_schema())))
+  defmacro bookmark_page, do: Macro.escape(unread(cut(page(bookmark_schema()))))
 
   defmacro draft_page, do: Macro.escape(page(record(:draft)))
 
@@ -417,7 +465,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defmacro list_result, do: Macro.escape(list_result_schema())
 
-  defmacro notification_page, do: Macro.escape(notification_page_schema())
+  defmacro notification_page, do: Macro.escape(held(cut(notification_page_schema())))
 
   defmacro relationship_page, do: Macro.escape(relationship_page_schema())
 
@@ -552,7 +600,8 @@ defmodule AtMcp.MCP.Schemas do
         },
         "parent_omitted" => %{
           "type" => ["boolean", "null"],
-          "description" => "True when a parent exists beyond the retained height"
+          "description" =>
+            "True when the service reports more parent posts above the ones it returned"
         },
         "replies" => %{"type" => "array", "items" => %{"type" => "object"}},
         "replies_omitted" => %{
@@ -561,7 +610,27 @@ defmodule AtMcp.MCP.Schemas do
         },
         "context" => %{
           "type" => "object",
-          "description" => "The depth, parent height and per-node reply cap applied"
+          "description" =>
+            "The settings used to read the thread: depth (levels of replies), breadth (replies under each reply), sort (the order of replies), and view (linear or tree, from the account's settings)"
+        },
+        "other_replies" => %{
+          "type" => ["boolean", "null"],
+          "description" =>
+            "True when some replies to this thread are hidden, by its author or by this account's settings. Call again with include_hidden set to true to read them."
+        },
+        "replies_cut" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "How many direct replies the tool left out to keep the reading under #{AtMcp.Reading.page_chars()} characters. replies_omitted includes them."
+        },
+        "op_thread_index" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "Where this post falls, counting from 1, in the series of posts the original poster wrote in a row from the root"
+        },
+        "op_thread_count" => %{
+          "type" => ["integer", "null"],
+          "description" => "The number of posts in that series"
         },
         "hidden_by_threadgate" => %{
           "type" => ["boolean", "null"],
@@ -1466,6 +1535,51 @@ defmodule AtMcp.MCP.Schemas do
     }
     |> object()
     |> promising(["count", "items"])
+  end
+
+  # A page of a feed whose read position is held (`AtMcp.ReadPositions`).
+  defp held(schema) do
+    update_in(schema, ["properties"], fn properties ->
+      Map.merge(properties, %{
+        "since" =>
+          nullable_string(
+            "The time this read counted new items from. Null when the read passed last_read and the account had no read position in this feed yet, or at_mcp could not load it. The page then starts from the newest item."
+          ),
+        "new_total" => %{
+          "type" => "integer",
+          "description" =>
+            "How many items are newer than since, on this page and the pages after it."
+        },
+        "new_total_exact" => %{
+          "type" => "boolean",
+          "description" =>
+            "False when at_mcp stopped counting before it got back to since. new_total is then a minimum."
+        },
+        "read_position" =>
+          nullable_string(
+            "The account's read position in this feed after this read. It stays where it was until a read reaches the old position."
+          ),
+        "read_position_unsaved" =>
+          nullable_string("The error that stopped at_mcp from saving the read position."),
+        "since_unread" =>
+          nullable_string("The error at_mcp got loading the read position for since: last_read.")
+      })
+    end)
+  end
+
+  # A page of posts that `AtMcp.MCP.Tools.page/5` cut short.
+  defp cut(schema) do
+    schema
+    |> put_in(["properties", "left_out"], %{
+      "type" => "integer",
+      "description" =>
+        "How many items the service returned for this page that were dropped to keep the text under #{AtMcp.Reading.page_chars()} characters. The cursor starts with them. Absent when no item was dropped."
+    })
+    |> put_in(["properties", "over_bound"], %{
+      "type" => "boolean",
+      "description" =>
+        "True when the text of this page is longer than #{AtMcp.Reading.page_chars()} characters and at_mcp could not get a shorter page that continues it."
+    })
   end
 
   # A successful result carries these fields; an error result carries its code

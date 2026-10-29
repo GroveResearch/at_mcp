@@ -758,6 +758,358 @@ defmodule AtMcp.MCP.Tools do
 
   def respond(result, state, _reading), do: respond(result, state)
 
+  @doc """
+  `respond/3` for a page of posts or notifications. `fetch` reads the page;
+  it takes the limit to ask the service for (`nil` means the caller's limit)
+  and the cursor.
+
+  With `detail: "brief"` the page is shown with `AtMcp.Reading.brief_posts/1`.
+  When the text would be longer than `AtMcp.Reading.page_chars/0`, the page is
+  read again with the number of items that fit. The cursor is then the
+  service's own and starts with the first item that was dropped, and the page
+  says how many were dropped. An item hidden from the page is not counted, so
+  the cursor never skips an item, though it may repeat one. If the second read
+  fails or does not return fewer items, the whole first page is returned: a
+  page that is too long is better than lost items. If not even one item fits,
+  the page has that one item. A page asked for as JSON keeps every item up to
+  `limit`.
+
+  `feed`, for a feed whose read position is held (`AtMcp.ReadPositions.key/2`),
+  takes `since` and `mark_read`: see `positioned/6`.
+  """
+  def page(fetch, args, state, reading, feed \\ nil) do
+    reading = if Map.get(args, :detail) == "brief", do: :brief_posts, else: reading
+    json? = AtMcp.MCP.DSL.format(args, state) == "json"
+    cursor = Map.get(args, :cursor)
+    started = System.monotonic_time(:millisecond)
+
+    case valid_since(Map.get(args, :since), feed) do
+      :ok ->
+        result = fetch.(Map.get(args, :limit), cursor)
+
+        if(json?, do: result, else: bounded(result, &fetch.(&1, cursor), reading, started))
+        |> positioned(args, state, feed, fetch, started)
+        |> respond(state, reading)
+
+      error ->
+        respond(error, state)
+    end
+  end
+
+  @doc """
+  Responds to `get_thread`. For a text reading longer than
+  `AtMcp.Reading.page_chars/0`, it keeps as many direct replies as fit, in
+  the service's order and each with its own replies, adds the rest to the
+  post's `replies_omitted`, and sets `replies_cut`. JSON output is not cut.
+  """
+  def thread(result, args, state) do
+    if AtMcp.MCP.DSL.format(args, state) == "json",
+      do: respond(result, state, :thread),
+      else: result |> bounded_thread() |> respond(state, :thread)
+  end
+
+  defp bounded_thread({:ok, %{replies: [_ | _] = replies} = thread} = result) do
+    data = Jason.decode!(Jason.encode!(thread))
+    count = length(replies)
+
+    reads_in? = fn kept ->
+      cut =
+        Map.merge(data, %{
+          "replies" => Enum.take(data["replies"], kept),
+          "replies_omitted" => (data["replies_omitted"] || 0) + count - kept,
+          "replies_cut" => count - kept
+        })
+
+      String.length(AtMcp.Reading.thread(cut) || "") <= AtMcp.Reading.page_chars()
+    end
+
+    case most(0, count, reads_in?) do
+      ^count ->
+        result
+
+      kept ->
+        {:ok,
+         Map.merge(thread, %{
+           replies: Enum.take(replies, kept),
+           replies_omitted: (thread[:replies_omitted] || 0) + count - kept,
+           replies_cut: count - kept
+         })}
+    end
+  end
+
+  defp bounded_thread(result), do: result
+
+  # Binary search for the largest n in low..high where fits?.(n) is true.
+  # It assumes fits? is true for every n below one where it is true, and
+  # returns `low` when fits? is false everywhere.
+  defp most(low, high, _fits?) when low >= high, do: low
+
+  defp most(low, high, fits?) do
+    mid = div(low + high + 1, 2)
+    if fits?.(mid), do: most(mid, high, fits?), else: most(low, mid - 1, fits?)
+  end
+
+  # The shorter page comes from a second read, so it is used only when it
+  # starts the same way as the first page: the same first posts, in the same
+  # order, with a different cursor. A custom feed's generator may ignore
+  # `limit`. The AppView then cuts the generator's posts to the limit but
+  # passes on the generator's cursor unchanged, and that cursor skips every
+  # post between the cut and the cursor. A feed that changed between the two
+  # reads, or answers each read differently, gives different posts. In either
+  # case the first page is returned whole, with a note that it is longer than
+  # the limit. The same happens when the second read would not finish before
+  # the endpoint stops waiting.
+  defp bounded({:ok, %{} = page} = result, fetch, reading, started) do
+    with {:ok, json} <- Jason.encode(page),
+         %{"items" => [_, _ | _] = items} = data <- Jason.decode!(json),
+         fit when fit < length(items) <- fitting(data, items, reading) do
+      case cut(page, fetch, fit, items, started) do
+        {:ok, smaller} -> {:ok, smaller}
+        :error -> {:ok, Map.put(page, :over_bound, true)}
+      end
+    else
+      _ -> result
+    end
+  end
+
+  defp bounded(result, _fetch, _reading, _started), do: result
+
+  defp cut(page, fetch, fit, items, started) do
+    with true <- time_left?(started),
+         {:ok, %{items: [_ | _] = shown} = smaller} <- fetch.(fit),
+         true <- length(shown) < length(items),
+         true <- uris(shown) == uris(Enum.take(page.items, length(shown))),
+         cursor when is_binary(cursor) <- smaller[:cursor],
+         true <- cursor != page[:cursor] do
+      {:ok, Map.put(smaller, :left_out, length(items) - length(shown))}
+    else
+      _ -> :error
+    end
+  end
+
+  defp uris(items), do: Enum.map(items, &(&1[:uri] || &1["uri"]))
+
+  # An account call answers within `AtMcp.Effects.answered_within/0`, and the
+  # endpoint waits `AtMcp.MCP.HTTP.handler_call_timeout/0` for the whole tool
+  # call, which is sized for one. A read makes a second only while the
+  # endpoint would still be waiting when it answered, so every call is still
+  # answered by AtMcp rather than abandoned by ExMCP.
+  @result_margin_ms 3_000
+
+  defp time_left?(started) do
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    elapsed + AtMcp.Effects.answered_within() + @result_margin_ms <=
+      AtMcp.MCP.HTTP.handler_call_timeout()
+  end
+
+  # How many of the page's first items its reading holds within the bound;
+  # at least one.
+  defp fitting(data, items, reading) do
+    fits? = fn n ->
+      page = Map.merge(data, %{"items" => Enum.take(items, n), "left_out" => length(items) - n})
+      text = apply(AtMcp.Reading, reading, [page])
+      not is_binary(text) or String.length(text) <= AtMcp.Reading.page_chars()
+    end
+
+    if fits?.(length(items)),
+      do: length(items),
+      else: Enum.find(length(items)..2//-1, 1, fits?)
+  end
+
+  # `since` is read only on a feed whose position is held; `search_posts` has
+  # a `since` of its own, which the service applies.
+  defp valid_since(nil, _feed), do: :ok
+  defp valid_since(_since, nil), do: :ok
+  defp valid_since("last_read", _feed), do: :ok
+
+  defp valid_since(at, _feed) do
+    case DateTime.from_iso8601(at) do
+      {:ok, _, _} ->
+        :ok
+
+      _ ->
+        {:error,
+         {:invalid_argument, "since", "must be last_read or a time such as 2026-10-29T08:00:00Z"}}
+    end
+  end
+
+  # positioned/6 loads the read position after the fetch, since the fetch
+  # logs in and the DID is known only then. It filters the page to items
+  # newer than the position (for last_read) or the given time, then calls
+  # mark/5 when the read asks to move the position. If the page is all new
+  # and more wait below it, mark/5 stores its newest time as pending. The
+  # later read that gets back to the position commits it.
+  defp positioned({:ok, %{items: items} = page}, args, state, feed, fetch, started)
+       when is_binary(feed) and is_list(items) do
+    did = account(state)
+    asked = Map.get(args, :since)
+
+    case did && AtMcp.ReadPositions.get(did, feed) do
+      {:ok, %{at: held}} ->
+        since = if asked == "last_read", do: held, else: asked
+        reached? = reached?(page, held, feed)
+
+        page
+        |> newer(since, asked, fetch, started, feed)
+        |> mark(marks?(args) && reached?, marks?(args), did, feed)
+
+      nil ->
+        # The read itself logs in, so this is an account that has no session
+        # even after it: say so rather than read as if no position were held.
+        {:error, :not_connected}
+
+      # A read since a time needs no position, so only last_read says it
+      # could not be loaded.
+      {:error, why} when asked == "last_read" ->
+        {:ok,
+         Map.merge(page, %{
+           since: nil,
+           since_asked: asked,
+           since_unread: plain(why),
+           read_position_unsaved: if(marks?(args), do: plain(why))
+         })}
+
+      {:error, why} ->
+        {:ok,
+         page
+         |> newer(asked, asked, fetch, started, feed)
+         |> Map.merge(%{read_position_unsaved: if(marks?(args), do: plain(why))})}
+    end
+  end
+
+  defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
+
+  # A read-position failure in a word the reading can show: AtMcp's own
+  # reason, else that the store failed in a way it did not name.
+  defp plain(why) when is_atom(why), do: Atom.to_string(why)
+  defp plain({:error, why}), do: plain(why)
+  defp plain(_why), do: "unexpected_error"
+
+  defp account(%{effects: effects}), do: AtMcp.Effects.account_did(effects)
+  defp account(_state), do: nil
+
+  # Whether this read moves the position. A read since a time looks back and
+  # never marks; otherwise as `mark_read` says, else when it asked for what
+  # is new since the position.
+  defp marks?(%{since: since}) when is_binary(since) and since != "last_read", do: false
+  defp marks?(%{mark_read: mark}) when is_boolean(mark), do: mark
+  defp marks?(args), do: Map.get(args, :since) == "last_read"
+
+  # Whether a page reaches back to the position: it holds an item at or before
+  # it, or nothing comes after it. With no position held, any page does.
+  defp reached?(_page, nil, _feed), do: true
+
+  defp reached?(page, held, feed),
+    do: not is_binary(page[:cursor]) or Enum.any?(page.items, &(not later?(&1, held, feed)))
+
+  # How many items past a page a read with `since` counts, to say how many are
+  # new: four more pages of the largest size.
+  @count_pages 4
+
+  # newer/6 keeps the page's items newer than since. If every item is newer
+  # and there is a cursor, it fetches up to four more pages to count the new
+  # items and keeps the cursor for the caller.
+  defp newer(page, since, asked, fetch, started, feed) when is_binary(since) do
+    new = Enum.filter(page.items, &later?(&1, since, feed))
+    rest? = length(new) == length(page.items) and is_binary(page[:cursor])
+
+    {more, exact?} =
+      if rest?,
+        do: count_newer(fetch, page[:cursor], since, @count_pages, started, feed),
+        else: {0, true}
+
+    Map.merge(page, %{
+      items: new,
+      count: length(new),
+      cursor: if(rest?, do: page[:cursor]),
+      since: since,
+      since_asked: asked,
+      new_total: length(new) + more,
+      new_total_exact: exact?
+    })
+  end
+
+  # `last_read` with no position held: everything is new, and this is the
+  # newest page.
+  defp newer(page, nil, "last_read", _fetch, _started, _feed),
+    do: Map.merge(page, %{since: nil, since_asked: "last_read"})
+
+  defp newer(page, _since, _asked, _fetch, _started, _feed), do: page
+
+  defp count_newer(_fetch, _cursor, _at, 0, _started, _feed), do: {0, false}
+
+  defp count_newer(fetch, cursor, at, pages, started, feed) do
+    with true <- time_left?(started),
+         {:ok, %{items: items} = page} when is_list(items) <-
+           fetch.(AtMcp.Effects.page_limits().max, cursor) do
+      new = Enum.count(items, &later?(&1, at, feed))
+
+      if new < length(items) or not is_binary(page[:cursor]) do
+        {new, true}
+      else
+        {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1, started, feed)
+        {new + more, exact?}
+      end
+    else
+      _ -> {0, false}
+    end
+  end
+
+  defp later?(item, at, feed) do
+    case when_listed(item, feed) do
+      time when is_binary(time) -> AtMcp.ReadPositions.later?(time, at)
+      _ -> false
+    end
+  end
+
+  # An item's time. A notification is new by when the service indexed it, as
+  # the AppView compares it with `seenAt`, so a reply indexed late is still
+  # new. In a feed, a repost is at the repost's time and anything else at the
+  # earlier of when it says it was made and when the service indexed it, as
+  # the AppView sorts a feed (`sortAt`).
+  defp when_listed(item, "notifications") when is_map(item),
+    do: item[:indexed_at] || item[:created_at]
+
+  defp when_listed(item, _feed) when is_map(item) do
+    reason = item[:reason]
+
+    case {is_map(reason) && reason[:at], item[:created_at], item[:indexed_at]} do
+      {at, _, _} when is_binary(at) -> at
+      {_, made, indexed} when is_binary(made) and is_binary(indexed) -> earlier(made, indexed)
+      {_, made, indexed} -> indexed || made
+    end
+  end
+
+  defp when_listed(_item, _feed), do: nil
+
+  defp earlier(a, b), do: if(AtMcp.ReadPositions.later?(a, b), do: b, else: a)
+
+  # Commit the newest item returned when the read reached the position, or
+  # hold it as pending when it did not; nothing when the read does not mark.
+  defp mark(page, commit?, marks?, did, feed) do
+    newest = page.items |> Enum.map(&when_listed(&1, feed)) |> Enum.reduce(nil, &newest/2)
+
+    cond do
+      not marks? or is_nil(newest) ->
+        {:ok, page}
+
+      true ->
+        case AtMcp.ReadPositions.advance(did, feed, newest, commit?) do
+          {:ok, %{at: at}} -> {:ok, Map.put(page, :read_position, at)}
+          {:error, reason} -> {:ok, Map.put(page, :read_position_unsaved, plain(reason))}
+        end
+    end
+  end
+
+  defp newest(at, nil) when is_binary(at),
+    do: if(match?({:ok, _, _}, DateTime.from_iso8601(at)), do: at)
+
+  defp newest(at, max) when is_binary(at),
+    do: if(AtMcp.ReadPositions.later?(at, max), do: at, else: max)
+
+  defp newest(_at, max), do: max
+
   # What a custom feed gave an item is for `feed_feedback`, and the reading
   # points to that tool; a session whose set leaves it out is not pointed
   # to it. The structured content keeps every field.

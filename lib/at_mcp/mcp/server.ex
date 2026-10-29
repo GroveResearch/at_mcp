@@ -74,26 +74,35 @@ defmodule AtMcp.MCP.Server do
     )
 
     param(:feed, :string, AtMcp.MCP.Schemas.notification_feed())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.Effects.list_notifications(e,
-        limit: Map.get(a, :limit),
-        cursor: Map.get(a, :cursor),
-        reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
-        grouped: Map.get(a, :grouped),
-        feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
-      )
-      |> case do
-        # A network without grouped notifications still serves the plain list.
-        {:error, {:not_served, nsid, evidence}} when a.grouped == true ->
-          {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.list_notifications(e,
+            limit: limit,
+            cursor: cursor,
+            reasons: AtMcp.MCP.Tools.optional(Map.get(a, :reasons)),
+            grouped: Map.get(a, :grouped),
+            feed: AtMcp.MCP.Tools.optional(Map.get(a, :feed))
+          )
+          |> case do
+            # A network without grouped notifications still serves the plain list.
+            {:error, {:not_served, nsid, evidence}} when a.grouped == true ->
+              {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
 
-        result ->
-          result
-      end
-      |> AtMcp.MCP.Tools.respond(state, :notifications)
+            result ->
+              result
+          end
+        end,
+        a,
+        state,
+        :notifications,
+        AtMcp.ReadPositions.key(:notifications, nil)
+      )
     end)
   end
 
@@ -115,13 +124,21 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_timeline(e, limit: Map.get(a, :limit), cursor: Map.get(a, :cursor)),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_timeline(e, limit: limit, cursor: cursor)
+        end,
+        a,
         state,
-        :posts
+        :posts,
+        AtMcp.ReadPositions.key(:timeline, nil)
       )
     end)
   end
@@ -135,42 +152,55 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_author_feed(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_author_feed(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+            limit: limit,
+            cursor: cursor
+          )
+        end,
+        a,
         state,
-        :posts
+        :posts,
+        AtMcp.ReadPositions.key(:author, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)))
       )
     end)
   end
 
   tool "get_thread",
        AtMcp.MCP.Schemas.describe(
-         "Read what surrounds a post: {thread}. For the conversation leading to a post, use get_thread_chain instead."
+         "Read the posts around a post: {thread}. For the conversation leading to a post, use get_thread_chain instead."
        ) do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.thread())
     param(:uri, :string, required: true, description: "AT URI of the post")
 
+    param(:depth, :integer, AtMcp.MCP.Schemas.thread_depth())
+    param(:breadth, :integer, AtMcp.MCP.Schemas.thread_breadth())
+
     param(:include_hidden, :boolean,
       description:
-        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. A reply this read already shows is marked where it stands; the others are listed after the thread. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
+        "Also read the replies under the post that the app leaves out of the thread: replies the thread's author hid, and replies the account's own settings push down, such as those by accounts it muted. They are listed after the thread; one the thread already shows is marked there instead. Each says why when the service does. If they cannot be read, the thread is returned with a line saying so."
     )
 
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
+      AtMcp.MCP.Tools.thread(
         AtMcp.Effects.get_thread(e, Map.fetch!(a, :uri),
-          include_hidden: Map.get(a, :include_hidden) == true
+          include_hidden: Map.get(a, :include_hidden) == true,
+          depth: Map.get(a, :depth),
+          breadth: Map.get(a, :breadth)
         ),
-        state,
-        :thread
+        a,
+        state
       )
     end)
   end
@@ -372,48 +402,53 @@ defmodule AtMcp.MCP.Server do
         "The language the query is written in, when the service cannot tell: ja, zh, ko, th or ar"
     )
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.search_posts(
-          e,
-          AtMcp.MCP.Tools.optional(Map.get(a, :query)),
-          [
-            limit: Map.get(a, :limit),
-            cursor: Map.get(a, :cursor),
-            author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
-            mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
-            exclude_authors: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_authors, [])),
-            exclude_mentions: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_mentions, []))
-          ] ++
-            Enum.map(
-              [
-                :sort,
-                :since,
-                :until,
-                :lang,
-                :exclude_langs,
-                :domains,
-                :exclude_domains,
-                :urls,
-                :exclude_urls,
-                :embeds,
-                :exclude_embeds,
-                :hashtags,
-                :exclude_hashtags,
-                :has_media,
-                :has_video,
-                :reply_to,
-                :thread_root,
-                :replies,
-                :following,
-                :all_time,
-                :query_language
-              ],
-              &{&1, Map.get(a, &1)}
-            )
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.search_posts(
+            e,
+            AtMcp.MCP.Tools.optional(Map.get(a, :query)),
+            [
+              limit: limit,
+              cursor: cursor,
+              author: AtMcp.MCP.Tools.optional_actor(Map.get(a, :author)),
+              mentions: AtMcp.MCP.Tools.optional_actor(Map.get(a, :mentions)),
+              exclude_authors: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_authors, [])),
+              exclude_mentions: AtMcp.MCP.Tools.actors(Map.get(a, :exclude_mentions, []))
+            ] ++
+              Enum.map(
+                [
+                  :sort,
+                  :since,
+                  :until,
+                  :lang,
+                  :exclude_langs,
+                  :domains,
+                  :exclude_domains,
+                  :urls,
+                  :exclude_urls,
+                  :embeds,
+                  :exclude_embeds,
+                  :hashtags,
+                  :exclude_hashtags,
+                  :has_media,
+                  :has_video,
+                  :reply_to,
+                  :thread_root,
+                  :replies,
+                  :following,
+                  :all_time,
+                  :query_language
+                ],
+                &{&1, Map.get(a, &1)}
+              )
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -681,14 +716,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_quotes(e, Map.fetch!(a, :uri),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_quotes(e, Map.fetch!(a, :uri),
+            limit: limit,
+            cursor: cursor
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -704,14 +744,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_actor_likes(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_actor_likes(e, AtMcp.MCP.Tools.actor(Map.fetch!(a, :actor)),
+            limit: limit,
+            cursor: cursor
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -734,14 +779,19 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_feed(e, Map.fetch!(a, :feed),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_feed(e, Map.fetch!(a, :feed),
+            limit: limit,
+            cursor: cursor
+          )
+        end,
+        a,
         state,
         :posts
       )
@@ -902,16 +952,24 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
+
     run(fn a, state ->
       e = state.effects
 
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_list_feed(e, Map.fetch!(a, :list),
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_list_feed(e, Map.fetch!(a, :list),
+            limit: limit,
+            cursor: cursor
+          )
+        end,
+        a,
         state,
-        :posts
+        :posts,
+        AtMcp.ReadPositions.key(:list_feed, Map.fetch!(a, :list))
       )
     end)
   end
@@ -2903,12 +2961,17 @@ defmodule AtMcp.MCP.Server do
 
     param(:cursor, :string, description: "Continuation cursor returned by the previous page")
 
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
     run(fn a, state ->
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.get_bookmarks(state.effects,
-          limit: Map.get(a, :limit),
-          cursor: Map.get(a, :cursor)
-        ),
+      AtMcp.MCP.Tools.page(
+        fn limit, cursor ->
+          AtMcp.Effects.get_bookmarks(state.effects,
+            limit: limit,
+            cursor: cursor
+          )
+        end,
+        a,
         state,
         :bookmarks
       )
