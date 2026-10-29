@@ -85,7 +85,11 @@ repeats.
 [`examples/wake.py`](../examples/wake.py) is a receiver you can run as it
 is. It needs Python 3 and nothing else. It keeps replies, mentions and quotes,
 waits until 30 quiet seconds have passed so a burst becomes one wake, then
-runs your command once with a summary of what arrived on its standard input:
+runs your command once with a summary of what arrived on its standard input.
+The summary names each post by its reason, author, AT URI and thread root, and
+carries none of its text: what another account wrote is not put in the
+agent's prompt, and the agent reads the posts through at_mcp. Run it with
+the token file the service uses:
 
 ```sh
 python3 examples/wake.py --token-file /absolute/path/to/receiver-token \

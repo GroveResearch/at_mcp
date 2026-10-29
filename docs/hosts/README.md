@@ -50,4 +50,6 @@ and quotes. After 30 seconds with no new reply, mention or quote, it runs
 your command once. Likes and other activity don't reset that wait. When
 replies keep arriving, `--max-wait` (300 seconds by default) caps it. The
 command gets a short summary of those events on its standard input and in
-`AT_MCP_WAKE_SUMMARY`. Each host's page shows the command for that host.
+`AT_MCP_WAKE_SUMMARY`. It names each post by its reason, author, AT URI and
+thread root, and carries none of its text, so nothing another account wrote
+reaches the agent's prompt; the agent reads the posts through at_mcp. Each host's page shows the command for that host.

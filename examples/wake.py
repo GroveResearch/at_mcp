@@ -5,7 +5,9 @@ A receiver for at_mcp's delivery (docs/delivery.md). It accepts the events a
 long-running at_mcp service sends, keeps the ones whose reason you choose
 (replies, mentions and quotes by default), waits until a burst has gone quiet,
 then runs your command once, with a short summary of what arrived on its
-standard input and in the AT_MCP_WAKE_SUMMARY environment variable.
+standard input and in the AT_MCP_WAKE_SUMMARY environment variable. The
+summary names each post (reason, author, AT URI, thread root) and carries none
+of its text: the agent reads the posts through at_mcp.
 
     python3 wake.py --token-file ~/.config/at_mcp/receiver-token \\
         --command 'claude -p "Below is a list of new notifications on your account. Read each thread they belong to, and reply where you have something to say."'
@@ -24,6 +26,7 @@ import argparse
 import hmac
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -59,21 +62,33 @@ def reasons_of(event):
     return found
 
 
+# The summary becomes part of the command's prompt, so it carries nothing an
+# account wrote: no post text, only what names the post (its reason, author,
+# AT URI and thread root), each kept only when it has its syntax's shape. The
+# agent reads the posts through at_mcp, which quotes what others wrote.
+HANDLE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
+DID = re.compile(r"did:[a-z]+:[A-Za-z0-9._:%-]{1,2048}")
+AT_URI = re.compile(r"at://[A-Za-z0-9._:%-]+(?:/[A-Za-z0-9.-]+(?:/[A-Za-z0-9._:~-]+)?)?")
+REASON = re.compile(r"[a-z][a-z_-]{0,63}")
+
+
+def shaped(pattern, value):
+    return value if isinstance(value, str) and pattern.fullmatch(value) else None
+
+
 def summarize(events):
     noun = "notification" if len(events) == 1 else "notifications"
     lines = [f"{len(events)} new {noun} for your account since the last wake:"]
     for e in events:
-        who = e.get("author") or e.get("author_did") or "someone"
-        what = "/".join(sorted(reasons_of(e))) or "event"
-        text = " ".join((e.get("raw_text") or e.get("text") or "").split())
-        if len(text) > 200:
-            text = text[:199] + "…"
-        line = f"- {what} from @{who}" if e.get("author") else f"- {what} from {who}"
-        if text:
-            line += f': "{text}"'
-        line += f" ({e.get('uri')})"
-        root = e.get("thread_root_uri")
-        if root and root != e.get("uri"):
+        handle = shaped(HANDLE, e.get("author"))
+        who = f"@{handle}" if handle else shaped(DID, e.get("author_did")) or "someone"
+        what = "/".join(sorted(r for r in reasons_of(e) if shaped(REASON, r))) or "event"
+        line = f"- {what} from {who}"
+        uri = shaped(AT_URI, e.get("uri"))
+        if uri:
+            line += f" ({uri})"
+        root = shaped(AT_URI, e.get("thread_root_uri"))
+        if root and root != uri:
             line += f", in the thread that starts at {root}"
         lines.append(line)
     return "\n".join(lines) + "\n"
