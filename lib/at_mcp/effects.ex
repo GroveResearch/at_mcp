@@ -51,8 +51,9 @@ defmodule AtMcp.Effects do
   - a call still waiting for the account changed nothing:
     `:call_deadline_exceeded`;
   - a running call is stopped; a write that reached the backend is
-    `{:write_outcome_unknown, :call_deadline_exceeded}`, anything else is
-    `:call_deadline_exceeded`.
+    `{:write_outcome_unknown, :call_deadline_exceeded}`, a read whose request
+    went to the service is `{:call_deadline_exceeded, :sent}`, and anything
+    else is `:call_deadline_exceeded`.
 
   The caller waits `@answer_grace_ms` past the deadline for that answer, which
   covers the owner's own scheduling and nothing else; the longest any caller
@@ -910,9 +911,9 @@ defmodule AtMcp.Effects do
   # a deletion or a profile edit is an ordinary gesture and does not spend it.
   # Each MCP tool's description and its `at_mcp/publicWrite` annotation derive
   # from this list (`AtMcp.MCP.DSL`), so a host reads the same classification.
-  # A record written with `put_record` or deleted with `delete_record` counts
-  # too: AtMcp cannot tell what another application's record means, so it
-  # counts every one rather than guess which are gestures.
+  # put_record and delete_record count against the quota on every call. AtMcp
+  # cannot tell whether another application's record is a public post or a
+  # small action like a like, so it counts all of them.
   @publishing [:post, :reply, :repost, :put_record, :delete_record]
 
   @doc "The write verbs that count against the account's write quota."
@@ -1203,10 +1204,10 @@ defmodule AtMcp.Effects do
     end)
   end
 
-  # The record kinds AtMcp writes through tools of its own, and those tools.
-  # Each makes checks a raw write would skip (a reply's gate, a like made
-  # once, a handle resolved, a profile written over what was read), so
-  # `put_record` and `delete_record` refuse these collections and name them.
+  # Collections that at_mcp writes with its own tools, mapped to those tools.
+  # The tools check things a raw write would not: a reply's gate, a like
+  # made only once, a resolved handle, a profile merged with what was read.
+  # put_record and delete_record refuse these collections and point to the tools.
   @own_tools [
     post: ~w(post reply delete_post),
     like: ~w(like unlike),
@@ -1228,16 +1229,18 @@ defmodule AtMcp.Effects do
   ]
 
   @doc """
-  Create or replace one record in this account's own repository: any
-  collection but those AtMcp writes with tools of its own (`@own_tools`).
+  Creates or replaces a record in this account's own repository. Collections
+  in `@own_tools` are refused.
 
-  Without `rkey` the service picks the key and the record is new. With one,
-  the record there is read first and replaced only if it is still the version
-  read (`swapRecord`); when there is none, only if there still is none. `cid`,
-  given, is the version the caller read: a record that no longer has it is
-  not written over. A record's `$type` is its collection, added when left out.
-  The service checks the record against its lexicon when it knows it; nothing
-  checks one it does not know.
+  - Without `rkey`, the server picks a key and creates a new record.
+  - With `rkey`, AtMcp reads the current record first and writes with
+    `swapRecord` set to that record's CID, or to null when there is no
+    record. If the record changes in between, the server refuses the write.
+  - With `cid`, AtMcp also compares the current CID to `cid` and refuses
+    before sending anything if they differ.
+
+  A missing `$type` is set to the collection. The server validates the record
+  when it knows the collection's lexicon, and stores it unchecked otherwise.
   """
   def put_record(effects, collection, rkey, record, cid \\ nil) do
     with :ok <- writable_collection(collection),
@@ -1248,7 +1251,7 @@ defmodule AtMcp.Effects do
              cid,
              rkey != nil,
              "cid",
-             "names the version of the record at rkey; give rkey too"
+             "applies only to an existing record, so give rkey as well"
            ),
          {:ok, record} <- typed_record(record, collection) do
       take_and_write(
@@ -1263,9 +1266,9 @@ defmodule AtMcp.Effects do
   end
 
   @doc """
-  Delete one record of this account's own, by collection and key, under the
-  same rules as `put_record/5`. A record that is not there is left alone and
-  nothing is counted; one that no longer has `cid`, given, is not deleted.
+  Deletes a record from this account's own repository by collection and key,
+  with the same collection and `cid` checks as `put_record/5`. If there is no
+  record at the key, AtMcp sends nothing and counts nothing.
   """
   def delete_record(effects, collection, rkey, cid \\ nil) do
     with :ok <- writable_collection(collection),
@@ -1313,7 +1316,11 @@ defmodule AtMcp.Effects do
   defp record_key(rkey) when is_binary(rkey) do
     if rkey not in [".", ".."] and rkey =~ ~r/\A[A-Za-z0-9._:~-]{1,512}\z/,
       do: :ok,
-      else: invalid("rkey", "must be a record key: 1 to 512 of A-Z a-z 0-9 . _ : ~ -")
+      else:
+        invalid(
+          "rkey",
+          ~s(must be a record key: 1 to 512 characters, each a letter, a digit, or one of . _ : ~ -, and not "." or "..")
+        )
   end
 
   defp record_key(_rkey), do: invalid("rkey", "must be a record key")
@@ -1324,7 +1331,10 @@ defmodule AtMcp.Effects do
         {:ok, Map.put(record, "$type", collection)}
 
       other ->
-        invalid("record", "$type is #{inspect(other)}, and the collection is #{collection}")
+        invalid(
+          "record",
+          "$type must equal the collection, #{collection}, but it is #{inspect(other)}"
+        )
     end
   end
 
@@ -3014,9 +3024,22 @@ defmodule AtMcp.Effects do
   defp with_session(effects, fun) do
     run(effects, :read, fn ->
       with {:ok, backend, session} <- ready_session() do
+        mark_sent()
         invoke_with_recovery(backend, session, fun)
       end
     end)
+  end
+
+  # Just before a read goes to the service, it sends the owner
+  # `{@call, :sent, id}`. If the deadline then stops the read, the owner
+  # answers `{:call_deadline_exceeded, :sent}`. Without the mark, it answers
+  # `:call_deadline_exceeded`, which means the read was still waiting for the
+  # account's session or for an earlier write.
+  defp mark_sent do
+    case Process.get(@call) do
+      %{owner: owner, id: id} -> send(owner, {@call, :sent, id})
+      _ -> :ok
+    end
   end
 
   # Every dispatch that reaches a backend takes its own slot, including the one
@@ -3343,7 +3366,8 @@ defmodule AtMcp.Effects do
       deadline_at: deadline_at,
       timer: timer,
       task: nil,
-      dispatched: false
+      dispatched: false,
+      sent: false
     }
 
     state = %{
@@ -3430,6 +3454,9 @@ defmodule AtMcp.Effects do
 
   def handle_info({@call, :dispatched, id}, %{calls: calls} = state) when is_map_key(calls, id),
     do: {:noreply, put_in(state.calls[id].dispatched, true)}
+
+  def handle_info({@call, :sent, id}, %{calls: calls} = state) when is_map_key(calls, id),
+    do: {:noreply, put_in(state.calls[id].sent, true)}
 
   def handle_info({@call, :deadline, id}, state) do
     {:noreply, deadline(state, id, Map.get(state.calls, id))}
@@ -3538,6 +3565,7 @@ defmodule AtMcp.Effects do
       cond do
         result -> answer(result, dispatched?)
         dispatched? -> {:error, {:write_outcome_unknown, :call_deadline_exceeded}}
+        call.sent -> {:error, {:call_deadline_exceeded, :sent}}
         true -> {:error, :call_deadline_exceeded}
       end
 

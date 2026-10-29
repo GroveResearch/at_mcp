@@ -6,7 +6,8 @@ name: cache
 # to the commit the merge queue already tested. So this keeps the cache that
 # check.yml's build, suite and package jobs read: when mix.lock changed, it compiles the
 # dependencies for test and prod as test does and saves them under the new
-# key; otherwise the key exists and it stops there.
+# key; otherwise the key exists and it stops there. It keeps the e2e job's
+# built atproto checkout the same way.
 on:
   push:
     branches: [main]
@@ -16,7 +17,8 @@ permissions:
 
 jobs:
   deps:
-    runs-on: ubuntu-latest
+    # check.yml's build runner: the key names it, and the cache is restored there.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -28,8 +30,9 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       # Pinned with check.yml's runtime.
       - if: steps.cache.outputs.cache-hit != 'true'
@@ -50,3 +53,34 @@ jobs:
         run: mix deps.compile
         env:
           MIX_ENV: prod
+
+  # The built atproto checkout check.yml's e2e job runs the reference network
+  # from, keyed on the commit scripts/e2e.sh names. Building it takes most of
+  # an e2e run, and only a cache saved on main reaches the merge queue.
+  atproto:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: atproto
+        run: echo "commit=$(grep -m1 '^ATPROTO_COMMIT=' scripts/e2e.sh | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      # The key and path are check.yml's e2e job's.
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: _build/e2e/atproto
+          key: e2e-atproto-${{ runner.os }}-ubuntu-22.04-${{ steps.atproto.outputs.commit }}
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # The version atproto's package.json requires.
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: npm install --global pnpm@11.11.0
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: scripts/e2e.sh --build-only

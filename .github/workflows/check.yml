@@ -9,9 +9,10 @@ name: check
 #                  merge queue, not the evidence that it works.
 #   merge queue    the whole suite, split across the suite jobs, with every
 #                  gate's environment, the documentation and Hex package
-#                  (package), and release (Linux), on the queued pull
-#                  requests merged onto main; nothing is published. test
-#                  passes only when build, every suite partition and package
+#                  (package), the round trips against the reference network
+#                  (e2e), and release (Linux), on the queued pull requests
+#                  merged onto main; nothing is published. test passes only
+#                  when build, every suite partition, package and e2e
 #                  passed. Nothing reaches main without passing everything
 #                  here, and main then moves to exactly the commit that
 #                  passed, so main is not tested again (cache.yml only keeps
@@ -19,8 +20,9 @@ name: check
 #   push a v* tag  release (Linux) and macos build the tagged commit as the
 #                  tag's version, then publish both tarballs only if both
 #                  passed, then the package goes to Hex only if that GitHub
-#                  release was published. build, suite, package and test do
-#                  not run: the commit already passed them in the merge queue.
+#                  release was published. build, suite, package, e2e and
+#                  test do not run: the commit already passed them in the
+#                  merge queue.
 #   on request     as in the merge queue, and macos; nothing is published
 #
 # Publishing is a deliberate act: CONTRIBUTING.md's "Publish a release"
@@ -65,7 +67,13 @@ jobs:
   # against, built once and handed to every suite partition.
   build:
     if: github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The same runner as the release job, so the release the suite tests is
+    # built as the published one is: on the oldest Ubuntu GitHub still runs,
+    # with the system OpenSSL the release job's notices name. ubuntu-latest
+    # moves under us (it became 26.04, OpenSSL 3.5.5, and the release refused
+    # to build without that notice). Moving the release to a newer Ubuntu is
+    # its own change: the release job, these jobs and rel/notices together.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
       MIX_ENV: test
@@ -88,19 +96,25 @@ jobs:
           elixir-version: "1.19.6"
           otp-version: "28.5.0.7"
 
+      # The cache holds compiled dependencies only, for one runner image: the
+      # key names the image the jobs below run on, and `_build/*/rel` is kept
+      # out. A release left in a cached `_build` survived `mix release
+      # --overwrite`, which keeps any erts file already there, so the suite
+      # ran an erts built on a newer Ubuntu than this runner (#210).
       - uses: actions/cache@v6
         with:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
       # AtMcp itself is always compiled whole, so `--warnings-as-errors` sees
       # every file and the native lock is built from this checkout.
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       - run: mix format --check-formatted
 
@@ -114,9 +128,14 @@ jobs:
           test "${#files[@]}" -gt 0
           mix test --warnings-as-errors "${files[@]}"
 
+      # `--overwrite`: the cache restores `_build` with whatever release an
+      # earlier run left in `_build/prod/rel`, and without a terminal
+      # `mix release` takes its "Overwrite? [Yn]" prompt as no and keeps that
+      # old release, so the suite tested an older server than this commit's
+      # (#210's first merge-queue run).
       - name: Build the release the tests run
         if: github.event_name != 'pull_request'
-        run: mix release
+        run: mix release --overwrite
         env:
           MIX_ENV: prod
 
@@ -144,7 +163,8 @@ jobs:
   suite:
     needs: build
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The release job's runner, as build's: the suite runs that release.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -168,25 +188,20 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
-      # The official client packages gate the independent MCP checks, and the
-      # Claude Code CLI the check of what its model receives
-      # (test/at_mcp/hosts_test.exs), which calls a model with
-      # ANTHROPIC_API_KEY. Without them those tests skip, which is the failure
-      # this job exists to catch.
-      - name: Install the official MCP client packages and Claude Code
+      # The official client packages gate the independent MCP checks. Without
+      # them those tests skip, which is the failure this job exists to catch.
+      - name: Install the official MCP client packages
         run: |
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
-          npm install --prefix "$RUNNER_TEMP/claude" --no-audit --no-fund \
-            @anthropic-ai/claude-code@2.1.312
-          echo "$RUNNER_TEMP/claude/node_modules/.bin" >> "$GITHUB_PATH"
 
       - uses: actions/download-artifact@v8
         with:
@@ -209,7 +224,6 @@ jobs:
           MIX_ENV: test
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
           MCP_CLIENT_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/client
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TEST_ACCOUNT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp
           TEST_CONNECT_RELEASE: ${{ github.workspace }}/_build/prod/rel/at_mcp/bin/at_mcp-connect
 
@@ -241,7 +255,8 @@ jobs:
   # rather than start a minute later with build's.
   package:
     if: github.event_name != 'pull_request' && github.ref_type != 'tag'
-    runs-on: ubuntu-latest
+    # The release job's runner, as build's: this job builds and runs a release.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -261,12 +276,13 @@ jobs:
           path: |
             deps
             _build
-          key: test-${{ runner.os }}-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
-          restore-keys: test-${{ runner.os }}-otp28-elixir1.19-
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
 
-      - run: rm -rf _build/*/lib/at_mcp
+      - run: rm -rf _build/*/lib/at_mcp _build/*/rel
 
       - name: Build documentation and the local Hex package
         run: |
@@ -281,7 +297,9 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.29.0 @modelcontextprotocol/client@2.0.0
 
-      - run: mix release
+      # `--overwrite`, as in the build job: the cached `_build` may hold an
+      # older release, which `mix release` would otherwise keep.
+      - run: mix release --overwrite
         env:
           MIX_ENV: prod
 
@@ -291,14 +309,152 @@ jobs:
           MCP_SDK_PATH: ${{ runner.temp }}/mcp/node_modules/@modelcontextprotocol/sdk
         run: python3 scripts/download_release_check.py _build/prod/rel/at_mcp
 
+  # What a host's model receives from a read, through the host itself:
+  # test/at_mcp/hosts_test.exs runs a read through the Claude Code CLI against
+  # the running endpoint. It is tagged :hosts and left out of the suite,
+  # because the CLI calls a model (haiku, the cheapest that calls the tool)
+  # with the ANTHROPIC_API_KEY repository secret. Without the secret this job
+  # says so and runs nothing. `test` does not wait for it.
+  hosts:
+    if: github.ref_type != 'tag'
+    # On build's runner, to share its dependency cache, whose key names it.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      MIX_ENV: test
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Without the secret, say so and stop
+        if: env.ANTHROPIC_API_KEY == ''
+        run: |
+          echo "::notice title=hosts skipped::The ANTHROPIC_API_KEY secret is not set, so Claude Code cannot call a model and test/at_mcp/hosts_test.exs did not run."
+
+      - uses: actions/checkout@v7
+        if: env.ANTHROPIC_API_KEY != ''
+
+      # Pinned with build's runtime; see the reason there.
+      - uses: erlef/setup-beam@v1
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v7
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          node-version: "22"
+
+      - uses: actions/cache/restore@v6
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          path: |
+            deps
+            _build
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
+
+      - name: Install Claude Code
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          npm install --prefix "$RUNNER_TEMP/claude" --no-audit --no-fund \
+            @anthropic-ai/claude-code@2.1.312
+          echo "$RUNNER_TEMP/claude/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: A read through Claude Code
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          mix deps.get
+          mix test --only hosts test/at_mcp/hosts_test.exs
+
+  # The end-to-end round trips (test/e2e): every write tool against upstream's
+  # reference PDS and AppView, which scripts/e2e.sh runs on the runner beside
+  # Postgres and Redis. Not on a pull request: it needs the built atproto
+  # checkout, which cache.yml keeps for main (a cache saved here would belong
+  # to the queue's temporary branch), and a run that finds none builds it.
+  e2e:
+    if: github.event_name != 'pull_request' && github.ref_type != 'tag'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pg
+          POSTGRES_PASSWORD: password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pg" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_POSTGRES_URL: postgresql://pg:password@127.0.0.1:5432/postgres
+      REDIS_HOST: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned with build's runtime; see the reason there.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19.6"
+          otp-version: "28.5.0.7"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      # The version atproto's package.json requires.
+      - run: npm install --global pnpm@11.11.0
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            deps
+            _build
+            !_build/*/rel
+          key: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-${{ hashFiles('mix.lock') }}
+          restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
+
+      # The built atproto checkout, keyed on the commit scripts/e2e.sh names;
+      # cache.yml's key is the same.
+      - id: atproto
+        run: echo "commit=$(grep -m1 '^ATPROTO_COMMIT=' scripts/e2e.sh | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: _build/e2e/atproto
+          key: e2e-atproto-${{ runner.os }}-ubuntu-22.04-${{ steps.atproto.outputs.commit }}
+
+      - run: mix deps.get
+
+      - run: rm -rf _build/*/lib/at_mcp
+
+      - name: The round trips
+        shell: bash
+        run: |
+          set -o pipefail
+          scripts/e2e.sh --warnings-as-errors 2>&1 | tee "$RUNNER_TEMP/e2e.log"
+
+      # As in suite: every e2e test's environment is here, so a skip is a failure.
+      - name: No test may have skipped
+        shell: bash
+        run: |
+          summary=$(grep -E '^[0-9]+ tests?, [0-9]+ failures?' "$RUNNER_TEMP/e2e.log" | tail -n 1)
+          echo "summary: $summary"
+          test -n "$summary"
+          if echo "$summary" | grep -qE '[1-9][0-9]* skipped'; then exit 1; fi
+
   # The required check. Branch protection requires `test` (and `release`), so
   # this job carries that name and passes only when everything that ran for
-  # this event passed: build on a pull request; build, every suite partition
-  # and package everywhere else. A failed, cancelled or skipped job it
+  # this event passed: build on a pull request; build, every suite partition,
+  # package and e2e everywhere else. A failed, cancelled or skipped job it
   # expected fails it. It runs even when the run is cancelled (always()):
   # skipped, it would count as passing, and release may already have passed.
   test:
-    needs: [build, suite, package]
+    needs: [build, suite, package, e2e]
     if: ${{ always() && github.ref_type != 'tag' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -309,12 +465,14 @@ jobs:
           BUILD: ${{ needs.build.result }}
           SUITE: ${{ needs.suite.result }}
           PACKAGE: ${{ needs.package.result }}
+          E2E: ${{ needs.e2e.result }}
         run: |
-          echo "build: $BUILD, suite: $SUITE, package: $PACKAGE ($EVENT)"
+          echo "build: $BUILD, suite: $SUITE, package: $PACKAGE, e2e: $E2E ($EVENT)"
           test "$BUILD" = success
           if [ "$EVENT" != pull_request ]; then
             test "$SUITE" = success
             test "$PACKAGE" = success
+            test "$E2E" = success
           fi
 
   # The linux-x86_64 release, built the way it is published and run as
@@ -367,7 +525,7 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix release
+      - run: mix release --overwrite
 
       # On a tag, the release must be the tag's version.
       - name: Name the release and check it is the tag's version
@@ -471,7 +629,7 @@ jobs:
 
       - run: mix deps.get
 
-      - run: mix release
+      - run: mix release --overwrite
 
       # On a tag, the release must be the tag's version.
       - name: Name the release and check it is the tag's version

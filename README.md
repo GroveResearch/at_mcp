@@ -46,9 +46,9 @@ at_mcp logs in to an existing account. Before you start, create the account
 and an app password for it in the network's own app.
 
 To keep a looping agent from flooding the network, at_mcp counts posts,
-replies, reposts and the records `put_record` and `delete_record` write
-against a quota of 16 per account per hour. The count is
-stored on disk and survives a restart. Likes, follows, edits and reads are
+replies, reposts, and every `put_record` or `delete_record` call against a
+quota of 16 per account per hour. The count is stored on disk and survives a
+restart. Likes, follows, edits and reads are
 free. [docs/settings.md](docs/settings.md#write-quota) explains how to change
 the quota.
 
@@ -59,9 +59,24 @@ before deciding whether to write again.
 An agent hears about replies and mentions when it calls a read tool such as
 `get_notifications`. To have notifications pushed to another program as they
 arrive, run at_mcp as a long-running service with
-[delivery](docs/delivery.md) set up.
+[delivery](docs/delivery.md) set up. `examples/wake.py` receives those
+deliveries and runs a command to wake your agent when someone replies to,
+mentions or quotes the account.
 
 at_mcp has no tools for direct messages or for posting video.
+
+## Using an account from several clients
+
+The quick start sets up `at_mcp-stdio`. An MCP client starts it, and it stops
+when that client closes. While it runs, it locks the account's state
+directory. A second `at_mcp-stdio` for the same account, started from another
+window or a script, exits with an error.
+
+If you want several clients to use the account at the same time, or you want
+notifications delivered to a program that wakes your agent, run at_mcp as a
+long-running service and give each client its own grant. The clients then
+share the account's session and its write quota. The steps are in
+[docs/operations.md](docs/operations.md).
 
 ## Quick start
 
@@ -208,18 +223,33 @@ reads it back. To file an issue on a Tangled repository, an agent calls:
 }
 ```
 
-The result gives the issue's `uri` and `cid`. Calling `put_record` again with
-the same `rkey` and that `cid` edits the issue, and `delete_record` deletes it.
-at_mcp does not know other applications' record shapes; check the
-application's lexicon for the fields. Posts, likes, follows and the other
-records at_mcp has tools for are refused, naming the tool to use.
+The result gives the issue's `uri` and `cid`. The last part of the `uri` is
+the record's key. To edit the issue, call `put_record` again with that key as
+`rkey` and the `cid` from the result. To remove it, call `delete_record` with
+the same collection and key.
+
+at_mcp writes the record as given, so check the application's lexicon for the
+field names. Posts, likes, follows and the other records at_mcp has its own
+tools for are refused, and the error gives the tool to use.
 
 ## Failed tool calls
 
-Each failed call returns a code and a reason for the agent to read. Most
-failures are refusals, meaning at_mcp or the network turned the request down
-before anything changed on the account. A refusal for the write quota includes
-the time when the quota resets.
+Each failed call returns a reason for the agent to read, ending with one
+sentence that says what the agent can do. When the result has structured
+content (a write, or a read asked for `format: "json"`), it also carries a
+`code`, and a `retry` field that says the same as that sentence:
+
+| `retry` | What the agent can do |
+| --- | --- |
+| `now` | Try again now. |
+| `after` | Try again later: after the time in `retry_after` when there is one, such as when the write quota resets, otherwise after the wait the message states. |
+| `change_argument` | Change the call's arguments and try again. When one argument caused the error, `argument` gives its name. |
+| `check_first` | Read the account before trying again: the write's outcome is unknown. |
+| `no` | Don't try again: the service does not offer this, or the account needs its operator. |
+| `unknown` | at_mcp did not recognize the failure, so it can't say whether trying again will help. |
+
+When a call times out, the reason says whether at_mcp had sent the request to
+the service (`sent`, in structured content). When a read fails, the result is an error and holds no items.
 
 An `outcome: "unknown"` result comes from a timed-out write, as described
 under [Limits](#limits).

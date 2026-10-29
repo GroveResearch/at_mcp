@@ -107,10 +107,21 @@ defmodule AtMcp.E2E.RoundTripTest do
     result.structuredContent
   end
 
+  # A read asks for json, so its result carries the summary these tests
+  # compare; a write's result is the same either way. `reading/3` is the text
+  # a model gets by default.
   defp call(account, name, arguments) do
-    state = %{effects: account.effects}
+    state = %{effects: account.effects, format: "json"}
     {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
     result
+  end
+
+  # A read as a model reads it: the text of a call in text, the default.
+  defp reading(account, name, arguments) do
+    result = call(account, name, Map.put(arguments, "format", "text"))
+    refute result[:isError], "#{name}: #{hd(result.content).text}"
+    refute Map.has_key?(result, :structuredContent)
+    hd(result.content).text
   end
 
   defp sync(net), do: assert(:ok = DevNetwork.sync(net))
@@ -667,9 +678,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
 
       # Read back by the link too: the text names the link beside the uri.
-      read = call(me, "get_posts", %{"uris" => [link]})
-      refute read[:isError]
-      text = hd(read.content).text
+      text = reading(me, "get_posts", %{"uris" => [link]})
       assert text =~ "uri: #{uri}"
       assert text =~ "\nlink: #{link}"
       assert text =~ "You liked this: #{like["uri"]}"
@@ -1297,7 +1306,7 @@ defmodule AtMcp.E2E.RoundTripTest do
       fields = ~w(uri cid text reply_to indexed_at author author_did created_at like_count)
       assert Map.take(whole, fields) == Map.take(read, fields)
 
-      text = hd(result.content).text
+      text = reading(me, "get_notifications", %{"grouped" => true})
       assert text =~ "\nThe post: "
       assert text =~ "\n> a whole reply\n"
       assert text =~ "cid: #{reply["cid"]}"
@@ -1457,7 +1466,6 @@ defmodule AtMcp.E2E.RoundTripTest do
     test "reads mark what the app would hide or cover: a muted word, a thread's reply, and a label as the account's own setting for it says",
          %{net: net, me: me, them: them, moderation: moderation, session: session} do
       {:ok, before} = AtMcp.ATProto.preferences_as_stored(session)
-      text = fn result -> hd(result.content).text end
 
       # A muted word: the post is marked, and all of it is still there.
       call!(me, "mute_word", %{"value" => "kumquat"})
@@ -1473,8 +1481,9 @@ defmodule AtMcp.E2E.RoundTripTest do
              } =
                post["moderation"]
 
-      assert text.(read) =~ "Hidden by the app: matches your muted word \"kumquat\""
-      assert text.(read) =~ "I love kumquat pie"
+      text = reading(me, "get_posts", %{"uris" => [muted["uri"]]})
+      assert text =~ "Hidden by the app: matches your muted word \"kumquat\""
+      assert text =~ "I love kumquat pie"
 
       # On the author's own profile the app leaves none of their posts out.
       feed = call!(me, "get_author_feed", %{"actor" => them.did})["items"]
@@ -1498,7 +1507,9 @@ defmodule AtMcp.E2E.RoundTripTest do
                moved["moderation"]
 
       refute Map.has_key?(kept, "moderation")
-      assert text.(thread) =~ ~s(Under "Show more replies" in the app)
+
+      assert reading(me, "get_thread", %{"uri" => root["uri"]}) =~
+               ~s(Under "Show more replies" in the app)
 
       # The account's own posts are never matched.
       own = post!(me, "kumquat season")
@@ -1530,8 +1541,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       handle = cause["labeler_handle"]
       assert is_binary(handle)
 
-      read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
-      assert text.(read) =~ "Hidden by the app: labeled spam (\"Spam\") by #{handle}"
+      assert reading(me, "get_posts", %{"uris" => [labelled["uri"]]}) =~
+               "Hidden by the app: labeled spam (\"Spam\") by #{handle}"
 
       call!(me, "set_label_visibility", %{
         "label" => "spam",
@@ -1542,8 +1553,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       assert %{"causes" => [%{"effect" => "cover", "setting" => "warn"}]} =
                only_post(me, labelled["uri"])["moderation"]
 
-      read = call(me, "get_posts", %{"uris" => [labelled["uri"]]})
-      assert text.(read) =~ "Behind a warning in the app: labeled spam (\"Spam\") by #{handle}"
+      assert reading(me, "get_posts", %{"uris" => [labelled["uri"]]}) =~
+               "Behind a warning in the app: labeled spam (\"Spam\") by #{handle}"
 
       call!(me, "set_label_visibility", %{
         "label" => "spam",
@@ -1918,9 +1929,8 @@ defmodule AtMcp.E2E.RoundTripTest do
       sync(net)
 
       read = fn ->
-        result = call(me, "get_posts", %{"uris" => [mine["uri"], quote["uri"]]})
-        refute result[:isError]
-        {result.structuredContent["items"], hd(result.content).text}
+        uris = %{"uris" => [mine["uri"], quote["uri"]]}
+        {call!(me, "get_posts", uris)["items"], reading(me, "get_posts", uris)}
       end
 
       {[p, q], text} = read.()

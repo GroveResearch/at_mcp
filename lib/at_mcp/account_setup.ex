@@ -468,7 +468,7 @@ defmodule AtMcp.AccountSetup do
       "Choose --tools default (43 tools, used when --tools is left out) or --tools full (every tool)."
 
   defp message(:invalid_format),
-    do: "Choose --format text (reads answer as text, the default) or json."
+    do: "Choose --format text (the default) or json."
 
   defp message(:unknown_grant),
     do: "No grant has that id. Use grants to list the ones this installation holds."

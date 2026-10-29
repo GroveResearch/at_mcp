@@ -22,10 +22,11 @@ defmodule AtMcp.MCP.Input do
 
       {:error, _reason} ->
         {:error,
-         refusal(
-           "input_validation_unavailable",
-           "Input validation could not finish. No operation was attempted; you may try again."
-         )}
+         "input_validation_unavailable"
+         |> refusal(
+           "Input validation could not finish. No operation was attempted. Trying again now is safe and may succeed."
+         )
+         |> put_in([:structuredContent, :retry], "now")}
     end
   end
 
@@ -33,7 +34,7 @@ defmodule AtMcp.MCP.Input do
   Load the JSON Schema validator's modules now, before any deadline counts.
 
   `SchemaPolicy.validate/3` runs each check under a wall-clock deadline
-  (100 ms by default). The check itself takes microseconds, but the validator
+  (one second, set in `config/config.exs`). The check itself takes microseconds, but the validator
   loads one module per schema keyword the first time that keyword is checked.
   In interactive code loading (`mix run`, `mix test`) that load happens inside
   the deadline, and on a loaded machine it can miss it: a correct call is then
@@ -294,12 +295,20 @@ defmodule AtMcp.MCP.Input do
         %{path: p, message: m} -> "#{p}: #{m}"
       end) ++ if(more > 0, do: ["(#{more} more)"], else: [])
 
+    argument =
+      case shown do
+        [%{path: path} | _] when path != "" -> path
+        _ -> nil
+      end
+
+    {sentence, fields} = AtMcp.MCP.Tools.advice_for({:change, argument})
+
     message =
-      "Arguments do not match this tool's input schema. No operation was attempted. Fix and try again:\n- " <>
-        Enum.join(lines, "\n- ")
+      "Arguments do not match this tool's input schema. No operation was attempted. The problems:\n- " <>
+        Enum.join(lines, "\n- ") <> "\n" <> sentence
 
     refusal("invalid_arguments", message)
-    |> put_in([:structuredContent, :problems], shown)
+    |> update_in([:structuredContent], &Map.merge(&1, Map.put(fields, :problems, shown)))
   end
 
   # ExJsonSchema reports `{message, "#/avatar"}`: the path becomes `avatar`,
@@ -312,6 +321,6 @@ defmodule AtMcp.MCP.Input do
 
   defp refusal(code, message) do
     ExMCP.Server.DSL.Result.error(message)
-    |> Map.put(:structuredContent, %{code: code})
+    |> Map.put(:structuredContent, %{code: code, message: message})
   end
 end

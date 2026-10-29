@@ -119,8 +119,8 @@ A read declares no output schema, since a tool that declares one must return
 structured content. A program passes `"format": "json"`, or holds a grant
 whose default is json, and gets the summary as structured content and as
 JSON text (`AtMcp.MCP.Output`). A write returns its small summary both ways
-and declares its output schema. Every result's structured content is checked
-against its tool's schema, the reads' included.
+and declares its output schema. Tests check every structured result against
+its tool's schema, for reads asked for json as well as for writes.
 
 ### Text for the model
 
@@ -232,10 +232,10 @@ session, so the agent needs a way to check both.
 
 ## The write quota
 
-Each account has a durable quota on posts, replies, reposts and the records
-`put_record` and `delete_record` write: 16 attempts per hour by default,
-shared by every client of the account and kept across restarts. The default guards against an agent posting faster than a person
-would notice and stop it. The figure comes from an earlier per-turn limit,
+Each account has a durable quota on posts, replies, reposts, and every
+`put_record` or `delete_record` call: 16 attempts per hour by default, shared
+by every client of the account and kept across restarts. The default guards
+against an agent posting faster than a person would notice and stop it. The figure comes from an earlier per-turn limit,
 kept when the limit moved to the hour, and nobody has measured a better one.
 `AtMcp.WriteQuota` explains the reasoning. Each account on a service can have
 its own limit.

@@ -74,16 +74,17 @@ defmodule AtMcp.ToolSetTest do
 
       assert result.isError
       assert result.structuredContent.code == "invalid_arguments"
+      assert result.structuredContent.retry == "no"
       hd(result.content).text
     end
 
     default = refusal.(%{})
     assert default =~ "create_list, update_list, delete_list"
-    assert default =~ "This connection does not list those tools"
-    refute default =~ "Use those instead"
+    assert default =~ "this connection does not list those tools"
+    refute default =~ "use those tools instead"
 
     full = refusal.(%{tools: "full"})
-    assert full =~ "Use those instead."
+    assert full =~ "use those tools instead."
     refute full =~ "does not list"
 
     # Tools the default set holds are named as usable.
@@ -93,7 +94,7 @@ defmodule AtMcp.ToolSetTest do
         %{}
       )
 
-    assert hd(liked.content).text =~ "Use those instead."
+    assert hd(liked.content).text =~ "use those tools instead."
   end
 
   test "a feed item points to feed_feedback only when the session lists it" do

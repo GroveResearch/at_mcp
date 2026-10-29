@@ -53,9 +53,9 @@ defmodule AtMcp.Grants do
 
   ## Format
 
-  A grant may also carry the format its reads answer in when a call does not
-  name one (`AtMcp.MCP.Output`): `"json"` for a program that parses the
-  summaries, so it asks once. A grant without one reads text.
+  A grant can also hold a default `format` for reads (`AtMcp.MCP.Output`). A
+  program that parses results gets `"json"` here, so it does not have to pass
+  `format` on every call. A grant without a format gets text.
 
   Revocation is removing the grant, and takes effect on the next request: this
   module reads the file on each call rather than caching it, the way the

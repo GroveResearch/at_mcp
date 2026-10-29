@@ -11,7 +11,7 @@ A client running `at_mcp-stdio` can call every tool. A client of a long-running 
 
 ## Reads
 
-A read answers in text written for a model, and nothing else, so every host's model reads the same thing. A program that parses results passes `"format": "json"` and gets the full summary as structured content and as JSON text, or holds a grant issued with `--format json`, which makes json its default.
+Reads return readable text, so a model gets the same result in every host. A program that parses results can pass `"format": "json"` to get the full summary as structured content and as JSON text. Issuing its grant with `--format json` makes json the default instead.
 
 | Tool | Set | What it does |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `delete_draft` | full |  | manage | Delete one of this account's drafts. |
 | `delete_list` | full |  | manage | Delete a list this account made and every list item on it: in one commit, or for a list of more than 199 accounts in several, the list itself last. |
 | `delete_post` | default |  | manage | Delete one of this account's posts by AT URI. |
-| `delete_record` | default | yes | manage | Delete one record of this account's own by collection and key, for a collection put_record writes. |
+| `delete_record` | default | yes | manage | Delete a record from this account's own repository by collection and key. |
 | `delete_starter_pack` | full |  | manage | Delete a starter pack this account made, with its list and the list's items. |
 | `detach_quote` | full |  | manage | Detach a post that quotes one of this account's posts: readers of the quoting post no longer see this account's post in it. |
 | `feed_feedback` | full |  | write | Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. |
@@ -91,7 +91,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `mute_word` | full |  | manage | Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. |
 | `pin_post` | full |  | write | Pin one of this account's posts to the top of its profile, replacing any post pinned before. |
 | `post` | default | yes | write | Publish a top-level post as this account. |
-| `put_record` | default | yes | write | Create or replace a record in this account's repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). |
+| `put_record` | default | yes | write | Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). |
 | `reattach_quote` | full |  | manage | Undo detach_quote: show this account's post in the post quoting it again. |
 | `remove_from_list` | full |  | manage | Take an account off a list or starter pack this account made. |
 | `reply` | default | yes | write | Reply to a post by AT URI. |

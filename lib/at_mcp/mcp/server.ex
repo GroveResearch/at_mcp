@@ -2,11 +2,12 @@ defmodule AtMcp.MCP.Server do
   @moduledoc """
   HTTP/stdio MCP surface for one identity on this network.
 
-  Each network verb is one MCP tool. Tools call `AtMcp.Effects` and return
-  summaries (never raw session dumps): as structured content, and as text for
-  a model, which is the JSON of the summary except for reads made of posts,
-  accounts, lists, starter packs, feeds, trends and invitation codes, where it is
-  `AtMcp.Reading`'s text of it.
+  Each network verb is one MCP tool. A tool calls `AtMcp.Effects` and returns
+  a summary of the result, never a raw session dump. A write returns the
+  summary as structured content and as its JSON text. A read returns
+  `AtMcp.Reading`'s text of the summary, or the JSON for reads without a
+  reading of their own. A read passed `format: "json"` returns the summary the
+  way a write does (`AtMcp.MCP.Output`).
 
   Tool calls go through AtMcp.Effects, which checks that the account is ready and
   counts what the account publishes against its write quota. Each write tool's
@@ -1744,13 +1745,14 @@ defmodule AtMcp.MCP.Server do
   tool "put_record",
        write_description(
          :put_record,
-         "Create or replace a record in this account's repository, for an application at_mcp has no tool for, such as an issue on Tangled (sh.tangled.repo.issue). The service checks the record against its lexicon if it knows that lexicon, and stores it unchecked if not. Posts, likes, reposts, follows, blocks, the profile, lists and list items, gates and the status each have a tool of their own, and put_record refuses those collections. To replace a record, pass the cid you read: if the record changed since then, the write is refused. The result gives the record's uri and cid, and get_record reads it back."
+         "Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). If the account's server knows the collection's lexicon, it validates the record. Otherwise it stores the record as given, so check the application's lexicon for the fields. Posts, likes, follows, the profile and the other records at_mcp has its own tools for are refused, and the error tells you which tool to use. To replace a record safely, read it with get_record first and pass its cid. If someone changes the record between your read and your write, the write is refused. Returns the record's uri and cid."
        ) do
     annotations(
+      # Without rkey, every call creates a new record.
       write_annotations(:put_record, %{
         readOnlyHint: false,
         destructiveHint: false,
-        idempotentHint: true,
+        idempotentHint: false,
         openWorldHint: true
       })
     )
@@ -1764,18 +1766,18 @@ defmodule AtMcp.MCP.Server do
 
     param(:rkey, :string,
       description:
-        "The record's key. Left out, the service picks one and the record is new; given, the record there is created or replaced"
+        "The record's key, the last part of the record's uri. If you leave it out, the server picks a new key and creates a new record. If you give it, at_mcp creates the record at that key, or replaces the record already there"
     )
 
     param(:record, :object,
       required: true,
       description:
-        "The record as JSON, keys as its lexicon names them. $type is the collection and is added when left out"
+        "The record as a JSON object, with field names exactly as the application's lexicon spells them. If you leave out $type, at_mcp sets it to the collection. If you give a $type, it must equal the collection"
     )
 
     param(:cid, :string,
       description:
-        "With rkey: the CID get_record gave for the version being replaced. If the record no longer has it, nothing is written"
+        "The cid that get_record returned for the record you are replacing. Requires rkey. If the record's cid has changed since you read it, nothing is written"
     )
 
     run(fn a, state ->
@@ -1795,7 +1797,7 @@ defmodule AtMcp.MCP.Server do
   tool "delete_record",
        write_description(
          :delete_record,
-         "Delete one record of this account's own by collection and key, for a collection put_record writes. A record that is not there is left alone and unchanged is true."
+         "Delete a record from this account's own repository by collection and key. Use it for records of other applications. Posts, likes and the other records at_mcp has its own tools for are refused, and the error tells you which tool to use. If there is no record at that key, nothing is sent, nothing counts against the quota, and the result has unchanged: true."
        ) do
     annotations(
       write_annotations(:delete_record, %{
@@ -1813,7 +1815,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:cid, :string,
       description:
-        "The CID get_record gave for the record. If the record no longer has it, nothing is deleted"
+        "The cid that get_record returned for the record. If the record's cid has changed since you read it, nothing is deleted"
     )
 
     run(fn a, state ->

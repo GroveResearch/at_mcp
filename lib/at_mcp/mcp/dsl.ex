@@ -32,11 +32,14 @@ defmodule AtMcp.MCP.DSL do
 
     {schemas, body} = Enum.split_with(statements, &match?({:output_schema, _, [_]}, &1))
 
-    # A read is a tool whose `readOnlyHint` is true, the same line
-    # `AtMcp.Grants` draws its read scope on. Each takes `format`.
+    # A tool counts as a read when its `readOnlyHint` is true, which is also
+    # the test `AtMcp.Grants` uses for the read scope. Each read gets a
+    # `format` argument. The annotations are evaluated as ExMCP evaluates
+    # them, so the hint read here is the one the tool publishes whatever
+    # expression gives it; `__before_compile__/1` checks the two agree.
     read? =
       Enum.any?(body, fn
-        {:annotations, _, [{:%{}, _, pairs}]} -> Keyword.get(pairs, :readOnlyHint) == true
+        {:annotations, _, [annotations]} -> read_only?(annotations, __CALLER__)
         _ -> false
       end)
 
@@ -65,6 +68,21 @@ defmodule AtMcp.MCP.DSL do
 
     reads =
       env.module |> Module.get_attribute(:at_mcp_reads) |> Enum.reject(&is_nil/1) |> MapSet.new()
+
+    published =
+      for {definition, _handler, _params} <- Module.get_attribute(env.module, :ex_mcp_dsl_tools),
+          read_only_hint?(definition),
+          into: MapSet.new(),
+          do: definition.name
+
+    # The reads given `format`, and stripped of their output schema, are the
+    # tools whose published `readOnlyHint` is true, or the build stops.
+    unless MapSet.equal?(reads, published) do
+      raise CompileError,
+        description:
+          "AtMcp.MCP.DSL found reads #{inspect(Enum.sort(reads))} but the tools publish " <>
+            "readOnlyHint on #{inspect(Enum.sort(published))}"
+    end
 
     # Read the schema already built by ExMCP from each tool's params. Keeping
     # it here avoids a second declaration or validation after effects ran.
@@ -229,4 +247,19 @@ defmodule AtMcp.MCP.DSL do
     counts? = AtMcp.Effects.counts_against_quota?(verb)
     {:%{}, meta, pairs ++ [{:"at_mcp/publicWrite", counts?}]}
   end
+
+  # Whether a tool's `annotations(...)` argument sets `readOnlyHint` to true,
+  # evaluated in the caller as ExMCP's DSL evaluates it.
+  defp read_only?(annotations, caller) do
+    {value, _binding} = annotations |> Macro.expand(caller) |> Code.eval_quoted([], caller)
+    read_only_hint?(%{annotations: value})
+  end
+
+  defp read_only_hint?(%{annotations: annotations}) when is_map(annotations),
+    do: Map.get(annotations, :readOnlyHint, Map.get(annotations, "readOnlyHint")) == true
+
+  defp read_only_hint?(%{annotations: annotations}) when is_list(annotations),
+    do: read_only_hint?(%{annotations: Map.new(annotations)})
+
+  defp read_only_hint?(_definition), do: false
 end

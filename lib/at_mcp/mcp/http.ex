@@ -79,7 +79,7 @@ defmodule AtMcp.MCP.HTTP do
 
   # The handler's own work after the account answers: building the summary and
   # validating it against the tool's output schema, which ExMCP bounds at
-  # 100 ms by default. Three seconds is room for a loaded machine.
+  # one second (`config/config.exs`). Three seconds is room for a loaded machine.
   @result_margin_ms 3_000
 
   @doc """

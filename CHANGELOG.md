@@ -18,36 +18,45 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
-
-- On Delvetown, `tools/list` no longer offers what the town does not serve:
-  `get_notifications`'s `grouped`, `update_profile`'s `links`, `get_trends`
-  and `feed_feedback`. A call that names one is still refused as before,
-  with nothing sent.
-
-- New tools `put_record` and `delete_record` write and delete records of
-  other applications in the account's own repository, such as issues on
-  Tangled. Each write counts against the write quota. Collections at_mcp
-  writes with its own tools are refused, naming the tool to use.
-
-- `tools/list` offers a default set of 43 tools, about 42 KB, where 0.2.18
-  listed 101 tools with their output schemas in 994 KB. To list every tool,
-  set `AT_MCP_TOOLS=full` for `at_mcp-stdio`, or issue the client's grant with
-  `at_mcp-accounts connection NAME --tools full`. `tools/call` accepts every
-  tool, listed or not. No tool lists an output schema, but write tools still
-  return their structured result.
+- On Delvetown, `tools/list` leaves out the `grouped` argument of
+  `get_notifications`, the `links` argument of `update_profile`, and the tools
+  `get_trends` and `feed_feedback`, because Delvetown's servers do not answer
+  them. If an agent calls one anyway, at_mcp refuses the call before sending
+  anything.
+- New tools `put_record` and `delete_record` create, replace and delete
+  records of other applications in the account's own repository, such as
+  issues on Tangled. Each call counts against the write quota. For posts,
+  likes and the other records at_mcp has its own tools for, they refuse the
+  call and give the tool to use.
+- Every tool error ends with one sentence saying what the agent can do: try
+  again now, try again after a stated time, change a named argument, read the
+  account first, or not retry; when at_mcp can't classify a failure, it says
+  so. Where an error has structured content (a write, or a read asked for
+  json), it carries the same advice as `retry` (with `retry_after` when a
+  real time is known, or `argument` when one argument caused the error) and
+  the whole text as `message`. A read that timed out says whether its
+  request reached the service (`sent`).
+- A new README section, "Using an account from several clients", explains
+  when to run `at_mcp-stdio` and when to run the service.
+- When a second `at_mcp-stdio` for the same account fails to start, its error
+  message refers to that section.
+- `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
+  replies, mentions and quotes, waits for a quiet period so a burst becomes
+  one wake, and runs a command with a summary of what arrived
+  ([delivery.md](docs/delivery.md#wake-an-agent)).
+- On a busy machine, a correct tool call is no longer refused as
+  `input_validation_unavailable`. The argument and result checks now wait
+  up to one second instead of 100 ms.
 
 ### Upgrade
 
 Any program that parses read results as JSON must ask for JSON: pass
 `"format": "json"` in each read's arguments, or issue its client a new grant
 with `--format json` and revoke the old one. A program that reads only write
-results needs nothing. An agent whose host gives the model only the listed
-tools, as most hosts do, needs `--tools full` or `AT_MCP_TOOLS=full` to keep
-any tool outside the default set. To roll back, the `format` argument is
-not known to 0.2.18, which ignores it and says so in the result's text;
-structured content returns. 0.2.18 reads a grant
-issued with `--format` or `--tools` as one without, and does not know
-`AT_MCP_TOOLS`: unset it before rolling back, or 0.2.18 will refuse to start.
+results needs nothing. Rolling back to 0.2.18 is safe. That release does
+not know `format`: it ignores the argument, says so in the result's text,
+and returns structured content as before. It also treats a grant issued
+with `--format` like any other grant.
 
 ## 0.2.18
 
