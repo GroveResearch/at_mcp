@@ -19,6 +19,7 @@ defmodule AtMcp.ReplyReferenceTest do
   @gone "at://did:plc:other/app.bsky.feed.post/3kgonegone222"
   @broken "at://did:plc:other/app.bsky.feed.post/3kbroken22222"
   @no_repo "at://did:plc:nobody/app.bsky.feed.post/3knorepo22222"
+  @japanese "at://did:plc:other/app.bsky.feed.post/3kjapanese222"
 
   # A post's key with two characters dropped: 11 characters, where a post's
   # key is a TID of 13. The service answers it as it answers any key it does
@@ -65,6 +66,15 @@ defmodule AtMcp.ReplyReferenceTest do
         # perfectly fine.
         "3kbroken22222" ->
           {500, %{error: "InternalServerError", message: "upstream is down"}}
+
+        # A parent its author tagged as Japanese.
+        "3kjapanese222" ->
+          {200,
+           %{
+             uri: "at://did:plc:other/app.bsky.feed.post/3kjapanese222",
+             cid: "bafyreijapanese",
+             value: %{text: "こんにちは", langs: ["ja"]}
+           }}
 
         rkey ->
           {200,
@@ -144,6 +154,27 @@ defmodule AtMcp.ReplyReferenceTest do
     # The write quota is the claim: a refusal that costs a write is the defect.
     assert AtMcp.Effects.quota_status(effects).used == used
     assert sent(calls, "com.atproto.repo.createRecord") == []
+  end
+
+  test "a reply given no languages takes its parent's, and one given languages keeps them", %{
+    calls: calls,
+    state: state
+  } do
+    written = fn arguments ->
+      Agent.update(calls, fn _ -> [] end)
+
+      assert {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool("reply", arguments, state)
+      refute result[:isError], inspect(result)
+      [%{body: %{"record" => record}}] = sent(calls, "com.atproto.repo.createRecord")
+      record
+    end
+
+    assert written.(%{"uri" => @japanese, "text" => "はい"})["langs"] == ["ja"]
+    assert written.(%{"uri" => @japanese, "text" => "yes", "langs" => ["en"]})["langs"] == ["en"]
+
+    # A parent with no languages gives none, and a reply says nothing about its
+    # own rather than guess.
+    refute Map.has_key?(written.(%{"uri" => @readable, "text" => "hello"}), "langs")
   end
 
   test "a quote of a record that cannot be read is refused the same way", %{

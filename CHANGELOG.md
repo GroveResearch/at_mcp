@@ -7,6 +7,9 @@ itself.
 
 ## Unreleased
 
+- A `reply` given no `langs` is tagged with its parent post's languages, as
+  the app tags a reply. A reply to a post with none still carries none.
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write
