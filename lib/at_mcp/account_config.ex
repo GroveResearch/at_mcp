@@ -5,9 +5,9 @@ defmodule AtMcp.AccountConfig do
 
   An account carries no port: one MCP endpoint serves the whole installation and
   the grant a client presents decides which identity it acts as
-  (`AtMcp.MCP.HTTP`). An `mcp_port` key found in a file, which an account had
-  before one endpoint served them all, is dropped when the file is read, and
-  the next write leaves it out; a caller that passes one is refused.
+  (`AtMcp.MCP.HTTP`). An `mcp_port` key found in a file is dropped when the
+  file is read, and the next write leaves it out; a caller that passes one is
+  refused.
 
   Two fields are optional. `delivery` is where the account's notifications go
   (`set_delivery/3`). `write_quota` is the account's own write limit

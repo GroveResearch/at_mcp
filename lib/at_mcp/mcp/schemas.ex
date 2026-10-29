@@ -2,8 +2,9 @@ defmodule AtMcp.MCP.Schemas do
   @moduledoc """
   Declared output schemas for the MCP tool surface.
 
-  Each tool declares one of these through `output_schema/1`; AtMcp advertises
-  and validates the returned structured content without changing its outcome.
+  Each tool declares one of these through `output_schema/1`. `tools/list`
+  lists none of them (`AtMcp.MCP.DSL`), and `AtMcp.MCP.Output` validates the
+  returned structured content against them without changing a call's outcome.
   Record shapes come
   from `AtMcp.Summary`, which the backend also reads responses with, so those
   cannot drift apart. Page, thread and result shapes are structural and are
@@ -1446,8 +1447,8 @@ defmodule AtMcp.MCP.Schemas do
     }
 
     # Neither is required here: the tool refuses an image with neither as
-    # invalid_image. An `anyOf` requiring one of them was tried, and some
-    # models then left the MIME type out of every call.
+    # invalid_image. With an `anyOf` requiring one of them, some models leave
+    # the MIME type out of every call.
     schema = %{type: "object", properties: properties}
 
     if opts[:alt],

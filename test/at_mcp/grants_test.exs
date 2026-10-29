@@ -37,8 +37,8 @@ defmodule AtMcp.GrantsTest do
     assert byte_size(rest) > 32
   end
 
-  # Grants issued before the prefix changed start with `kite-`, and operators
-  # still hold them. The store keeps only digests, so the prefix never matters.
+  # Some grants that operators hold have tokens starting with `kite-`. The
+  # store keeps only digests, so a token authorizes whatever its prefix.
   test "a grant issued under the earlier kite- prefix still authorizes", ctx do
     {:ok, _} = Grants.issue("alice", ctx.opts)
     path = ctx.opts[:path]
