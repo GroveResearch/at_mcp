@@ -12,6 +12,10 @@ itself.
   issues on Tangled. Each call counts against the write quota. For posts,
   likes and the other records at_mcp has its own tools for, they refuse the
   call and give the tool to use.
+- A new README section, "Using an account from several clients", explains
+  when to run `at_mcp-stdio` and when to run the service.
+- When a second `at_mcp-stdio` for the same account fails to start, its error
+  message refers to that section.
 - `examples/wake.py` is a receiver for delivery that wakes an agent: it keeps
   replies, mentions and quotes, waits for a quiet period so a burst becomes
   one wake, and runs a command with a summary of what arrived
