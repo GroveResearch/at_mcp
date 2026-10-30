@@ -1415,7 +1415,7 @@ defmodule AtMcp.Reading do
               brief_reason(post["reason"]),
               brief_who(post["author"], post["author_did"]),
               time(post["indexed_at"] || post["created_at"]),
-              if(is_binary(post["reply_to"]), do: ~L"a reply"),
+              brief_reply(post),
               first_line(post["raw_text"] || post["text"]),
               engagement(post),
               if(AtMcp.ModerationDecision.line(post["moderation"]), do: ~L"marked by moderation"),
@@ -1431,6 +1431,19 @@ defmodule AtMcp.Reading do
   end
 
   defp brief(other, label), do: unknown(other, label)
+
+  # Whom a reply answers, when the feed said so (as `replying/1` does).
+  defp brief_reply(%{"reply_to" => uri} = post) when is_binary(uri) do
+    case post["reply_parent"] do
+      %{"status" => "available", "author" => handle} when is_binary(handle) ->
+        cat([~L"a reply to @", ident(handle)])
+
+      _parent ->
+        ~L"a reply"
+    end
+  end
+
+  defp brief_reply(_post), do: nil
 
   defp brief_reason(%{"type" => "repost"} = reason),
     do:
