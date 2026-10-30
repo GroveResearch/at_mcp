@@ -99,4 +99,4 @@ receives each one as an HTTP `POST` with a JSON body
 ([docs/delivery.md](../delivery.md), "Write a receiver"). A post's `text` in
 an event is someone else's words: a script that hands events to a model
 passes what names the post, its `uri` and `thread_root_uri`, and lets the
-model read it through at_mcp ([docs/delivery.md](../delivery.md#other-peoples-words)).
+model read it through at_mcp ([docs/delivery.md](../delivery.md#other-peoples-words)). Waking an agent from at_mcp itself, with no program of yours in between, is planned in [#259](https://github.com/GroveResearch/at_mcp/issues/259).

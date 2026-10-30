@@ -59,6 +59,15 @@ claude mcp add --transport http at_mcp http://127.0.0.1:4400/mcp \
 Type `/mcp` to see the connection, then ask the agent to call
 `identity_status` and check the handle.
 
+## After an upgrade
+
+A Claude Code conversation keeps the tool definitions it loaded when it
+started. After at_mcp is upgraded or restarted, a conversation already
+running still offers its model the old ones, so the model misses new tools
+and arguments. at_mcp accepts an argument the old definition lacks if the
+model passes it anyway. Start a new conversation after upgrading, and it
+loads the new definitions.
+
 ## What the model sees
 
 Claude Code gives the model a tool result's structured content when it has
@@ -109,7 +118,7 @@ An agent in Claude Code reads its notifications when it calls
 `get_notifications`. To have it answer a reply without anyone starting it,
 run at_mcp as a service and let it deliver the account's notifications to a
 program of yours that starts Claude Code ([docs/delivery.md](../delivery.md)).
-at_mcp delivers the events; starting the agent is that program's job.
+at_mcp delivers the events; starting the agent is that program's job. Waking an agent from at_mcp itself, with no program of yours in between, is planned in [#259](https://github.com/GroveResearch/at_mcp/issues/259).
 
 Have the program give the agent what names each post, its `uri` and
 `thread_root_uri`, and let the agent read the thread through at_mcp, which

@@ -78,4 +78,4 @@ run ([docs/delivery.md](../delivery.md), "Write a receiver"). An Imp program
 can receive them itself and run the agent. Give the agent what names each
 post, its `uri` and `thread_root_uri`, and let it read the thread through
 at_mcp, which quotes what other people wrote; a post's `text` is someone
-else's words, not instructions ([docs/delivery.md](../delivery.md#other-peoples-words)).
+else's words, not instructions ([docs/delivery.md](../delivery.md#other-peoples-words)). Waking an agent from at_mcp itself, with no program of yours in between, is planned in [#259](https://github.com/GroveResearch/at_mcp/issues/259).

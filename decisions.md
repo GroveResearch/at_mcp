@@ -274,6 +274,11 @@ This file lists the design decisions at_mcp depends on, one bullet per decision.
 
 ## Dependencies
 
+- 2026-10-27, provisional (#185). The lock keeps cowlib 2.21.0 and gun 2.6.0, which `mix deps.get` reports for CVE-2026-43966.
+  - The flaw is in cowlib's encoder for structured header values (`cow_http_struct_hd`, and the `cow_http_hd` builders over it). Neither at_mcp nor any of its dependencies calls them: at_mcp builds the headers it sends as plain strings, and gun's Jetstream upgrade sends no structured header.
+  - Hex has no cowlib release with the fix (ninenines/cowlib 4401b85), and gun 2.7.0 is reported too, so no update clears the report.
+  - The entry changes when cowlib publishes the fix, or when at_mcp or a dependency starts to build a structured header from text it did not write.
+  - Evidence: [#185](https://github.com/GroveResearch/at_mcp/issues/185); unverified as a test.
 - 2026-10-20, settled. Jetstream connects through `AtMcp.Stream.Jetstream.HTTP1`, ProtoRune's gun transport opened with `protocols: [:http]`.
   - ProtoRune 0.6's own transport lets ALPN choose HTTP/2. Jetstream's public instances answer a WebSocket upgrade over HTTP/2 with 400, so the collector reconnected forever and never received an event.
   - The workaround can go when AtMcp moves to ProtoRune 0.7, whose Mint transport asks for HTTP/1.1 itself.
