@@ -184,8 +184,10 @@ only what is newer. A position moves only on a read that asks it to, and
 only once the read has reached the old position, so a page cut short never
 passes over posts the agent has not seen. The notifications start, before
 their first such read, where the account last marked them seen (`seenAt`), so
-the first read returns what the app shows as unread. Custom feeds have none:
-their generators order posts as they choose.
+the first read returns what the app shows as unread. After that the two are
+separate: the positions live in the state folder, shared by every at_mcp
+client using it, and only `update_seen` moves the network's seen marker.
+Custom feeds have none: their generators order posts as they choose.
 
 Every post, account, list, feed and starter pack carries `web_url`, the link a
 person would share, built as the app builds it. Every tool taking an AT URI,

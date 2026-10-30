@@ -222,7 +222,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro since do
     Macro.escape(
       description:
-        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item, and every app using the account shares it. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest. The first read of the notifications with last_read starts where this account last marked them seen.",
+        "Pass last_read to get only the items in this feed newer than the last item this account read here. The read moves that place forward to its newest item. at_mcp keeps this place in its state folder, shared by every at_mcp client using that folder; it is not the network's seen marker, which the app counts unread from and only update_seen moves. Or pass a time, such as 2026-10-29T08:00:00Z, to get only the items newer than that time. Items come newest first, and the result says how many are new. If more are new than fit on the page, pass the result's cursor with the same since to get the rest. The first read of the notifications with last_read starts where this account last marked them seen.",
       schema: %{type: "string"}
     )
   end

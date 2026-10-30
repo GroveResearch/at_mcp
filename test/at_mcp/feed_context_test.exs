@@ -186,6 +186,33 @@ defmodule AtMcp.FeedContextTest do
     assert text =~ " · replying to a post hidden by a block (#{uri})"
   end
 
+  test "a brief line names whose post a reply answers, when the feed said so", %{feed: feed} do
+    item = reply_by(feed, "account14.example.test")
+    assert brief([item]) =~ " · a reply to @account14.example.test · "
+
+    # A parent the feed could not show: the line says only that it is a reply.
+    deleted =
+      put_in(item, ["reply", "parent"], %{
+        "$type" => "app.bsky.feed.defs#notFoundPost",
+        "uri" => item["reply"]["parent"]["uri"],
+        "notFound" => true
+      })
+
+    text = brief([deleted])
+    assert text =~ " · a reply · "
+    refute text =~ "a reply to"
+  end
+
+  defp brief(items) do
+    Application.put_env(:at_mcp, :feed_context_test_feed, items)
+    {:ok, page} = Backend.get_author_feed(session(), "account1.example.test", [])
+
+    assert {:ok, %{content: [%{type: "text", text: text}]}, :state} =
+             AtMcp.MCP.Tools.respond({:ok, page}, :state, :brief_posts)
+
+    text
+  end
+
   # Nothing is said that the feed did not say: a feed item without a reason or
   # reply context reads exactly as the post does on its own.
   test "a feed item with no reason or reply context reads as the bare post", %{feed: feed} do

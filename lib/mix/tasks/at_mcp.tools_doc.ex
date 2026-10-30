@@ -82,8 +82,10 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     newest first, and says how many are new. It then moves the point to the \
     newest item it returned.
 
-    - Every client of the account shares these positions, and they survive a \
-    restart.
+    - at_mcp keeps these positions in its state folder. Every at_mcp client \
+    using that folder shares them, and they survive a restart.
+    - They are not the network's seen marker, which the app counts unread \
+    notifications from. Only `update_seen` moves that marker.
     - When more new items wait below the first page, the position moves after \
     the agent follows the cursor down to the old position, so the agent \
     doesn't skip any item.

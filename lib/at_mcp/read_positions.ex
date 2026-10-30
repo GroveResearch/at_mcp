@@ -31,8 +31,10 @@ defmodule AtMcp.ReadPositions do
   compares with `seenAt`, so a reply indexed late is still new.
 
   The positions are written whole to `read-positions.json` in the state
-  directory, under `AtMcp.PrivateFile`'s lock, so every client of the account
-  shares them and they survive a restart.
+  directory, under `AtMcp.PrivateFile`'s lock, so every at_mcp client using
+  that state directory shares them and they survive a restart. They are not
+  the network's seen marker (`seenAt`), which the app counts unread
+  notifications from; only `update_seen` moves it.
   """
 
   @version 1
