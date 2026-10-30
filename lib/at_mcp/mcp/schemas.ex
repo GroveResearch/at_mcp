@@ -238,8 +238,7 @@ defmodule AtMcp.MCP.Schemas do
   @doc "The `format` every read tool takes: see `AtMcp.MCP.Output.shape/3`."
   defmacro read_format do
     Macro.escape(
-      description:
-        "\"json\" returns every field as JSON, for a program.",
+      description: "\"json\" returns every field as JSON, for a program.",
       schema: %{type: "string", enum: AtMcp.MCP.Output.formats()}
     )
   end
