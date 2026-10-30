@@ -328,6 +328,7 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_trends" => :trends,
     "get_invite_codes" => :invite_codes,
     "get_policy" => :policy,
+    "get_post_images" => :post_images,
     "get_preferences" => :preferences,
     "get_notification_settings" => :notification_settings,
     "get_activity_subscriptions" => :profiles

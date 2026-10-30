@@ -7,6 +7,31 @@ itself.
 
 ## Unreleased
 
+## 0.3.2
+
+- Read positions are kept in at_mcp's state folder and shared by every
+  at_mcp client that uses that folder, not by every app of the account. The
+  `since` description and the docs now say so. The app's unread count
+  follows the network's seen marker, which only `update_seen` moves.
+- The notifications header labels its two times: "Seen in the app up to …"
+  and "… new since this account last read here at …". After a
+  `since: "last_read"` read that returns notifications the app still counts
+  unread, it says so, and how many when not all of them, and that
+  `update_seen` marks them seen.
+- On a brief page (`detail: "brief"`), a reply's line says "a reply to
+  @handle" when the parent's author is known. The recorded 23-post page above
+  now reads in 7,339 characters brief.
+- `get_post_images` writes a text listing of the post's images, each by index
+  with its alt text and whether it is attached below or why not, before the
+  images. `format: "json"` returns the listing as JSON, as before.
+- The `format` argument of `identity_status` and `get_unread_count` says it
+  changes nothing: both always return their fields as JSON.
+
+### Upgrade
+
+Nothing to do. A program that parsed `get_post_images`' text as JSON passes
+`"format": "json"`, as for every other read.
+
 ## 0.3.1
 
 - `identity_status` and `get_unread_count` return their structured content

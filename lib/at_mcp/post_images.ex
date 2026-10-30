@@ -40,8 +40,9 @@ defmodule AtMcp.PostImages do
 
   @doc """
   The tool result for the post at `uri` whose summary is `post`: one text block
-  listing each image, then one image block for each image that could be
-  fetched, in the post's order. The text block is also the structured content.
+  listing each image (`AtMcp.Reading.post_images/1`), then one image block for
+  each image that could be fetched, in the post's order. The structured
+  content holds the same listing, which `format: "json"` returns as the text.
   """
   def result(uri, post) do
     images = List.wrap(Map.get(post, :images))
@@ -53,16 +54,16 @@ defmodule AtMcp.PostImages do
       |> Enum.with_index(1)
       |> Enum.map(fn {{image, outcome}, index} -> entry(index, image, outcome) end)
 
-    data = %{uri: uri, count: length(images), images: listed}
-    json = Jason.encode!(data)
+    data =
+      %{uri: uri, count: length(images), images: listed} |> Jason.encode!() |> Jason.decode!()
 
     blocks =
       for {:ok, mime_type, bytes} <- fetched,
           do: %{type: "image", data: Base.encode64(bytes), mimeType: mime_type}
 
     %{
-      content: [%{type: "text", text: json} | blocks],
-      structuredContent: Jason.decode!(json)
+      content: [%{type: "text", text: AtMcp.Reading.post_images(data)} | blocks],
+      structuredContent: data
     }
   end
 

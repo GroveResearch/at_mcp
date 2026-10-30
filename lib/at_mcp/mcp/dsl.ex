@@ -60,7 +60,12 @@ defmodule AtMcp.MCP.DSL do
 
     body =
       if read_only?,
-        do: body ++ [quote(do: param(:format, :string, AtMcp.MCP.Schemas.read_format()))],
+        do:
+          body ++
+            if(read?,
+              do: [quote(do: param(:format, :string, AtMcp.MCP.Schemas.read_format()))],
+              else: [quote(do: param(:format, :string, AtMcp.MCP.Schemas.status_format()))]
+            ),
         else: body
 
     schema =
