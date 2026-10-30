@@ -2411,25 +2411,25 @@ defmodule AtMcp.Reading do
   defp notification_news(page), do: news(page)
 
   # A last_read read moves only at_mcp's position; the app's seen marker stays
-  # behind until update_seen.
-  defp still_unread(%{"since_asked" => "last_read", "seen_at" => seen, "items" => items})
-       when is_binary(seen) and is_list(items) do
-    if Enum.any?(items, &after?(&1["indexed_at"], seen)),
-      do: ~L" The app still counts them unread; update_seen marks them seen."
-  end
+  # behind until update_seen. Each item says whether the app counts it read.
+  defp still_unread(%{"since_asked" => "last_read", "items" => items}) when is_list(items) do
+    case Enum.count(items, &(&1["is_read"] == false)) do
+      0 ->
+        nil
 
-  defp still_unread(_page), do: nil
+      n when n == length(items) ->
+        ~L" The app still counts them unread; update_seen marks them seen."
 
-  defp after?(at, seen) when is_binary(at) do
-    with {:ok, at, _} <- DateTime.from_iso8601(at),
-         {:ok, seen, _} <- DateTime.from_iso8601(seen) do
-      DateTime.compare(at, seen) == :gt
-    else
-      _ -> false
+      n ->
+        cat([
+          ~L" The app still counts ",
+          int(n),
+          ~L" of them unread; update_seen marks them seen."
+        ])
     end
   end
 
-  defp after?(_at, _seen), do: false
+  defp still_unread(_page), do: nil
 
   defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
     do:

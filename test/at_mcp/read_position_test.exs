@@ -3,7 +3,7 @@ defmodule AtMcp.ReadPositionTest do
   A held read position (#204): a read with `since: "last_read"` returns only
   what is newer than where the account last read that feed, the position
   moves as reads return items, it outlives the process that saved it, and
-  every client of the account shares it.
+  every at_mcp client using that state folder shares it.
 
   The service is a stand-in timeline, newest first, that the test posts to
   between reads, built from a recorded Delvetown post
@@ -399,7 +399,7 @@ defmodule AtMcp.ReadPositionTest do
              {:ok, %{at: post(3)["indexedAt"], pending: nil}}
   end
 
-  test "the position outlives the process that saved it, and every client of the account shares it",
+  test "the position outlives the process that saved it, and every at_mcp client using its state folder shares it",
        ctx do
     posted(4)
     timeline(ctx.state, %{"mark_read" => true})
