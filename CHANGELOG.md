@@ -7,7 +7,9 @@ itself.
 
 ## Unreleased
 
-This release is 0.3.0: what read tools return has changed.
+## 0.3.0
+
+What read tools return has changed.
 
 - Read tools return the text written for a model, and no structured content,
   unless asked. Claude Code, Codex and VS Code Copilot give a model only a
