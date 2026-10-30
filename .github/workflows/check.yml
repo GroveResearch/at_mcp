@@ -603,7 +603,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # The macos-arm64 release (macos-14 runners are Apple silicon), run as
+  # The macos-arm64 release (macos-15 runners are Apple silicon), run as
   # docs/operations.md's "Run a shared service" says: in the foreground with every operator command
   # against it, and under the example launchd plist, upgraded to from the
   # newest published release and rolled back to it. On a tag, the tarball that
@@ -611,7 +611,7 @@ jobs:
   macos:
     needs: test
     if: ${{ !cancelled() && (github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && needs.test.result == 'success')) }}
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
     permissions:
       contents: read
