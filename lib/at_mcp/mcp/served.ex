@@ -24,10 +24,23 @@ defmodule AtMcp.MCP.Served do
   # argument when the network does not serve its method.
   @needs %{
     {"get_notifications", "grouped"} => ["notification.getGroupedNotifications"],
+    # feed picks a tab of the grouped notifications.
+    {"get_notifications", "feed"} => ["notification.getGroupedNotifications"],
     {"update_profile", "links"} => ["actor.link"],
     {"get_trends", nil} => ["unspecced.getTrends", "unspecced.getTrendingTopics"],
     {"feed_feedback", nil} => ["feed.sendInteractions"]
   }
+
+  # What a tool's description says about an argument, word for word as
+  # `AtMcp.MCP.Server` declares it, which `offered/2` leaves out of the
+  # description where it leaves out the argument (`served_test.exs`).
+  @described %{
+    {"get_notifications", "grouped"} =>
+      "With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, a reply, quote or mention carries its post whole as get_posts reads one but without moderation marks, and feed picks the screen's tab."
+  }
+
+  @doc "The sentence of a tool's description about `{tool, argument}`."
+  def described(key), do: Map.fetch!(@described, key)
 
   @doc "The needs above, for tests: `%{{tool, argument | nil} => [suffix]}`."
   def needs, do: @needs
@@ -52,12 +65,23 @@ defmodule AtMcp.MCP.Served do
       # strings; either spelling is dropped.
       drop = left_out ++ Enum.map(left_out, &String.to_atom/1)
 
-      update_in(tool, [:inputSchema], fn schema ->
+      tool
+      |> update_in([:inputSchema], fn schema ->
         schema
         |> Map.update(:properties, %{}, &Map.drop(&1, drop))
         |> Map.update(:required, [], &(&1 -- drop))
       end)
+      |> Map.update!(:description, &without_sentences(&1, tool.name, left_out))
     end
+  end
+
+  defp without_sentences(description, name, left_out) do
+    Enum.reduce(left_out, description, fn argument, text ->
+      case Map.fetch(@described, {name, argument}) do
+        {:ok, sentence} -> text |> String.replace(sentence, "") |> String.trim_trailing()
+        :error -> text
+      end
+    end)
   end
 
   # get_policy reads a network's published policy pages, and calls no method.

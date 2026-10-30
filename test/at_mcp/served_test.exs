@@ -30,6 +30,11 @@ defmodule AtMcp.ServedTest do
     town = listed(:delve)
 
     refute "grouped" in arguments(town["get_notifications"])
+    # feed picks a tab of the grouped notifications, and the description's
+    # sentence about grouped reads goes with the argument.
+    refute "feed" in arguments(town["get_notifications"])
+    refute town["get_notifications"].description =~ "grouped"
+    assert town["get_notifications"].description =~ "pass reasons"
     assert "reasons" in arguments(town["get_notifications"])
     refute "links" in arguments(town["update_profile"])
     refute Map.has_key?(town, "get_trends")
@@ -45,6 +50,11 @@ defmodule AtMcp.ServedTest do
     bluesky = listed(:bluesky)
 
     assert "grouped" in arguments(bluesky["get_notifications"])
+    assert "feed" in arguments(bluesky["get_notifications"])
+
+    assert bluesky["get_notifications"].description =~
+             AtMcp.MCP.Served.described({"get_notifications", "grouped"})
+
     assert "links" in arguments(bluesky["update_profile"])
     assert Map.has_key?(bluesky, "get_trends")
     assert Map.has_key?(bluesky, "feed_feedback")
