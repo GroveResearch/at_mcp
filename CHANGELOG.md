@@ -13,7 +13,7 @@ This release is 0.3.0: what read tools return has changed.
   unless asked. Claude Code, Codex and VS Code Copilot give a model only a
   result's structured content when there is any, so an agent in those hosts
   read every page as JSON: on a recorded page of 23 posts, 59,604 characters
-  of JSON against 19,532 of text. Every read takes an optional `format`:
+  of JSON against 21,073 of text. Every read takes an optional `format`:
   `"json"` returns the full summary as structured content and as the same
   JSON in the text. A grant
   issued with `at_mcp-accounts connection NAME --format json` makes json the
@@ -40,11 +40,7 @@ This release is 0.3.0: what read tools return has changed.
   every post up to `limit`.
 - The same reads take `detail: "brief"`, which shows one line per post. The
   recorded page of 23 posts above reads in 6,947 characters this way,
-  against 19,532 in full.
-- The text of a read gives each post, notification and feed its uri, and
-  leaves out its cid: `like` and `repost` look the cid up when given none,
-  and every other tool takes the uri. A read asked for `format: "json"`
-  still returns the cid.
+  against 21,073 in full.
 - `get_thread` reads threads with `getPostThreadV2`, the way the app does.
   - It returns every parent and sorts replies by the account's thread sort,
     `top` by default.

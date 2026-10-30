@@ -9,8 +9,8 @@ defmodule AtMcp.Reading do
   from empty. A model reading a page of posts wants what a person scrolling a
   client sees: why a feed shows it (a repost or a pin), who wrote it, when,
   whose post it replies to, what it says, and the
-  identifier it needs to act on it (`reply`, `like` and `repost` take the
-  uri), with the counts and labels a client shows beside it
+  identifiers it needs to act on it (`reply` takes the uri, `like` and `repost`
+  take the uri and cid), with the counts and labels a client shows beside it
   and any block or mute between the account and the author. Serialized JSON repeats every key on every post, gives
   each post's text twice (`text` and `raw_text`), and spends most of a page on
   DIDs, image URLs, facet arrays and `null`s a model never uses.
@@ -44,8 +44,8 @@ defmodule AtMcp.Reading do
   under it.
 
   It only drops what is absent. A post's text is never shortened, except on
-  one line of a brief page (`brief_posts/1`), which says so; every uri a
-  write tool takes is kept, and a cursor or a `before` uri for the
+  one line of a brief page (`brief_posts/1`), which says so; every uri
+  and cid a write tool takes is kept, and a cursor or a `before` uri for the
   next page is stated with the argument to pass it as. Beside the uri of each
   post, account, list, feed, starter pack and labeler is its `link:`, the web
   link a person opens and shares in the app.
@@ -656,7 +656,7 @@ defmodule AtMcp.Reading do
   @doc """
   A page of custom feeds: suggested, searched, an account's, or read by uri.
   Each with its name, maker, likes and whether it takes feedback, then what it
-  is for, and the uri `get_feed` and `like` take. Suggested feeds end
+  is for, and the uri and cid `get_feed` and `like` take. Suggested feeds end
   with the feeds the app pins for every account, when the page carries them.
   """
   def feeds(%{"items" => items} = page) when is_list(items) do
@@ -2214,10 +2214,15 @@ defmodule AtMcp.Reading do
 
   defp left_out_reason(_post), do: nil
 
-  # The uri every tool acting on the item takes. Its cid is left out: `like`
-  # and `repost` read the AppView's when given none, and the structured
-  # content keeps it.
-  defp ids(post), do: if(is_binary(post["uri"]), do: cat([~L"uri: ", ident(post["uri"])]))
+  defp ids(post) do
+    join(
+      [
+        if(is_binary(post["uri"]), do: cat([~L"uri: ", ident(post["uri"])])),
+        if(is_binary(post["cid"]), do: cat([~L"cid: ", ident(post["cid"])]))
+      ],
+      :dot
+    )
+  end
 
   # The web link a person opens and shares, beside the uri tools take.
   defp web(%{"web_url" => address}) when is_binary(address), do: cat([~L"link: ", url(address)])

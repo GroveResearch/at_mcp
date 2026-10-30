@@ -47,11 +47,9 @@ defmodule AtMcp.ReadingTest do
     # Beside the uri, the link a person opens and shares.
     assert text =~ "\nlink: https://delve.town/profile/fieldnote.example.test/post/3kfixturepo2a"
 
-    # `reply`, `like` and `repost` take the uri. The cid, which like and
-    # repost look up when given none, is in the structured content alone.
-    assert text =~ "uri: #{post["uri"]}\n"
-    refute text =~ post["cid"]
-    assert hd(data["items"])["cid"] == post["cid"]
+    # `reply` takes the uri; `like` and `repost` take the uri and the cid.
+    assert text =~ "uri: #{post["uri"]}"
+    assert text =~ "cid: #{post["cid"]}"
     assert text =~ "pass cursor: c2"
 
     refute text =~ "null"
@@ -144,7 +142,7 @@ defmodule AtMcp.ReadingTest do
              "items" => [post |> then(&Summary.extract(:post, &1)) |> json()]
            }) ==
              "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\n> hello\n" <>
-               "uri: at://did:plc:a/app.bsky.feed.post/1"
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
 
     # An empty label list is no labels, not a heading with nothing under it.
     labelled = post |> Map.put("labels", []) |> put_in(["author", "labels"], [])
@@ -174,7 +172,7 @@ defmodule AtMcp.ReadingTest do
     assert read.(post) ==
              "1 post.\n\n[1] @a.test · 2026-10-01T00:00:00.000Z\n> hello\n" <>
                "They blocked you · You muted them · You cannot reply to this post · You cannot quote this post\n" <>
-               "uri: at://did:plc:a/app.bsky.feed.post/1"
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
 
     blocking =
       put_in(post, ["author", "viewer"], %{"blocking" => "at://did:plc:me/app.bsky.graph.block/1"})
@@ -239,8 +237,7 @@ defmodule AtMcp.ReadingTest do
              "[1] reply from \"Example Notes · AI\" (@fieldnote.example.test) · #{post["indexedAt"]} · unread"
 
     assert first =~ "replying to #{post["record"]["reply"]["parent"]["uri"]}"
-    assert first =~ "uri: #{post["uri"]}\n"
-    refute first =~ post["cid"]
+    assert first =~ "uri: #{post["uri"]} · cid: #{post["cid"]}"
 
     assert second ==
              "like from @liker.test · 2026-10-01T00:00:00.000Z · on at://did:plc:self/app.bsky.feed.post/mine"
@@ -271,8 +268,7 @@ defmodule AtMcp.ReadingTest do
     assert text =~
              "[2] \"Alice\" (@alice.bsky.social) · 2026-09-15T00:01:00.000Z · replying to at://did:plc:mock/app.bsky.feed.post/root"
 
-    assert text =~ "uri: #{uri}"
-    refute text =~ "bafyTHREADCID"
+    assert text =~ "uri: #{uri} · cid: bafyTHREADCID"
     refute text =~ "null"
     refute text =~ "{"
 
@@ -375,7 +371,7 @@ defmodule AtMcp.ReadingTest do
                "Labels: graphic-media; author: bot (self)\n" <>
                "You muted them · You cannot reply to this post\n" <>
                ~s(Who can reply: people mentioned, members of "Friends" at://did:plc:a/app.bsky.graph.list/f\n) <>
-               "uri: at://did:plc:a/app.bsky.feed.post/1"
+               "uri: at://did:plc:a/app.bsky.feed.post/1 · cid: bafy1"
 
     # Everyone may reply: no line, as for a post with no gate on it.
     open = put_in(shown(), ["threadgate", "record"], %{})
