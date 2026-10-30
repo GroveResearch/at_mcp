@@ -326,6 +326,21 @@ defmodule AtMcp.ReadingTest do
     refute text =~ "1 more replies"
   end
 
+  test "replies left out under a reply say how to read them" do
+    thread = %{
+      "uri" => "at://a/p/1",
+      "text" => "the post",
+      "replies" => [
+        %{"uri" => "at://a/p/2", "text" => "a reply", "replies" => [], "replies_omitted" => 3}
+      ]
+    }
+
+    text = AtMcp.Reading.thread(thread)
+
+    assert text =~
+             "(3 more replies to at://a/p/2 not shown. Call get_thread with that uri to read them.)"
+  end
+
   # One post, as the AppView sends it wherever it appears: by a verified
   # account that is live, labelled, gated, from an author this account muted.
   # Built when a test runs, in the types of the network it sets.

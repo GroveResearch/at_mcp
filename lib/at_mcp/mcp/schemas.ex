@@ -239,7 +239,7 @@ defmodule AtMcp.MCP.Schemas do
   defmacro read_format do
     Macro.escape(
       description:
-        "How the result comes back. \"text\" (the default) gives readable text. \"json\" gives every field as JSON, for a program that parses the result.",
+        "\"json\" returns every field as JSON, for a program.",
       schema: %{type: "string", enum: AtMcp.MCP.Output.formats()}
     )
   end
