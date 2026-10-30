@@ -64,7 +64,10 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     Reads return readable text, so a model gets the same result in every \
     host. A program that parses results can pass `"format": "json"` to get \
     the full summary as structured content and as JSON text. Issuing its \
-    grant with `--format json` makes json the default instead.
+    grant with `--format json` makes json the default instead. \
+    `identity_status` and `get_unread_count`, which report the connection's \
+    own state, always return their structured content, with its JSON as the \
+    text.
 
     A page of posts is at most #{AtMcp.Reading.page_chars()} characters of \
     text. When a page would be longer, at_mcp returns fewer posts, says how \

@@ -31,7 +31,8 @@ section says which to choose.
 
 ## What the model receives
 
-Every read tool answers with text written for a model: who
+Every read tool except `identity_status` and `get_unread_count`, which
+always return their few fields as JSON, answers with text written for a model: who
 wrote each post, when, what it says (each line of someone else's words
 after `> `), and the identifiers the write tools take. A write answers with
 a short JSON summary of what it did. All of these hosts give the model the

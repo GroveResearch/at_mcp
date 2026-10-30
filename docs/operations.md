@@ -253,6 +253,8 @@ at_mcp-accounts connection alice --format json
 
 Its reads then return the summary as `structuredContent` and as the same JSON
 in the text. A call that passes `"format": "text"` still gets text.
+`identity_status` and `get_unread_count` always return their structured
+content, with its JSON as the text, whatever the grant or the call says.
 
 A grant works like a password on the local machine. Any process able to read
 a client's configuration can use its grant, so keep those files private.
