@@ -322,14 +322,17 @@ defmodule AtMcp.ReadPositionTest do
     )
 
     first = notifications.()
-    assert first =~ "3 notifications. Seen up to "
-    assert first =~ " 3 new since "
+    assert first =~ "3 notifications. Seen in the app up to "
+    assert first =~ " 3 new since this account last read here at "
+    # The read moved at_mcp's position, not the app's seen marker.
+    assert first =~ " The app still counts them unread; update_seen marks them seen."
     assert Enum.filter([1, 2, 3, 4, 5], &(first =~ uri(&1))) == [3, 4, 5]
     assert {:ok, %{at: "2026-10-29T10:05:00.000Z"}} = ReadPositions.get(ctx.did, "notifications")
 
     second = notifications.()
-    assert second =~ "0 notifications. Seen up to "
-    assert second =~ " 0 new since "
+    assert second =~ "0 notifications. Seen in the app up to "
+    assert second =~ " 0 new since this account last read here at "
+    refute second =~ "update_seen"
   end
 
   test "a feed with no position held starts from its newest item, as it has no seen marker",

@@ -132,8 +132,11 @@ defmodule AtMcp.Reading do
       cat([
         count(length(items), one, many),
         ~L".",
-        if(is_binary(page["seen_at"]), do: cat([~L" Seen up to ", time(page["seen_at"]), ~L"."])),
-        news(page),
+        if(is_binary(page["seen_at"]),
+          do: cat([~L" Seen in the app up to ", time(page["seen_at"]), ~L"."])
+        ),
+        notification_news(page),
+        still_unread(page),
         left_out(page, one, many),
         next_page(page),
         unsaved(page)
@@ -2389,6 +2392,44 @@ defmodule AtMcp.Reading do
       ~L" This was the first read of this feed with last_read, so the page starts from the newest item. To read further back, pass the cursor without since."
 
   defp news(_page), do: nil
+
+  # The notifications have two times: the network's seen marker (what the app
+  # counts as unread) and at_mcp's read position, kept in its state folder.
+  defp notification_news(%{"since" => at, "since_asked" => "last_read"} = page)
+       when is_binary(at) do
+    n = if is_integer(page["new_total"]), do: page["new_total"], else: length(page["items"])
+
+    cat([
+      ~L" ",
+      if(page["new_total_exact"] == false, do: cat([~L"At least ", int(n)]), else: int(n)),
+      ~L" new since this account last read here at ",
+      time(at),
+      ~L"."
+    ])
+  end
+
+  defp notification_news(page), do: news(page)
+
+  # A last_read read moves only at_mcp's position; the app's seen marker stays
+  # behind until update_seen.
+  defp still_unread(%{"since_asked" => "last_read", "seen_at" => seen, "items" => items})
+       when is_binary(seen) and is_list(items) do
+    if Enum.any?(items, &after?(&1["indexed_at"], seen)),
+      do: ~L" The app still counts them unread; update_seen marks them seen."
+  end
+
+  defp still_unread(_page), do: nil
+
+  defp after?(at, seen) when is_binary(at) do
+    with {:ok, at, _} <- DateTime.from_iso8601(at),
+         {:ok, seen, _} <- DateTime.from_iso8601(seen) do
+      DateTime.compare(at, seen) == :gt
+    else
+      _ -> false
+    end
+  end
+
+  defp after?(_at, _seen), do: false
 
   defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
     do:
