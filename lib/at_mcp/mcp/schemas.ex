@@ -243,6 +243,18 @@ defmodule AtMcp.MCP.Schemas do
     )
   end
 
+  @doc """
+  The `format` the status tools (`AtMcp.MCP.DSL.status/0`) take: 0.3.0
+  published it, and they always answer with their fields as JSON.
+  """
+  defmacro status_format do
+    Macro.escape(
+      description:
+        "Changes nothing: this tool always returns its few fields as JSON, in the text and as structured content.",
+      schema: %{type: "string", enum: AtMcp.MCP.Output.formats()}
+    )
+  end
+
   @doc "`set_preference`'s `kind`, from `AtMcp.Preferences.kinds/0`."
   defmacro preference_kind do
     Macro.escape(

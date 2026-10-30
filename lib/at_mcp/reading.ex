@@ -2414,4 +2414,48 @@ defmodule AtMcp.Reading do
     do: cat([~L" For the next page, pass cursor: ", ident(cursor)])
 
   defp next_page(_page), do: nil
+
+  @doc """
+  What `get_post_images` found on one post, as text: how many images, then
+  each one by index with its alt text and whether it is attached below or why
+  not. The image blocks follow this text in the result.
+  """
+  def post_images(%{"uri" => uri, "images" => images}) when is_list(images) do
+    total = length(images)
+
+    head =
+      case total do
+        0 ->
+          cat([~L"No images on ", ident(uri), ~L"."])
+
+        n ->
+          cat([
+            count(n, ~L"image", ~L"images"),
+            ~L" on ",
+            ident(uri),
+            ~L", attached below in this order where they could be fetched."
+          ])
+      end
+
+    lines =
+      for image <- images do
+        place =
+          cat([~L"[image ", int(image["index"]), ~L" of ", int(total), ~L": ", alt(image), ~L"]"])
+
+        case image do
+          %{"status" => "attached", "mime_type" => type, "bytes" => bytes} ->
+            cat([place, ~L" attached (", ident(type), ~L", ", int(bytes), ~L" bytes)"])
+
+          %{"reason" => reason} ->
+            cat([place, ~L" not attached: ", literal(reason)])
+
+          _ ->
+            cat([place, ~L" not attached"])
+        end
+      end
+
+    to_text(join([head | lines], :line))
+  end
+
+  def post_images(_other), do: nil
 end

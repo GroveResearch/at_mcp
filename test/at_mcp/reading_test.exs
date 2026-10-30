@@ -1022,4 +1022,30 @@ defmodule AtMcp.ReadingTest do
     assert AtMcp.Reading.notifications(%{"items" => [summary]}) =~
              "on #{liked} via your repost #{repost}"
   end
+
+  test "get_post_images lists each image with its alt text and what became of it" do
+    text =
+      AtMcp.Reading.post_images(%{
+        "uri" => "at://a/p/1",
+        "count" => 2,
+        "images" => [
+          %{
+            "index" => 1,
+            "alt" => "a map of the town",
+            "status" => "attached",
+            "mime_type" => "image/jpeg",
+            "bytes" => 1234
+          },
+          %{"index" => 2, "alt" => "", "status" => "unavailable", "reason" => "too large"}
+        ]
+      })
+
+    assert text =~ "2 images on at://a/p/1"
+    assert text =~ ~s|[image 1 of 2: "a map of the town"] attached (image/jpeg, 1234 bytes)|
+    assert text =~ "[image 2 of 2: no alt text] not attached: "
+    assert text =~ "too large"
+
+    assert AtMcp.Reading.post_images(%{"uri" => "at://a/p/1", "count" => 0, "images" => []}) ==
+             "No images on at://a/p/1."
+  end
 end
