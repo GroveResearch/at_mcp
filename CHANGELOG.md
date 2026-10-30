@@ -19,7 +19,7 @@ This release is 0.3.0: what read tools return has changed.
   issued with `at_mcp-accounts connection NAME --format json` makes json the
   default for its client. Reads no longer declare an output schema, so
   `tools/list` is smaller. Write tools are unchanged.
-- `tools/list` offers a default set of 46 tools in about 52,000 characters,
+- `tools/list` offers a default set of 46 tools in about 50,000 characters,
   where 0.2.18 listed 101 tools with their output schemas in about 994,000.
   The set covers reading, posting, replying, following, blocking and muting,
   a post's pictures (`get_post_images`), pinning a post (`pin_post`), the
@@ -59,6 +59,9 @@ This release is 0.3.0: what read tools return has changed.
   - When the text reading would pass 40,000 characters, it ends after the
     direct replies that fit, and `replies_cut` gives the count of the rest.
     JSON output is not cut.
+  - Under a reply that has more replies than the read reached, the text
+    gives their count and says to read them with `get_thread` on that reply,
+    as the app opens a reply's own thread.
   - New fields: `op_thread_index` and `op_thread_count` for posts in the
     original poster's own series, and `other_replies` for hidden replies
     (read them with `include_hidden`).

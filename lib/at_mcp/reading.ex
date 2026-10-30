@@ -2294,7 +2294,13 @@ defmodule AtMcp.Reading do
               int(n),
               if(n == 1, do: ~L" more reply to ", else: ~L" more replies to "),
               ident(node["uri"]),
-              ~L" not shown)"
+              # Under the post itself, the cut's own note says how to read
+              # more; under a reply, its own thread is where the rest are, as
+              # the app opens it.
+              if(path == [],
+                do: ~L" not shown)",
+                else: ~L" not shown. Call get_thread with that uri to read them.)"
+              )
             ])
           ]
 

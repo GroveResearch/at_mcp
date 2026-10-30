@@ -9,14 +9,14 @@ defmodule AtMcp.ToolSetTest do
   alias AtMcp.Test.Grant
 
   # The default `tools/list`, in characters of JSON, on each network: with
-  # 46 tools, 51,946 on Delvetown and 51,787 on Bluesky, which leaves out
+  # 46 tools, 49,483 on Delvetown, and 50,014 on Bluesky, which leaves out
   # get_policy. 0.2.18 listed every tool with its output schema in 994,426.
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
-  @default_bound 53_000
-  # Every tool, for a client that asks for the full set: 103,606 on
-  # Delvetown and 105,435 on Bluesky.
-  @full_bound 108_000
+  @default_bound 51_000
+  # Every tool, for a client that asks for the full set: 99,487 on
+  # Delvetown and 101,914 on Bluesky.
+  @full_bound 104_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)
