@@ -84,6 +84,23 @@ defmodule AtMcp.ToolSetTest do
     assert names(listed(%{tools: "default"})) == served(AtMcp.MCP.ToolSet.default())
   end
 
+  # A model reads the descriptions in a new session, with no earlier version
+  # to compare against.
+  test "no tool or argument is described against an earlier version" do
+    for tool <- listed(%{tools: "full"}) do
+      texts =
+        [tool.description] ++
+          for {_name, property} <- tool.inputSchema.properties,
+              do: property[:description] || property["description"] || ""
+
+      for text <- texts, do: refute(text =~ "as before", "#{tool.name}: #{text}")
+    end
+
+    search = Enum.find(listed(%{tools: "full"}), &(&1.name == "search_posts"))
+    since = search.inputSchema.properties[:since] || search.inputSchema.properties["since"]
+    assert (since[:description] || since["description"]) =~ "not last_read"
+  end
+
   test "no tool's output schema is listed" do
     for tool <- listed(%{tools: "full"}), do: refute(Map.has_key?(tool, :outputSchema), tool.name)
   end

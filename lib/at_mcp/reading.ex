@@ -2283,7 +2283,15 @@ defmodule AtMcp.Reading do
     case node["replies_omitted"] do
       n when is_integer(n) and n > 0 ->
         shown ++
-          [cat([~L"(", int(n), ~L" more replies to ", ident(node["uri"]), ~L" not shown)"])]
+          [
+            cat([
+              ~L"(",
+              int(n),
+              if(n == 1, do: ~L" more reply to ", else: ~L" more replies to "),
+              ident(node["uri"]),
+              ~L" not shown)"
+            ])
+          ]
 
       _ ->
         shown
@@ -2313,7 +2321,11 @@ defmodule AtMcp.Reading do
   defp cut(_result), do: nil
 
   defp earlier(n) when is_integer(n) and n > 0,
-    do: cat([int(n), ~L" earlier posts are not shown. "])
+    do:
+      cat([
+        int(n),
+        if(n == 1, do: ~L" earlier post is not shown. ", else: ~L" earlier posts are not shown. ")
+      ])
 
   defp earlier(_n), do: nil
 

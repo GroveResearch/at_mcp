@@ -304,6 +304,28 @@ defmodule AtMcp.ReadingTest do
     assert text =~ "[1] The post at://a/p/1 was not read."
   end
 
+  test "a count of one reads in the singular" do
+    one = %{
+      "chain_omitted" => 1,
+      "chain_truncated" => true,
+      "chain" => [%{"uri" => "at://a/p/2"}]
+    }
+
+    assert AtMcp.Reading.chain(Map.merge(one, %{"replies" => []})) =~
+             "1 earlier post is not shown."
+
+    thread = %{
+      "uri" => "at://a/p/1",
+      "text" => "the post",
+      "replies" => [],
+      "replies_omitted" => 1
+    }
+
+    text = AtMcp.Reading.thread(thread)
+    assert text =~ "(1 more reply to at://a/p/1 not shown)"
+    refute text =~ "1 more replies"
+  end
+
   # One post, as the AppView sends it wherever it appears: by a verified
   # account that is live, labelled, gated, from an author this account muted.
   # Built when a test runs, in the types of the network it sets.

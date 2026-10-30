@@ -58,7 +58,7 @@ defmodule AtMcp.MCP.Server do
     do: {:error, "unknown log level: #{inspect(level)}", state}
 
   tool "get_notifications",
-       "Read recent notifications on this network for this account. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, a reply, quote or mention carries its post whole as get_posts reads one but without moderation marks, and feed picks the screen's tab." do
+       "Read recent notifications on this network for this account. A page mixes likes, reposts and follows with replies, mentions and quotes; pass reasons, such as [\"reply\", \"mention\"], to read only some. With grouped true, read them grouped as the app's Notifications screen shows them (\"alice and 5 others liked your post\"): each group names who acted, the posts acted on and how many notifications it holds, a reply, quote or mention carries its post whole as get_posts reads one but without moderation marks, and feed picks the screen's tab." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.notification_page())
 
@@ -302,7 +302,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "search_posts",
-       "Search public posts on this network, as the app's search does. Give a query, filters, or both. Without sort or all_time it searches every post, newest first, as before. author, mentions, since, until and lang narrow the search as before, and the rest include or exclude posts by who wrote them, who they mention, what they link to or quote, their hashtags, language, media, and where they sit in a thread. Filters are not a second query language." do
+       "Search public posts on this network, as the app's search does. Give a query, filters, or both. Without sort or all_time it searches every post, newest first. author, mentions, since, until and lang narrow the search, and the rest include or exclude posts by who wrote them, who they mention, what they link to or quote, their hashtags, language, media, and where they sit in a thread. Filters are not a second query language." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.post_page())
 
@@ -324,7 +324,8 @@ defmodule AtMcp.MCP.Server do
     )
 
     param(:since, :string,
-      description: "ISO 8601 timestamp or date (YYYY-MM-DD); only posts indexed at or after it"
+      description:
+        "ISO 8601 timestamp or date (YYYY-MM-DD); only posts indexed at or after it. A time or date only, not last_read: search_posts keeps no read position"
     )
 
     param(:until, :string,
@@ -394,7 +395,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:all_time, :boolean,
       description:
-        "Omitted or true: search every post the service holds, as before. false: only its recent window"
+        "Omitted or true: search every post the service holds. false: only its recent window"
     )
 
     param(:query_language, :string,
