@@ -3,7 +3,7 @@ defmodule AtMcp.ReadPositionTest do
   A held read position (#204): a read with `since: "last_read"` returns only
   what is newer than where the account last read that feed, the position
   moves as reads return items, it outlives the process that saved it, and
-  every client of the account shares it.
+  every at_mcp client using that state folder shares it.
 
   The service is a stand-in timeline, newest first, that the test posts to
   between reads, built from a recorded Delvetown post
@@ -322,14 +322,17 @@ defmodule AtMcp.ReadPositionTest do
     )
 
     first = notifications.()
-    assert first =~ "3 notifications. Seen up to "
-    assert first =~ " 3 new since "
+    assert first =~ "3 notifications. Seen in the app up to "
+    assert first =~ " 3 new since this account last read here at "
+    # The read moved at_mcp's position, not the app's seen marker.
+    assert first =~ " The app still counts them unread; update_seen marks them seen."
     assert Enum.filter([1, 2, 3, 4, 5], &(first =~ uri(&1))) == [3, 4, 5]
     assert {:ok, %{at: "2026-10-29T10:05:00.000Z"}} = ReadPositions.get(ctx.did, "notifications")
 
     second = notifications.()
-    assert second =~ "0 notifications. Seen up to "
-    assert second =~ " 0 new since "
+    assert second =~ "0 notifications. Seen in the app up to "
+    assert second =~ " 0 new since this account last read here at "
+    refute second =~ "update_seen"
   end
 
   test "a feed with no position held starts from its newest item, as it has no seen marker",
@@ -396,7 +399,7 @@ defmodule AtMcp.ReadPositionTest do
              {:ok, %{at: post(3)["indexedAt"], pending: nil}}
   end
 
-  test "the position outlives the process that saved it, and every client of the account shares it",
+  test "the position outlives the process that saved it, and every at_mcp client using its state folder shares it",
        ctx do
     posted(4)
     timeline(ctx.state, %{"mark_read" => true})

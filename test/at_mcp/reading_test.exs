@@ -1022,4 +1022,59 @@ defmodule AtMcp.ReadingTest do
     assert AtMcp.Reading.notifications(%{"items" => [summary]}) =~
              "on #{liked} via your repost #{repost}"
   end
+
+  # The notifications header names its two times: the app's seen marker and
+  # at_mcp's read position. A last_read read that returns items the app still
+  # counts unread says so, and how many when not all of them.
+  test "the notifications header labels the app's seen time and the read position here" do
+    item = fn n, read? ->
+      at = "2026-10-02T00:00:0#{n}.000Z"
+
+      json(
+        Summary.extract(:notification, %{
+          "uri" => "at://did:plc:a/app.bsky.feed.post/#{n}",
+          "cid" => "bafy",
+          "author" => %{"handle" => "a.test", "did" => "did:plc:a"},
+          "reason" => "mention",
+          "record" => %{"text" => "hi", "createdAt" => at},
+          "indexedAt" => at,
+          "isRead" => read?
+        })
+      )
+    end
+
+    page = fn seen_at, items ->
+      AtMcp.Reading.notifications(%{
+        "items" => items,
+        "seen_at" => seen_at,
+        "since" => "2026-10-01T00:00:00.000Z",
+        "since_asked" => "last_read",
+        "new_total" => length(items)
+      })
+    end
+
+    unread = page.("2026-10-01T00:00:00.000Z", [item.(1, false)])
+
+    assert unread =~
+             "1 notification. Seen in the app up to 2026-10-01T00:00:00.000Z. 1 new since this account last read here at 2026-10-01T00:00:00.000Z. The app still counts them unread; update_seen marks them seen."
+
+    seen = page.("2026-10-03T00:00:00.000Z", [item.(1, true)])
+    assert seen =~ "Seen in the app up to 2026-10-03T00:00:00.000Z."
+    refute seen =~ "update_seen"
+
+    some = page.(nil, [item.(1, false), item.(2, true)])
+    assert some =~ "The app still counts 1 of them unread; update_seen marks them seen."
+
+    # A read since a time says only that time.
+    at_time =
+      AtMcp.Reading.notifications(%{
+        "items" => [item.(1, false)],
+        "seen_at" => "2026-10-01T00:00:00.000Z",
+        "since" => "2026-10-01T00:00:00.000Z",
+        "since_asked" => "2026-10-01T00:00:00.000Z"
+      })
+
+    assert at_time =~ " 1 new since 2026-10-01T00:00:00.000Z."
+    refute at_time =~ "update_seen"
+  end
 end

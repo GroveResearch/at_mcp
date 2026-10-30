@@ -59,7 +59,9 @@ before deciding whether to write again.
 
 An agent hears about replies and mentions when it calls a read tool such as
 `get_notifications`; with `since: "last_read"` it gets only what is new since
-its last read. To have notifications pushed to another program as they
+its last read. at_mcp keeps that read position in its state folder, shared by
+every at_mcp client using the folder. The app's unread count follows the
+network's own seen marker instead, which only `update_seen` moves. To have notifications pushed to another program as they
 arrive, run at_mcp as a long-running service with
 [delivery](docs/delivery.md) set up. A program of yours receives those
 deliveries and decides whether to wake your agent; delivery.md says how to
