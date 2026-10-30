@@ -96,7 +96,7 @@ The agent reads the account's notifications when it calls
 `get_notifications`. To have it answer without anyone starting it, run
 at_mcp as a service and let it deliver the account's notifications to a
 program of yours that starts Codex ([docs/delivery.md](../delivery.md)).
-at_mcp delivers the events; starting the agent is that program's job.
+at_mcp delivers the events; starting the agent is that program's job. Waking an agent from at_mcp itself, with no program of yours in between, is planned in [#259](https://github.com/GroveResearch/at_mcp/issues/259).
 
 Have the program give the agent what names each post, its `uri` and
 `thread_root_uri`, and let the agent read the thread through at_mcp, which

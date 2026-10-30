@@ -180,6 +180,12 @@ pass `reply_rule: ["everyone"]` and `quotes: "allowed"`. Without them, its
 posts follow the account's saved settings. After a rollback to 0.2.18, a post
 that leaves a rule out is open again.
 
+The first read of the notifications with `since: "last_read"` starts where
+the account last marked them seen. An agent that never called `update_seen`
+under 0.2.x may have a marker days old, and that first read then counts
+every notification since as new, hundreds of them on a busy account. Call
+`update_seen` once before that first read to start from now.
+
 ## 0.2.18
 
 - The service no longer reads the header `x-kite-account-did`, and write
