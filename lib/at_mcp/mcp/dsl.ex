@@ -18,6 +18,17 @@ defmodule AtMcp.MCP.DSL do
     end
   end
 
+  # Reads that report the connection's own state rather than a page of the
+  # network: identity_status, which hosts call to confirm which account a
+  # connection acts as, and get_unread_count. Their whole result is a few
+  # fields, the text is their JSON, and a host reads the structured content, as
+  # in 0.2, so they keep their structured content whatever `format` says. They
+  # still take `format`, which 0.3.0 published for them.
+  @status ~w(identity_status get_unread_count)
+
+  @doc false
+  def status, do: @status
+
   # Keep output schemas beside their tools, but do not pass them to ExMCP's
   # post-handler validation. Upstream 1.5.0 converts a validation timeout into
   # isError after a write has already completed. AtMcp validates results itself
@@ -38,14 +49,17 @@ defmodule AtMcp.MCP.DSL do
     # `format` argument. The annotations are evaluated as ExMCP evaluates
     # them, so the hint read here is the one the tool publishes whatever
     # expression gives it; `__before_compile__/1` checks the two agree.
-    read? =
+    read_only? =
       Enum.any?(body, fn
         {:annotations, _, [annotations]} -> read_only?(annotations, __CALLER__)
         _ -> false
       end)
 
+    # A read's result is shaped by `format`; a status tool's is not.
+    read? = read_only? and name not in @status
+
     body =
-      if read?,
+      if read_only?,
         do: body ++ [quote(do: param(:format, :string, AtMcp.MCP.Schemas.read_format()))],
         else: body
 
@@ -73,11 +87,13 @@ defmodule AtMcp.MCP.DSL do
     published =
       for {definition, _handler, _params} <- Module.get_attribute(env.module, :ex_mcp_dsl_tools),
           read_only_hint?(definition),
+          definition.name not in @status,
           into: MapSet.new(),
           do: definition.name
 
     # The reads given `format`, and stripped of their output schema, are the
-    # tools whose published `readOnlyHint` is true, or the build stops.
+    # tools whose published `readOnlyHint` is true, apart from the status
+    # tools, or the build stops.
     unless MapSet.equal?(reads, published) do
       raise CompileError,
         description:

@@ -15,7 +15,12 @@ defmodule AtMcp.ReadToolsTest do
     %{tools: tools}
   end
 
-  defp read?(tool), do: (tool[:annotations] || %{})[:readOnlyHint] == true
+  # A read that returns text unless asked for json: not the status tools
+  # (`AtMcp.MCP.DSL.status/0`), which always return their structured content.
+  defp read?(tool),
+    do:
+      (tool[:annotations] || %{})[:readOnlyHint] == true and
+        tool.name not in AtMcp.MCP.DSL.status()
 
   test "every tool whose readOnlyHint is true declares no output schema and takes format",
        %{tools: tools} do
@@ -44,23 +49,53 @@ defmodule AtMcp.ReadToolsTest do
       assert schema["type"] == "object" or schema[:type] == "object",
              "#{tool.name} is not a read and has no output schema"
 
-      refute tool.inputSchema.properties[:format] || tool.inputSchema.properties["format"],
-             "#{tool.name} is not a read and takes format"
+      unless tool.name in AtMcp.MCP.DSL.status() do
+        refute tool.inputSchema.properties[:format] || tool.inputSchema.properties["format"],
+               "#{tool.name} is not a read and takes format"
+      end
     end
   end
 
   test "a read answers in text alone unless asked for json" do
     {:ok, effects} = AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend)
     state = %{effects: effects}
+    assert {:ok, _} = AtMcp.Effects.login(effects)
 
-    {:ok, plain, ^state} = AtMcp.MCP.Server.handle_call_tool("identity_status", %{}, state)
+    {:ok, plain, ^state} = AtMcp.MCP.Server.handle_call_tool("get_timeline", %{}, state)
 
     refute Map.has_key?(plain, :structuredContent),
-           "identity_status returned structured content unasked"
+           "get_timeline returned structured content unasked"
 
     {:ok, json, ^state} =
-      AtMcp.MCP.Server.handle_call_tool("identity_status", %{"format" => "json"}, state)
+      AtMcp.MCP.Server.handle_call_tool("get_timeline", %{"format" => "json"}, state)
 
     assert json.structuredContent
+  end
+
+  # A host confirms which account a connection acts as from identity_status's
+  # structured content, as it did in 0.2, so the status tools keep it, with
+  # their JSON as the text, whatever format says.
+  test "the status tools always return their structured content, with its JSON as the text",
+       %{tools: tools} do
+    {:ok, effects} = AtMcp.Test.QuotaFixture.start_effects(backend: AtMcp.Test.MockBackend)
+    state = %{effects: effects}
+    assert {:ok, _} = AtMcp.Effects.login(effects)
+
+    for name <- AtMcp.MCP.DSL.status() do
+      tool = Enum.find(tools, &(&1.name == name))
+      assert tool.annotations[:readOnlyHint] == true
+      assert tool.inputSchema.properties[:format] || tool.inputSchema.properties["format"]
+
+      for arguments <- [%{}, %{"format" => "text"}, %{"format" => "json"}] do
+        {:ok, result, ^state} = AtMcp.MCP.Server.handle_call_tool(name, arguments, state)
+        refute result[:isError], "#{name}: #{inspect(result)}"
+        assert is_map(result.structuredContent), "#{name} returned no structured content"
+        text = Enum.find(result.content, &(&1.type == "text")).text
+        assert Jason.decode!(text) == result.structuredContent, "#{name} text is not its JSON"
+      end
+    end
+
+    {:ok, status, ^state} = AtMcp.MCP.Server.handle_call_tool("identity_status", %{}, state)
+    assert is_binary(status.structuredContent["did"])
   end
 end

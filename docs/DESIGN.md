@@ -116,6 +116,9 @@ handlers call `AtMcp.Effects` and leave account rules to it.
 A read returns text for the model and nothing else, because hosts differ in
 which half of a result the model gets: Claude Code and Codex give it
 `structuredContent` when there is any, Gemini CLI and Imp give it `content`.
+The exceptions are `identity_status` and `get_unread_count`, which report
+the connection's own state in a few fields: they always return their
+structured content, with its JSON as the text, because hosts read it.
 A program passes `"format": "json"`, or holds a grant whose default is json,
 and gets the summary as structured content and as JSON text
 (`AtMcp.MCP.Output`). A write returns its small summary both ways.

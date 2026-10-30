@@ -119,15 +119,22 @@ const ACCOUNT_READINGS = new Set(['get_profile', 'get_profiles', 'search_actors'
 
 // A read (a tool that takes `format`) answers in text alone unless asked for
 // json; then its structured content is the summary and its text that JSON.
+// The status tools take `format` but always return their structured content
+// (`AtMcp.MCP.DSL.status/0`), which the plain call below checks.
+const STATUS = new Set(['identity_status', 'get_unread_count']);
 let reads;
 async function call(connection, name, args = {}) {
   reads ??= new Set((await connection.client.listTools()).tools
-    .filter(t => t.inputSchema.properties?.format).map(t => t.name));
+    .filter(t => t.inputSchema.properties?.format && !STATUS.has(t.name)).map(t => t.name));
   const read = reads.has(name);
   const result = await connection.client.callTool({name, arguments: read ? {...args, format: 'json'} : args});
   assert.ok(!result.isError, JSON.stringify(result));
   const json = result.content.find(c => c.type === 'text').text;
   assert.deepEqual(result.structuredContent, JSON.parse(json), `${name} structured content`);
+  if (STATUS.has(name)) {
+    const plain = await connection.client.callTool({name, arguments: args});
+    assert.deepEqual(plain.structuredContent, result.structuredContent, `${name} dropped its structured content`);
+  }
   if (!read) return result.structuredContent;
   const plain = await connection.client.callTool({name, arguments: args});
   assert.ok(!plain.isError, JSON.stringify(plain));

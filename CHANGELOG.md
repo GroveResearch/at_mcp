@@ -7,6 +7,24 @@ itself.
 
 ## Unreleased
 
+## 0.3.1
+
+- `identity_status` and `get_unread_count` return their structured content
+  again whatever `format` says, with its JSON as the text, as in 0.2. In
+  0.3.0 they returned the JSON text alone unless asked for `format: "json"`,
+  so a host that confirmed a connection's account from `identity_status`'s
+  structured content, as it could with 0.2, read a string instead and
+  refused the connection. Both report the connection's own state in a few
+  fields rather than a page of the network. They still take `format`, which
+  changes nothing.
+
+### Upgrade
+
+Nothing to do for a host. A host that passed `"format": "json"` to these two
+tools gets the same result as before. In Claude Code and Codex, which show a
+model the structured content, the model now reads these two results as
+JSON; the text was already that JSON.
+
 ## 0.3.0
 
 What read tools return has changed.

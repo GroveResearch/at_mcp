@@ -348,7 +348,7 @@ defmodule AtMcp.MCP.ToolsTest do
 
     for {name, arguments} <- @calls do
       tool = Enum.find(tools, &(&1.name == name))
-      read? = tool.annotations[:readOnlyHint] == true
+      read? = tool.annotations[:readOnlyHint] == true and name not in AtMcp.MCP.DSL.status()
       refute Map.has_key?(tool, :outputSchema), "#{name} declares an output schema"
       schema = AtMcp.MCP.Server.__output_schemas__()[name]
 
@@ -384,8 +384,13 @@ defmodule AtMcp.MCP.ToolsTest do
       else
         # Nor does a write: its result is a few fields, checked against its
         # schema here and by `AtMcp.MCP.Output` on every call.
+        # A status tool (`AtMcp.MCP.DSL.status/0`) takes the format 0.3.0
+        # published for it, and keeps its summary whatever it says.
         refute Map.has_key?(tool, :outputSchema), "#{name} declares an output schema"
-        refute Map.has_key?(tool.inputSchema.properties, :format), name
+
+        assert Map.has_key?(tool.inputSchema.properties, :format) ==
+                 name in AtMcp.MCP.DSL.status(),
+               name
       end
     end
   end
