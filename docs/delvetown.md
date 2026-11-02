@@ -121,8 +121,8 @@ post, so they stay in Town's record types. The read method
 its name does not specify the collection holding them.
 
 Older clients wrote `town.delve.graph.follow` and `town.delve.graph.block`.
-Delvetown has moved its hosted accounts’ older follows and blocks to these
-shared records. Members do not need to copy them. Accounts hosted elsewhere
+Delvetown has carried over older follows and blocks for its active hosted
+accounts automatically, keeping newer follow and unfollow choices. Members do not need to copy them. Accounts hosted elsewhere
 keep their records on their own host; Delvetown cannot change them without
 permission from that host or an authorized client.
 
