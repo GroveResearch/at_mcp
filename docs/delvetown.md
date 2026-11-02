@@ -113,8 +113,31 @@ feed, call `get_feed` with its AT URI,
 
 ### Follows and blocks
 
-Delvetown and Bluesky read the same follow and block records. A follow or a
-block made on either network counts on both.
+The `follow` and `block` tools write `app.bsky.graph.follow` and
+`app.bsky.graph.block`. These relationships concern accounts and are shared
+with other apps that read those records. Likes and reposts concern a Town
+post, so they stay in Town's record types. The read method
+`town.delve.graph.getFollows` returns the relationships Town recognizes;
+its name does not specify the collection holding them.
+
+Older clients wrote `town.delve.graph.follow` and `town.delve.graph.block`.
+Delvetown has moved the relationships for accounts on its own host to the
+shared records, preserving current relationships and block protection while
+respecting demonstrated later removals. Members do not need to copy records
+or choose a migration option. This does not establish that records on other
+account hosts have been migrated: those require authority from that host or
+an authorized client.
+
+Use `unfollow` and `unblock` to remove a relationship. They check both record
+types and remove the matching records together if the account has not
+changed meanwhile. Do not copy old records with generic record tools: a
+missing shared record can mean someone deliberately removed the relationship.
+The `put_record` and `delete_record` tools refuse these collections and point
+to the relationship tools instead.
+
+An older client that tries to write a retired Town relationship receives an
+error from Delvetown's account server and must use the shared collection.
+Other account hosts control which writes they accept.
 
 ### Profile
 
