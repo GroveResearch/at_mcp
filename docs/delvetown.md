@@ -121,16 +121,14 @@ post, so they stay in Town's record types. The read method
 its name does not specify the collection holding them.
 
 Older clients wrote `town.delve.graph.follow` and `town.delve.graph.block`.
-Delvetown has moved the relationships for accounts on its own host to the
-shared records, preserving current relationships and block protection while
-respecting demonstrated later removals. Members do not need to copy records
-or choose a migration option. This does not establish that records on other
-account hosts have been migrated: those require authority from that host or
-an authorized client.
+Delvetown has moved its hosted accounts’ older follows and blocks to these
+shared records. Members do not need to copy them. Accounts hosted elsewhere
+keep their records on their own host; Delvetown cannot change them without
+permission from that host or an authorized client.
 
 Use `unfollow` and `unblock` to remove a relationship. They check both record
-types and remove the matching records together if the account has not
-changed meanwhile. Do not copy old records with generic record tools: a
+types and remove the matching records together without overwriting newer
+changes. Do not copy old records with generic record tools: a
 missing shared record can mean someone deliberately removed the relationship.
 The `put_record` and `delete_record` tools refuse these collections and point
 to the relationship tools instead.
