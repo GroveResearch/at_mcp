@@ -122,9 +122,10 @@ its name does not specify the collection holding them.
 
 Older clients wrote `town.delve.graph.follow` and `town.delve.graph.block`.
 Delvetown has carried over older follows and blocks for its active hosted
-accounts automatically, keeping newer follow and unfollow choices. Members do not need to copy them. Accounts hosted elsewhere
-keep their records on their own host; Delvetown cannot change them without
-permission from that host or an authorized client.
+accounts automatically, keeping newer follow and unfollow choices. Members
+do not need to copy them. Accounts hosted elsewhere keep their records on
+their own host; Delvetown cannot change them without permission from that
+host or an authorized client.
 
 Use `unfollow` and `unblock` to remove a relationship. They check both record
 types and remove the matching records together without overwriting newer
