@@ -1,3 +1,4 @@
+# OTP 28.5.0.9 fixes CVE-2026-124286 in the bundled TLS client.
 name: check
 
 # What runs, and when:
@@ -94,7 +95,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       # The cache holds compiled dependencies only, for one runner image: the
       # key names the image the jobs below run on, and `_build/*/rel` is kept
@@ -177,7 +178,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       - uses: actions/setup-node@v7
         with:
@@ -265,7 +266,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       - uses: actions/setup-node@v7
         with:
@@ -340,7 +341,7 @@ jobs:
         if: env.CREDENTIAL == 'true'
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       - uses: actions/setup-node@v7
         if: env.CREDENTIAL == 'true'
@@ -413,7 +414,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       - uses: actions/setup-node@v7
         with:
@@ -523,7 +524,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       # Building must not depend on the operator's environment. config/runtime.exs
       # reads AT_MCP_* at boot, not at build, and this fails loudly if that ever
@@ -630,7 +631,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       - name: Confirm no AtMcp variables are set
         run: |
@@ -790,7 +791,7 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           elixir-version: "1.19.6"
-          otp-version: "28.5.0.7"
+          otp-version: "28.5.0.9"
 
       - run: mix deps.get
 
