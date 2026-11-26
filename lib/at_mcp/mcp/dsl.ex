@@ -136,7 +136,17 @@ defmodule AtMcp.MCP.DSL do
       @impl true
       def handle_initialize(params, state) do
         {:ok, result, state} = super(params, state)
-        {:ok, Map.put(result, "serverInfo", __server_info__()), state}
+        result = Map.put(result, "serverInfo", __server_info__())
+
+        # A session on the default set is told what the full set adds, so a
+        # model that finds no tool for a task can tell its person why.
+        result =
+          case AtMcp.MCP.ToolSet.instructions(state) do
+            nil -> result
+            text -> Map.put(result, "instructions", text)
+          end
+
+        {:ok, result, state}
       end
 
       @doc false

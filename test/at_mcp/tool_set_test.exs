@@ -289,4 +289,27 @@ defmodule AtMcp.ToolSetTest do
     Application.put_env(:at_mcp, :network, :bluesky)
     refute "create_note" in names(listed(%{}))
   end
+
+  test "a session on the default set is told what the full set adds, where the town tools exist" do
+    init = fn state ->
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_initialize(
+          %{
+            "protocolVersion" => "2025-06-18",
+            "capabilities" => %{},
+            "clientInfo" => %{"name" => "t", "version" => "1"}
+          },
+          state
+        )
+
+      result["instructions"]
+    end
+
+    Application.put_env(:at_mcp, :network, :delve)
+    assert init.(%{}) =~ "need the full tool set (AT_MCP_TOOLS=full); ask the person running you"
+    assert init.(%{tools: "full"}) == nil
+
+    Application.put_env(:at_mcp, :network, :bluesky)
+    assert init.(%{}) == nil
+  end
 end

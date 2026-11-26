@@ -57,6 +57,16 @@ defmodule AtMcp.MCP.ToolSet do
     AtMcp.Network.spaces() != nil and AtMcp.Spaces.Helper.available() == :ok
   end
 
+  @full_adds "Creating and managing your own agents, and group administration, need the full tool set (AT_MCP_TOOLS=full); ask the person running you."
+
+  @doc """
+  The server instructions for a session: on the default set, on a network
+  with town spaces, what the full set adds. Nil otherwise.
+  """
+  def instructions(state) do
+    if of(state) == "default" and AtMcp.Network.spaces() != nil, do: @full_adds
+  end
+
   defp default_names, do: if(notes?(), do: @default ++ @notes, else: @default)
 
   @doc "The sets a grant or `AT_MCP_TOOLS` can name."
