@@ -291,9 +291,53 @@ defmodule AtMcp.Effects do
              ),
            {:ok, opts} <- page_options(opts) do
         with_session(effects, fn backend, session ->
-          backend.list_notifications(session, opts)
+          with {:ok, page} <- backend.list_notifications(session, opts),
+               do: {:ok, name_invite_groups(backend, session, page)}
         end)
       end
+    end
+  end
+
+  # A group's invite names the group as its author, from the AppView's view
+  # of the group's account, which may have no name or handle: the group host
+  # names it, as get_group_invites shows it. Without the group host the
+  # notification stays as the AppView gave it.
+  defp name_invite_groups(backend, session, %{items: items} = page) when is_list(items) do
+    dids =
+      for %{reason: "space-invite"} = item <- items,
+          did = invite_group_did(item),
+          uniq: true,
+          do: did
+
+    with [_ | _] <- dids,
+         %{} <- AtMcp.Network.spaces(),
+         {:ok, %{} = named} <- backend.spaces(session, :invite_groups, [dids]) do
+      %{
+        page
+        | items:
+            Enum.map(items, fn item ->
+              case {item[:reason], named[invite_group_did(item)]} do
+                {"space-invite", %{} = group} ->
+                  item
+                  |> Map.put(:author, group.handle || item[:author])
+                  |> Map.put(:display_name, group.display_name || item[:display_name])
+
+                _ ->
+                  item
+              end
+            end)
+      }
+    else
+      _ -> page
+    end
+  end
+
+  defp name_invite_groups(_backend, _session, page), do: page
+
+  defp invite_group_did(item) do
+    case String.split(item[:uri] || "", "/") do
+      ["at:space", _me, "org.atgrp.inbox", _skey, "did:" <> _ = group | _] -> group
+      _ -> item[:author_did]
     end
   end
 
@@ -901,6 +945,7 @@ defmodule AtMcp.Effects do
 
   # The `AtMcp.Spaces` operations that change nothing.
   @spaces_reads [
+    :invite_groups,
     :get_note,
     :list_notes,
     :list_group_invites,

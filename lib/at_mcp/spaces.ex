@@ -503,13 +503,65 @@ defmodule AtMcp.Spaces do
     handle = String.trim_leading(handle, "@")
 
     case AtMcp.ATProto.pds_get(session, "com.atproto.identity.resolveHandle", %{handle: handle}) do
-      {:ok, %{did: did}} -> {:ok, did}
-      {:ok, %{"did" => did}} -> {:ok, did}
-      _ -> invalid("group", "must be a group's DID or handle; #{handle} does not resolve")
+      {:ok, %{did: did}} ->
+        {:ok, did}
+
+      {:ok, %{"did" => did}} ->
+        {:ok, did}
+
+      _ ->
+        # A group's handle that does not resolve may still be the handle its
+        # invite to this account names, as get_group_invites shows it.
+        case invited_by_handle(session, String.downcase(handle)) do
+          {:ok, did} -> {:ok, did}
+          _ -> invalid("group", "must be a group's DID or handle; #{handle} does not resolve")
+        end
     end
   end
 
   defp group_arg(_session, _), do: invalid("group", "must be a group's DID or handle")
+
+  defp invited_by_handle(session, handle) do
+    with {:ok, body} <- group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
+      Enum.find_value(Map.get(body, "invites", []), :error, fn invite ->
+        group = invite["group"] || %{}
+
+        if is_binary(group["did"]) and is_binary(group["handle"]) and
+             String.downcase(group["handle"]) == handle,
+           do: {:ok, group["did"]}
+      end)
+    end
+  end
+
+  @doc """
+  The groups that invited this account, by DID, as the group host names them
+  (`handle`, `display_name`), for the groups among `dids`: what a
+  `space-invite` notification shows, where the AppView's view of the group's
+  account may have no name. A group no longer inviting it is looked up
+  itself, at most five of them.
+  """
+  def invite_groups(session, dids) when is_list(dids) do
+    named =
+      case group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
+        {:ok, body} ->
+          for %{"group" => %{"did" => did} = g} <- Map.get(body, "invites", []),
+              did in dids,
+              into: %{},
+              do: {did, %{handle: g["handle"], display_name: g["displayName"]}}
+
+        _ ->
+          %{}
+      end
+
+    rest =
+      for did <- dids |> Enum.uniq() |> Enum.reject(&Map.has_key?(named, &1)) |> Enum.take(5),
+          view = group_view(session, did),
+          view.handle || view.display_name,
+          into: %{},
+          do: {did, %{handle: view.handle, display_name: view.display_name}}
+
+    {:ok, Map.merge(named, rest)}
+  end
 
   def leave_group(session, group) do
     with {:ok, group} <- group_arg(session, group),

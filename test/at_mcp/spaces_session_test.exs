@@ -403,6 +403,19 @@ defmodule AtMcp.SpacesSessionTest do
       json(conn, %{redirectUrl: "http://127.0.0.1/callback?code=c&state=s&iss=x"})
     end
 
+    get("/xrpc/org.atgrp.internal.getActorInvites",
+      do:
+        json(conn, %{
+          invites: [
+            %{
+              group: %{did: "did:plc:group", handle: "g.groups.test", displayName: "G"},
+              message: "join us",
+              createdAt: "2026-11-26T00:00:00.000Z"
+            }
+          ]
+        })
+    )
+
     get("/xrpc/org.atgrp.internal.getActorGroups",
       do:
         json(conn, %{groups: [%{did: "did:plc:group", handle: "g.groups.test", displayName: "G"}]})
@@ -488,6 +501,49 @@ defmodule AtMcp.SpacesSessionTest do
 
       assert {:ok, %{groups: [group]}} = AtMcp.Effects.spaces(ctx.effects, :get_my_groups, [])
       assert group.did == "did:plc:group" and group.feeds == [feed]
+    end
+
+    test "a group's handle that does not resolve is found among the account's invites", ctx do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      # The stand-in PDS resolves no handle; the invite names this one.
+      assert {:ok, _} =
+               AtMcp.Effects.spaces(
+                 ctx.effects,
+                 :join_group,
+                 ["@G.groups.test"],
+                 :accept_group_invite
+               )
+
+      assert_received {:joined, %{"group" => "did:plc:group"}}
+
+      assert {:error, %AtMcp.Effects.Failure{} = failure} =
+               AtMcp.Effects.spaces(
+                 ctx.effects,
+                 :join_group,
+                 ["nobody.groups.test"],
+                 :accept_group_invite
+               )
+
+      assert inspect(failure) =~ "does not resolve"
+    end
+
+    test "an invite's group is named as the group host names it", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, named} =
+               AtMcp.Effects.spaces(ctx.effects, :invite_groups, [["did:plc:group"]])
+
+      assert named["did:plc:group"] == %{handle: "g.groups.test", display_name: "G"}
     end
 
     test "approves for the group the app asked for, by handle, or the only one offered", ctx do

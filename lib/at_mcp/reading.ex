@@ -1569,7 +1569,18 @@ defmodule AtMcp.Reading do
   # accept_group_invite takes, and says how to join.
   defp notification(%{"reason" => "space-invite"} = item, label) do
     group = invite_group(item)
-    named = if is_binary(item["author"]), do: who(item)
+    # `handle.invalid` is the AppView saying the group's handle didn't verify.
+    named =
+      cond do
+        is_binary(item["author"]) and item["author"] != "handle.invalid" ->
+          who(item)
+
+        is_binary(item["display_name"]) and item["display_name"] != "" ->
+          literal(one_line(item["display_name"]))
+
+        true ->
+          nil
+      end
 
     header =
       cat([

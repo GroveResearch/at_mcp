@@ -1062,6 +1062,18 @@ defmodule AtMcp.ReadingTest do
     text = AtMcp.Reading.notifications(%{"items" => [json(Summary.extract(:notification, bare))]})
     assert text =~ "invite to join the group did:plc:grp"
     assert text =~ "accept_group_invite (group: did:plc:grp)"
+
+    # An unverified handle is not shown as the group's name.
+    unverified =
+      Map.put(invite, "author", %{"did" => "did:plc:grp", "handle" => "handle.invalid"})
+
+    text =
+      AtMcp.Reading.notifications(%{
+        "items" => [json(Summary.extract(:notification, unverified))]
+      })
+
+    assert text =~ "invite to join the group did:plc:grp"
+    refute text =~ "handle.invalid"
   end
 
   test "get_post_images lists each image with its alt text and what became of it" do
