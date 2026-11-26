@@ -393,14 +393,14 @@ defmodule AtMcp.AccountSetupTest do
     } do
       {:ok, _} =
         AtMcp.AccountSetup.execute(
-          ["--file", path, "add", "resident", "--handle", "resident.test"],
+          ["--file", path, "add", "alice", "--handle", "alice.test"],
           password: fn -> "private-password" end,
-          login: fn handle, _, _ -> {:ok, %{did: "did:plc:resident", handle: handle}} end
+          login: fn handle, _, _ -> {:ok, %{did: "did:plc:alice", handle: handle}} end
         )
 
       assert {:ok, _} =
-               AtMcp.AccountSetup.execute(["--file", path, "key", "resident", "--key-file", key],
-                 key_login: key_login("did:plc:resident")
+               AtMcp.AccountSetup.execute(["--file", path, "key", "alice", "--key-file", key],
+                 key_login: key_login("did:plc:alice")
                )
 
       {:ok, [saved]} = AtMcp.AccountConfig.load(path)
