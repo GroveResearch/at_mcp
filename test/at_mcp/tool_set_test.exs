@@ -14,11 +14,12 @@ defmodule AtMcp.ToolSetTest do
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
   @default_bound 51_000
-  # With the five note tools, where an account can keep private notes
-  # (delve.town with the Spaces helper running): 53,573. Models given no
+  # With the five note tools and get_group_invites, where Spaces work
+  # (delve.town with the Spaces helper running): 54,013. Models given no
   # private place refused to write a private note publicly and had nowhere
-  # else to put it.
-  @default_with_notes_bound 54_000
+  # else to put it, and without the invites never learned a group asked
+  # them in.
+  @default_with_notes_bound 55_000
   # Every tool, for a client that asks for the full set: 111,442 on
   # Delvetown and 113,869 on Bluesky, with the 19 notes, group, principal
   # and identity tools (about 12,000), which are not in the default set.
@@ -249,7 +250,7 @@ defmodule AtMcp.ToolSetTest do
     assert {:ok, %{tools: "full"}} = AtMcp.Grants.request(token, path: path)
   end
 
-  test "where an account can keep private notes, the default set holds the note tools" do
+  test "where Spaces work, the default set holds the note tools and the group invites" do
     Application.put_env(:at_mcp, :network, :delve)
     refute AtMcp.MCP.ToolSet.notes?()
     refute "create_note" in names(listed(%{}))
@@ -276,6 +277,7 @@ defmodule AtMcp.ToolSetTest do
     assert AtMcp.MCP.ToolSet.notes?()
     tools = listed(%{})
     assert Enum.all?(AtMcp.MCP.ToolSet.notes(), &(&1 in names(tools)))
+    assert "get_group_invites" in names(tools)
     assert AtMcp.MCP.ToolSet.offers?(%{}, "create_note")
 
     size = String.length(Jason.encode!(%{tools: tools}))

@@ -108,7 +108,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `enroll_agent_key` | full |  | manage | Give one of this account's agents a new login key, replacing its old one: the way back for an agent that lost its key, or whose key may have leaked. |
 | `feed_feedback` | full |  | write | Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. |
 | `follow` | default |  | write | Follow an actor by handle or DID. |
-| `get_group_invites` | full |  | write | List the invites groups have sent this account, waiting to be accepted. |
+| `get_group_invites` | default with Spaces |  | write | List the invites groups have sent this account, waiting to be accepted. |
 | `hide_reply` | full |  | manage | Hide a reply in a thread this account started. |
 | `join_group` | full |  | write | Ask to join a group without an invite. |
 | `leave_group` | full |  | manage | Leave a group. |

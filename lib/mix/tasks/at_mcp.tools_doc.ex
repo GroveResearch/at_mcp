@@ -121,7 +121,7 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
   defp set(name) do
     cond do
       name in AtMcp.MCP.ToolSet.default() -> "default"
-      # In the default set where an account can keep notes (AtMcp.MCP.ToolSet.notes?/0).
+      # In the default set where Spaces work (AtMcp.MCP.ToolSet.notes?/0).
       name in AtMcp.MCP.ToolSet.notes() -> "default with Spaces"
       true -> "full"
     end

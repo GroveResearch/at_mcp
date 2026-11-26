@@ -37,18 +37,19 @@ defmodule AtMcp.MCP.ToolSet do
     get_record put_record delete_record
   )
 
-  # The personal notes, in the default set wherever an account can keep them:
-  # on a network with town spaces, with the Spaces helper running. Without
-  # them, an agent told to keep something private has nowhere to put it but
-  # its public repository.
-  @notes ~w(create_note get_note get_notes update_note delete_note)
+  # The personal notes, and the group invites waiting for the account, in the
+  # default set wherever Spaces work: on a network with town spaces, with the
+  # Spaces helper running. Without the notes, an agent told to keep something
+  # private has nowhere to put it but its public repository; without the
+  # invites, it never learns a group asked it in.
+  @notes ~w(create_note get_note get_notes update_note delete_note get_group_invites)
 
   @sets ["default", "full"]
 
   @doc "The tools the default set always offers."
   def default, do: @default
 
-  @doc "The note tools, which the default set offers where `notes?/0`."
+  @doc "The note tools and get_group_invites, which the default set offers where `notes?/0`."
   def notes, do: @notes
 
   @doc "Whether this installation's accounts can keep notes (town spaces, and the helper running)."
