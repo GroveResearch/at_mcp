@@ -4,7 +4,6 @@
 // one helper per installation, but several at_mcp processes (a service and a
 // stdio client, say) may share a state folder, and an OAuth refresh token is
 // good for one refresh: two refreshing at once would lose the session.
-import { createHash } from 'node:crypto'
 import { mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -20,9 +19,19 @@ function alive(pid: number) {
   }
 }
 
+/**
+ * The lock file's name for a lock name (`oauth:<request>`, `store:<file>`):
+ * the name with every character but letters, digits, `.`, `_` and `-`
+ * written as `_`, cut to 120 characters. Lock names are AtMcp's own and
+ * distinct within that length.
+ */
+export function lockFileName(name: string): string {
+  return name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120) + '.lock'
+}
+
 export async function withFileLock<T>(dir: string, name: string, fn: () => Promise<T>): Promise<T> {
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const path = join(dir, createHash('sha256').update(name).digest('hex').slice(0, 32) + '.lock')
+  const path = join(dir, lockFileName(name))
   const deadline = Date.now() + WAIT_MS
   for (;;) {
     try {

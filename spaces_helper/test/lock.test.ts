@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fork } from 'node:child_process'
-import { withFileLock } from '../src/lock.ts'
+import { lockFileName, withFileLock } from '../src/lock.ts'
 import { generateKey, keyProof, loadKey } from '../src/keys.ts'
 import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from 'jose'
 
@@ -38,9 +38,8 @@ test('two holders of one lock never overlap, across processes too', async () => 
 
 test('a lock left by a process that died is taken over', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'lock-'))
-  const { createHash } = await import('node:crypto')
   const name = 'oauth:x'
-  const file = join(dir, createHash('sha256').update(name).digest('hex').slice(0, 32) + '.lock')
+  const file = join(dir, lockFileName(name))
   await writeFile(file, JSON.stringify({ pid: 2 ** 22 + 12345, at: Date.now() }))
   assert.equal(await withFileLock(dir, name, async () => 'taken'), 'taken')
 })

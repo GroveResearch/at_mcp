@@ -94,7 +94,9 @@ export async function startMockPds(): Promise<MockPds> {
       if (url.pathname === '/oauth/revoke') return send(200, {})
       send(404, { error: 'NotFound' })
     } catch (err) {
-      send(500, { error: 'InternalServerError', message: String(err) })
+      // A fixed body: the error itself goes to this test's own log only.
+      if (process.env.MOCK_DEBUG) console.error('MOCK error', err)
+      send(500, { error: 'InternalServerError', message: 'the mock failed' })
     }
   })
 
