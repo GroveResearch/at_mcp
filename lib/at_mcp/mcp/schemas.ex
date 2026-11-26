@@ -1642,6 +1642,27 @@ defmodule AtMcp.MCP.Schemas do
   defp any_list, do: %{"type" => ["array", "null"]}
   defp nullable_boolean, do: %{"type" => ["boolean", "null"]}
 
+  defp group_schema,
+    do: %{
+      "type" => ["object", "null"],
+      "properties" => %{
+        "did" => nullable_string("The group's DID, which the group tools take"),
+        "handle" => nullable_string(),
+        "display_name" => nullable_string(),
+        "description" => nullable_string(),
+        "spaces" => any_list(),
+        "feeds" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" =>
+            "The group's feeds, at:space/ URIs: post there with post's space, read with get_space_feed"
+        }
+      }
+    }
+
+  defp spaces_schema(:groups),
+    do: object(%{"groups" => %{"type" => ["array", "null"], "items" => group_schema()}})
+
   defp spaces_schema(:note), do: object(note_properties())
 
   defp spaces_schema(:notes),
@@ -1680,7 +1701,8 @@ defmodule AtMcp.MCP.Schemas do
       object(%{
         "status" => nullable_string("admitted, or pending while the group decides"),
         "membership" => any_object(),
-        "request" => any_object()
+        "request" => any_object(),
+        "group" => group_schema()
       })
 
   defp spaces_schema(:left),

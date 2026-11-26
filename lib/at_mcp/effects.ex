@@ -904,6 +904,7 @@ defmodule AtMcp.Effects do
     :get_note,
     :list_notes,
     :list_group_invites,
+    :get_my_groups,
     :space_feed,
     :list_my_agents,
     :get_principals

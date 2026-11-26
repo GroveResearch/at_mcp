@@ -339,6 +339,38 @@ defmodule AtMcp.SpacesSessionTest do
       json(conn, %{redirectUrl: "http://127.0.0.1/callback?code=c&state=s&iss=x"})
     end
 
+    get("/xrpc/org.atgrp.internal.getActorGroups",
+      do:
+        json(conn, %{groups: [%{did: "did:plc:group", handle: "g.groups.test", displayName: "G"}]})
+    )
+
+    get "/xrpc/org.atgrp.internal.getGroup" do
+      json(conn, %{
+        group: %{
+          did: "did:plc:group",
+          handle: "g.groups.test",
+          displayName: "G",
+          description: "A group"
+        },
+        spaces: [
+          %{uri: "at:space/did:plc:group/org.atgrp.members/self", spaceType: "org.atgrp.members"},
+          %{
+            uri: "at:space/did:plc:group/town.delve.space.feed/general",
+            spaceType: "town.delve.space.feed"
+          }
+        ]
+      })
+    end
+
+    post "/xrpc/org.atgrp.requestJoin" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:joined, conn.body_params}
+      )
+
+      json(conn, %{status: "admitted", membership: %{uri: "at:space/x", cid: "c"}})
+    end
+
     post "/xrpc/org.atgrp.internal.declineAuthorization" do
       send(
         Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
@@ -362,6 +394,50 @@ defmodule AtMcp.SpacesSessionTest do
         Plug.Cowboy.shutdown(:spaces_group_host)
         Application.delete_env(:at_mcp, :group_host)
       end)
+    end
+
+    test "a group is reached by its handle, and joining it answers its feeds; get_my_groups lists them",
+         ctx do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      feed = "at:space/did:plc:group/town.delve.space.feed/general"
+
+      assert {:ok, joined} =
+               AtMcp.Effects.spaces(
+                 ctx.effects,
+                 :join_group,
+                 ["did:plc:group"],
+                 :accept_group_invite
+               )
+
+      assert joined["group"].feeds == [feed]
+      assert joined["group"].description == "A group"
+      assert_received {:joined, %{"group" => "did:plc:group"}}
+
+      assert {:ok, %{groups: [group]}} = AtMcp.Effects.spaces(ctx.effects, :get_my_groups, [])
+      assert group.did == "did:plc:group" and group.feeds == [feed]
+    end
+
+    test "approves for the group the app asked for, by handle, or the only one offered", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, %{group: "did:plc:group", approved: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, ["urn:req", nil, true])
+
+      assert {:ok, %{group: "did:plc:group"}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
+                 "urn:req",
+                 "@g.groups.test",
+                 true
+               ])
     end
 
     test "says which app gets what in which group, approves only a group the request offers, and turns an app away",

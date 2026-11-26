@@ -66,10 +66,7 @@ defmodule AtMcp.PublishingQuotaTest do
     "update_note" => %{"rkey" => "3k3333333333n", "text" => "changed"},
     "delete_note" => %{"rkey" => "3k3333333333n"},
     "get_group_invites" => %{},
-    "accept_group_invite" => %{
-      "group" => "did:plc:group",
-      "invite" => "at://did:plc:group/org.atgrp.invite/3k5"
-    },
+    "accept_group_invite" => %{"group" => "did:plc:group"},
     "join_group" => %{"group" => "did:plc:group"},
     "leave_group" => %{"group" => "did:plc:group"},
     "approve_group_app" => %{

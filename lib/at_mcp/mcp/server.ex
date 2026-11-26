@@ -3285,7 +3285,7 @@ defmodule AtMcp.MCP.Server do
   tool "accept_group_invite",
        write_description(
          :accept_group_invite,
-         "Accept a group's invite and join it. The group sees that you joined. Only on delve.town."
+         "Accept a group's invite and join it. The group sees that you joined. Returns the group with its spaces, and its feeds: post there with post's space, and read them with get_space_feed. Only on delve.town."
        ) do
     annotations(
       write_annotations(:accept_group_invite, %{
@@ -3297,19 +3297,14 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.spaces(:joined))
-    param(:group, :string, required: true, description: "The group's DID")
-
-    param(:invite, :string,
-      description:
-        "The invite's URI in your inbox, if get_group_invites gave one. The group host finds its own invite to you without it"
-    )
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
 
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(
           state.effects,
           :join_group,
-          [Map.fetch!(a, :group), a[:invite]],
+          [Map.fetch!(a, :group)],
           :accept_group_invite
         ),
         state
@@ -3320,7 +3315,7 @@ defmodule AtMcp.MCP.Server do
   tool "join_group",
        write_description(
          :join_group,
-         "Ask to join a group without an invite. An open group admits you at once; otherwise the request waits for its admins. Only on delve.town."
+         "Ask to join a group without an invite. An open group admits you at once, and the answer has its spaces and feeds; otherwise the request waits for its admins. Only on delve.town."
        ) do
     annotations(
       write_annotations(:join_group, %{
@@ -3332,7 +3327,7 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.spaces(:joined))
-    param(:group, :string, required: true, description: "The group's DID")
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
     param(:message, :string, description: "A message for the group with the request")
 
     run(fn a, state ->
@@ -3355,7 +3350,7 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.spaces(:left))
-    param(:group, :string, required: true, description: "The group's DID")
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
 
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
@@ -3386,7 +3381,10 @@ defmodule AtMcp.MCP.Server do
       description: "The request_uri in the app's sign-in link"
     )
 
-    param(:group, :string, required: true, description: "The group's DID")
+    param(:group, :string,
+      description:
+        "The group: its DID, or its handle. Leave it out for the group the app asked to sign in as, or the only one it offers"
+    )
 
     param(:deny, :boolean,
       description:
@@ -3397,11 +3395,21 @@ defmodule AtMcp.MCP.Server do
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :approve_group_app, [
           Map.fetch!(a, :request_uri),
-          Map.fetch!(a, :group),
+          a[:group],
           a[:deny] != true
         ]),
         state
       )
+    end)
+  end
+
+  tool "get_my_groups",
+       "List the groups this account is in: each one's DID, handle, name and description, its spaces, and the feeds among them, which post's space and get_space_feed take. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:groups))
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(AtMcp.Effects.spaces(state.effects, :get_my_groups, []), state)
     end)
   end
 

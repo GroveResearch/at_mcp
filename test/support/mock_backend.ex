@@ -340,6 +340,20 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:join_group, _), do: %{status: "admitted", membership: %{}, request: nil}
   defp spaces_summary(:leave_group, [group]), do: %{left: true, group: group}
 
+  defp spaces_summary(:get_my_groups, _),
+    do: %{
+      groups: [
+        %{
+          did: "did:plc:group",
+          handle: "g.groups.test",
+          display_name: "G",
+          description: nil,
+          spaces: [],
+          feeds: ["at:space/did:plc:group/town.delve.space.feed/general"]
+        }
+      ]
+    }
+
   defp spaces_summary(:space_feed, _),
     do: %{count: 0, items: [], cursor: nil}
 

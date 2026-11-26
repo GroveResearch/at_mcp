@@ -346,8 +346,20 @@ defmodule AtMcp.Spaces do
   def list_group_invites(session) do
     with {:ok, inbox, notifications, notice} <- ensure_inbox(session),
          {:ok, body} <- group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
+      invites =
+        for invite <- Map.get(body, "invites", []) do
+          did = get_in(invite, ["group", "did"])
+          view = if did, do: group_view(session, did, invite["group"] || %{}), else: %{}
+
+          %{
+            group: view,
+            message: invite["message"],
+            created_at: invite["createdAt"]
+          }
+        end
+
       result = %{
-        invites: Map.get(body, "invites", []),
+        invites: invites,
         inbox: inbox,
         notifications: notifications
       }
@@ -390,17 +402,85 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  @doc """
+  Joins a group, by its invite or by asking. Once admitted, answers the group
+  as `get_my_groups` does: its spaces, and its feeds to post in.
+  """
   def join_group(session, group, invite \\ nil, message \\ nil) do
-    with {:ok, group} <- did_arg(group, "group") do
+    with {:ok, group} <- group_arg(session, group) do
       body =
         %{"group" => group} |> put_present("invite", invite) |> put_present("message", message)
 
-      group_host_post(session, "org.atgrp.requestJoin", body)
+      with {:ok, joined} <- group_host_post(session, "org.atgrp.requestJoin", body) do
+        case joined["status"] do
+          "admitted" -> {:ok, Map.put(joined, "group", group_view(session, group))}
+          _ -> {:ok, joined}
+        end
+      end
     end
   end
 
+  @doc """
+  The groups this account is in on the group host, each with its DID,
+  handle, name, description, its spaces and the feeds among them.
+  """
+  def get_my_groups(session) do
+    with {:ok, body} <-
+           group_host_get(session, "org.atgrp.internal.getActorGroups", %{
+             "actor" => Session.did(session),
+             "limit" => 50
+           }) do
+      {:ok, %{groups: Enum.map(body["groups"] || [], &group_view(session, &1["did"], &1))}}
+    end
+  end
+
+  # A group as the host shows it to this account (getGroup): who it is,
+  # and, once this account is a member, its spaces.
+  defp group_view(session, did, basic \\ %{}) do
+    detail =
+      case group_host_get(session, "org.atgrp.internal.getGroup", %{"group" => did}) do
+        {:ok, body} -> body
+        _ -> %{}
+      end
+
+    group = Map.merge(basic, detail["group"] || %{})
+    spaces = for sp <- detail["spaces"] || [], do: %{uri: sp["uri"], type: sp["spaceType"]}
+    feed_type = names_feed()
+
+    %{
+      did: did,
+      handle: group["handle"],
+      display_name: group["displayName"],
+      description: group["description"],
+      spaces: spaces,
+      feeds: for(%{type: ^feed_type, uri: uri} <- spaces, do: uri)
+    }
+  end
+
+  defp names_feed do
+    case AtMcp.Network.spaces() do
+      %{feed: feed} -> feed
+      _ -> nil
+    end
+  end
+
+  # A group by DID, or by its handle on the group host.
+  defp group_arg(_session, "did:" <> _ = did), do: {:ok, did}
+
+  defp group_arg(session, handle) when is_binary(handle) and handle != "" do
+    handle = String.trim_leading(handle, "@")
+
+    case AtMcp.ATProto.pds_get(session, "com.atproto.identity.resolveHandle", %{handle: handle}) do
+      {:ok, %{did: did}} -> {:ok, did}
+      {:ok, %{"did" => did}} -> {:ok, did}
+      _ -> invalid("group", "must be a group's DID or handle; #{handle} does not resolve")
+    end
+  end
+
+  defp group_arg(_session, _), do: invalid("group", "must be a group's DID or handle")
+
   def leave_group(session, group) do
-    with {:ok, group} <- did_arg(group, "group"),
+    with {:ok, group} <- group_arg(session, group),
          {:ok, _} <- group_host_post(session, "org.atgrp.leaveGroup", %{"group" => group}) do
       {:ok, %{left: true, group: group}}
     end
@@ -759,12 +839,12 @@ defmodule AtMcp.Spaces do
   """
   def approve_group_app(session, request_uri, group, approve?) do
     with :ok <- text_arg(request_uri, "request_uri"),
-         {:ok, group} <- did_arg(group, "group"),
          {:ok, preview} <-
            group_host_get(session, "org.atgrp.internal.getAuthorization", %{
              "requestUri" => request_uri
            }),
          {:ok, offered} <- offered_group(preview, group) do
+      group = offered["did"]
       client = preview["client"] || %{}
 
       facts = %{
@@ -807,14 +887,41 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  # The group the approval is for: the one named (DID or handle), else the
+  # one the app asked for (its login hint), else the only one offered. Only a
+  # group the request offers this account is ever approved.
   defp offered_group(preview, group) do
-    case Enum.find(preview["groups"] || [], &(&1["did"] == group)) do
+    groups = preview["groups"] || []
+    wanted = group || preview["loginHint"]
+
+    found =
+      cond do
+        is_binary(wanted) ->
+          name = wanted |> String.trim_leading("@") |> String.downcase()
+          Enum.find(groups, &(&1["did"] == wanted or String.downcase(&1["handle"] || "") == name))
+
+        length(groups) == 1 ->
+          hd(groups)
+
+        true ->
+          :ambiguous
+      end
+
+    case found do
+      :ambiguous ->
+        {:error,
+         Failure.new(:refused,
+           detail: :group_needed,
+           message:
+             "The app's request can sign in as any of #{Enum.map_join(groups, ", ", &"#{&1["handle"]} (#{&1["did"]})")}: give group; nothing was approved."
+         )}
+
       nil ->
         {:error,
          Failure.new(:refused,
            detail: :group_not_offered,
            message:
-             "The app's request does not offer #{group} to this account (it offers #{Enum.map_join(preview["groups"] || [], ", ", & &1["did"])}); nothing was approved."
+             "The app's request does not offer #{wanted} to this account (it offers #{Enum.map_join(groups, ", ", &"#{&1["handle"]} (#{&1["did"]})")}); nothing was approved."
          )}
 
       offered ->

@@ -332,7 +332,9 @@ defmodule AtMcp.ReadPositionTest do
     second = notifications.()
     assert second =~ "0 notifications. Seen in the app up to "
     assert second =~ " 0 new since this account last read here at "
-    refute second =~ "update_seen"
+    # The app is seen up to 10:02 and this account read here to 10:05, so the
+    # app still counts three unread: the page says where they are.
+    assert second =~ "read without since to see them again, and update_seen marks them seen"
   end
 
   test "a feed with no position held starts from its newest item, as it has no seen marker",
@@ -450,5 +452,33 @@ defmodule AtMcp.ReadPositionTest do
     list = ReadPositions.key(:list_feed, "at://l")
     assert {:ok, %{at: nil, pending: nil}} = ReadPositions.get(did, list)
     assert ReadPositions.key(:author, "Alice.Test") == ReadPositions.key(:author, "alice.test")
+  end
+
+  test "nothing new since the last read, though the app still counts some unread, says where they are",
+       ctx do
+    read = fn ->
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_call_tool(
+          "get_notifications",
+          %{"since" => "last_read"},
+          Map.delete(ctx.state, :format)
+        )
+
+      hd(result.content).text
+    end
+
+    # Never marked seen in the app; one mention, which a read here returns.
+    Application.put_env(:at_mcp, :read_position_test_seen_at, nil)
+
+    Application.put_env(:at_mcp, :read_position_test_notifications, [
+      reply(1, "2026-10-29T10:01:00.000Z", "2026-10-29T10:01:00.000Z")
+    ])
+
+    assert read.() =~ uri(1)
+
+    # The next read finds nothing new here, while the app still counts it.
+    second = read.()
+    assert second =~ " 0 new since this account last read here at "
+    assert second =~ "read without since to see them again, and update_seen marks them seen"
   end
 end

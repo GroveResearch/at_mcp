@@ -2425,6 +2425,17 @@ defmodule AtMcp.Reading do
 
   # A last_read read moves only at_mcp's position; the app's seen marker stays
   # behind until update_seen. Each item says whether the app counts it read.
+  # Nothing new here, though the app may still count as unread what this
+  # account read here before without marking it seen: say where to find it.
+  defp still_unread(%{"since_asked" => "last_read", "items" => [], "since" => at} = page)
+       when is_binary(at) do
+    seen = page["seen_at"]
+
+    if not is_binary(seen) or AtMcp.ReadPositions.later?(at, seen) do
+      ~L" Notifications this account read here before may still be unread in the app, which counts from where it last marked them seen; read without since to see them again, and update_seen marks them seen."
+    end
+  end
+
   defp still_unread(%{"since_asked" => "last_read", "items" => items}) when is_list(items) do
     case Enum.count(items, &(&1["is_read"] == false)) do
       0 ->

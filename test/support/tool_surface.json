@@ -3,8 +3,7 @@
   "tools": {
     "accept_group_invite": {
       "arguments": {
-        "group": "string",
-        "invite": "string"
+        "group": "string"
       },
       "required": [
         "group"
@@ -27,7 +26,6 @@
         "request_uri": "string"
       },
       "required": [
-        "group",
         "request_uri"
       ]
     },
@@ -409,6 +407,12 @@
       "required": []
     },
     "get_my_agents": {
+      "arguments": {
+        "format": "string"
+      },
+      "required": []
+    },
+    "get_my_groups": {
       "arguments": {
         "format": "string"
       },
