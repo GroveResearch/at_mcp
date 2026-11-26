@@ -90,6 +90,9 @@ defmodule AtMcp.Spaces.Login do
     end
   end
 
+  @doc "Whether the account `did` has a login key AtMcp can log it in with."
+  def key?(did), do: relogin_for(did) != nil
+
   @doc "Whether `session` is an OAuth session at or near its expiry."
   def expiring?(%Session{expires_at: at}) when is_integer(at),
     do: System.system_time(:second) >= at - @margin_seconds

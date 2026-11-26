@@ -90,9 +90,10 @@ if config_env() != :test do
     {"AT_MCP_GROUP_HOST", url, nil},
     {"AT_MCP_KEYS_DIR", text, nil},
     {"AT_MCP_SPACES_ALLOW_HTTP", flag, false},
-    # Whether a new inbox gets the town AppView as a read-only member, so
-    # invites reach the notification list (AtMcp.Spaces.inbox_readers/0).
-    {"AT_MCP_TOWN_INBOX_READER", flag, true},
+    # Whether a new inbox gets the town AppView as a standing read-only
+    # member (AtMcp.Spaces.inbox_readers/0). Off, AtMcp hands the AppView
+    # tokens for each inbox while it runs (AtMcp.Spaces.InboxTokens).
+    {"AT_MCP_TOWN_INBOX_READER", flag, false},
     {"AT_MCP_DELIVERY_URL", url, nil},
     {"AT_MCP_DELIVERY_TOKEN", text, nil},
     {"AT_MCP_DELIVERY_TOKEN_FILE", text, nil},

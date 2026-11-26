@@ -395,7 +395,11 @@ defmodule AtMcp.ATProto do
   # The town AppView's: asks it to read a space (an inbox) so its activity
   # reaches the notification list.
   def register_space(session, params),
-    do: write(session, "notification.registerSpace", params, space: {:required, :string})
+    do:
+      write(session, "notification.registerSpace", params,
+        space: {:required, :string},
+        delegationToken: :string
+      )
 
   # --- graph writes that are methods rather than records ---
 

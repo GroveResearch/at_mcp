@@ -92,7 +92,9 @@ defmodule AtMcp.Application do
         # N identities (Effects + Listen + optional MCP) — never communal login.
         {AtMcp.Identities, []},
         {Task.Supervisor, name: AtMcp.Accounts.TaskSupervisor},
-        {AtMcp.Accounts, []}
+        {AtMcp.Accounts, []},
+        # The town AppView's inbox tokens, while the accounts run.
+        {AtMcp.Spaces.InboxTokens, []}
       ] ++
         mcp_children() ++ control_children(Application.get_env(:at_mcp, :control_port))
 

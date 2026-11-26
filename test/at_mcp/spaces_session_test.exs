@@ -264,6 +264,57 @@ defmodule AtMcp.SpacesSessionTest do
     end
   end
 
+  describe "an inbox without a standing reader" do
+    setup do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+    end
+
+    test "an inbox's token is handed to the town AppView, and no inbox means nothing is sent",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      # No inbox yet: nothing to vouch for, and nothing is made.
+      assert {:error, %AtMcp.Effects.Failure{detail: "SpaceNotFound"}} =
+               AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
+
+      refute_received {:request, :post, _, _, _}
+
+      session =
+        AtMcp.Spaces.Login.session(
+          elem(AtMcp.Spaces.Login.credentials("did:plc:oauthagent"), 1),
+          "agent.test"
+        )
+
+      # The inbox, with no reader: no notice, and nothing registered.
+      assert {:ok, space, "off", nil} = AtMcp.Spaces.ensure_inbox(session)
+
+      assert {:ok, %{status: "registered", space: ^space}} =
+               AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
+
+      assert_receive {:request, :post, url, _, _}, 5_000
+      assert url =~ "town.delve.notification.registerSpace"
+
+      asked = calls(ctx.log) |> Enum.map(& &1["method"])
+      assert "space.delegationToken" in asked
+    end
+
+    test "a token goes over once per AppView renewal window, and no more often" do
+      # The town AppView holds a space credential 600 s, renews it in the
+      # last 120 s, at most 5 s after a token comes, and takes a client's
+      # token only while it is under 50 s old.
+      every = AtMcp.Spaces.InboxTokens.every_ms()
+      assert every + 5_000 <= 120_000
+      assert every > 50_000
+    end
+  end
+
   describe "an inbox the town AppView reads" do
     @describetag inbox_readers: ["did:web:api.delve.town"]
 

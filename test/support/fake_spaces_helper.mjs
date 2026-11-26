@@ -38,8 +38,13 @@ const methods = {
   },
   'oauth.login': () => ({ did, scope: 'atproto', expiresAt: null }),
   'oauth.status': () => ({ did, held: true }),
-  'space.get': () => {
+  'space.get': (p) => {
+    if (spaces.has(p.space)) return { space: p.space, policy: {} }
     throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
+  },
+  'space.delegationToken': (p) => {
+    if (!spaces.has(p.space)) throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
+    return { space: p.space, token: `dtok-${Date.now()}` }
   },
   // A personal space that does not exist until space.create makes it.
   'space.create': (p) => {
@@ -76,7 +81,10 @@ const methods = {
     return { didKey: `did:key:zDnaeFake${Buffer.from(p.keyFile).toString('hex').slice(-12)}`, jkt: 'jkt' }
   },
   'key.prove': (p) => ({ proof: 'proof:' + JSON.stringify({ iss: p.iss, sub: p.sub, aud: p.aud, lxm: p.lxm }) }),
-  'inbox.ensure': (p) => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders, added: inboxReaders }),
+  'inbox.ensure': (p) => {
+    spaces.add(`at:space/${did}/org.atgrp.inbox/self`)
+    return { space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders, added: inboxReaders }
+  },
   'init': (p) => {
     inboxReaders = p.inboxReaders ?? []
     return { protocol: 1, version: 'fake' }

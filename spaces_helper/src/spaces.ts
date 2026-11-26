@@ -5,6 +5,7 @@
 // requests onto it and answers JSON at_mcp can read.
 import { Client, lexToJson, jsonToLex, type LexValue } from '@atproto/lex'
 import {
+  lexicons,
   MemberspacePolicyManager,
   SpaceClient,
   SpaceManager,
@@ -154,6 +155,18 @@ export class Spaces {
       return { space: uri, created, readers, added: missing }
     }
     return { space: uri, created, readers, added: [] }
+  }
+
+  /**
+   * A delegation token for `space` from the account's own PDS: single use,
+   * good for 60 seconds, to hand to a service that reads the space for the
+   * account (the town AppView, through registerSpace).
+   */
+  async delegationToken(did: string, space: SpaceArg) {
+    const client = await this.client(did)
+    const uri = typeof space === 'string' ? space : `at:space/${space.authority ?? did}/${space.type}/${space.skey ?? 'self'}`
+    const out = (await client.call(lexicons.com.atproto.space.getDelegationToken as never, { space: uri } as never)) as { token: string }
+    return { space: uri, token: out.token }
   }
 
   async list(did: string, { type, authority, cursor, limit }: { type?: string; authority?: string; cursor?: string; limit?: number } = {}) {

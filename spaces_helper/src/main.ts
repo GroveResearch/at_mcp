@@ -110,6 +110,7 @@ export class Helper {
     'space.members.list': async (p) => this.#s.members(p.did, p.space, 'list'),
     'space.pull': async (p) => this.#s.pull(p.did, p.space, p.repo),
     'inbox.ensure': async (p) => this.#s.ensureInbox(p.did),
+    'space.delegationToken': async (p) => this.#s.delegationToken(p.did, p.space),
   }
 
   async handle(line: string): Promise<string | null> {

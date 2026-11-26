@@ -73,7 +73,7 @@ defmodule AtMcp.Spaces do
           "transition:generic",
           "space:#{personal}?collection=*&manage=create",
           "space:#{feed}?authority=*",
-          "space:org.atgrp.inbox?action=read_self&manage=create&manage=update"
+          inbox_scope()
         ]
 
         rpc =
@@ -90,6 +90,15 @@ defmodule AtMcp.Spaces do
       nil ->
         "atproto transition:generic"
     end
+  end
+
+  # The inbox: making it, and reading it, which a delegation token for it
+  # needs (`vouch_inbox/1`); adding the AppView to its members, only when
+  # the installation does (`inbox_readers/0`).
+  defp inbox_scope do
+    if Application.get_env(:at_mcp, :town_inbox_reader, false),
+      do: "space:org.atgrp.inbox?action=read&manage=create&manage=update",
+      else: "space:org.atgrp.inbox?action=read&manage=create"
   end
 
   # The DID of the PDS at `service` (its describeServer), cached. With no
@@ -126,12 +135,13 @@ defmodule AtMcp.Spaces do
   @doc """
   The accounts added to every new inbox as read-only members: the town
   AppView's own DID, so it can raise notifications of invites, on the network
-  that has town spaces, unless `AT_MCP_TOWN_INBOX_READER=false`. Off, an inbox
-  has no members, as the group host's design has it, and invites are seen
-  with `get_group_invites` only. A reader added can be removed again.
+  that has town spaces, and only with `AT_MCP_TOWN_INBOX_READER=true`. Off,
+  the default, an inbox has no members, as the group host's design has it,
+  and the AppView reads it only with the tokens AtMcp hands it while it runs
+  (`AtMcp.Spaces.InboxTokens`). A reader added can be removed again.
   """
   def inbox_readers do
-    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, true) do
+    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, false) do
       [AtMcp.Network.appview_service() |> String.split("#") |> hd()]
     else
       []
@@ -390,6 +400,28 @@ defmodule AtMcp.Spaces do
         end
 
       {:ok, space, notifications, notice}
+    end
+  end
+
+  @doc """
+  Hands the town AppView a fresh delegation token for this account's inbox
+  (`registerSpace` with `delegationToken`), so it can read the inbox and
+  raise its invites as notifications without being a member of it. A token
+  lasts 60 seconds and is spent once; `AtMcp.Spaces.InboxTokens` hands one
+  over as often as the AppView needs. Only for an inbox that exists: making
+  one is `get_group_invites`'.
+  """
+  def vouch_inbox(session) do
+    space = "at:space/#{Session.did(session)}/org.atgrp.inbox/self"
+
+    with {:ok, _} <- helper(session, "space.get", %{space: space}),
+         {:ok, %{"token" => token}} <- helper(session, "space.delegationToken", %{space: space}) do
+      case AtMcp.ATProto.register_space(session, %{space: space, delegationToken: token}) do
+        {:ok, %{status: status}} -> {:ok, %{space: space, status: status}}
+        {:ok, %{"status" => status}} -> {:ok, %{space: space, status: status}}
+        {:ok, _} -> {:ok, %{space: space, status: "registered"}}
+        {:error, reason} -> {:error, to_failure(reason)}
+      end
     end
   end
 
