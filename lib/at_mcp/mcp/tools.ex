@@ -1412,9 +1412,21 @@ defmodule AtMcp.MCP.Tools do
       quota ->
         {:ok,
          status
-         |> Map.put(:write_quota, quota_view(quota))}
+         |> Map.put(:write_quota, quota_view(quota))
+         |> logged_out()}
     end
   end
+
+  # Said plainly when the account is logged out, beside logged_in: false.
+  defp logged_out(%{logged_in: false} = status),
+    do:
+      Map.put(
+        status,
+        :logged_out,
+        "This account is logged out. The next call that needs it logs it in again; if that fails, its operator checks it with at_mcp-accounts status."
+      )
+
+  defp logged_out(status), do: status
 
   # The tool surface reports one time format. `AtMcp.WriteQuota` keeps unix
   # seconds for embedding hosts and its own ledger.

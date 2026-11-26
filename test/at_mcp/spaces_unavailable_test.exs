@@ -94,4 +94,32 @@ defmodule AtMcp.SpacesUnavailableTest do
     Application.put_env(:at_mcp, :network, :bluesky)
     assert AtMcp.Spaces.inbox_readers() == []
   end
+
+  test "identity_status says plainly when the account is logged out" do
+    {:ok, effects} =
+      AtMcp.Test.QuotaFixture.start_effects(
+        backend: AtMcp.Effects.ProtoRune,
+        handle: "out.test",
+        password: "p",
+        logged_in: false
+      )
+
+    {:ok, result, _} =
+      AtMcp.MCP.Server.handle_call_tool("identity_status", %{}, %{effects: effects})
+
+    status = Jason.decode!(Jason.encode!(result.structuredContent))
+    assert status["logged_in"] == false
+    assert status["logged_out"] =~ "This account is logged out"
+
+    {:ok, logged_in} =
+      AtMcp.Test.QuotaFixture.start_effects(
+        backend: AtMcp.Test.MockBackend,
+        backend_state: %{did: "did:plc:in", handle: "in.test"}
+      )
+
+    {:ok, result, _} =
+      AtMcp.MCP.Server.handle_call_tool("identity_status", %{}, %{effects: logged_in})
+
+    refute Map.has_key?(Jason.decode!(Jason.encode!(result.structuredContent)), "logged_out")
+  end
 end

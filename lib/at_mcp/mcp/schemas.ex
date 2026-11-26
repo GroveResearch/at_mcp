@@ -1484,6 +1484,8 @@ defmodule AtMcp.MCP.Schemas do
   defp identity_status_schema do
     object(%{
       "logged_in" => %{"type" => "boolean"},
+      "logged_out" =>
+        nullable_string("When the account is logged out: that it is, and what happens next"),
       "did" => nullable_string("Account DID"),
       "handle" => nullable_string("Account handle"),
       "login_count" => %{"type" => "integer"},
