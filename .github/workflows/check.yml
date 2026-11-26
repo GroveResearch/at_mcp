@@ -112,6 +112,13 @@ jobs:
           restore-keys: test-${{ runner.os }}-ubuntu-22.04-otp28-elixir1.19-
 
       - run: mix deps.get
+      # The Spaces helper, a Node program the release ships built
+      # (spaces_helper/, decisions.md "Spaces"): its type check and tests,
+      # then the bundle in priv/spaces_helper/ that `mix release` copies.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: scripts/build_spaces_helper.sh
 
       # AtMcp itself is always compiled whole, so `--warnings-as-errors` sees
       # every file and the native lock is built from this checkout.
@@ -538,6 +545,13 @@ jobs:
           fi
 
       - run: mix deps.get
+      # The Spaces helper, a Node program the release ships built
+      # (spaces_helper/, decisions.md "Spaces"): its type check and tests,
+      # then the bundle in priv/spaces_helper/ that `mix release` copies.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: scripts/build_spaces_helper.sh
 
       - run: mix release --overwrite
 

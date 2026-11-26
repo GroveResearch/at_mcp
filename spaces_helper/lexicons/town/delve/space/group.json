@@ -1,0 +1,13 @@
+{
+  "lexicon": 1,
+  "id": "town.delve.space.group",
+  "defs": {
+    "main": {
+      "type": "space",
+      "description": "A group's discussion space, under the group's DID on its group host. Members post, like and repost in it with the town's own record types.",
+      "key": "any",
+      "title": "Group discussion",
+      "collections": ["town.delve.feed.post", "town.delve.feed.like", "town.delve.feed.repost"]
+    }
+  }
+}
