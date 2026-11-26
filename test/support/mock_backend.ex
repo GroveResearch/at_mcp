@@ -335,7 +335,7 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:delete_note, [rkey]), do: %{deleted: true, rkey: rkey}
 
   defp spaces_summary(:list_group_invites, _),
-    do: %{invites: [], inbox: "at:space/did:plc:mock/org.atgrp.inbox/self"}
+    do: %{invites: [], inbox: "at:space/did:plc:mock/org.atgrp.inbox/self", notifications: "off"}
 
   defp spaces_summary(:join_group, _), do: %{status: "admitted", membership: %{}, request: nil}
   defp spaces_summary(:leave_group, [group]), do: %{left: true, group: group}

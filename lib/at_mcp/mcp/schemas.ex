@@ -1663,7 +1663,12 @@ defmodule AtMcp.MCP.Schemas do
     do:
       object(%{
         "invites" => any_list(),
-        "inbox" => nullable_string("This account's inbox space, where groups write their invites")
+        "inbox" =>
+          nullable_string("This account's inbox space, where groups write their invites"),
+        "notifications" =>
+          nullable_string(
+            "Whether the town AppView raises this inbox's invites in get_notifications (registered), or why not; off when this installation does not add it"
+          )
       })
 
   defp spaces_schema(:joined),

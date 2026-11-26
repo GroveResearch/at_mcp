@@ -15,6 +15,7 @@ let n = 1
 let issuedTtl = Number(process.env.FAKE_FIRST_TTL ?? 10)
 const did = process.env.FAKE_DID ?? 'did:plc:oauthagent'
 const spaces = new Set()
+let inboxReaders = []
 
 const creds = () => ({
   did,
@@ -27,7 +28,6 @@ const creds = () => ({
 })
 
 const methods = {
-  init: () => ({ protocol: 1, version: 'fake' }),
   'oauth.credentials': (p) => {
     if (p.refresh) {
       n++
@@ -52,7 +52,11 @@ const methods = {
     }
     return { uri: `${space}/${did}/${p.collection}/3kfake`, cid: 'bafyfake' }
   },
-  'inbox.ensure': () => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: [] }),
+  'inbox.ensure': (p) => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders }),
+  'init': (p) => {
+    inboxReaders = p.inboxReaders ?? []
+    return { protocol: 1, version: 'fake' }
+  },
 }
 
 const rl = createInterface({ input: process.stdin })

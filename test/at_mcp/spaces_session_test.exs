@@ -30,12 +30,17 @@ defmodule AtMcp.SpacesSessionTest do
            }}
 
         _sent ->
-          {:ok, %{status: 200, headers: [], body: Jason.encode!(%{count: 3})}}
+          body =
+            if String.ends_with?(url, ".notification.registerSpace"),
+              do: %{status: "registered"},
+              else: %{count: 3}
+
+          {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
       end
     end
   end
 
-  setup do
+  setup ctx do
     if is_nil(System.find_executable("node")), do: raise("these tests need node on the path")
 
     log = Path.join(System.tmp_dir!(), "fake-helper-#{System.unique_integer([:positive])}.log")
@@ -53,6 +58,7 @@ defmodule AtMcp.SpacesSessionTest do
       AtMcp.Spaces.Helper.start_link(
         script: @fake,
         enabled: true,
+        inbox_readers: Map.get(ctx, :inbox_readers, []),
         state_dir:
           Path.join(System.tmp_dir!(), "fake-helper-state-#{System.unique_integer([:positive])}")
       )
@@ -191,6 +197,41 @@ defmodule AtMcp.SpacesSessionTest do
       assert write["params"]["collection"] == "town.delve.feed.post"
       assert write["params"]["record"]["text"] == "hello group"
       assert AtMcp.Effects.quota_status(ctx.effects).used == 1
+    end
+  end
+
+  describe "an inbox the town AppView reads" do
+    @describetag inbox_readers: ["did:web:api.delve.town"]
+
+    setup do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+    end
+
+    test "is registered with the AppView, so its invites reach the notifications", ctx do
+      Application.put_env(:at_mcp, :group_host, "http://group-host.invalid")
+      on_exit(fn -> Application.delete_env(:at_mcp, :group_host) end)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      # The group host isn't there, so the call fails after the inbox step.
+      _ = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
+
+      assert_receive {:request, :post, url, "DPoP tok-" <> _, _}, 5_000
+      assert url =~ "town.delve.notification.registerSpace"
+
+      session =
+        AtMcp.Spaces.Login.session(
+          elem(AtMcp.Spaces.Login.credentials("did:plc:oauthagent"), 1),
+          "agent.test"
+        )
+
+      assert {:ok, _space, "registered"} = AtMcp.Spaces.ensure_inbox(session)
     end
   end
 end

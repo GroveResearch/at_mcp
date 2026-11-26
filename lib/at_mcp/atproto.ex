@@ -373,6 +373,11 @@ defmodule AtMcp.ATProto do
   def update_seen(session, params),
     do: write(session, "notification.updateSeen", params, seen_at: {:required, :string})
 
+  # The town AppView's: asks it to read a space (an inbox) so its activity
+  # reaches the notification list.
+  def register_space(session, params),
+    do: write(session, "notification.registerSpace", params, space: {:required, :string})
+
   # --- graph writes that are methods rather than records ---
 
   # A mute is not a record in the repository: it is server-side state on the

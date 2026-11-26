@@ -271,15 +271,38 @@ defmodule AtMcp.Spaces do
   (with the town AppView as a read-only member, to raise notifications).
   """
   def list_group_invites(session) do
-    with {:ok, inbox} <- ensure_inbox(session),
+    with {:ok, inbox, notifications} <- ensure_inbox(session),
          {:ok, body} <- group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
-      {:ok, %{invites: Map.get(body, "invites", []), inbox: inbox}}
+      {:ok, %{invites: Map.get(body, "invites", []), inbox: inbox, notifications: notifications}}
     end
   end
 
-  @doc "The account's inbox (`org.atgrp.inbox`, key `self`), made if missing."
+  @doc """
+  The account's inbox (`org.atgrp.inbox`, key `self`), made if missing, and
+  whether the town AppView raises its invites as notifications: when the
+  inbox lists the AppView as a reader (`inbox_readers/0`), AtMcp asks the
+  AppView to read it (`registerSpace`, which needs no delegation token
+  then). A refused registration leaves the inbox as it is, and says so.
+  """
   def ensure_inbox(session) do
-    with {:ok, %{"space" => space}} <- helper(session, "inbox.ensure", %{}), do: {:ok, space}
+    with {:ok, %{"space" => space} = inbox} <- helper(session, "inbox.ensure", %{}) do
+      notifications =
+        case inbox["readers"] do
+          [_ | _] -> register_inbox(session, space)
+          _ -> "off"
+        end
+
+      {:ok, space, notifications}
+    end
+  end
+
+  defp register_inbox(session, space) do
+    case AtMcp.ATProto.register_space(session, %{space: space}) do
+      {:ok, %{status: status}} -> status
+      {:ok, %{"status" => status}} -> status
+      {:ok, _} -> "registered"
+      {:error, reason} -> "not registered: " <> (to_failure(reason).message || "refused")
+    end
   end
 
   def join_group(session, group, invite \\ nil, message \\ nil) do
