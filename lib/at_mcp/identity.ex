@@ -89,6 +89,7 @@ defmodule AtMcp.Identity do
       ]
       |> maybe_put(:handle, Keyword.get(opts, :handle))
       |> maybe_put(:password, Keyword.get(opts, :password))
+      |> maybe_put(:key_file, Keyword.get(opts, :key_file))
       |> maybe_put(:service, Keyword.get(opts, :service))
       |> maybe_put(:expected_did, Keyword.get(opts, :expected_did))
       |> maybe_put(:backend_state, Keyword.get(opts, :backend_state))

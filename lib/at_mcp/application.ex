@@ -8,6 +8,7 @@ defmodule AtMcp.Application do
   @impl true
   def start(_type, _args) do
     :ok = AtMcp.MCP.Input.load_validator()
+    :ok = AtMcp.UserAgent.install()
     # An installation configured only by AT_MCP_HANDLE / AT_MCP_APP_PASSWORD
     # writes itself the accounts file it is missing, then runs the one
     # configured path like any other.
@@ -79,6 +80,8 @@ defmodule AtMcp.Application do
         {Registry, keys: :unique, name: AtMcp.Identity.Registry},
         {Registry, keys: :duplicate, name: AtMcp.Listen.Registry},
         {AtMcp.Inbound.Store, []},
+        # The Spaces helper, before the identities whose OAuth sessions it holds.
+        {AtMcp.Spaces.Helper, []},
         {AtMcp.WriteQuota, Application.get_env(:at_mcp, :write_quota, [])},
         # Which labelers each account's reads ask the AppView for.
         AtMcp.AcceptLabelers,

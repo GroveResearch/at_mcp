@@ -884,6 +884,24 @@ defmodule AtMcp.ATProto do
     do: query(session, "com.atproto.repo.getRecord", @repo_get, params)
 
   @doc """
+  An authenticated call to the account's own PDS of a `com.atproto.*`
+  method these declarations do not cover, as the session's credential
+  allows: a GET with `params` or a POST with `body` as JSON. Answers the
+  decoded body.
+  """
+  def pds_get(session, "com.atproto." <> _ = method, params \\ %{}) do
+    query =
+      Query.new(method, base_url: base_url(session)) |> Map.put(:params, flatten_query(params))
+
+    execute(session, query, "GET")
+  end
+
+  def pds_post(session, "com.atproto." <> _ = method, body) do
+    proc = Procedure.new(method, base_url: base_url(session)) |> Map.put(:body, body)
+    execute(session, proc, "POST")
+  end
+
+  @doc """
   One record exactly as its repository holds it: `%{"uri", "cid", "value"}`,
   every key as the service sent it. `get_record/2` reads through proto_rune's
   XRPC client, which renames every key to snake_case; a record of another

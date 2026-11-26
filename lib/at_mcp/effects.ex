@@ -118,9 +118,15 @@ defmodule AtMcp.Effects do
     logged_in? = Keyword.get(opts, :logged_in, not is_nil(backend_state))
 
     credentials =
-      case {Keyword.get(opts, :handle), Keyword.get(opts, :password)} do
-        {h, p} when is_binary(h) and h != "" and is_binary(p) and p != "" ->
+      case {Keyword.get(opts, :handle), Keyword.get(opts, :password),
+            Keyword.get(opts, :key_file)} do
+        {h, p, _} when is_binary(h) and h != "" and is_binary(p) and p != "" ->
           %{handle: h, password: p}
+
+        # No app password: the account's login key logs it in to an OAuth
+        # session through the Spaces helper (`AtMcp.Spaces.Login`).
+        {h, _, k} when is_binary(h) and h != "" and is_binary(k) and k != "" ->
+          %{handle: h, key_file: k, did: Keyword.get(opts, :expected_did)}
 
         _ ->
           nil
@@ -884,6 +890,40 @@ defmodule AtMcp.Effects do
     with_session(effects, fn backend, session -> backend.get_invite_codes(session) end)
   end
 
+  # The `AtMcp.Spaces` operations that change nothing.
+  @spaces_reads [
+    :get_note,
+    :list_notes,
+    :list_group_invites,
+    :read_group_space,
+    :list_my_agents,
+    :get_principals
+  ]
+
+  @doc """
+  One of `AtMcp.Spaces`' operations on this account: a read with the
+  session, or a write in the account's write lane. Only `post_in_group`
+  publishes, and so counts against the write quota.
+  `list_group_invites` may make the account's inbox, which is a write, so
+  it takes the write lane too. `verb` names the write for the quota when the
+  tool's name differs from the operation (`accept_group_invite` is
+  `join_group` with an invite).
+  """
+  def spaces(effects, op, args, verb \\ nil) when is_atom(op) and is_list(args) do
+    # What can be refused from the arguments alone is refused before a slot
+    # is reserved, as a post's text is.
+    with :ok <- AtMcp.Spaces.check(op, args), do: spaces_call(effects, op, args, verb)
+  end
+
+  defp spaces_call(effects, op, args, verb) do
+    if op in @spaces_reads and op != :list_group_invites,
+      do: with_session(effects, fn backend, session -> backend.spaces(session, op, args) end),
+      else:
+        take_and_write(effects, verb || op, fn backend, session ->
+          backend.spaces(session, op, args)
+        end)
+  end
+
   @doc "One of the network's published policy pages (`AtMcp.Network.policy_url/1`)."
   def get_policy(effects, page) when is_binary(page) do
     with_session(effects, fn backend, session -> backend.get_policy(session, page) end)
@@ -932,7 +972,7 @@ defmodule AtMcp.Effects do
   # put_record and delete_record count against the quota on every call. AtMcp
   # cannot tell whether another application's record is a public post or a
   # small action like a like, so it counts all of them.
-  @publishing [:post, :reply, :repost, :put_record, :delete_record]
+  @publishing [:post, :reply, :repost, :put_record, :delete_record, :post_in_group]
 
   @doc "The write verbs that count against the account's write quota."
   def publishing, do: @publishing
@@ -3185,6 +3225,11 @@ defmodule AtMcp.Effects do
       {:error, :call_deadline_exceeded} = late ->
         late
 
+      # The account's login key itself was refused (a principal revoked the
+      # agent or replaced its key): say so.
+      {:error, %AtMcp.Effects.Failure{detail: "key_refused"}} = refused ->
+        refused
+
       # Recovery failed, so the credential is refused and the account is now
       # logged out. Reporting the service's original complaint would send an
       # agent to edit its request when the request was never the problem.
@@ -3212,6 +3257,9 @@ defmodule AtMcp.Effects do
           case recover_session(session) do
             {:ok, backend, session} -> fun.(backend, session)
             {:error, :account_identity_changed} = mismatch -> mismatch
+            # The account's login key itself was refused: that, not the
+            # request's complaint, is what the agent needs to know.
+            {:error, %AtMcp.Effects.Failure{detail: "key_refused"}} = refused -> refused
             {:error, _} -> err
           end
         else
@@ -3440,9 +3488,18 @@ defmodule AtMcp.Effects do
         {:reply, {:error, :account_identity_changed}, state}
 
       %{logged_in?: true, backend_state: session, backend: backend} when not is_nil(session) ->
-        if identity_matches?(state, session),
-          do: {:reply, {:ok, backend, session}, state},
-          else: {:reply, {:error, :account_identity_changed}, reject_identity(state)}
+        cond do
+          not identity_matches?(state, session) ->
+            {:reply, {:error, :account_identity_changed}, reject_identity(state)}
+
+          # An OAuth access token is never used past the expiry the helper
+          # gave it: the call waits for a fresh one.
+          AtMcp.Spaces.Login.expiring?(session) ->
+            {:noreply, session_work(state, {:recover, session}, {from, :session})}
+
+          true ->
+            {:reply, {:ok, backend, session}, state}
+        end
 
       state ->
         if has_credentials?(state),
@@ -4063,6 +4120,10 @@ defmodule AtMcp.Effects do
 
   defp has_credentials?(%{credentials: %{handle: h, password: p}})
        when is_binary(h) and h != "" and is_binary(p) and p != "",
+       do: true
+
+  defp has_credentials?(%{credentials: %{handle: h, key_file: k}})
+       when is_binary(h) and h != "" and is_binary(k) and k != "",
        do: true
 
   defp has_credentials?(_state), do: false

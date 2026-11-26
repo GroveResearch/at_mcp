@@ -14,9 +14,10 @@ defmodule AtMcp.ToolSetTest do
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
   @default_bound 51_000
-  # Every tool, for a client that asks for the full set: 99,487 on
-  # Delvetown and 101,914 on Bluesky.
-  @full_bound 104_000
+  # Every tool, for a client that asks for the full set: 111,442 on
+  # Delvetown and 113,869 on Bluesky, with the 19 notes, group, principal
+  # and identity tools (about 12,000), which are not in the default set.
+  @full_bound 116_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)

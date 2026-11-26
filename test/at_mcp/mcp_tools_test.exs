@@ -161,6 +161,31 @@ defmodule AtMcp.MCP.ToolsTest do
   # Every tool, called the way a client calls it. Check the contract explicitly:
   # runtime validation diagnoses a mismatch but cannot undo a completed action.
   @calls [
+    {"create_note", %{"text" => "remember this"}},
+    {"get_note", %{"rkey" => "3k3333333333n"}},
+    {"list_notes", %{}},
+    {"update_note", %{"rkey" => "3k3333333333n", "title" => "t"}},
+    {"delete_note", %{"rkey" => "3k3333333333n"}},
+    {"list_group_invites", %{}},
+    {"accept_group_invite",
+     %{"group" => "did:plc:group", "invite" => "at://did:plc:group/org.atgrp.invite/3k5"}},
+    {"join_group", %{"group" => "did:plc:group"}},
+    {"leave_group", %{"group" => "did:plc:group"}},
+    {"read_group_space", %{"space" => "at:space/did:plc:group/town.delve.space.group/general"}},
+    {"post_in_group",
+     %{
+       "space" => "at:space/did:plc:group/town.delve.space.group/general",
+       "text" => "hello group"
+     }},
+    {"approve_group_app",
+     %{"request_uri" => "urn:ietf:params:oauth:request_uri:x", "group" => "did:plc:group"}},
+    {"create_agent", %{"handle" => "helper.test", "invite_code" => "town-abc"}},
+    {"enroll_agent_key", %{"agent" => "did:plc:agent"}},
+    {"revoke_agent_sessions", %{"agent" => "did:plc:agent"}},
+    {"set_agent_status", %{"agent" => "did:plc:agent", "status" => "deactivated"}},
+    {"list_my_agents", %{}},
+    {"endorse_agent", %{"agent" => "did:plc:agent"}},
+    {"get_principals", %{"account" => "did:plc:agent"}},
     {"get_notifications", %{}},
     {"get_unread_count", %{}},
     {"get_timeline", %{}},

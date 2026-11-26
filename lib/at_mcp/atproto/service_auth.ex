@@ -37,12 +37,19 @@ defmodule AtMcp.ATProto.ServiceAuth do
     end
   end
 
-  defp issue(session, method) do
+  defp issue(session, method), do: issue_for(session, Network.appview_service(), method)
+
+  @doc """
+  A service token from the account's own PDS (`com.atproto.server.getServiceAuth`),
+  for `aud` and bound to the method `lxm`, good for 60 seconds. Not kept or
+  reused.
+  """
+  def issue_for(session, aud, lxm) do
     url = Path.join(AtMcp.ATProto.base_url(session), "com.atproto.server.getServiceAuth")
-    params = %{aud: Network.appview_service(), lxm: method, exp: System.system_time(:second) + 60}
+    params = %{aud: aud, lxm: lxm, exp: System.system_time(:second) + 60}
 
     with {:ok, headers, _session} <- Session.authorization_headers(session, "GET", url),
-         {:ok, body} <- get(url <> "?" <> URI.encode_query(params), headers) do
+         {:ok, body} <- home_get(session, url, params, headers) do
       case body do
         %{"token" => token} when is_binary(token) ->
           home_credential =
@@ -61,6 +68,37 @@ defmodule AtMcp.ATProto.ServiceAuth do
           refused("Home PDS did not return a service token; no AppView request was sent.")
       end
     end
+  end
+
+  # An OAuth session's proof must carry the PDS's current DPoP nonce, which
+  # the first answer may ask for (`use_dpop_nonce`): proto_rune's client
+  # retries once with it, so an OAuth session asks through it.
+  defp home_get(%ProtoRune.Atproto.OAuth.Session{} = session, _url, params, _headers) do
+    case AtMcp.ATProto.pds_get(session, "com.atproto.server.getServiceAuth", params) do
+      {:ok, %{token: token}} -> {:ok, %{"token" => token}}
+      {:ok, %{"token" => _} = body} -> {:ok, body}
+      {:ok, _other} -> {:ok, %{}}
+      {:error, %ProtoRune.XRPC.Error{} = e} -> {:error, oauth_failure(e)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp home_get(_session, url, params, headers),
+    do: get(url <> "?" <> URI.encode_query(params), headers)
+
+  defp oauth_failure(%ProtoRune.XRPC.Error{http_status: status} = e) do
+    kind =
+      cond do
+        status == 401 -> :auth_refused
+        is_integer(status) and status < 500 -> :refused
+        true -> :indeterminate
+      end
+
+    Failure.new(kind,
+      status: status,
+      message: "Home PDS service-token issuance failed: " <> to_string(e.message || e.reason),
+      detail: %{service_auth_error: e.reason}
+    )
   end
 
   # XRPC.Client cannot disable redirects per request, and HTTPClient consumes

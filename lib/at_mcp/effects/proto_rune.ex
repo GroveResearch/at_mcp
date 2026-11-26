@@ -22,6 +22,12 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def login(opts) do
+    if is_binary(opts[:key_file]) and not is_binary(opts[:password]),
+      do: AtMcp.Spaces.Login.login(opts),
+      else: password_login(opts)
+  end
+
+  defp password_login(opts) do
     handle = Keyword.fetch!(opts, :handle)
     password = Keyword.fetch!(opts, :password)
 
@@ -32,6 +38,9 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   @impl true
+  def refresh(%ProtoRune.Atproto.OAuth.Session{} = session),
+    do: AtMcp.Spaces.Login.refresh(session)
+
   def refresh(session) do
     # proto_rune (0.5.3 and 0.6.0) POSTs `json: %{}` for refreshSession; Bluesky
     # replies 400 "A request body was provided when none was expected".
@@ -68,6 +77,9 @@ defmodule AtMcp.Effects.ProtoRune do
       end
     end
   end
+
+  @impl true
+  def spaces(session, op, args), do: apply(AtMcp.Spaces, op, [session | args])
 
   @impl true
   def get_membership(session) do

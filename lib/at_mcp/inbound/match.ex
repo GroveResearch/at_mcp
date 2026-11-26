@@ -20,7 +20,11 @@ defmodule AtMcp.Inbound.Match do
   # The reasons whose record is a post, and so the only ones that carry a thread.
   # A like or a repost record is not a post: its uri names the like or the repost.
   @post_reasons [:mention, :reply, :quote]
-  @post_reason_strings Enum.map(@post_reasons, &Atom.to_string/1)
+  # The town AppView's Spaces reasons carry a post too, from a space
+  # (`at:space/` URIs). Only the notifications collector sees them; the
+  # stream holds public records alone.
+  @space_post_reasons ["space-mention", "space-reply", "space-post"]
+  @post_reason_strings Enum.map(@post_reasons, &Atom.to_string/1) ++ @space_post_reasons
 
   @doc """
   The match reasons whose record is a post.

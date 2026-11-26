@@ -516,6 +516,9 @@ defmodule AtMcp.MCP.Schemas do
     Macro.escape(description: description, schema: schema)
   end
 
+  @doc "What the notes, group, principal and identity tools return (`AtMcp.Spaces`), by kind."
+  defmacro spaces(kind), do: Macro.escape(spaces_schema(kind))
+
   defmacro identity_status, do: Macro.escape(identity_status_schema())
 
   defmacro post_images, do: Macro.escape(post_images_schema())
@@ -1619,6 +1622,126 @@ defmodule AtMcp.MCP.Schemas do
   defp promising(schema, required) do
     Map.put(schema, "anyOf", [%{"required" => required}, %{"required" => ["code"]}])
   end
+
+  defp note_properties do
+    %{
+      "uri" => nullable_string("The note's URI in this account's personal space"),
+      "rkey" =>
+        nullable_string("The note's key, which get_note, update_note and delete_note take"),
+      "cid" => nullable_string("CID of the note as written"),
+      "title" => nullable_string("The note's title, if it has one"),
+      "text" => nullable_string("The note's text"),
+      "tags" => %{"type" => ["array", "null"], "items" => %{"type" => "string"}},
+      "created_at" => nullable_string("When the note was made"),
+      "updated_at" => nullable_string("When the note was last changed"),
+      "readable_by" => nullable_string("Who can read this note, and that it is not encrypted")
+    }
+  end
+
+  defp any_object, do: %{"type" => ["object", "null"]}
+  defp any_list, do: %{"type" => ["array", "null"]}
+  defp nullable_boolean, do: %{"type" => ["boolean", "null"]}
+
+  defp spaces_schema(:note), do: object(note_properties())
+
+  defp spaces_schema(:notes),
+    do:
+      object(%{
+        "notes" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "object", "properties" => note_properties()}
+        },
+        "cursor" => nullable_string("Pass to list_notes for the next page"),
+        "readable_by" =>
+          nullable_string("Who can read these notes, and that they are not encrypted")
+      })
+
+  defp spaces_schema(:deleted),
+    do: object(%{"deleted" => nullable_boolean(), "rkey" => nullable_string()})
+
+  defp spaces_schema(:invites),
+    do:
+      object(%{
+        "invites" => any_list(),
+        "inbox" => nullable_string("This account's inbox space, where groups write their invites")
+      })
+
+  defp spaces_schema(:joined),
+    do:
+      object(%{
+        "status" => nullable_string("admitted, or pending while the group decides"),
+        "membership" => any_object(),
+        "request" => any_object()
+      })
+
+  defp spaces_schema(:left),
+    do: object(%{"left" => nullable_boolean(), "group" => nullable_string()})
+
+  defp spaces_schema(:group_space),
+    do:
+      object(%{
+        "space" => nullable_string(),
+        "records" => any_list(),
+        "more" => nullable_boolean()
+      })
+
+  defp spaces_schema(:group_post),
+    do:
+      object(%{
+        "uri" => nullable_string(),
+        "cid" => nullable_string(),
+        "space" => nullable_string()
+      })
+
+  defp spaces_schema(:group_app),
+    do:
+      object(%{
+        "approved" => nullable_boolean(),
+        "redirect_url" => nullable_string("Hand this to the app to finish its sign-in"),
+        "request" => any_object()
+      })
+
+  defp spaces_schema(:agent),
+    do:
+      object(%{
+        "did" => nullable_string(),
+        "handle" => nullable_string(),
+        "login_key" => nullable_string("The agent's public login key, a did:key"),
+        "rotation_key" => nullable_string("This account's rotation key, on top of the agent's"),
+        "endorsement" => any_object(),
+        "enrolled" => nullable_boolean(),
+        "revoked" => nullable_boolean(),
+        "status" => nullable_string()
+      })
+
+  defp spaces_schema(:agents), do: object(%{"agents" => any_list()})
+
+  defp spaces_schema(:endorsement),
+    do:
+      object(%{
+        "agent" => nullable_string(),
+        "uri" => nullable_string(),
+        "cid" => nullable_string()
+      })
+
+  defp spaces_schema(:principals),
+    do:
+      object(%{
+        "did" => nullable_string(),
+        "principals" => %{
+          "type" => ["array", "null"],
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "did" => %{"type" => "string"},
+              "confirmed" => %{
+                "type" => "boolean",
+                "description" => "true when the principal's endorsement completes the pair"
+              }
+            }
+          }
+        }
+      })
 
   defp object(properties) do
     %{"type" => "object", "properties" => Map.merge(properties, @error_properties)}

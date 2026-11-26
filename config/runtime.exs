@@ -82,6 +82,17 @@ if config_env() != :test do
     # Which tools a client is offered unless its grant names a set
     # (AtMcp.MCP.ToolSet).
     {"AT_MCP_TOOLS", one_of.([:default, :full]), :default},
+    # Spaces, groups and agent keys, through the Spaces helper
+    # (AtMcp.Spaces.Helper): off with false, or with no Node 22 to run it.
+    {"AT_MCP_SPACES", flag, true},
+    {"AT_MCP_NODE", text, nil},
+    {"AT_MCP_PLC_URL", url, nil},
+    {"AT_MCP_GROUP_HOST", url, nil},
+    {"AT_MCP_KEYS_DIR", text, nil},
+    {"AT_MCP_SPACES_ALLOW_HTTP", flag, false},
+    # Whether a new inbox gets the town AppView as a read-only member
+    # (AtMcp.Spaces.inbox_readers/0). Off until that is decided.
+    {"AT_MCP_TOWN_INBOX_READER", flag, false},
     {"AT_MCP_DELIVERY_URL", url, nil},
     {"AT_MCP_DELIVERY_TOKEN", text, nil},
     {"AT_MCP_DELIVERY_TOKEN_FILE", text, nil},
@@ -197,6 +208,13 @@ if config_env() != :test do
     ],
     media_dir: value["AT_MCP_MEDIA_DIR"],
     tool_set: value["AT_MCP_TOOLS"],
+    spaces_enabled: value["AT_MCP_SPACES"],
+    spaces_node: value["AT_MCP_NODE"],
+    plc_url: value["AT_MCP_PLC_URL"],
+    group_host: value["AT_MCP_GROUP_HOST"],
+    keys_dir: value["AT_MCP_KEYS_DIR"],
+    spaces_allow_http: value["AT_MCP_SPACES_ALLOW_HTTP"],
+    town_inbox_reader: value["AT_MCP_TOWN_INBOX_READER"],
     delivery: [
       url: value["AT_MCP_DELIVERY_URL"],
       token: value["AT_MCP_DELIVERY_TOKEN"],

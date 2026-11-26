@@ -309,6 +309,65 @@ defmodule AtMcp.Test.MockBackend do
   end
 
   @impl true
+  # `AtMcp.Spaces`' operations: each answers a summary of the shape its tool
+  # declares, from what it was given.
+  def spaces(_state, op, args) do
+    {:ok, spaces_summary(op, args)}
+  end
+
+  @note %{
+    uri: "at://did:plc:mock/town.delve.personal.note/3k3333333333n",
+    rkey: "3k3333333333n",
+    cid: "bafynote",
+    title: nil,
+    text: "remember this",
+    tags: [],
+    created_at: "2026-11-26T12:00:00.000Z",
+    updated_at: nil,
+    readable_by: AtMcp.Spaces.readable_by()
+  }
+
+  defp spaces_summary(op, _args) when op in [:create_note, :get_note, :update_note], do: @note
+
+  defp spaces_summary(:list_notes, _args),
+    do: %{notes: [@note], cursor: nil, readable_by: AtMcp.Spaces.readable_by()}
+
+  defp spaces_summary(:delete_note, [rkey]), do: %{deleted: true, rkey: rkey}
+
+  defp spaces_summary(:list_group_invites, _),
+    do: %{invites: [], inbox: "at:space/did:plc:mock/org.atgrp.inbox/self"}
+
+  defp spaces_summary(:join_group, _), do: %{status: "admitted", membership: %{}, request: nil}
+  defp spaces_summary(:leave_group, [group]), do: %{left: true, group: group}
+
+  defp spaces_summary(:read_group_space, [space | _]),
+    do: %{space: space, records: [], more: false}
+
+  defp spaces_summary(:post_in_group, [space | _]),
+    do: %{uri: "at://did:plc:mock/town.delve.feed.post/3k4", cid: "bafypost", space: space}
+
+  defp spaces_summary(:approve_group_app, _),
+    do: %{approved: false, redirect_url: nil, request: %{}}
+
+  defp spaces_summary(op, [agent | _])
+       when op in [:enroll_agent_key, :revoke_agent_sessions, :set_agent_status],
+       do: %{did: agent}
+
+  defp spaces_summary(:create_agent, [handle | _]),
+    do: %{
+      did: "did:plc:newagent",
+      handle: handle,
+      login_key: "did:key:zDn",
+      rotation_key: "did:key:zDn"
+    }
+
+  defp spaces_summary(:list_my_agents, _), do: %{agents: []}
+  defp spaces_summary(:endorse_agent, [agent]), do: %{agent: agent, uri: "at://x", cid: "c"}
+
+  defp spaces_summary(:get_principals, [account]),
+    do: %{did: account, principals: [%{did: "did:plc:principal", confirmed: true}]}
+
+  @impl true
   def get_record(_state, uri),
     do:
       {:ok,
