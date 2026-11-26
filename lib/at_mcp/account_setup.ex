@@ -13,6 +13,7 @@ defmodule AtMcp.AccountSetup do
     password_stdin: :boolean,
     did: :string,
     key_file: :string,
+    did_key: :string,
     transport: :string,
     url: :string,
     token_file: :string,
@@ -278,7 +279,33 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  # Makes an account a principal: its public PLC rotation key. The private
+  # half is never given here.
+  defp dispatch(["rotation-key", id], opts, _dependencies) do
+    with key when is_binary(key) <- opts[:did_key] || :usage,
+         {:ok, accounts} <- AccountConfig.load(path(opts)),
+         {:ok, current} <- find(accounts, id),
+         candidate = Map.put(current, "rotation_key", key),
+         :ok <- AccountConfig.validate(candidate) |> rotation_key_valid(),
+         {:ok, saved} <- AccountConfig.update(path(opts), id, candidate) do
+      {:ok,
+       %{
+         account: public(saved),
+         rotation_key: key,
+         next:
+           reload_message() <>
+             " Keep the private half of this key offline: it is what takes an agent's identity back. at_mcp never holds it."
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :usage}
+    end
+  end
+
   defp dispatch(_, _, _), do: {:error, :usage}
+
+  defp rotation_key_valid(:ok), do: :ok
+  defp rotation_key_valid(_), do: {:error, :invalid_rotation_key}
 
   @doc """
   Write an accounts file for an installation that has only account variables set.
@@ -417,7 +444,13 @@ defmodule AtMcp.AccountSetup do
   end
 
   defp check_key(did, key_file) do
-    dir = Path.join(System.tmp_dir!(), "at_mcp-key-check-#{System.unique_integer([:positive])}")
+    # Random, not unique_integer/1: two fresh nodes would pick the same one.
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "at_mcp-key-check-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
+
     {:ok, helper} = AtMcp.Spaces.Helper.start_link(name: nil, state_dir: dir)
     call = &AtMcp.Spaces.Helper.call(&1, &2, server: helper)
 
@@ -426,7 +459,7 @@ defmodule AtMcp.AccountSetup do
              call.("oauth.login", %{
                account: did,
                keyFile: key_file,
-               scope: AtMcp.Spaces.default_scope()
+               scope: AtMcp.Spaces.scope_for(did)
              }),
            {:ok, creds} <- call.("oauth.credentials", %{did: did}) do
         _ = call.("oauth.logout", %{did: did})
@@ -549,6 +582,7 @@ defmodule AtMcp.AccountSetup do
       add-agent NAME --did DID [--key-file ABSOLUTE_PATH] [--handle HANDLE]
                      [--service URL]
       key NAME --key-file ABSOLUTE_PATH
+      rotation-key NAME --did-key did:key:...
       remove NAME
       delivery NAME --url URL --token-file ABSOLUTE_PATH
       delivery NAME --disable
@@ -585,6 +619,10 @@ defmodule AtMcp.AccountSetup do
       "Use a simple account name and a valid PDS URL; a write limit and window are positive integers."
 
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
+
+  defp message(:invalid_rotation_key),
+    do:
+      "Give the public rotation key as a did:key (did:key:z...). Only the public half: its private half stays offline."
 
   defp message(:key_file_missing),
     do:

@@ -117,3 +117,19 @@ export async function dpopProof(
 }
 
 export const tosHashOf = (text: string) => b64urlSha256(text)
+
+/**
+ * Proof that the caller holds the login key it enrolls (`loginKeyProof`, the
+ * town PDS's `town.delve.agent.createAgent` and `enrollKey`): a compact JWS
+ * by the key, `typ` `agent-key-proof+jwt`, for one call by one caller about
+ * one agent. The PDS checks it against the `loginKey` did:key in the same
+ * body, so the header carries no key.
+ */
+export async function keyProof(
+  key: LoginKey,
+  { iss, sub, aud, lxm, now = Date.now() }: { iss: string; sub: string; aud: string; lxm: string; now?: number },
+): Promise<string> {
+  return new SignJWT({ iss, sub, aud, lxm, jti: randomUUID(), iat: Math.floor(now / 1000) })
+    .setProtectedHeader({ typ: 'agent-key-proof+jwt', alg: 'ES256' })
+    .sign(key.privateKey)
+}

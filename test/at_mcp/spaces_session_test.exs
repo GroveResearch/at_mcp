@@ -12,6 +12,14 @@ defmodule AtMcp.SpacesSessionTest do
 
   @fake Path.expand("../support/fake_spaces_helper.mjs", __DIR__)
 
+  # The helper's session names this stand-in PDS as its service, for the
+  # agent routes (`PDS` below); every other request goes to the HTTP stub.
+  setup_all do
+    {:ok, _} = Plug.Cowboy.http(__MODULE__.PDS, [], port: 0, ref: :spaces_principal_pds)
+    on_exit(fn -> Plug.Cowboy.shutdown(:spaces_principal_pds) end)
+    %{fake_service: "http://localhost:#{:ranch.get_port(:spaces_principal_pds)}"}
+  end
+
   defmodule HTTP do
     def request(method, url, opts) do
       headers = Map.new(Keyword.get(opts, :headers, []), fn {k, v} -> {String.downcase(k), v} end)
@@ -53,6 +61,7 @@ defmodule AtMcp.SpacesSessionTest do
     log = Path.join(System.tmp_dir!(), "fake-helper-#{System.unique_integer([:positive])}.log")
     System.put_env("FAKE_LOG", log)
     System.put_env("FAKE_DID", "did:plc:oauthagent")
+    if service = Map.get(ctx, :fake_service), do: System.put_env("FAKE_SERVICE", service)
 
     previous_http = Application.get_env(:proto_rune, :http_client)
     Application.put_env(:proto_rune, :http_client, HTTP)
@@ -71,7 +80,13 @@ defmodule AtMcp.SpacesSessionTest do
       )
 
     on_exit(fn ->
-      if Process.alive?(helper), do: GenServer.stop(helper)
+      # Linked to the test, the helper may already be stopping with it.
+      try do
+        GenServer.stop(helper)
+      catch
+        :exit, _ -> :ok
+      end
+
       {:ok, _} = Supervisor.restart_child(AtMcp.Supervisor, AtMcp.Spaces.Helper)
 
       if previous_http,
@@ -81,6 +96,7 @@ defmodule AtMcp.SpacesSessionTest do
       Application.delete_env(:at_mcp, :spaces_session_test_owner)
       Application.delete_env(:at_mcp, :spaces_session_test_refuse)
       System.delete_env("FAKE_LOG")
+      System.delete_env("FAKE_SERVICE")
       File.rm(log)
     end)
 
@@ -385,6 +401,145 @@ defmodule AtMcp.SpacesSessionTest do
       assert denied.approved == false and denied.redirect_url =~ "access_denied"
       assert_received {:declined, %{"requestUri" => "urn:req"}}
       refute_received {:approved, _}
+    end
+  end
+
+  defmodule PDS do
+    # A stand-in town PDS for the agent routes: its DID, and createAgent and
+    # enrollKey, which echo what they were sent.
+    use Plug.Router
+    plug(:match)
+    plug(Plug.Parsers, parsers: [:json], json_decoder: Jason)
+    plug(:dispatch)
+
+    get("/xrpc/com.atproto.server.describeServer", do: json(conn, %{did: "did:web:pds.test"}))
+
+    post "/xrpc/town.delve.agent.createAgent" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_route, :create, conn.body_params}
+      )
+
+      json(conn, %{did: "did:plc:newagent", handle: conn.body_params["handle"]})
+    end
+
+    post "/xrpc/town.delve.agent.enrollKey" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_route, :enroll, conn.body_params}
+      )
+
+      json(conn, %{})
+    end
+
+    defp json(conn, body),
+      do: conn |> put_resp_content_type("application/json") |> send_resp(200, Jason.encode!(body))
+  end
+
+  describe "a principal" do
+    setup ctx do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+      keys = Path.join(System.tmp_dir!(), "principal-keys-#{System.unique_integer([:positive])}")
+      Application.put_env(:at_mcp, :keys_dir, keys)
+
+      on_exit(fn ->
+        File.rm_rf(keys)
+        Application.delete_env(:at_mcp, :keys_dir)
+
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+
+      write_accounts = fn rotation ->
+        account = %{
+          "id" => "principal",
+          "handle" => "agent.test",
+          "did" => "did:plc:oauthagent",
+          "service" => ctx.fake_service,
+          "key_file" => "/keys/agent.json"
+        }
+
+        account = if rotation, do: Map.put(account, "rotation_key", rotation), else: account
+        {:ok, _} = AtMcp.AccountConfig.load(AtMcp.AccountConfig.path())
+        File.rm(AtMcp.AccountConfig.path())
+        {:ok, _} = AtMcp.AccountConfig.add(AtMcp.AccountConfig.path(), account)
+      end
+
+      on_exit(fn -> File.rm(AtMcp.AccountConfig.path()) end)
+      %{write_accounts: write_accounts}
+    end
+
+    @rotation "did:key:zDnaeTiq1PdzvZXUaMdezchcMJQpBdH2VN4pgrrEhMCCbmwSb"
+
+    test "asks for the agent routes by name for its PDS's service, and an account that isn't one doesn't",
+         ctx do
+      ctx.write_accounts.(nil)
+      refute AtMcp.Spaces.scope_for("did:plc:oauthagent", ctx.fake_service) =~ "rpc:"
+
+      ctx.write_accounts.(@rotation)
+      scope = AtMcp.Spaces.scope_for("did:plc:oauthagent", ctx.fake_service)
+      aud = URI.encode_www_form("did:web:pds.test#atproto_pds")
+
+      for m <- ~w(createAgent enrollKey revokeSessions setStatus deleteAgent listAgents),
+          do: assert(scope =~ "rpc:town.delve.agent.#{m}?aud=#{aud}")
+
+      refute scope =~ "aud=*"
+      assert scope =~ "transition:generic"
+    end
+
+    test "creates an agent with the configured public rotation key and the new key's proof, and holds no private rotation key",
+         ctx do
+      ctx.write_accounts.(nil)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:error, %AtMcp.Effects.Failure{detail: :no_rotation_key, message: msg}} =
+               AtMcp.Effects.spaces(ctx.effects, :create_agent, ["Helper.Test", "code"])
+
+      assert msg =~ "at_mcp-accounts rotation-key"
+      refute_received {:agent_route, _, _}
+
+      ctx.write_accounts.(@rotation)
+
+      assert {:ok, created} =
+               AtMcp.Effects.spaces(ctx.effects, :create_agent, ["Helper.Test", "code"])
+
+      assert created.rotation_key == @rotation
+
+      assert_received {:agent_route, :create, body}
+      assert body["rotationKey"] == @rotation
+      assert "proof:" <> bound = body["loginKeyProof"]
+
+      assert Jason.decode!(bound) == %{
+               "iss" => "did:plc:oauthagent",
+               "sub" => "helper.test",
+               "aud" => "did:web:pds.test",
+               "lxm" => "town.delve.agent.createAgent"
+             }
+
+      # Only agents' login keys are in the key folder: no rotation key.
+      refute Enum.any?(File.ls!(AtMcp.Spaces.keys_dir()), &String.contains?(&1, "rotation"))
+    end
+
+    test "enrolls a key for an agent with the key's proof, and refuses this account's own DID",
+         ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:error, %AtMcp.Effects.Failure{detail: :not_an_agent}} =
+               AtMcp.Effects.spaces(ctx.effects, :enroll_agent_key, ["did:plc:oauthagent"])
+
+      refute_received {:agent_route, _, _}
+
+      assert {:ok, %{enrolled: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :enroll_agent_key, ["did:plc:someagent"])
+
+      assert_received {:agent_route, :enroll, body}
+      assert "proof:" <> bound = body["loginKeyProof"]
+
+      assert %{"sub" => "did:plc:someagent", "lxm" => "town.delve.agent.enrollKey"} =
+               Jason.decode!(bound)
     end
   end
 end

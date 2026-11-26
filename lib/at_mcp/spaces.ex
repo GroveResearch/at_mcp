@@ -47,31 +47,79 @@ defmodule AtMcp.Spaces do
   # The town PDS counts the mutating agent routes as privileged: service auth
   # for them is minted only for a session that holds the matching `rpc:`
   # scope (or a full password session), never for an app password.
-  @agent_methods ~w(createAgent enrollKey setPrincipal revokeSessions setStatus deleteAgent listAgents)
+  @agent_methods ~w(createAgent enrollKey revokeSessions setStatus deleteAgent listAgents)
 
   @doc """
-  The OAuth scope at_mcp asks for when an account's key logs it in: the
-  app's whole surface, the personal space (any collection, and creating
-  it), every group space it is in, and its own inbox (creating it, and
-  reading its own repository there, and adding the town AppView to its
-  members, which takes `manage=update`).
+  The OAuth scope at_mcp asks for when an account's key logs it in, no more
+  than the account needs:
+
+  - `transition:generic`, for the app's public tools;
+  - its personal space (any collection, and creating it), every group feed
+    it is in, and its own inbox (creating it, reading its own repository
+    there, and adding the town AppView to its members, which takes
+    `manage=update`);
+  - only for an account acting as a principal (`principal?/1`), the agent
+    routes, each by name, for its own PDS's service
+    (`rpc:town.delve.agent.<method>?aud=<PDS DID>#atproto_pds`). The PDS
+    mints service auth for them for nothing broader.
+
+  `service` is the account's PDS, whose DID the agent routes name.
   """
-  def default_scope do
+  def scope_for(did, service \\ nil) do
     case AtMcp.Network.spaces() do
       %{personal: personal, feed: feed, agent: agent} ->
-        Enum.join(
-          [
-            "atproto",
-            "transition:generic",
-            "space:#{personal}?collection=*&manage=create",
-            "space:#{feed}?authority=*",
-            "space:org.atgrp.inbox?action=read_self&manage=create&manage=update"
-          ] ++ for(m <- @agent_methods, do: "rpc:#{agent}.#{m}?aud=*"),
-          " "
-        )
+        base = [
+          "atproto",
+          "transition:generic",
+          "space:#{personal}?collection=*&manage=create",
+          "space:#{feed}?authority=*",
+          "space:org.atgrp.inbox?action=read_self&manage=create&manage=update"
+        ]
+
+        rpc =
+          with true <- is_binary(did) and principal?(did),
+               {:ok, pds} <- service_did(service, did) do
+            aud = URI.encode_www_form(pds <> "#atproto_pds")
+            for m <- @agent_methods, do: "rpc:#{agent}.#{m}?aud=#{aud}"
+          else
+            _ -> []
+          end
+
+        Enum.join(base ++ rpc, " ")
 
       nil ->
         "atproto transition:generic"
+    end
+  end
+
+  # The DID of the PDS at `service` (its describeServer), cached. With no
+  # service given, the accounts file's for the principal.
+  defp service_did(nil, did) do
+    case AtMcp.AccountConfig.load(AtMcp.AccountConfig.path()) do
+      {:ok, accounts} ->
+        case Enum.find(accounts, &(&1["did"] == did)) do
+          %{"service" => service} when is_binary(service) -> service_did(service, did)
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp service_did(service, _did) do
+    base = service |> String.trim_trailing("/") |> String.trim_trailing("/xrpc")
+
+    case :persistent_term.get({__MODULE__, :service_did, base}, nil) do
+      nil ->
+        with {:ok, %{"did" => did}} <-
+               http(:get, base <> "/xrpc/com.atproto.server.describeServer", nil, %{}) do
+          :persistent_term.put({__MODULE__, :service_did, base}, did)
+          {:ok, did}
+        end
+
+      did ->
+        {:ok, did}
     end
   end
 
@@ -839,23 +887,43 @@ defmodule AtMcp.Spaces do
 
   @doc """
   Creates an agent account with one of this account's invites: a new login
-  key for it (kept in the installation's key folder, under the agent's DID),
-  this account's rotation key on top of the agent's PLC rotation keys, and
-  `agent-of` this account. Then writes the endorsement that completes the
-  ident.link pair.
+  key for it (kept in the installation's key folder, under the agent's DID,
+  and proved to the PDS by signing the request), this account's rotation key
+  on top of the agent's PLC rotation keys, and `agent-of` this account. Then
+  writes the endorsement that completes the ident.link pair.
+
+  The rotation key is the public half alone, a `did:key` the operator gives
+  (`rotation_key` in the accounts file, `at_mcp-accounts rotation-key`).
+  Its private half stays offline with whoever runs the principal: holding
+  it, they can take the agent's identity back from anywhere. AtMcp never
+  makes or holds it.
   """
   def create_agent(session, handle, invite_code) do
     with {:ok, names} <- names(),
          :ok <- text_arg(handle, "handle"),
          :ok <- text_arg(invite_code, "invite_code"),
-         {:ok, rotation} <- rotation_key(session),
-         pending = Path.join(keys_dir(), "pending-#{System.unique_integer([:positive])}.json"),
-         {:ok, login} <- Helper.call("key.generate", %{keyFile: pending}) do
+         {:ok, rotation_key} <- principal_rotation_key(Session.did(session)),
+         {:ok, pds_did} <- pds_did(session),
+         pending =
+           Path.join(
+             keys_dir(),
+             "pending-#{Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false)}.json"
+           ),
+         {:ok, login} <- Helper.call("key.generate", %{keyFile: pending}),
+         {:ok, %{"proof" => proof}} <-
+           Helper.call("key.prove", %{
+             keyFile: pending,
+             iss: Session.did(session),
+             sub: String.downcase(handle),
+             aud: pds_did,
+             lxm: "#{names.agent}.createAgent"
+           }) do
       case agent_call(session, names, "createAgent", %{
              "handle" => handle,
              "inviteCode" => invite_code,
              "loginKey" => login["didKey"],
-             "rotationKey" => rotation["didKey"]
+             "loginKeyProof" => proof,
+             "rotationKey" => rotation_key
            }) do
         {:ok, %{"did" => did} = created} ->
           File.rename!(pending, key_path(did))
@@ -871,7 +939,7 @@ defmodule AtMcp.Spaces do
              did: did,
              handle: created["handle"] || handle,
              login_key: login["didKey"],
-             rotation_key: rotation["didKey"],
+             rotation_key: rotation_key,
              endorsement: endorsement
            }}
 
@@ -883,22 +951,34 @@ defmodule AtMcp.Spaces do
   end
 
   @doc """
-  Gives an agent of this account a new login key and enrolls it at the PDS,
-  replacing the one it had: the way back for an agent that lost its key, or
-  whose key leaked. With `agent` this account's own DID, enrolls a key for
-  this account itself.
+  Gives one of this account's agents a new login key and enrolls it at the
+  PDS, replacing the one it had: the way back for an agent that lost its key,
+  or whose key leaked. The new key signs the request (its proof of
+  possession). Only a principal does this, for an agent: an account's own
+  first key is enrolled with its full password session, outside AtMcp.
   """
   def enroll_agent_key(session, agent) do
     with {:ok, names} <- names(),
-         {:ok, agent} <- did_arg(agent, "agent") do
+         {:ok, agent} <- did_arg(agent, "agent"),
+         :ok <- not_self(session, agent),
+         {:ok, pds_did} <- pds_did(session) do
       next = key_path(agent) <> ".next"
       File.rm(next)
 
       with {:ok, login} <- Helper.call("key.generate", %{keyFile: next}),
+           {:ok, %{"proof" => proof}} <-
+             Helper.call("key.prove", %{
+               keyFile: next,
+               iss: Session.did(session),
+               sub: agent,
+               aud: pds_did,
+               lxm: "#{names.agent}.enrollKey"
+             }),
            {:ok, _} <-
              agent_call(session, names, "enrollKey", %{
                "did" => agent,
-               "loginKey" => login["didKey"]
+               "loginKey" => login["didKey"],
+               "loginKeyProof" => proof
              }) do
         current = key_path(agent)
 
@@ -914,6 +994,50 @@ defmodule AtMcp.Spaces do
       end
     end
   end
+
+  defp not_self(session, agent) do
+    if agent == Session.did(session),
+      do:
+        {:error,
+         Failure.new(:refused,
+           detail: :not_an_agent,
+           message:
+             "enroll_agent_key gives one of this account's agents a new key; it can't enroll a key for this account itself, which takes the account's full password session (at_mcp-accounts key, after enrolling it at the PDS)."
+         )},
+      else: :ok
+  end
+
+  @doc """
+  The public rotation key (a `did:key`) the accounts file gives for the
+  principal `did`, or a refusal saying how to give one.
+  """
+  def principal_rotation_key(did) do
+    case AtMcp.AccountConfig.load(AtMcp.AccountConfig.path()) do
+      {:ok, accounts} ->
+        case Enum.find(accounts, &(&1["did"] == did)) do
+          %{"rotation_key" => "did:key:" <> _ = key} ->
+            {:ok, key}
+
+          _ ->
+            {:error,
+             Failure.new(:refused,
+               detail: :no_rotation_key,
+               message:
+                 "Creating an agent needs this account's public rotation key, which the installation's operator sets (at_mcp-accounts rotation-key NAME --did-key did:key:...). Its private half stays offline with whoever runs this account."
+             )}
+        end
+
+      _ ->
+        {:error,
+         Failure.new(:refused,
+           detail: :no_rotation_key,
+           message: "The accounts file could not be read."
+         )}
+    end
+  end
+
+  @doc "Whether the account `did` acts as a principal: the accounts file gives it a rotation key."
+  def principal?(did), do: match?({:ok, _}, principal_rotation_key(did))
 
   def revoke_agent_sessions(session, agent) do
     with {:ok, names} <- names(),
@@ -948,9 +1072,12 @@ defmodule AtMcp.Spaces do
     method = "#{names.agent}.#{name}"
     base = AtMcp.ATProto.base_url(session)
 
+    # The audience names the PDS's service, as the explicit rpc: scope the
+    # session holds does (`scope_for/2`).
     with {:ok, pds_did} <- pds_did(session),
          {:ok, minting} <- privileged_session(session),
-         {:ok, token} <- AtMcp.ATProto.ServiceAuth.issue_for(minting, pds_did, method) do
+         {:ok, token} <-
+           AtMcp.ATProto.ServiceAuth.issue_for(minting, pds_did <> "#atproto_pds", method) do
       if body,
         do: http(:post, "#{base}/#{method}", token, body),
         else: http(:get, "#{base}/#{method}", token, %{})
@@ -982,34 +1109,26 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  # The account's own PDS's DID, as the agent routes and the key proof name
+  # it: the same cached describeServer read as `scope_for/2`.
   defp pds_did(session) do
-    case AtMcp.ATProto.pds_get(session, "com.atproto.server.describeServer") do
-      {:ok, %{did: did}} when is_binary(did) ->
+    case service_did(AtMcp.ATProto.base_url(session), Session.did(session)) do
+      {:ok, did} ->
         {:ok, did}
 
-      {:ok, %{"did" => did}} when is_binary(did) ->
-        {:ok, did}
+      {:error, _} = error ->
+        error
 
-      {:ok, other} ->
-        {:error, Failure.new(:indeterminate, detail: :unreadable_server, message: inspect(other))}
-
-      {:error, reason} ->
-        {:error, to_failure(reason)}
+      _ ->
+        {:error,
+         Failure.new(:indeterminate,
+           detail: :unreadable_server,
+           message: "The PDS did not say its DID."
+         )}
     end
   end
 
-  # The principal's PLC rotation key: one per account, made on first use, in
-  # the key folder beside the agents' login keys. It is never the account's
-  # login key.
-  defp rotation_key(session) do
-    path = Path.join(keys_dir(), "rotation-#{safe(Session.did(session))}.json")
-
-    if File.exists?(path),
-      do: Helper.call("key.public", %{keyFile: path}),
-      else: Helper.call("key.generate", %{keyFile: path})
-  end
-
-  @doc "The installation's folder of agents' login keys and principals' rotation keys (0700)."
+  @doc "The installation's folder of agents' login keys (0700)."
   def keys_dir do
     dir =
       Application.get_env(:at_mcp, :keys_dir) ||

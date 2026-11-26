@@ -7,7 +7,7 @@
 // shares the channel.
 import { createInterface } from 'node:readline'
 import { HelperError } from './errors.ts'
-import { generateKey, publicKey } from './keys.ts'
+import { generateKey, keyProof, loadKey, publicKey } from './keys.ts'
 import type { Log } from './log.ts'
 import { OAuthSessions } from './oauth.ts'
 import { Spaces } from './spaces.ts'
@@ -83,6 +83,9 @@ export class Helper {
     init: async (p) => this.init(p as Init),
     'key.generate': async (p) => strip(await generateKey(p.keyFile)),
     'key.public': async (p) => strip(await publicKey(p.keyFile)),
+    'key.prove': async (p) => ({
+      proof: await keyProof(await loadKey(p.keyFile), { iss: p.iss, sub: p.sub, aud: p.aud, lxm: p.lxm }),
+    }),
     'oauth.login': async (p) => this.#o.login({ account: p.account, keyFile: p.keyFile, scope: p.scope }),
     'oauth.credentials': async (p) =>
       this.#o.credentials(p.did, { refresh: !!p.refresh, relogin: p.relogin }),

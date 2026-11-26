@@ -25,6 +25,8 @@ import { authRefused, HelperError, indeterminate, refused } from './errors.ts'
 import { dpopProof, loadKey, type LoginKey, wmToken } from './keys.ts'
 import { FileStore, MemoryStore } from './store.ts'
 import type { Log } from './log.ts'
+import { withFileLock } from './lock.ts'
+import { join } from 'node:path'
 
 export const REDIRECT_URI = 'http://127.0.0.1/callback'
 
@@ -93,8 +95,11 @@ export class OAuthSessions {
       plcDirectoryUrl: this.config.plcDirectoryUrl,
       handleResolver: this.config.handleResolver,
       runtimeImplementation: {
-        // One helper process per installation: an in-process lock is enough.
-        requestLock: async (_name: string, fn: () => unknown) => fn(),
+        // A refresh token is good for one refresh, and several at_mcp
+        // processes may share this state folder: the client's refresh lock
+        // is a lock file there.
+        requestLock: (name: string, fn: () => unknown) =>
+          withFileLock(join(this.config.stateDir, 'locks'), `oauth:${name}`, async () => fn()),
         // Every session's DPoP key is P-256 (ES256): at_mcp signs its own
         // requests with it (proto_rune's DPoP signs ES256 only), and atproto
         // OAuth requires servers to take ES256. Left to itself the client

@@ -181,6 +181,19 @@ folder (`AT_MCP_KEYS_DIR`) under its DID, so `--key-file` can be left out.
 and the agent tools. A key file is a P-256 private JWK with mode 600; no tool
 shows it or its path.
 
+An account that creates agents (`create_agent`) is their principal, and
+needs a PLC rotation key. at_mcp takes only its public half:
+
+```sh
+at_mcp-accounts rotation-key alice --did-key did:key:zDnae...
+```
+
+Make the key pair outside at_mcp, and keep its private half offline, with
+whoever runs the principal. It goes on top of each agent's rotation keys, so
+it is what takes an agent's identity back if the agent, its PDS or its
+at_mcp are lost or compromised. at_mcp never makes it, asks for it or holds
+it.
+
 `status`, `reload`, `disconnect` and `reconnect` connect to the running
 service, using the cookie. `reload` tells the service to start new accounts
 and apply changes, and `status` shows each account's state. The other

@@ -7,7 +7,7 @@
 // file `FAKE_LOG`, one JSON line, so a test can see what AtMcp asked.
 import { createInterface } from 'node:readline'
 import { generateKeyPairSync } from 'node:crypto'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, writeFileSync, mkdirSync } from 'node:fs'
 
 const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
 const dpopJwk = privateKey.export({ format: 'jwk' })
@@ -70,6 +70,12 @@ const methods = {
     }
     return { records: [], more: false }
   },
+  // Keys: a made-up did:key per file, and a proof that echoes what it binds.
+  'key.generate': (p) => {
+    writeFileSync(p.keyFile, '{}', { mode: 0o600 })
+    return { didKey: `did:key:zDnaeFake${Buffer.from(p.keyFile).toString('hex').slice(-12)}`, jkt: 'jkt' }
+  },
+  'key.prove': (p) => ({ proof: 'proof:' + JSON.stringify({ iss: p.iss, sub: p.sub, aud: p.aud, lxm: p.lxm }) }),
   'inbox.ensure': (p) => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders, added: inboxReaders }),
   'init': (p) => {
     inboxReaders = p.inboxReaders ?? []

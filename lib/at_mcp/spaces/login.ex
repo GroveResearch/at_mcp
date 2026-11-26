@@ -37,7 +37,7 @@ defmodule AtMcp.Spaces.Login do
     relogin = %{
       account: did || opts[:handle],
       keyFile: opts[:key_file],
-      scope: opts[:scope] || AtMcp.Spaces.default_scope()
+      scope: opts[:scope] || AtMcp.Spaces.scope_for(did, opts[:service])
     }
 
     result =
@@ -76,16 +76,16 @@ defmodule AtMcp.Spaces.Login do
     case AtMcp.AccountConfig.with_key(did) do
       {:ok, account} ->
         %{
-          account: account["handle"],
+          account: did,
           keyFile: account["key_file"],
-          scope: AtMcp.Spaces.default_scope()
+          scope: AtMcp.Spaces.scope_for(did, account["service"])
         }
 
       _ ->
         path = AtMcp.Spaces.key_path(did)
 
         if File.exists?(path),
-          do: %{account: did, keyFile: path, scope: AtMcp.Spaces.default_scope()},
+          do: %{account: did, keyFile: path, scope: AtMcp.Spaces.scope_for(did)},
           else: nil
     end
   end

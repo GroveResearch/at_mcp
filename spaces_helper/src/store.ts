@@ -1,6 +1,8 @@
 // A SimpleStore kept whole in one private JSON file, for one process.
 // Writes are serialized, so a refresh and a login never interleave.
 import { readPrivateJson, writePrivateJson, PrivateFileError } from './files.ts'
+import { withFileLock } from './lock.ts'
+import { dirname, basename, join } from 'node:path'
 
 export class FileStore<V> {
   #chain: Promise<unknown> = Promise.resolve()
@@ -15,8 +17,11 @@ export class FileStore<V> {
     }
   }
 
+  // Serialized in this process, and under a lock file across processes on
+  // the same state folder.
   #serial<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.#chain.then(fn, fn)
+    const locked = () => withFileLock(join(dirname(this.path), 'locks'), `store:${basename(this.path)}`, fn)
+    const next = this.#chain.then(locked, locked)
     this.#chain = next.catch(() => {})
     return next
   }

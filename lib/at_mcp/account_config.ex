@@ -21,10 +21,16 @@ defmodule AtMcp.AccountConfig do
   `password` uses that OAuth session for everything; one with both keeps its
   app password for the public app and uses the OAuth session for Spaces.
   Only deterministic code reads the key: no tool takes or shows its path.
+
+  `rotation_key` is a principal's public PLC rotation key, a `did:key`. With
+  it, the account acts as a principal: `create_agent` puts it on top of each
+  agent's rotation keys, and its OAuth session asks for the agent routes.
+  Its private half is never given to AtMcp; it stays offline with whoever
+  runs the principal.
   """
 
   @fields ~w(id handle did password service)
-  @optional ~w(delivery write_quota key_file)
+  @optional ~w(delivery write_quota key_file rotation_key)
 
   @doc "Configuration path: `:accounts_file` (`AT_MCP_ACCOUNTS_FILE`), or a per-user default."
   def path do
@@ -287,6 +293,7 @@ defmodule AtMcp.AccountConfig do
     valid =
       Enum.sort(Map.keys(Map.drop(account, @optional))) == Enum.sort(required) and
         valid_key_file?(Map.get(account, "key_file", :none)) and
+        valid_rotation_key?(Map.get(account, "rotation_key", :none)) and
         Enum.all?(
           required,
           &(is_binary(account[&1]) and String.valid?(account[&1]) and
@@ -309,6 +316,14 @@ defmodule AtMcp.AccountConfig do
     do: String.valid?(path) and Path.type(path) == :absolute
 
   defp valid_key_file?(_), do: false
+
+  # Only the public half: a did:key, never a key file.
+  defp valid_rotation_key?(:none), do: true
+
+  defp valid_rotation_key?("did:key:z" <> rest),
+    do: Regex.match?(~r/\A[1-9A-HJ-NP-Za-km-z]{40,60}\z/, rest)
+
+  defp valid_rotation_key?(_), do: false
 
   @doc "The account with `did` that has a login key, from the file at `path`."
   def with_key(did, path \\ path()) do

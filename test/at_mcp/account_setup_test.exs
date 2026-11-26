@@ -408,4 +408,43 @@ defmodule AtMcp.AccountSetupTest do
       assert saved["password"] == "private-password"
     end
   end
+
+  test "rotation-key makes an account a principal with its public rotation key, and takes nothing else",
+       %{path: path} do
+    {:ok, _} =
+      AtMcp.AccountSetup.execute(
+        ["--file", path, "add", "principal", "--handle", "principal.test"],
+        password: fn -> "private-password" end,
+        login: fn handle, _, _ -> {:ok, %{did: "did:plc:principal", handle: handle}} end
+      )
+
+    key = "did:key:zDnaeTiq1PdzvZXUaMdezchcMJQpBdH2VN4pgrrEhMCCbmwSb"
+
+    assert {:ok, %{rotation_key: ^key, next: next}} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "rotation-key",
+               "principal",
+               "--did-key",
+               key
+             ])
+
+    assert next =~ "private half"
+    {:ok, [saved]} = AtMcp.AccountConfig.load(path)
+    assert saved["rotation_key"] == key
+
+    # A private key, a file path or anything but a did:key is refused.
+    for not_public <- [~s({"kty":"EC","d":"secret"}), "/keys/rotation.json", "did:plc:principal"] do
+      assert {:error, :invalid_rotation_key} =
+               AtMcp.AccountSetup.execute([
+                 "--file",
+                 path,
+                 "rotation-key",
+                 "principal",
+                 "--did-key",
+                 not_public
+               ])
+    end
+  end
 end
