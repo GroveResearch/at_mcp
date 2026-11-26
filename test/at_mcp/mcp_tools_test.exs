@@ -177,6 +177,7 @@ defmodule AtMcp.MCP.ToolsTest do
      %{"request_uri" => "urn:ietf:params:oauth:request_uri:x", "group" => "did:plc:group"}},
     {"create_agent", %{"handle" => "helper.test", "invite_code" => "town-abc"}},
     {"enroll_agent_key", %{"agent" => "did:plc:agent"}},
+    {"delete_agent", %{"agent" => "did:plc:agent", "confirm" => true}},
     {"revoke_agent_sessions", %{"agent" => "did:plc:agent"}},
     {"set_agent_status", %{"agent" => "did:plc:agent", "status" => "deactivated"}},
     {"get_my_agents", %{}},

@@ -3583,6 +3583,36 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "delete_agent",
+       write_description(
+         :delete_agent,
+         "Delete one of this account's agents: its account and everything in its repository, on its PDS. It can't be undone; to stop an agent for now, use set_agent_status. Its DID stays under this account's rotation key. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:delete_agent, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    param(:confirm, :boolean,
+      required: true,
+      description: "true, to confirm: deleting an agent can't be undone"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :delete_agent, [Map.fetch!(a, :agent), a[:confirm]]),
+        state
+      )
+    end)
+  end
+
   tool "get_my_agents",
        "List the agents this account is the principal of, with each one's login key and session state: when its key was enrolled and by whom, and if it was suspended, by whom and how (revokeSessions). Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})

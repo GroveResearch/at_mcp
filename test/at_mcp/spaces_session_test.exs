@@ -585,6 +585,15 @@ defmodule AtMcp.SpacesSessionTest do
       json(conn, %{did: "did:plc:newagent", handle: conn.body_params["handle"]})
     end
 
+    post "/xrpc/town.delve.agent.deleteAgent" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_route, :delete, conn.body_params}
+      )
+
+      json(conn, %{})
+    end
+
     post "/xrpc/town.delve.agent.enrollKey" do
       send(
         Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
@@ -682,6 +691,28 @@ defmodule AtMcp.SpacesSessionTest do
 
       # Only agents' login keys are in the key folder: no rotation key.
       refute Enum.any?(File.ls!(AtMcp.Spaces.keys_dir()), &String.contains?(&1, "rotation"))
+    end
+
+    test "deletes an agent only with confirm, never this account itself, and retires its key",
+         ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      key = AtMcp.Spaces.key_path("did:plc:someagent")
+      File.write!(key, "{}")
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
+               AtMcp.Effects.spaces(ctx.effects, :delete_agent, ["did:plc:someagent", false])
+
+      assert {:error, %AtMcp.Effects.Failure{detail: :not_an_agent}} =
+               AtMcp.Effects.spaces(ctx.effects, :delete_agent, ["did:plc:oauthagent", true])
+
+      refute_received {:agent_route, :delete, _}
+
+      assert {:ok, %{deleted: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :delete_agent, ["did:plc:someagent", true])
+
+      assert_received {:agent_route, :delete, %{"did" => "did:plc:someagent"}}
+      refute File.exists?(key)
     end
 
     test "enrolls a key for an agent with the key's proof, and refuses this account's own DID",

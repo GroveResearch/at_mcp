@@ -372,7 +372,7 @@ defmodule AtMcp.Test.MockBackend do
     }
 
   defp spaces_summary(op, [agent | _])
-       when op in [:enroll_agent_key, :revoke_agent_sessions, :set_agent_status],
+       when op in [:enroll_agent_key, :revoke_agent_sessions, :set_agent_status, :delete_agent],
        do: %{did: agent}
 
   defp spaces_summary(:create_agent, [handle | _]),

@@ -20,10 +20,11 @@ defmodule AtMcp.ToolSetTest do
   # else to put it, and without the invites never learned a group asked
   # them in.
   @default_with_notes_bound 55_000
-  # Every tool, for a client that asks for the full set: 111,442 on
-  # Delvetown and 113,869 on Bluesky, with the 19 notes, group, principal
-  # and identity tools (about 12,000), which are not in the default set.
-  @full_bound 116_000
+  # Every tool, for a client that asks for the full set: 113,836 on
+  # Delvetown and 116,263 on Bluesky, with the notes, groups, principal and
+  # identity tools (about 14,000), of which only the notes and the invites
+  # are in the default set.
+  @full_bound 119_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)

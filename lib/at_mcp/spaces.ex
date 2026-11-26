@@ -1252,6 +1252,31 @@ defmodule AtMcp.Spaces do
   @doc "Whether the account `did` acts as a principal: the accounts file gives it a rotation key."
   def principal?(did), do: match?({:ok, _}, principal_rotation_key(did))
 
+  @doc """
+  Deletes one of this account's agents: its account and repository on the
+  PDS (its DID stays, under this account's rotation key). It can't be
+  undone, so it takes `confirm` true. The agent's login key is retired from
+  the key folder.
+  """
+  def delete_agent(session, agent, confirm?) do
+    with {:ok, names} <- names(),
+         {:ok, agent} <- did_arg(agent, "agent"),
+         :ok <- not_self(session, agent),
+         :ok <-
+           if(confirm? == true,
+             do: :ok,
+             else: invalid("confirm", "must be true: deleting an agent can't be undone")
+           ),
+         {:ok, _} <- agent_call(session, names, "deleteAgent", %{"did" => agent}) do
+      key = key_path(agent)
+
+      if File.exists?(key),
+        do: File.rename!(key, key <> ".deleted-#{System.system_time(:second)}")
+
+      {:ok, %{did: agent, deleted: true}}
+    end
+  end
+
   def revoke_agent_sessions(session, agent) do
     with {:ok, names} <- names(),
          {:ok, agent} <- did_arg(agent, "agent"),

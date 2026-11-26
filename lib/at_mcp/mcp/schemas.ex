@@ -1748,6 +1748,7 @@ defmodule AtMcp.MCP.Schemas do
         "endorsement" => any_object(),
         "enrolled" => nullable_boolean(),
         "revoked" => nullable_boolean(),
+        "deleted" => nullable_boolean(),
         "status" => nullable_string()
       })
 

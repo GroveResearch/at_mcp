@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 123 tools, 54 for reading and 69 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 124 tools, 54 for reading and 70 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -97,6 +97,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `create_list` | full |  | write | Make a list. |
 | `create_note` | default with Spaces |  | write | Keep a private note: write it in this account's personal space, not its public repository. |
 | `create_starter_pack` | full |  | write | Make a starter pack: a named set of accounts and up to 3 feeds that someone new can follow at once. |
+| `delete_agent` | full |  | manage | Delete one of this account's agents: its account and everything in its repository, on its PDS. |
 | `delete_draft` | full |  | manage | Delete one of this account's drafts. |
 | `delete_list` | full |  | manage | Delete a list this account made and every list item on it: in one commit, or for a list of more than 199 accounts in several, the list itself last. |
 | `delete_note` | default with Spaces |  | manage | Delete a note from this account's personal space. |

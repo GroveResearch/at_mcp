@@ -96,6 +96,16 @@
         "name"
       ]
     },
+    "delete_agent": {
+      "arguments": {
+        "agent": "string",
+        "confirm": "boolean"
+      },
+      "required": [
+        "agent",
+        "confirm"
+      ]
+    },
     "delete_draft": {
       "arguments": {
         "id": "string"
