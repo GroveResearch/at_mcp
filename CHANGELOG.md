@@ -7,6 +7,13 @@ itself.
 
 ## Unreleased
 
+- A `get_notifications` read with `reasons`, or with a grouped `feed` other
+  than `all`, keeps its own read position for that filter. Before, it moved
+  the position of the whole list to its newest item, so a later
+  `since: "last_read"` read of every notification passed over the ones the
+  filter had left out. Positions an earlier filtered read already moved stay
+  where they are.
+
 ## 0.3.2
 
 - Read positions are kept in at_mcp's state folder and shared by every
