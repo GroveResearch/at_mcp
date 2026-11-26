@@ -61,6 +61,8 @@ defmodule AtMcp.SpacesSessionTest do
     log = Path.join(System.tmp_dir!(), "fake-helper-#{System.unique_integer([:positive])}.log")
     System.put_env("FAKE_LOG", log)
     System.put_env("FAKE_DID", "did:plc:oauthagent")
+    die = Path.join(System.tmp_dir!(), "fake-die-#{System.unique_integer([:positive])}")
+    System.put_env("FAKE_DIE", die)
     if service = Map.get(ctx, :fake_service), do: System.put_env("FAKE_SERVICE", service)
 
     previous_http = Application.get_env(:proto_rune, :http_client)
@@ -96,6 +98,7 @@ defmodule AtMcp.SpacesSessionTest do
       Application.delete_env(:at_mcp, :spaces_session_test_owner)
       Application.delete_env(:at_mcp, :spaces_session_test_refuse)
       System.delete_env("FAKE_LOG")
+      System.delete_env("FAKE_DIE")
       System.delete_env("FAKE_SERVICE")
       File.rm(log)
     end)
@@ -694,6 +697,44 @@ defmodule AtMcp.SpacesSessionTest do
 
       assert %{"sub" => "did:plc:someagent", "lxm" => "town.delve.agent.enrollKey"} =
                Jason.decode!(bound)
+    end
+  end
+
+  describe "a helper that stops mid-call" do
+    setup do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+
+      # The fake helper's next call of `method` kills it before it answers.
+      %{die: fn method -> File.write!(System.get_env("FAKE_DIE"), method) end}
+    end
+
+    test "a read is answered by the helper started in its place", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      ctx.die.("space.records.list")
+
+      assert {:ok, %{notes: []}} = AtMcp.Effects.spaces(ctx.effects, :list_notes, [nil, nil])
+
+      # Asked twice: once of the helper that stopped, once of its successor.
+      lists = Enum.count(calls(ctx.log), &(&1["method"] == "space.records.list"))
+      assert lists == 2
+    end
+
+    test "a write is not sent again: its outcome is unknown, and the caller is told", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      ctx.die.("space.create")
+
+      assert {:error, {:write_outcome_unknown, _}} =
+               AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "once"}])
+
+      creates = Enum.count(calls(ctx.log), &(&1["method"] == "space.create"))
+      assert creates == 1
     end
   end
 end

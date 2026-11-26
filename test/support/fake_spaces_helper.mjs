@@ -7,7 +7,7 @@
 // file `FAKE_LOG`, one JSON line, so a test can see what AtMcp asked.
 import { createInterface } from 'node:readline'
 import { generateKeyPairSync } from 'node:crypto'
-import { appendFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, writeFileSync, mkdirSync, existsSync, readFileSync, unlinkSync } from 'node:fs'
 
 const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
 const dpopJwk = privateKey.export({ format: 'jwk' })
@@ -95,6 +95,12 @@ const rl = createInterface({ input: process.stdin })
 rl.on('line', (line) => {
   const msg = JSON.parse(line)
   if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, JSON.stringify({ method: msg.method, params: msg.params }) + '\n')
+  // The file FAKE_DIE names holds a method: its next call kills this helper
+  // before it answers, as a crash would, and the file goes.
+  if (process.env.FAKE_DIE && existsSync(process.env.FAKE_DIE) && readFileSync(process.env.FAKE_DIE, 'utf8') === msg.method) {
+    unlinkSync(process.env.FAKE_DIE)
+    process.exit(1)
+  }
   let out
   try {
     const fn = methods[msg.method]

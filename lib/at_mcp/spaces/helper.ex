@@ -48,6 +48,10 @@ defmodule AtMcp.Spaces.Helper do
     end
   end
 
+  # The helper's methods that change nothing at any server.
+  @reads ~w(key.public oauth.status space.get space.list space.authorize space.records.get
+            space.records.list space.writers space.all space.members.list)
+
   @doc """
   Calls `method` with `params` (a map with string or atom keys). Answers
   `{:ok, result}` with the result's keys as strings, or `{:error,
@@ -63,13 +67,24 @@ defmodule AtMcp.Spaces.Helper do
         {:error, unavailable(:not_started)}
 
       _pid ->
-        try do
-          GenServer.call(server, {:call, method, params, timeout}, timeout + 5_000)
-        catch
-          :exit, {:timeout, _} ->
-            {:error, Failure.new(:indeterminate, detail: :spaces_helper_timeout)}
+        case send_call(server, method, params, timeout) do
+          # A read that met the helper as it stopped is asked once more, of
+          # the helper started in its place: a read changes nothing. A write
+          # is not, since it may have happened.
+          {:error, %Failure{detail: :spaces_helper_exited}} when method in @reads ->
+            send_call(server, method, params, timeout)
+
+          result ->
+            result
         end
     end
+  end
+
+  defp send_call(server, method, params, timeout) do
+    GenServer.call(server, {:call, method, params, timeout}, timeout + 5_000)
+  catch
+    :exit, {:timeout, _} ->
+      {:error, Failure.new(:indeterminate, detail: :spaces_helper_timeout)}
   end
 
   @doc "Where the helper script is in this release."
