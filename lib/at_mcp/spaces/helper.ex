@@ -33,8 +33,12 @@ defmodule AtMcp.Spaces.Helper do
   # A JSON-RPC line may carry a whole page of records.
   @max_line 64 * 1024 * 1024
 
-  def start_link(opts \\ []),
-    do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  def start_link(opts \\ []) do
+    case Keyword.get(opts, :name, __MODULE__) do
+      nil -> GenServer.start_link(__MODULE__, opts)
+      name -> GenServer.start_link(__MODULE__, opts, name: name)
+    end
+  end
 
   @doc "`:ok`, or `{:error, reason}` saying why Spaces are switched off."
   def available(server \\ __MODULE__) do

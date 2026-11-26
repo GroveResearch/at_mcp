@@ -17,6 +17,7 @@ itself.
   - Personal spaces control who can read them but are not encrypted, and the note tools say so.
   - `get_notifications` takes the town's Spaces reasons (`space-mention`, `space-reply`, `space-post`, `space-invite`), and delivery passes them on.
   - Every request sends `User-Agent: at_mcp/<version>`.
+  - `at_mcp-accounts add-agent NAME --did DID [--key-file PATH]` saves an account that logs in with its key alone, and `at_mcp-accounts key NAME --key-file PATH` gives an existing account a key. Each checks the key logs its account in first.
   - Spaces need Node 22 or later. Without it, the new tools are refused with `spaces_unavailable`, and nothing else changes. See docs/settings.md, "Spaces, groups and agent keys".
 
 ## 0.3.2
