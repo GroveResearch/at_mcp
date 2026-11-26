@@ -231,10 +231,15 @@ export class Spaces {
         more = true
         break
       }
+      const rkey = (r as { rkey?: string }).rkey
+      const cid = (r as { cid?: { toString(): string } }).cid
       records.push({
+        // The record's own URI in the space, as writes answer it.
+        uri: rkey ? `${s.uri.toString()}/${r.repo}/${r.collection}/${rkey}` : undefined,
+        cid: cid?.toString(),
         repo: r.repo,
         collection: r.collection,
-        rkey: (r as { rkey?: string }).rkey,
+        rkey,
         valid: r.valid,
         record: json(r.record),
         ...(r.valid ? {} : { error: String((r as { error?: unknown }).error) }),

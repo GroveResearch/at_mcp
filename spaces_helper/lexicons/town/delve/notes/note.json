@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "town.delve.personal.note",
+  "id": "town.delve.notes.note",
   "defs": {
     "main": {
       "type": "record",
-      "description": "A note in its author's personal space (town.delve.space.personal).",
+      "description": "A note, written in its author's personal space (town.delve.space.personal) or any space that takes notes.",
       "key": "tid",
       "record": {
         "type": "object",
@@ -12,8 +12,8 @@
         "properties": {
           "text": {
             "type": "string",
-            "maxLength": 100000,
-            "maxGraphemes": 50000,
+            "maxLength": 300000,
+            "maxGraphemes": 30000,
             "description": "The note's text. Markdown is allowed."
           },
           "title": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },

@@ -22,7 +22,7 @@
     },
     "approve_group_app": {
       "arguments": {
-        "approve": "boolean",
+        "deny": "boolean",
         "group": "string",
         "request_uri": "string"
       },
@@ -308,6 +308,10 @@
         "actor"
       ]
     },
+    "get_group_invites": {
+      "arguments": {},
+      "required": []
+    },
     "get_invite_codes": {
       "arguments": {
         "format": "string"
@@ -404,6 +408,12 @@
       },
       "required": []
     },
+    "get_my_agents": {
+      "arguments": {
+        "format": "string"
+      },
+      "required": []
+    },
     "get_note": {
       "arguments": {
         "format": "string",
@@ -412,6 +422,14 @@
       "required": [
         "rkey"
       ]
+    },
+    "get_notes": {
+      "arguments": {
+        "cursor": "string",
+        "format": "string",
+        "limit": "integer"
+      },
+      "required": []
     },
     "get_notification_settings": {
       "arguments": {
@@ -531,6 +549,17 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "get_space_feed": {
+      "arguments": {
+        "detail": "string",
+        "format": "string",
+        "limit": "integer",
+        "space": "string"
+      },
+      "required": [
+        "space"
       ]
     },
     "get_starter_pack": {
@@ -669,24 +698,6 @@
         "uri"
       ]
     },
-    "list_group_invites": {
-      "arguments": {},
-      "required": []
-    },
-    "list_my_agents": {
-      "arguments": {
-        "format": "string"
-      },
-      "required": []
-    },
-    "list_notes": {
-      "arguments": {
-        "cursor": "string",
-        "format": "string",
-        "limit": "integer"
-      },
-      "required": []
-    },
     "mute": {
       "arguments": {
         "actor": "string"
@@ -741,19 +752,10 @@
         "quote": "string",
         "quotes": "string",
         "reply_rule": "array",
-        "text": "string"
-      },
-      "required": [
-        "text"
-      ]
-    },
-    "post_in_group": {
-      "arguments": {
         "space": "string",
         "text": "string"
       },
       "required": [
-        "space",
         "text"
       ]
     },
@@ -767,16 +769,6 @@
       "required": [
         "collection",
         "record"
-      ]
-    },
-    "read_group_space": {
-      "arguments": {
-        "format": "string",
-        "limit": "integer",
-        "space": "string"
-      },
-      "required": [
-        "space"
       ]
     },
     "reattach_quote": {

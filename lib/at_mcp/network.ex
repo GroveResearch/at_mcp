@@ -134,8 +134,8 @@ defmodule AtMcp.Network do
       # prefix of each `town.delve.agent.*` method).
       spaces: %{
         personal: "town.delve.space.personal",
-        note: "town.delve.personal.note",
-        group: "town.delve.space.group",
+        note: "town.delve.notes.note",
+        feed: "town.delve.space.feed",
         agent: "town.delve.agent"
       }
     }
@@ -399,7 +399,7 @@ defmodule AtMcp.Network do
   def names, do: @names
 
   @doc """
-  The town's Spaces names on this network (`:personal`, `:note`, `:group`,
+  The town's Spaces names on this network (`:personal`, `:note`, `:feed`,
   `:agent`), or nil on a network that has none.
   """
   def spaces, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:spaces)

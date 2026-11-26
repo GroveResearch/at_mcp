@@ -62,7 +62,7 @@ defmodule AtMcp.SpacesUnavailableTest do
     end)
 
     state = %{effects: effects}
-    {:ok, result, _} = AtMcp.MCP.Server.handle_call_tool("list_notes", %{}, state)
+    {:ok, result, _} = AtMcp.MCP.Server.handle_call_tool("get_notes", %{}, state)
     assert result[:isError]
     assert hd(result.content).text =~ "Spaces are not available in this installation"
 

@@ -1459,11 +1459,17 @@ defmodule AtMcp.MCP.Server do
       )
     )
 
+    param(:space, :string,
+      description:
+        "An at:space/ URI, such as a group's feed: post there, for its members only, instead of publicly. Text and langs only"
+    )
+
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
         with {:ok, opts} <- AtMcp.MCP.Tools.post_options(a) do
+          opts = if a[:space], do: Keyword.put(opts, :space, a[:space]), else: opts
           AtMcp.Effects.post(e, Map.fetch!(a, :text), opts)
         end,
         state
@@ -3149,7 +3155,7 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.spaces(:note))
-    param(:text, :string, required: true, description: "The note's text, up to 50000 characters")
+    param(:text, :string, required: true, description: "The note's text, up to 30000 characters")
     param(:title, :string, description: "A title, up to 300 characters")
     param(:tags, {:array, :string}, description: "Up to 16 tags")
 
@@ -3168,7 +3174,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:rkey, :string,
       required: true,
-      description: "The note's key, as create_note or list_notes gave it"
+      description: "The note's key, as create_note or get_notes gave it"
     )
 
     run(fn a, state ->
@@ -3179,7 +3185,7 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "list_notes",
+  tool "get_notes",
        "List the notes in this account's personal space, newest first. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:notes))
@@ -3252,13 +3258,13 @@ defmodule AtMcp.MCP.Server do
 
   # --- Spaces: groups ---
 
-  tool "list_group_invites",
+  tool "get_group_invites",
        write_description(
-         :list_group_invites,
+         :get_group_invites,
          "List the invites groups have sent this account, waiting to be accepted. Makes this account's inbox first if it has none, so groups can invite it. Only on delve.town."
        ) do
     annotations(
-      write_annotations(:list_group_invites, %{
+      write_annotations(:get_group_invites, %{
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: true,
@@ -3269,7 +3275,10 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.spaces(:invites))
 
     run(fn _a, state ->
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.spaces(state.effects, :list_group_invites, []), state)
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :list_group_invites, [], :get_group_invites),
+        state
+      )
     end)
   end
 
@@ -3292,7 +3301,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:invite, :string,
       description:
-        "The invite's URI in your inbox, if list_group_invites gave one. The group host finds its own invite to you without it"
+        "The invite's URI in your inbox, if get_group_invites gave one. The group host finds its own invite to you without it"
     )
 
     run(fn a, state ->
@@ -3356,64 +3365,10 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "read_group_space",
-       "Read a group space: every member's records in it, each checked against its server's signature. Only on delve.town." do
-    annotations(%{readOnlyHint: true, openWorldHint: true})
-    output_schema(AtMcp.MCP.Schemas.spaces(:group_space))
-
-    param(:space, :string,
-      required: true,
-      description: "The space, an at:space/<group DID>/<type>/<key> URI"
-    )
-
-    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("records"))
-
-    run(fn a, state ->
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.spaces(state.effects, :read_group_space, [Map.fetch!(a, :space), a[:limit]]),
-        state
-      )
-    end)
-  end
-
-  tool "post_in_group",
-       write_description(
-         :post_in_group,
-         "Post in a group space. Its members can read it; nobody else can. Only on delve.town."
-       ) do
-    annotations(
-      write_annotations(:post_in_group, %{
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true
-      })
-    )
-
-    output_schema(AtMcp.MCP.Schemas.spaces(:group_post))
-
-    param(:space, :string,
-      required: true,
-      description: "The space, an at:space/<group DID>/<type>/<key> URI"
-    )
-
-    param(:text, :string, required: true, description: "The post's text")
-
-    run(fn a, state ->
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.spaces(state.effects, :post_in_group, [
-          Map.fetch!(a, :space),
-          Map.fetch!(a, :text)
-        ]),
-        state
-      )
-    end)
-  end
-
   tool "approve_group_app",
        write_description(
          :approve_group_app,
-         "Let an app sign in as a group you are in, with what your roles there allow. Without approve, shows the request: which app, and what it would get in the group (granted) and not get (withheld). With approve true, approves exactly that and returns the redirect_url to give back to the app. A group the request doesn't offer you is refused. Only on delve.town."
+         "Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. Returns which app it is, and what it gets in the group (granted) and doesn't (withheld), and the redirect_url to give back to the app either way. A group the request doesn't offer you is refused, and nothing is approved. Only on delve.town."
        ) do
     annotations(
       write_annotations(:approve_group_app, %{
@@ -3432,16 +3387,45 @@ defmodule AtMcp.MCP.Server do
     )
 
     param(:group, :string, required: true, description: "The group's DID")
-    param(:approve, :boolean, description: "true to approve; leave out to see the request first")
+
+    param(:deny, :boolean,
+      description:
+        "true to turn the app away; it then gets an access_denied answer at redirect_url"
+    )
 
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :approve_group_app, [
           Map.fetch!(a, :request_uri),
           Map.fetch!(a, :group),
-          a[:approve] == true
+          a[:deny] != true
         ]),
         state
+      )
+    end)
+  end
+
+  tool "get_space_feed",
+       "Read the posts in a space, such as a group's feed, newest first: each with its author and the likes, reposts and replies made there, every record checked against its server's signature. Only the space's members can read it. Reply, like and repost with the posts' at:space/ URIs, and post there with post's space. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.post_page())
+
+    param(:space, :string,
+      required: true,
+      description: "The space, an at:space/<authority>/<type>/<key> URI"
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("posts"))
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.page(
+        fn limit, _cursor ->
+          AtMcp.Effects.spaces(state.effects, :space_feed, [Map.fetch!(a, :space), limit])
+        end,
+        a,
+        state,
+        :posts
       )
     end)
   end
@@ -3565,7 +3549,7 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  tool "list_my_agents",
+  tool "get_my_agents",
        "List the agents this account is the principal of, with each one's key and session state. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:agents))

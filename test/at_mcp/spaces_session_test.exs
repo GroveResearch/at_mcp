@@ -188,19 +188,30 @@ defmodule AtMcp.SpacesSessionTest do
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
     end
 
-    test "a post in a group space is a town post, refused when empty, and spends a write", ctx do
+    test "post with a space posts there: a town post, refused before a slot when it can't go, and counted",
+         ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
-      space = "at:space/did:plc:group/town.delve.space.group/general"
+      space = "at:space/did:plc:group/town.delve.space.feed/general"
 
-      assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
-               AtMcp.Effects.spaces(ctx.effects, :post_in_group, [space, "  "])
+      assert {:error, _} = AtMcp.Effects.post(ctx.effects, "   ", space: space)
 
-      assert {:ok, %{uri: uri}} =
-               AtMcp.Effects.spaces(ctx.effects, :post_in_group, [space, "hello group"])
+      assert {:error,
+              %AtMcp.Effects.Failure{
+                kind: :refused,
+                message: "images can't go on a post in a space" <> _
+              }} =
+               AtMcp.Effects.post(ctx.effects, "with a picture", space: space, images: [%{}])
+
+      assert {:error, _} = AtMcp.Effects.post(ctx.effects, "hi", space: "at://not/a/space")
+      assert AtMcp.Effects.quota_status(ctx.effects).used == 0
+
+      assert {:ok, %{uri: uri, space: ^space}} =
+               AtMcp.Effects.post(ctx.effects, "hello group", space: space)
 
       assert uri =~ "town.delve.feed.post"
 
       [write] = Enum.filter(calls(ctx.log), &(&1["method"] == "space.records.create"))
+      assert write["params"]["space"] == space
       assert write["params"]["collection"] == "town.delve.feed.post"
       assert write["params"]["record"]["text"] == "hello group"
       assert AtMcp.Effects.quota_status(ctx.effects).used == 1
@@ -282,6 +293,15 @@ defmodule AtMcp.SpacesSessionTest do
       json(conn, %{redirectUrl: "http://127.0.0.1/callback?code=c&state=s&iss=x"})
     end
 
+    post "/xrpc/org.atgrp.internal.declineAuthorization" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:declined, conn.body_params}
+      )
+
+      json(conn, %{redirectUrl: "http://127.0.0.1/callback?error=access_denied&state=s&iss=x"})
+    end
+
     defp json(conn, body),
       do: conn |> put_resp_content_type("application/json") |> send_resp(200, Jason.encode!(body))
   end
@@ -298,22 +318,9 @@ defmodule AtMcp.SpacesSessionTest do
       end)
     end
 
-    test "says which app gets what in which group, and approves only a group the request offers",
+    test "says which app gets what in which group, approves only a group the request offers, and turns an app away",
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
-
-      assert {:ok, preview} =
-               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
-                 "urn:req",
-                 "did:plc:group",
-                 false
-               ])
-
-      assert preview.approved == false
-      assert preview.app.client_id == "https://app.example/client.json"
-      assert preview.granted == ["atproto", "include:org.atgrp.authParticipate"]
-      assert preview.withheld == ["include:org.atgrp.authManageAdmin"]
-      refute_received {:approved, _}
 
       assert {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :group_not_offered}} =
                AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
@@ -332,8 +339,22 @@ defmodule AtMcp.SpacesSessionTest do
                ])
 
       assert approved.approved and approved.redirect_url =~ "code=c"
+      assert approved.app.client_id == "https://app.example/client.json"
       assert approved.group == "did:plc:group"
+      assert approved.granted == ["atproto", "include:org.atgrp.authParticipate"]
+      assert approved.withheld == ["include:org.atgrp.authManageAdmin"]
       assert_received {:approved, %{"requestUri" => "urn:req", "group" => "did:plc:group"}}
+
+      assert {:ok, denied} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
+                 "urn:req",
+                 "did:plc:group",
+                 false
+               ])
+
+      assert denied.approved == false and denied.redirect_url =~ "access_denied"
+      assert_received {:declined, %{"requestUri" => "urn:req"}}
+      refute_received {:approved, _}
     end
   end
 end

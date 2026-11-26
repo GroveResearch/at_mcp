@@ -1651,7 +1651,7 @@ defmodule AtMcp.MCP.Schemas do
           "type" => ["array", "null"],
           "items" => %{"type" => "object", "properties" => note_properties()}
         },
-        "cursor" => nullable_string("Pass to list_notes for the next page"),
+        "cursor" => nullable_string("Pass to get_notes for the next page"),
         "readable_by" =>
           nullable_string("Who can read these notes, and that they are not encrypted")
       })
@@ -1685,22 +1685,6 @@ defmodule AtMcp.MCP.Schemas do
 
   defp spaces_schema(:left),
     do: object(%{"left" => nullable_boolean(), "group" => nullable_string()})
-
-  defp spaces_schema(:group_space),
-    do:
-      object(%{
-        "space" => nullable_string(),
-        "records" => any_list(),
-        "more" => nullable_boolean()
-      })
-
-  defp spaces_schema(:group_post),
-    do:
-      object(%{
-        "uri" => nullable_string(),
-        "cid" => nullable_string(),
-        "space" => nullable_string()
-      })
 
   defp spaces_schema(:group_app),
     do:

@@ -316,7 +316,7 @@ defmodule AtMcp.Test.MockBackend do
   end
 
   @note %{
-    uri: "at://did:plc:mock/town.delve.personal.note/3k3333333333n",
+    uri: "at://did:plc:mock/town.delve.notes.note/3k3333333333n",
     rkey: "3k3333333333n",
     cid: "bafynote",
     title: nil,
@@ -340,11 +340,8 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:join_group, _), do: %{status: "admitted", membership: %{}, request: nil}
   defp spaces_summary(:leave_group, [group]), do: %{left: true, group: group}
 
-  defp spaces_summary(:read_group_space, [space | _]),
-    do: %{space: space, records: [], more: false}
-
-  defp spaces_summary(:post_in_group, [space | _]),
-    do: %{uri: "at://did:plc:mock/town.delve.feed.post/3k4", cid: "bafypost", space: space}
+  defp spaces_summary(:space_feed, _),
+    do: %{count: 0, items: [], cursor: nil}
 
   defp spaces_summary(:approve_group_app, _),
     do: %{

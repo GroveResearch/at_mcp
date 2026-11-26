@@ -6094,7 +6094,10 @@ defmodule AtMcp.Effects.ProtoRune do
   # the root first, the post at depth 0, then the replies depth first, each
   # followed by its own replies. summarize_thread/1 rebuilds that list into
   # the post with its `parent` chain and a `replies` list under each post.
-  defp summarize_thread(thread) when is_map(thread) do
+  @doc false
+  # Also `AtMcp.Spaces`' reading of a thread in a space, from a flat list it
+  # builds in the same shape.
+  def summarize_thread(thread) when is_map(thread) do
     items = Enum.filter(of_type(thread, :thread, &is_list/1) || [], &is_map/1)
     {above, rest} = Enum.split_with(items, &(depth(&1) < 0))
     below = Enum.filter(rest, &(depth(&1) > 0))
@@ -6116,7 +6119,7 @@ defmodule AtMcp.Effects.ProtoRune do
     |> Map.put(:other_replies, flag(thread, [:has_other_replies, :hasOtherReplies]))
   end
 
-  defp summarize_thread(other), do: %{value: to_string_safe(other)}
+  def summarize_thread(other), do: %{value: to_string_safe(other)}
 
   # Sets `replies_omitted` from the post's own reply count when the count is
   # higher than what the service returned. V2 sends `moreReplies: 0` for
@@ -6281,7 +6284,8 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp relationship_item(item), do: AtMcp.Summary.extract(:relationship, item)
 
-  defp post_view(post), do: AtMcp.Summary.extract(:post, post)
+  @doc false
+  def post_view(post), do: AtMcp.Summary.extract(:post, post)
 
   defp summarize_profile(p), do: AtMcp.Summary.extract(:profile, p)
 

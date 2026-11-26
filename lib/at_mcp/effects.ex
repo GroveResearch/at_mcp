@@ -329,7 +329,16 @@ defmodule AtMcp.Effects do
   failed read of them leaves the thread as read and says why in
   `hidden_replies_unread`.
   """
-  def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
+  def get_thread(effects, uri, opts \\ [])
+
+  # A post in a space (`at:space/` URI) is read from the space's own records.
+  def get_thread(effects, "at:space/" <> _ = uri, _opts),
+    do:
+      with_session(effects, fn backend, session ->
+        backend.spaces(session, :space_thread, [uri])
+      end)
+
+  def get_thread(effects, uri, opts) when is_binary(uri) do
     with :ok <- post_key_of(uri, "uri") do
       read_thread(effects, uri, opts)
     end
@@ -895,16 +904,16 @@ defmodule AtMcp.Effects do
     :get_note,
     :list_notes,
     :list_group_invites,
-    :read_group_space,
+    :space_feed,
     :list_my_agents,
     :get_principals
   ]
 
   @doc """
   One of `AtMcp.Spaces`' operations on this account: a read with the
-  session, or a write in the account's write lane. Only `post_in_group`
-  publishes, and so counts against the write quota.
-  `list_group_invites` may make the account's inbox, which is a write, so
+  session, or a write in the account's write lane. Posts in a space go
+  through `post` and `reply`, and count against the write quota as any post.
+  `get_group_invites` (`:list_group_invites`) may make the account's inbox, which is a write, so
   it takes the write lane too. `verb` names the write for the quota when the
   tool's name differs from the operation (`accept_group_invite` is
   `join_group` with an invite).
@@ -972,7 +981,7 @@ defmodule AtMcp.Effects do
   # put_record and delete_record count against the quota on every call. AtMcp
   # cannot tell whether another application's record is a public post or a
   # small action like a like, so it counts all of them.
-  @publishing [:post, :reply, :repost, :put_record, :delete_record, :post_in_group]
+  @publishing [:post, :reply, :repost, :put_record, :delete_record]
 
   @doc "The write verbs that count against the account's write quota."
   def publishing, do: @publishing
@@ -990,16 +999,55 @@ defmodule AtMcp.Effects do
   posts, as in the app; pass `reply_rule: ["everyone"], quotes: "allowed"` to
   post open whatever is saved.
   """
-  def post(effects, text, opts \\ []) when is_binary(text) and is_list(opts),
-    do: publish(effects, :post, text, opts)
+  def post(effects, text, opts \\ [])
+
+  # With `space`, the post goes to that space (`AtMcp.Spaces`): read by its
+  # members only, and counted as any post.
+  def post(effects, text, opts) when is_binary(text) and is_list(opts) do
+    case Keyword.get(opts, :space) do
+      nil -> publish(effects, :post, text, opts)
+      space -> publish_in_space(effects, :post, space, text, opts)
+    end
+  end
 
   @doc """
   Reply to a post. A reply is a post with a parent, so it is the same write
   with the same options, `facets: :none` included; only the tool surface names
   it separately.
   """
-  def reply(effects, uri, text, opts \\ []) when is_binary(uri) and is_binary(text),
+  def reply(effects, uri, text, opts \\ [])
+
+  # A reply to a post in a space goes in the same space.
+  def reply(effects, "at:space/" <> _ = uri, text, opts) when is_binary(text) do
+    case AtMcp.Spaces.space_uri(uri) do
+      {:record, space, _, _, _} ->
+        if Keyword.get(opts, :space) in [nil, space],
+          do: publish_in_space(effects, :reply, space, text, Keyword.put(opts, :reply_to, uri)),
+          else: invalid("space", "must be the space the post replied to is in (#{space})")
+
+      _ ->
+        invalid("uri", "must be a post in a space")
+    end
+  end
+
+  def reply(effects, uri, text, opts) when is_binary(uri) and is_binary(text),
     do: publish(effects, :reply, text, Keyword.put(opts, :reply, uri))
+
+  defp publish_in_space(effects, verb, space, text, opts) do
+    with :ok <- validate_post_text(text),
+         :ok <- AtMcp.Spaces.check(:post, [space, text, opts]) do
+      take_and_write(
+        effects,
+        verb,
+        fn backend, session ->
+          backend.spaces(session, :prepare_space_post, [space, text, opts])
+        end,
+        fn prepared ->
+          fn backend, session -> backend.spaces(session, :write_space_post, [prepared]) end
+        end
+      )
+    end
+  end
 
   defp publish(effects, verb, text, opts) do
     with :ok <- validate_post_text(text),
@@ -1070,7 +1118,16 @@ defmodule AtMcp.Effects do
   `cid` may be nil: the subject's current CID is then taken from the same
   AppView read that finds an existing like. See `subject_cid/3`.
   """
-  def like(effects, uri, cid \\ nil) when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
+  def like(effects, uri, cid \\ nil)
+
+  # A like of a post in a space is written in that space.
+  def like(effects, "at:space/" <> _ = uri, cid) when is_binary(cid) or is_nil(cid),
+    do:
+      take_and_write(effects, :like, fn backend, session ->
+        backend.spaces(session, :space_subject, [:like, uri, cid])
+      end)
+
+  def like(effects, uri, cid) when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
     with {:ok, _} <-
            record_argument(
              uri,
@@ -1092,6 +1149,15 @@ defmodule AtMcp.Effects do
   # A repost, like a like, names its subject by DID: the AppView counts a
   # repost whose subject is a handle-form AT URI nowhere.
   def repost(effects, uri, cid \\ nil)
+
+  # A repost of a post in a space is written in that space: its members see it.
+  def repost(effects, "at:space/" <> _ = uri, cid) when is_binary(cid) or is_nil(cid),
+    do:
+      take_and_write(effects, :repost, fn backend, session ->
+        backend.spaces(session, :space_subject, [:repost, uri, cid])
+      end)
+
+  def repost(effects, uri, cid)
       when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
     with {:ok, _} <- at_uri_argument(uri, "uri"),
          :ok <- post_key_of(uri, "uri") do

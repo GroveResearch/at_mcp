@@ -8,9 +8,9 @@ import { l } from '@atproto/lex'
 
 export const personalNote = l.record(
   'tid',
-  'town.delve.personal.note',
+  'town.delve.notes.note',
   l.object({
-    text: l.string({ maxLength: 100000, maxGraphemes: 50000 }),
+    text: l.string({ maxLength: 300000, maxGraphemes: 30000 }),
     title: l.optional(l.string({ maxLength: 3000, maxGraphemes: 300 })),
     tags: l.optional(l.array(l.string({ maxLength: 640, maxGraphemes: 64 }), { maxLength: 16 })),
     createdAt: l.string({ format: 'datetime' }),
@@ -61,7 +61,7 @@ export const atgrpConfirmation = l.record(
 
 export const spaceTypes = {
   'town.delve.space.personal': l.space('any', 'town.delve.space.personal', [personalNote]),
-  'town.delve.space.group': l.space('any', 'town.delve.space.group', [townPost, townLike, townRepost]),
+  'town.delve.space.feed': l.space('any', 'town.delve.space.feed', [townPost, townLike, townRepost]),
   'org.atgrp.inbox': l.space('literal:self', 'org.atgrp.inbox', [atgrpInvite]),
 } as const
 

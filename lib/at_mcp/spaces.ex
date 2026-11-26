@@ -5,7 +5,7 @@ defmodule AtMcp.Spaces do
   identity tools.
 
   - **Personal notes** live in the account's personal space
-    (`town.delve.space.personal`, key `self`), as `town.delve.personal.note`
+    (`town.delve.space.personal`, key `self`), as `town.delve.notes.note`
     records. A personal space decides who can read it (the account, and apps
     it grants), but it is **not encrypted**: the operators of the PDS holding
     it can read it. `readable_by/0` says so in every note result.
@@ -58,13 +58,13 @@ defmodule AtMcp.Spaces do
   """
   def default_scope do
     case AtMcp.Network.spaces() do
-      %{personal: personal, group: group, agent: agent} ->
+      %{personal: personal, feed: feed, agent: agent} ->
         Enum.join(
           [
             "atproto",
             "transition:generic",
             "space:#{personal}?collection=*&manage=create",
-            "space:#{group}?authority=*",
+            "space:#{feed}?authority=*",
             "space:org.atgrp.inbox?action=read_self&manage=create&manage=update"
           ] ++ for(m <- @agent_methods, do: "rpc:#{agent}.#{m}?aud=*"),
           " "
@@ -80,7 +80,7 @@ defmodule AtMcp.Spaces do
   AppView's own DID, so it can raise notifications of invites, on the network
   that has town spaces, unless `AT_MCP_TOWN_INBOX_READER=false`. Off, an inbox
   has no members, as the group host's design has it, and invites are seen
-  with `list_group_invites` only. A reader added can be removed again.
+  with `get_group_invites` only. A reader added can be removed again.
   """
   def inbox_readers do
     if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, true) do
@@ -93,6 +93,10 @@ defmodule AtMcp.Spaces do
   # --- personal notes ---
 
   @note_fields ~w(text title tags)
+  # The note lexicon's text limits (`town.delve.notes.note`): 10 bytes a
+  # grapheme, as the town's lexicon style has it.
+  @note_graphemes 30_000
+  @note_bytes 300_000
 
   def create_note(session, fields) do
     with {:ok, names} <- names(),
@@ -206,8 +210,11 @@ defmodule AtMcp.Spaces do
       not is_binary(record["text"]) or String.trim(record["text"]) == "" ->
         invalid("text", "is required and may not be empty")
 
-      String.length(record["text"]) > 50_000 ->
-        invalid("text", "may be at most 50000 characters")
+      String.length(record["text"]) > @note_graphemes or byte_size(record["text"]) > @note_bytes ->
+        invalid(
+          "text",
+          "may be at most #{@note_graphemes} characters (#{@note_bytes} bytes); split a longer note into several"
+        )
 
       record["title"] && String.length(record["title"]) > 300 ->
         invalid("title", "may be at most 300 characters")
@@ -337,54 +344,353 @@ defmodule AtMcp.Spaces do
     end
   end
 
-  @doc "Every record in a group space, from every member, verified."
-  def read_group_space(session, space, limit) do
-    with {:ok, space} <- group_space_arg(space),
-         {:ok, all} <-
-           helper(session, "space.all", %{
-             space: space,
-             limit: limit || AtMcp.Effects.page_limits().default
-           }) do
-      {:ok, %{space: space, records: all["records"] || [], more: all["more"] == true}}
+  # --- posts in a space (a group's feed) ---
+  #
+  # The public post tools take a space: `post` with `space`, and `reply`,
+  # `like`, `repost` and `get_thread` given a post's `at:space/` URI. A post
+  # in a space is a town post (`AtMcp.Network.collection(:post)`) in the
+  # writer's own repo in that space, read by the space's members only.
+
+  @doc """
+  Splits an `at:space/` URI: a space (`{:space, uri}`), or a record in one
+  (`{:record, space, repo, collection, rkey}`).
+  """
+  def space_uri("at:space/" <> rest) do
+    case String.split(rest, "/") do
+      [a, t, k] when a != "" and t != "" and k != "" ->
+        {:space, "at:space/#{a}/#{t}/#{k}"}
+
+      [a, t, k, repo, collection, rkey] when rkey != "" ->
+        {:record, "at:space/#{a}/#{t}/#{k}", repo, collection, rkey}
+
+      _ ->
+        :error
     end
   end
 
-  @doc """
-  The checks of `op`'s arguments that need no session, which
-  `AtMcp.Effects.spaces/4` makes before it reserves a write.
-  """
-  def check(:post_in_group, [space, text]) do
-    with {:ok, _} <- group_space_arg(space), do: post_text(text)
+  def space_uri(_), do: :error
+
+  @doc "The checks of a space post that need no session (made before a slot is reserved)."
+  def check(:post, [space, text, opts]) do
+    with {:space, _} <- space_uri(space) || :error,
+         :ok <- post_text(text),
+         :ok <- space_post_options(opts) do
+      :ok
+    else
+      :error -> invalid("space", "must be an at:space/<authority>/<type>/<key> URI")
+      error -> error
+    end
   end
 
   def check(_op, _args), do: :ok
 
-  def post_in_group(session, space, text) do
-    with {:ok, space} <- group_space_arg(space),
-         :ok <- post_text(text) do
-      record = %{
-        "text" => text,
-        "createdAt" =>
-          DateTime.utc_now() |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
-      }
+  # What a space post can't carry yet. Each needs its own work in a space:
+  # images and link cards are blobs, a quote is a record embed, and gates are
+  # records of their own.
+  @space_unsupported [:images, :link, :quote, :quotes, :reply_rule, :labels]
 
-      with {:ok, written} <-
-             helper(session, "space.records.create", %{
-               space: space,
-               collection: AtMcp.Network.collection(:post),
-               record: record
-             }) do
-        {:ok, %{uri: written["uri"], cid: written["cid"], space: space}}
-      end
+  defp space_post_options(opts) do
+    case Enum.filter(@space_unsupported, &Keyword.has_key?(opts, &1)) do
+      [] ->
+        :ok
+
+      given ->
+        invalid(
+          Enum.map_join(given, ", ", &to_string/1),
+          "can't go on a post in a space yet; post the text alone, or post publicly"
+        )
     end
   end
 
   @doc """
-  An app's request to sign in as a group, as the group host shows it; with
-  `approve` true, approved with what this member's roles allow. Answers which
-  app it is, which group, and what it gets there (`granted`) and doesn't
-  (`withheld`), from the host's preview, and on approval the redirect URL to
-  hand back to the app. The approval is logged with the same facts.
+  A post (or with `reply_to`, a reply) in a space, built as a public post
+  is (rich text and its facets, languages), before any slot is reserved.
+  """
+  def prepare_space_post(session, space, text, opts) do
+    {rich, unresolved} =
+      if Keyword.get(opts, :facets) == :none,
+        do: {%{text: text, facets: []}, []},
+        else: AtMcp.RichText.build(text, session)
+
+    with {:ok, reply, parent_langs} <- space_reply_ref(session, Keyword.get(opts, :reply_to)) do
+      record =
+        AtMcp.ATProto.post_record(
+          text: rich.text,
+          facets: rich.facets,
+          langs: Keyword.get(opts, :langs) || parent_langs,
+          reply: reply
+        )
+
+      {:ok,
+       %{
+         space: space,
+         record: record,
+         text: text,
+         unresolved: unresolved,
+         reply: Keyword.get(opts, :reply_to)
+       }}
+    end
+  end
+
+  def write_space_post(session, %{space: space, record: record, text: text} = prepared) do
+    with {:ok, written} <-
+           helper(session, "space.records.create", %{
+             space: space,
+             collection: record["$type"],
+             record: Map.delete(record, "$type")
+           }) do
+      summary = %{uri: written["uri"], cid: written["cid"], text: text, space: space}
+      summary = if prepared.reply, do: Map.put(summary, :reply_to, prepared.reply), else: summary
+
+      {:ok,
+       case prepared.unresolved do
+         [] ->
+           summary
+
+         handles ->
+           Map.put(summary, :warnings, [
+             "Not mentioned (no such account): " <> Enum.join(handles, ", ")
+           ])
+       end}
+    end
+  end
+
+  # A reply's strong references: its parent, and the parent's root (or the
+  # parent, when it is the root). Both live in the parent's space.
+  defp space_reply_ref(_session, nil), do: {:ok, nil, nil}
+
+  defp space_reply_ref(session, parent_uri) do
+    with {:ok, parent} <- space_record(session, parent_uri) do
+      parent_ref = %{uri: parent_uri, cid: parent["cid"]}
+      value = parent["value"] || %{}
+
+      root_ref =
+        case get_in(value, ["reply", "root"]) do
+          %{"uri" => uri, "cid" => cid} -> %{uri: uri, cid: cid}
+          _ -> parent_ref
+        end
+
+      langs = if is_list(value["langs"]) and value["langs"] != [], do: value["langs"]
+      {:ok, %{root: root_ref, parent: parent_ref}, langs}
+    end
+  end
+
+  defp space_record(session, uri) do
+    case space_uri(uri) do
+      {:record, space, repo, collection, rkey} ->
+        helper(session, "space.records.get", %{
+          space: space,
+          collection: collection,
+          rkey: rkey,
+          repo: repo
+        })
+
+      _ ->
+        invalid(
+          "uri",
+          "must be a record in a space: at:space/<authority>/<type>/<key>/<repo>/<collection>/<rkey>"
+        )
+    end
+  end
+
+  @doc "A like or a repost (`kind`) of a post in a space, written in the same space."
+  def space_subject(session, kind, uri, cid) when kind in [:like, :repost] do
+    with {:record, space, _repo, _collection, _rkey} <- space_uri(uri) || :error,
+         {:ok, cid} <- subject_cid(session, uri, cid) do
+      record =
+        if kind == :like,
+          do: AtMcp.ATProto.like_record(subject: %{uri: uri, cid: cid}),
+          else: AtMcp.ATProto.repost_record(subject: %{uri: uri, cid: cid})
+
+      with {:ok, written} <-
+             helper(session, "space.records.create", %{
+               space: space,
+               collection: record["$type"],
+               record: Map.delete(record, "$type")
+             }) do
+        {:ok,
+         %{
+           uri: written["uri"],
+           cid: written["cid"],
+           subject_uri: uri,
+           subject_cid: cid,
+           action: kind
+         }}
+      end
+    else
+      :error -> invalid("uri", "must be a post in a space")
+      error -> error
+    end
+  end
+
+  defp subject_cid(_session, _uri, cid) when is_binary(cid) and cid != "", do: {:ok, cid}
+
+  defp subject_cid(session, uri, _none) do
+    with {:ok, got} <- space_record(session, uri), do: {:ok, got["cid"]}
+  end
+
+  @doc """
+  A space's posts, newest first, each with its author's public profile and
+  the likes, reposts and replies made in the space: the page `get_author_feed`
+  and the other feeds answer. Every record read is checked against its
+  server's signature (`space.all`).
+  """
+  def space_feed(session, space, limit) do
+    with {:space, space} <- space_uri(space) || :error,
+         {:ok, all} <- helper(session, "space.all", %{space: space, limit: 1000}) do
+      records = all["records"] || []
+      posts = space_posts(records)
+      views = post_views(session, posts, records)
+
+      items =
+        views
+        |> Enum.sort_by(&(&1["indexedAt"] || ""), :desc)
+        |> Enum.take(limit || AtMcp.Effects.page_limits().default)
+        |> Enum.map(&AtMcp.Effects.ProtoRune.post_view/1)
+
+      {:ok, %{count: length(items), items: items, cursor: nil}}
+    else
+      :error -> invalid("space", "must be an at:space/<authority>/<type>/<key> URI")
+      error -> error
+    end
+  end
+
+  @doc """
+  The thread around a post in a space, as `get_thread` answers one: its
+  parents up to the root, the post, and the replies below it, from the
+  space's own records.
+  """
+  def space_thread(session, uri) do
+    with {:record, space, _, _, _} <- space_uri(uri) || :error,
+         {:ok, all} <- helper(session, "space.all", %{space: space, limit: 1000}) do
+      records = all["records"] || []
+      views = post_views(session, space_posts(records), records)
+      by_uri = Map.new(views, &{&1["uri"], &1})
+
+      case by_uri[uri] do
+        nil ->
+          {:error,
+           Failure.new(:refused, detail: :not_found, message: "No post at #{uri} in its space.")}
+
+        anchor ->
+          parents = ancestors(anchor, by_uri, [])
+          children = Enum.group_by(views, &get_in(&1, ["record", "reply", "parent", "uri"]))
+
+          flat =
+            Enum.with_index(Enum.reverse(parents), fn p, i -> item(p, i - length(parents)) end) ++
+              [item(anchor, 0)] ++ descendants(anchor["uri"], children, 1)
+
+          {:ok,
+           %{thread: flat}
+           |> AtMcp.Effects.ProtoRune.summarize_thread()
+           |> Map.put(:context, %{space: space})}
+      end
+    else
+      :error -> invalid("uri", "must be a post in a space")
+      error -> error
+    end
+  end
+
+  defp item(view, depth),
+    do: %{"uri" => view["uri"], "depth" => depth, "value" => %{"post" => view}}
+
+  defp ancestors(view, by_uri, acc) do
+    case by_uri[get_in(view, ["record", "reply", "parent", "uri"])] do
+      nil -> acc
+      parent -> if length(acc) > 50, do: acc, else: ancestors(parent, by_uri, [parent | acc])
+    end
+  end
+
+  defp descendants(uri, children, depth) when depth <= 10 do
+    (children[uri] || [])
+    |> Enum.sort_by(&(&1["indexedAt"] || ""))
+    |> Enum.flat_map(&[item(&1, depth) | descendants(&1["uri"], children, depth + 1)])
+  end
+
+  defp descendants(_uri, _children, _depth), do: []
+
+  defp space_posts(records) do
+    post = AtMcp.Network.collection(:post)
+
+    Enum.filter(
+      records,
+      &(&1["collection"] == post and &1["valid"] == true and is_binary(&1["uri"]))
+    )
+  end
+
+  # Posts as an AppView's postView, so the summaries and readings of public
+  # posts serve: the author's public profile (one read for every author),
+  # the record, and counts from the likes, reposts and replies in the space.
+  defp post_views(session, posts, records) do
+    profiles = author_profiles(session, posts |> Enum.map(& &1["repo"]) |> Enum.uniq())
+    like = AtMcp.Network.collection(:like)
+    repost = AtMcp.Network.collection(:repost)
+
+    count = fn collection, path ->
+      records
+      |> Enum.filter(&(&1["collection"] == collection))
+      |> Enum.frequencies_by(&get_in(&1, ["record" | path]))
+    end
+
+    likes = count.(like, ["subject", "uri"])
+    reposts = count.(repost, ["subject", "uri"])
+    replies = count.(AtMcp.Network.collection(:post), ["reply", "parent", "uri"])
+
+    for r <- posts do
+      record = r["record"] || %{}
+
+      %{
+        "uri" => r["uri"],
+        "cid" => r["cid"],
+        "author" => profiles[r["repo"]] || %{"did" => r["repo"], "handle" => "handle.invalid"},
+        "record" => Map.put_new(record, "$type", AtMcp.Network.collection(:post)),
+        "indexedAt" => record["createdAt"],
+        "likeCount" => Map.get(likes, r["uri"], 0),
+        "repostCount" => Map.get(reposts, r["uri"], 0),
+        "replyCount" => Map.get(replies, r["uri"], 0),
+        "quoteCount" => 0
+      }
+    end
+  end
+
+  defp author_profiles(_session, []), do: %{}
+
+  defp author_profiles(session, dids) do
+    dids
+    |> Enum.chunk_every(25)
+    |> Enum.flat_map(fn chunk ->
+      case AtMcp.ATProto.get_profiles(session, chunk) do
+        {:ok, %{profiles: profiles}} -> profiles
+        {:ok, %{"profiles" => profiles}} -> profiles
+        _ -> []
+      end
+    end)
+    |> Map.new(fn p ->
+      p = stringify_keys(p)
+      {p["did"], p}
+    end)
+  end
+
+  defp stringify_keys(%{} = m),
+    do: Map.new(m, fn {k, v} -> {camel(to_string(k)), stringify_keys(v)} end)
+
+  defp stringify_keys(l) when is_list(l), do: Enum.map(l, &stringify_keys/1)
+  defp stringify_keys(v), do: v
+
+  defp camel(key) do
+    case String.split(key, "_") do
+      [one] -> one
+      [first | rest] -> first <> Enum.map_join(rest, &String.capitalize/1)
+    end
+  end
+
+  @doc """
+  An app's request to sign in as a group: approved with what this member's
+  roles allow, or with `approve?` false turned away (the tool's `deny`, as
+  Welcome Mat's `deny=1`). Answers which app it is, which group, and what it
+  gets there (`granted`) and doesn't (`withheld`), from the host's preview,
+  and the redirect URL to hand back to the app. Each answer is logged with
+  the same facts.
 
   Nothing is approved for a group the preview does not offer this member:
   the approval is exactly the request that was shown.
@@ -425,7 +731,16 @@ defmodule AtMcp.Spaces do
           {:ok, Map.merge(facts, %{approved: true, redirect_url: approved["redirectUrl"]})}
         end
       else
-        {:ok, Map.put(facts, :approved, false)}
+        with {:ok, declined} <-
+               group_host_post(session, "org.atgrp.internal.declineAuthorization", %{
+                 "requestUri" => request_uri
+               }) do
+          Logger.info(
+            "#{Session.did(session)} turned away app #{facts.app.client_id} for group #{group}"
+          )
+
+          {:ok, Map.merge(facts, %{approved: false, redirect_url: declined["redirectUrl"]})}
+        end
       end
     end
   end
@@ -449,16 +764,6 @@ defmodule AtMcp.Spaces do
     do: for(%{"scope" => scope} <- list, do: scope)
 
   defp scopes(_), do: []
-
-  defp group_space_arg("at:space/" <> rest = space) do
-    case String.split(rest, "/") do
-      [_authority, _type, _skey] -> {:ok, space}
-      _ -> invalid("space", "must be an at:space/<group DID>/<type>/<key> URI")
-    end
-  end
-
-  defp group_space_arg(_),
-    do: invalid("space", "must be an at:space/<group DID>/<type>/<key> URI")
 
   defp post_text(text) when is_binary(text) do
     %{graphemes: max} = AtMcp.Network.post_limits()

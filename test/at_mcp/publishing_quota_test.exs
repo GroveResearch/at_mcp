@@ -55,7 +55,7 @@ defmodule AtMcp.PublishingQuotaTest do
 
   test "only publishing counts" do
     assert AtMcp.Effects.publishing() ==
-             [:post, :reply, :repost, :put_record, :delete_record, :post_in_group]
+             [:post, :reply, :repost, :put_record, :delete_record]
   end
 
   # Every mutating tool, called through the MCP surface with no writes left:
@@ -65,21 +65,17 @@ defmodule AtMcp.PublishingQuotaTest do
     "create_note" => %{"text" => "remember this"},
     "update_note" => %{"rkey" => "3k3333333333n", "text" => "changed"},
     "delete_note" => %{"rkey" => "3k3333333333n"},
-    "list_group_invites" => %{},
+    "get_group_invites" => %{},
     "accept_group_invite" => %{
       "group" => "did:plc:group",
       "invite" => "at://did:plc:group/org.atgrp.invite/3k5"
     },
     "join_group" => %{"group" => "did:plc:group"},
     "leave_group" => %{"group" => "did:plc:group"},
-    "post_in_group" => %{
-      "space" => "at:space/did:plc:group/town.delve.space.group/general",
-      "text" => "hello group"
-    },
     "approve_group_app" => %{
       "request_uri" => "urn:x",
       "group" => "did:plc:group",
-      "approve" => true
+      "deny" => false
     },
     "create_agent" => %{"handle" => "helper.test", "invite_code" => "town-abc"},
     "enroll_agent_key" => %{"agent" => "did:plc:agent"},

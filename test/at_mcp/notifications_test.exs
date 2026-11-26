@@ -70,7 +70,7 @@ defmodule AtMcp.NotificationsTest do
   end
 
   test "the town AppView's Spaces activity is delivered, with its at:space/ thread", ctx do
-    space = "at:space/did:plc:group/town.delve.space.group/general"
+    space = "at:space/did:plc:group/town.delve.space.feed/general"
 
     reply =
       Map.merge(item("space reply", -20), %{
