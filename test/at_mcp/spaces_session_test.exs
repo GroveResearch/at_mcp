@@ -673,6 +673,15 @@ defmodule AtMcp.SpacesSessionTest do
 
       ctx.write_accounts.(@rotation)
 
+      for bare <- ["helper", "helper.", "@helper.test", "help er.test"] do
+        assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: msg}} =
+                 AtMcp.Effects.spaces(ctx.effects, :create_agent, [bare, "code"])
+
+        assert msg =~ "such as helper.delve.town"
+      end
+
+      refute_received {:agent_route, :create, _}
+
       assert {:ok, created} =
                AtMcp.Effects.spaces(ctx.effects, :create_agent, ["Helper.Test", "code"])
 

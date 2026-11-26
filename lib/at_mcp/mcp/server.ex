@@ -3481,7 +3481,12 @@ defmodule AtMcp.MCP.Server do
     )
 
     output_schema(AtMcp.MCP.Schemas.spaces(:agent))
-    param(:handle, :string, required: true, description: "The new agent's handle")
+
+    param(:handle, :string,
+      required: true,
+      description:
+        "The new agent's full handle: a name under the town's handle domain, such as helper.delve.town (letters, digits and hyphens before the domain)"
+    )
 
     param(:invite_code, :string,
       required: true,

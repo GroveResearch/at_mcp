@@ -1113,7 +1113,7 @@ defmodule AtMcp.Spaces do
   """
   def create_agent(session, handle, invite_code) do
     with {:ok, names} <- names(),
-         :ok <- text_arg(handle, "handle"),
+         :ok <- handle_arg(handle),
          :ok <- text_arg(invite_code, "invite_code"),
          {:ok, rotation_key} <- principal_rotation_key(Session.did(session)),
          {:ok, pds_did} <- pds_did(session),
@@ -1209,6 +1209,22 @@ defmodule AtMcp.Spaces do
       end
     end
   end
+
+  # A full handle (a name under a domain), not a bare name.
+  defp handle_arg(handle) when is_binary(handle) do
+    if Regex.match?(
+         ~r/\A[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\z/,
+         handle
+       ),
+       do: :ok,
+       else:
+         invalid(
+           "handle",
+           "must be a full handle, a name under the town's handle domain, such as helper.delve.town"
+         )
+  end
+
+  defp handle_arg(_), do: invalid("handle", "is required")
 
   defp not_self(session, agent) do
     if agent == Session.did(session),
