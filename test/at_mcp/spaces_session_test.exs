@@ -188,6 +188,36 @@ defmodule AtMcp.SpacesSessionTest do
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
     end
 
+    test "a listed note has its rkey and its URI, so it can be updated after", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, created} =
+               AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "remember"}])
+
+      assert {:ok, %{notes: [listed]}} =
+               AtMcp.Effects.spaces(ctx.effects, :list_notes, [nil, nil])
+
+      assert listed.rkey == created.rkey and is_binary(listed.rkey)
+
+      assert listed.uri ==
+               "at:space/did:plc:oauthagent/town.delve.space.personal/self/did:plc:oauthagent/town.delve.notes.note/" <>
+                 listed.rkey
+    end
+
+    test "a space this account can't reach is said to be no such space, with the account's own",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      elsewhere = "at:space/did:plc:someone/town.delve.space.feed/general"
+
+      assert {:error,
+              %AtMcp.Effects.Failure{kind: :refused, detail: :no_such_space, message: message}} =
+               AtMcp.Effects.spaces(ctx.effects, :space_feed, [elsewhere, nil])
+
+      assert message =~ "No such space, or not one this account can read or write: #{elsewhere}"
+      assert message =~ "at:space/did:plc:oauthagent/town.delve.space.personal/self"
+      refute message =~ "scope"
+    end
+
     test "post with a space posts there: a town post, refused before a slot when it can't go, and counted",
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)

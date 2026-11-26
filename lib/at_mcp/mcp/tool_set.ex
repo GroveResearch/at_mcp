@@ -14,7 +14,8 @@ defmodule AtMcp.MCP.ToolSet do
   reading, posting and replying, and choosing whom it follows, blocks and
   mutes. It adds `get_post_images`, so a model can look at the pictures in a
   post, `pin_post`, to choose the post its profile shows first, and
-  `get_policy`, to read the rules of a network that publishes them. It also
+  `get_policy`, to read the rules of a network that publishes them. Where an
+  account can keep private notes (`notes?/0`), it holds the note tools too. It also
   holds `get_record`, `put_record` and `delete_record` for other
   applications' records.
 
@@ -36,10 +37,26 @@ defmodule AtMcp.MCP.ToolSet do
     get_record put_record delete_record
   )
 
+  # The personal notes, in the default set wherever an account can keep them:
+  # on a network with town spaces, with the Spaces helper running. Without
+  # them, an agent told to keep something private has nowhere to put it but
+  # its public repository.
+  @notes ~w(create_note get_note get_notes update_note delete_note)
+
   @sets ["default", "full"]
 
-  @doc "The tools the default set offers."
+  @doc "The tools the default set always offers."
   def default, do: @default
+
+  @doc "The note tools, which the default set offers where `notes?/0`."
+  def notes, do: @notes
+
+  @doc "Whether this installation's accounts can keep notes (town spaces, and the helper running)."
+  def notes? do
+    AtMcp.Network.spaces() != nil and AtMcp.Spaces.Helper.available() == :ok
+  end
+
+  defp default_names, do: if(notes?(), do: @default ++ @notes, else: @default)
 
   @doc "The sets a grant or `AT_MCP_TOOLS` can name."
   def sets, do: @sets
@@ -58,8 +75,12 @@ defmodule AtMcp.MCP.ToolSet do
 
   @doc "Filters tools down to those in set."
   def offered(tools, "full"), do: tools
-  def offered(tools, "default"), do: Enum.filter(tools, &(&1.name in @default))
+
+  def offered(tools, "default") do
+    names = default_names()
+    Enum.filter(tools, &(&1.name in names))
+  end
 
   @doc "Whether the set a session is offered (`of/1`) holds the tool `name`."
-  def offers?(state, name), do: of(state) == "full" or name in @default
+  def offers?(state, name), do: of(state) == "full" or name in default_names()
 end

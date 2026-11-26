@@ -3143,7 +3143,7 @@ defmodule AtMcp.MCP.Server do
   tool "create_note",
        write_description(
          :create_note,
-         "Write a note in this account's personal space, where only this account and the apps it grants can read it. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Returns the note with its rkey. Only on delve.town."
+         "Keep a private note: write it in this account's personal space, not its public repository. Only this account and the apps it grants can read it. Notes are not encrypted, though: the operators of the server holding them can read them, so keep no secrets in them. Returns the note with its rkey. Only on delve.town."
        ) do
     annotations(
       write_annotations(:create_note, %{
@@ -3168,7 +3168,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_note",
-       "Read one note from this account's personal space by its rkey. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town." do
+       "Read one note from this account's personal space by its rkey (get_notes lists them). Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:note))
 
@@ -3186,7 +3186,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_notes",
-       "List the notes in this account's personal space, newest first. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town." do
+       "List the notes in this account's personal space, newest first, each with the rkey the other note tools take. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:notes))
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notes"))

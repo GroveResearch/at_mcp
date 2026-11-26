@@ -16,6 +16,7 @@ let issuedTtl = Number(process.env.FAKE_FIRST_TTL ?? 10)
 const did = process.env.FAKE_DID ?? 'did:plc:oauthagent'
 const spaces = new Set()
 let inboxReaders = []
+const written = []
 
 const creds = () => ({
   did,
@@ -50,7 +51,24 @@ const methods = {
     if (space.includes('town.delve.space.personal') && !spaces.has(space)) {
       throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
     }
-    return { uri: `${space}/${did}/${p.collection}/3kfake`, cid: 'bafyfake' }
+    const rkey = `3kfake${written.length}`
+    written.push({ rkey, record: p.record })
+    return { uri: `${space}/${did}/${p.collection}/${rkey}`, cid: 'bafyfake' }
+  },
+  // As the PDS answers: records with their key and CID, and no URI. A space
+  // that isn't the account's is refused for a missing scope.
+  'space.records.list': (p) => {
+    const space = typeof p.space === 'string' ? p.space : `at:space/${did}/${p.space.type}/${p.space.skey ?? 'self'}`
+    if (!space.startsWith(`at:space/${did}/`)) {
+      throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${space}"` }
+    }
+    return { records: written.map(({ rkey, record }) => ({ collection: p.collection, rkey, cid: 'bafyfake', value: record })) }
+  },
+  'space.all': (p) => {
+    if (!p.space.startsWith(`at:space/${did}/`)) {
+      throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${p.space}"` }
+    }
+    return { records: [], more: false }
   },
   'inbox.ensure': (p) => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders, added: inboxReaders }),
   'init': (p) => {
@@ -69,7 +87,7 @@ rl.on('line', (line) => {
     if (!fn) throw { class: 'refused', code: 'unknown_method', message: msg.method }
     out = { jsonrpc: '2.0', id: msg.id, result: fn(msg.params ?? {}) }
   } catch (e) {
-    out = { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: e.message, data: { class: e.class, code: e.code } } }
+    out = { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: e.message, data: { class: e.class, code: e.code, status: e.status } } }
   }
   process.stdout.write(JSON.stringify(out) + '\n')
 })

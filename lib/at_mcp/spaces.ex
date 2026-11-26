@@ -121,7 +121,8 @@ defmodule AtMcp.Spaces do
              collection: names.note,
              rkey: rkey
            }) do
-      {:ok, note_summary(got["uri"], got["cid"], got["value"] || %{})}
+      {:ok,
+       note_summary(note_uri(session, names, got["uri"], rkey), got["cid"], got["value"] || %{})}
     end
   end
 
@@ -138,7 +139,11 @@ defmodule AtMcp.Spaces do
        %{
          notes:
            for r <- page["records"] || [] do
-             note_summary(r["uri"], r["cid"], r["value"] || %{})
+             note_summary(
+               note_uri(session, names, r["uri"], r["rkey"]),
+               r["cid"],
+               r["value"] || %{}
+             )
            end,
          cursor: page["cursor"],
          readable_by: @readable_by
@@ -248,6 +253,15 @@ defmodule AtMcp.Spaces do
       readable_by: @readable_by
     }
   end
+
+  # A space's listRecords and getRecord answer the record's key and CID but
+  # no URI, so a note's URI is built from the space, the account and the key:
+  # the URI a write answers for it.
+  defp note_uri(_session, _names, uri, _rkey) when is_binary(uri), do: uri
+  defp note_uri(_session, _names, nil, nil), do: nil
+
+  defp note_uri(session, names, nil, rkey),
+    do: "#{personal(session, names)}/#{Session.did(session)}/#{names.note}/#{rkey}"
 
   defp personal(session, names),
     do: "at:space/#{Session.did(session)}/#{names.personal}/self"
@@ -434,7 +448,7 @@ defmodule AtMcp.Spaces do
 
   def write_space_post(session, %{space: space, record: record, text: text} = prepared) do
     with {:ok, written} <-
-           helper(session, "space.records.create", %{
+           given(session, "space.records.create", %{
              space: space,
              collection: record["$type"],
              record: Map.delete(record, "$type")
@@ -478,7 +492,7 @@ defmodule AtMcp.Spaces do
   defp space_record(session, uri) do
     case space_uri(uri) do
       {:record, space, repo, collection, rkey} ->
-        helper(session, "space.records.get", %{
+        given(session, "space.records.get", %{
           space: space,
           collection: collection,
           rkey: rkey,
@@ -503,7 +517,7 @@ defmodule AtMcp.Spaces do
           else: AtMcp.ATProto.repost_record(subject: %{uri: uri, cid: cid})
 
       with {:ok, written} <-
-             helper(session, "space.records.create", %{
+             given(session, "space.records.create", %{
                space: space,
                collection: record["$type"],
                record: Map.delete(record, "$type")
@@ -537,7 +551,7 @@ defmodule AtMcp.Spaces do
   """
   def space_feed(session, space, limit) do
     with {:space, space} <- space_uri(space) || :error,
-         {:ok, all} <- helper(session, "space.all", %{space: space, limit: 1000}) do
+         {:ok, all} <- given(session, "space.all", %{space: space, limit: 1000}) do
       records = all["records"] || []
       posts = space_posts(records)
       views = post_views(session, posts, records)
@@ -562,7 +576,7 @@ defmodule AtMcp.Spaces do
   """
   def space_thread(session, uri) do
     with {:record, space, _, _, _} <- space_uri(uri) || :error,
-         {:ok, all} <- helper(session, "space.all", %{space: space, limit: 1000}) do
+         {:ok, all} <- given(session, "space.all", %{space: space, limit: 1000}) do
       records = all["records"] || []
       views = post_views(session, space_posts(records), records)
       by_uri = Map.new(views, &{&1["uri"], &1})
@@ -1123,6 +1137,53 @@ defmodule AtMcp.Spaces do
       when code in ["no_session", "TokenRefreshError", "TokenRevokedError", "TokenInvalidError"] ->
         with {:ok, _} <- AtMcp.Spaces.Login.credentials(did, refresh: false),
              do: Helper.call(method, Map.put(params, :did, did))
+
+      other ->
+        other
+    end
+  end
+
+  # A helper call on a space someone named (a group's feed, a post in one).
+  # The PDS answers a space this account can't reach, or that doesn't exist,
+  # with a missing scope or SpaceNotFound, which reads like a permissions
+  # problem: it is said as what it is, with the account's own spaces.
+  @no_space ["ScopeMissingError", "ScopeMissing", "SpaceNotFound", "InvalidRequest"]
+
+  defp given(session, method, %{space: space} = params) do
+    case helper(session, method, params) do
+      {:error, %Failure{detail: code, status: status} = failure}
+      when code in @no_space and (status in [400, 403, 404] or code == "SpaceNotFound") ->
+        did = Session.did(session)
+
+        own =
+          case AtMcp.Network.spaces() do
+            %{personal: personal} ->
+              "at:space/#{did}/#{personal}/self (personal notes: the note tools)"
+
+            nil ->
+              nil
+          end
+
+        {:error,
+         %Failure{
+           failure
+           | kind: :refused,
+             detail: :no_such_space,
+             message:
+               "No such space, or not one this account can read or write: #{space}. " <>
+                 "This account's own spaces are " <>
+                 Enum.join(
+                   Enum.reject(
+                     [
+                       own,
+                       "at:space/#{did}/org.atgrp.inbox/self (group invites: get_group_invites)"
+                     ],
+                     &is_nil/1
+                   ),
+                   " and "
+                 ) <>
+                 ". A group's feed is reached by accepting its invite (get_group_invites, accept_group_invite); its posts' at:space/ URIs come from get_space_feed."
+         }}
 
       other ->
         other

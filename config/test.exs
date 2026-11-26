@@ -23,3 +23,8 @@ config :at_mcp,
   card_service: nil
 
 config :logger, level: :warning
+
+# The application's Spaces helper stays off in tests, so what a test sees
+# doesn't depend on whether this checkout has the helper built; a test that
+# needs one starts its own (test/support/fake_spaces_helper.mjs).
+config :at_mcp, spaces_enabled: false

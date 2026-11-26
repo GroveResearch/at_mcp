@@ -23,8 +23,9 @@ defmodule AtMcp.SpacesUnavailableTest do
   test "each reason Spaces are off is answered, and a call is refused with it" do
     for {opts, reason, says} <- [
           {[enabled: false], :disabled, "AT_MCP_SPACES is false"},
-          {[node: "/nonexistent/node"], :no_node, "no node executable"},
-          {[script: "/nonexistent/at_mcp-spaces.mjs"], :no_script, "no built Spaces helper"}
+          {[enabled: true, node: "/nonexistent/node"], :no_node, "no node executable"},
+          {[enabled: true, script: "/nonexistent/at_mcp-spaces.mjs"], :no_script,
+           "no built Spaces helper"}
         ] do
       pid = start(opts)
       assert Helper.available() == {:error, reason}
