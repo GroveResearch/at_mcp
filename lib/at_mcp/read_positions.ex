@@ -5,6 +5,12 @@ defmodule AtMcp.ReadPositions do
 
   `key/2` builds the feed key:
     - `"timeline"` and `"notifications"`
+    - `"notifications:"` followed by the filter, for a read of only some
+      notifications: `reasons=` and the reasons, sorted and joined by commas,
+      and `feed=` and the grouped tab other than `all`, joined by `;`. A
+      filtered read returns only part of the list, so the time of its newest
+      item says nothing about the rest: moving the whole list's position with
+      it would pass over every notification it left out.
     - `"list:"` followed by the list's AT URI
     - `"author:"` followed by the actor as the caller wrote it, lowercased, so
       a handle and its DID get separate positions
@@ -45,6 +51,29 @@ defmodule AtMcp.ReadPositions do
   @doc "The name a feed's position is kept under."
   def key(:timeline, nil), do: "timeline"
   def key(:notifications, nil), do: "notifications"
+
+  def key(:notifications, filter) when is_map(filter) do
+    reasons =
+      case Map.get(filter, :reasons) do
+        [_ | _] = reasons ->
+          ["reasons=" <> (reasons |> Enum.uniq() |> Enum.sort() |> Enum.join(","))]
+
+        _none ->
+          []
+      end
+
+    feed =
+      case Map.get(filter, :feed) do
+        feed when is_binary(feed) and feed != "all" -> ["feed=" <> feed]
+        _all -> []
+      end
+
+    case reasons ++ feed do
+      [] -> "notifications"
+      parts -> "notifications:" <> Enum.join(parts, ";")
+    end
+  end
+
   def key(:list_feed, uri) when is_binary(uri), do: "list:" <> uri
   def key(:author, actor) when is_binary(actor), do: "author:" <> String.downcase(actor)
 

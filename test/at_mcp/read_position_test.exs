@@ -26,9 +26,13 @@ defmodule AtMcp.ReadPositionTest do
             %{"preferences" => []}
 
           String.ends_with?(uri.path, ".notification.listNotifications") ->
+            # The service's own filter: `reasons` repeats its key per reason.
+            reasons = for {"reasons", reason} <- URI.query_decoder(uri.query || ""), do: reason
+            all = Application.get_env(:at_mcp, :read_position_test_notifications, [])
+
             %{
               "notifications" =>
-                Application.get_env(:at_mcp, :read_position_test_notifications, []),
+                if(reasons == [], do: all, else: Enum.filter(all, &(&1["reason"] in reasons))),
               "seenAt" => Application.get_env(:at_mcp, :read_position_test_seen_at)
             }
 
@@ -294,6 +298,55 @@ defmodule AtMcp.ReadPositionTest do
     page = notifications.(%{})
     assert Enum.map(page["items"], & &1["uri"]) == [uri(2)]
     assert page["new_total"] == 1
+  end
+
+  test "a filtered notifications read keeps its own position and leaves the whole list's alone",
+       ctx do
+    notifications = fn args ->
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_call_tool(
+          "get_notifications",
+          Map.put(args, "since", "last_read"),
+          ctx.state
+        )
+
+      refute result[:isError], inspect(result)
+      result.structuredContent
+    end
+
+    at = &"2026-10-29T10:0#{&1}:00.000Z"
+    like = Map.merge(reply(2, at.(3), at.(3)), %{"reason" => "like"})
+
+    Application.put_env(:at_mcp, :read_position_test_notifications, [
+      reply(3, at.(5), at.(5)),
+      like,
+      reply(1, at.(1), at.(1))
+    ])
+
+    # Only the replies: the like at 10:03 is not on this page.
+    page = notifications.(%{"reasons" => ["reply"]})
+    assert Enum.map(page["items"], & &1["uri"]) == [uri(3), uri(1)]
+
+    assert {:ok, %{at: "2026-10-29T10:05:00.000Z"}} =
+             ReadPositions.get(ctx.did, "notifications:reasons=reply")
+
+    assert {:ok, %{at: nil}} = ReadPositions.get(ctx.did, "notifications")
+
+    # The whole list still holds the like the filtered read left out.
+    page = notifications.(%{})
+    assert Enum.map(page["items"], & &1["uri"]) == [uri(3), uri(2), uri(1)]
+    assert {:ok, %{at: "2026-10-29T10:05:00.000Z"}} = ReadPositions.get(ctx.did, "notifications")
+
+    # The same filter in another order or with a repeat is the same position.
+    assert notifications.(%{"reasons" => ["reply", "reply"]})["items"] == []
+
+    assert ReadPositions.key(:notifications, %{reasons: ["reply", "like"]}) ==
+             ReadPositions.key(:notifications, %{reasons: ["like", "reply", "like"]})
+
+    assert ReadPositions.key(:notifications, %{reasons: nil, feed: "all"}) == "notifications"
+
+    assert ReadPositions.key(:notifications, %{feed: "conversations"}) ==
+             "notifications:feed=conversations"
   end
 
   test "the first notifications read with last_read starts where the account last marked them seen",

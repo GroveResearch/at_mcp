@@ -110,6 +110,7 @@ This file lists the design decisions at_mcp depends on, one bullet per decision.
   - Evidence: `test/at_mcp/preferences_test.exs`; `test/e2e/round_trip_test.exs`.
 - 2026-10-29, provisional (#204). at_mcp stores each account's read position per feed (timeline, list feed, author feed, notifications), as the time of the newest item read: the AppView's sort time in a feed, the indexing time in the notifications. Custom feeds get no position, because their generators set the order.
   - A read moves the position forward when it passes `since: "last_read"` without `mark_read: false`, or `mark_read: true` without `since`.
+  - A notifications read filtered by `reasons`, or by a grouped `feed` other than `all`, keeps its own position for that filter (`AtMcp.ReadPositions.key/2`). Its newest item says nothing about the notifications it left out, so it never moves the position of the whole list. Evidence: `test/at_mcp/read_position_test.exs` "a filtered notifications read keeps its own position and leaves the whole list's alone".
   - A page stopping short of the old position stores its newest time as pending, and the read getting back to the position commits it.
   - Positions are kept per DID in `read-positions.json` under `AtMcp.PrivateFile`'s lock, so every at_mcp client using that state folder shares them. The network's seen marker, which the app counts unread from, is separate; only `update_seen` moves it.
   - Evidence: `AtMcp.ReadPositions`; `AtMcp.MCP.Tools.page/5`; `test/at_mcp/read_position_test.exs`.

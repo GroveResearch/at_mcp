@@ -101,7 +101,10 @@ defmodule AtMcp.MCP.Server do
         a,
         state,
         :notifications,
-        AtMcp.ReadPositions.key(:notifications, nil)
+        AtMcp.ReadPositions.key(:notifications, %{
+          reasons: Map.get(a, :reasons),
+          feed: Map.get(a, :feed)
+        })
       )
     end)
   end
