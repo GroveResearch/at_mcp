@@ -546,13 +546,29 @@ defmodule AtMcp.Spaces do
 
   @doc "The checks of a space post that need no session (made before a slot is reserved)."
   def check(:post, [space, text, opts]) do
-    with {:space, _} <- space_uri(space) || :error,
+    with {:space, _} <- space_uri(space),
          :ok <- post_text(text),
          :ok <- space_post_options(opts) do
       :ok
     else
-      :error -> invalid("space", "must be an at:space/<authority>/<type>/<key> URI")
-      error -> error
+      # A record in a space, not a space: say which, and what to do with it.
+      {:record, _space, group, "org.atgrp.invite", _rkey} ->
+        invalid(
+          "space",
+          "is a group invite, a record in your inbox, not a space to post in: join the group first (accept_group_invite with group #{group}), then post in its feed"
+        )
+
+      {:record, record_space, _repo, _collection, _rkey} ->
+        invalid(
+          "space",
+          "is a record in a space, not a space: post in #{record_space}, or reply to the record with reply"
+        )
+
+      {:error, _} = error ->
+        error
+
+      _ ->
+        invalid("space", "must be an at:space/<authority>/<type>/<key> URI")
     end
   end
 

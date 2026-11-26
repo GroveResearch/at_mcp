@@ -764,7 +764,25 @@ defmodule AtMcp.MCP.Tools do
         }
       )
 
-  def respond(other, state), do: {:ok, encode(other), state}
+  def respond(%{} = summary, state), do: {:ok, encode(summary), state}
+
+  # Anything else is a fault of AtMcp's own (a value a handler didn't turn
+  # into a result): an error, never a raw Elixir term read as a success.
+  def respond(other, state) do
+    require Logger
+    Logger.error(["a tool answered an unexpected value: ", inspect(other, limit: 10)])
+
+    error(
+      state,
+      "failed",
+      ~L"error: at_mcp answered this call with something it should not have; nothing more can be said about whether it took effect.",
+      %{
+        retry: "unknown",
+        sentence: ~L"Check the account's records before trying again if the call was a write.",
+        fields: %{}
+      }
+    )
+  end
 
   @doc """
   `respond/2` for a read made of posts, accounts, lists, starter packs, feeds,

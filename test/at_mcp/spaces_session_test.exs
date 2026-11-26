@@ -252,6 +252,16 @@ defmodule AtMcp.SpacesSessionTest do
                AtMcp.Effects.post(ctx.effects, "with a picture", space: space, images: [%{}])
 
       assert {:error, _} = AtMcp.Effects.post(ctx.effects, "hi", space: "at://not/a/space")
+
+      # An invite record is not a space: refused, saying how to join.
+      invite =
+        "at:space/did:plc:oauthagent/org.atgrp.inbox/self/did:plc:group/org.atgrp.invite/3kinv"
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: msg}} =
+               AtMcp.Effects.post(ctx.effects, "hello", space: invite)
+
+      assert msg =~ "is a group invite"
+      assert msg =~ "accept_group_invite with group did:plc:group"
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
 
       assert {:ok, %{uri: uri, space: ^space}} =

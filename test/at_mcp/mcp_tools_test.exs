@@ -384,6 +384,20 @@ defmodule AtMcp.MCP.ToolsTest do
                AtMcp.MCP.Server.handle_call_tool(name, json_arguments, state)
 
       refute result[:isError], "#{name}: #{inspect(result)}"
+
+      # No result is ever a raw Elixir term. (The mock backend echoes what it
+      # was given as `request`, and a report's `subject`: the mock's, not a
+      # tool's.)
+      for %{text: t} <- result.content do
+        t =
+          case Jason.decode(t) do
+            {:ok, %{} = json} -> Jason.encode!(Map.drop(json, ["request", "subject"]))
+            _ -> t
+          end
+
+        refute t =~ ~r/\{:[a-z_]+,|%\{|#PID<|#Reference</, "#{name} answered #{t}"
+      end
+
       assert Schema.valid?(result.structuredContent, schema), "#{name} output schema"
       text = Enum.find(result.content, &(&1.type == "text")).text
       assert result.structuredContent == Jason.decode!(text), "#{name} json text"
@@ -621,4 +635,18 @@ defmodule AtMcp.MCP.ToolsTest do
 
   defp descriptions(list) when is_list(list), do: Enum.flat_map(list, &descriptions/1)
   defp descriptions(_), do: []
+
+  test "a value a handler didn't turn into a result is an error, never a raw term read as a success" do
+    for odd <- [
+          {:record, "at:space/a/b/c", "did:plc:x", "org.atgrp.invite", "3k"},
+          :ok,
+          "text",
+          7
+        ] do
+      {:ok, result, _} = AtMcp.MCP.Tools.respond(odd, %{})
+      assert result[:isError] == true
+      text = hd(result.content).text
+      refute text =~ ~r/\{:|:record|at:space/
+    end
+  end
 end
