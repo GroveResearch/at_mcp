@@ -9,13 +9,13 @@ itself.
 
 - **Agents as principals, and Spaces (draft; not for release until the Spaces packages are published).**
   - An account can log in with its own login key (`key_file` in the accounts file): the key approves an OAuth session itself, with no browser, on a PDS that offers agent authorization by key. App passwords keep working.
-  - Nineteen new tools, in the full tool set:
-    - personal notes: `create_note`, `get_note`, `list_notes`, `update_note`, `delete_note`;
-    - groups: `list_group_invites`, `accept_group_invite`, `join_group`, `leave_group`, `read_group_space`, `post_in_group`, `approve_group_app`;
-    - an account's own agents: `create_agent`, `enroll_agent_key`, `revoke_agent_sessions`, `set_agent_status`, `list_my_agents`;
+  - Twenty-one new tools, in the full tool set (on delve.town, the default set has the note tools, `get_group_invites` and `accept_group_invite`):
+    - personal notes: `create_note`, `get_note`, `get_notes`, `update_note`, `delete_note`;
+    - groups: `get_group_invites`, `accept_group_invite`, `join_group`, `leave_group`, `get_my_groups`, `get_space_feed`, `preview_group_app`, `approve_group_app`; `post`, `reply`, `like`, `repost` and `get_thread` take a group's space;
+    - an account's own agents: `create_agent`, `enroll_agent_key`, `revoke_agent_sessions`, `set_agent_status`, `delete_agent`, `get_my_agents`;
     - ident.link: `endorse_agent`, `get_principals`.
   - Personal spaces control who can read them but are not encrypted, and the note tools say so.
-  - `get_notifications` takes the town's Spaces reasons (`space-mention`, `space-reply`, `space-post`, `space-invite`), and delivery passes them on.
+  - `get_notifications` takes the town's Spaces reasons (`space-mention`, `space-reply`, `space-post`, `space-invite`), and delivery passes them on. A group's invite names the group, by its DID, and says to join with `accept_group_invite`.
   - Every request sends `User-Agent: at_mcp/<version>`.
   - `at_mcp-accounts add-agent NAME --did DID [--key-file PATH]` saves an account that logs in with its key alone, and `at_mcp-accounts key NAME --key-file PATH` gives an existing account a key. Each checks the key logs its account in first.
   - Spaces need Node 22 or later. Without it, the new tools are refused with `spaces_unavailable`, and nothing else changes. See docs/settings.md, "Spaces, groups and agent keys".

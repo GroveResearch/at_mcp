@@ -1023,6 +1023,47 @@ defmodule AtMcp.ReadingTest do
              "on #{liked} via your repost #{repost}"
   end
 
+  # The town AppView's invite names the group as its author and carries the
+  # invite's message as a preview: the line says which group, and how to join.
+  test "a group invite names the group and the next step" do
+    invite = %{
+      "reason" => "space-invite",
+      "uri" => "at:space/did:plc:me/org.atgrp.inbox/self/did:plc:grp/org.atgrp.invite/3kinv",
+      "cid" => "bafyinv",
+      "author" => %{
+        "did" => "did:plc:grp",
+        "handle" => "garden.groups.test",
+        "displayName" => "Garden"
+      },
+      "record" => %{
+        "$type" => "town.delve.notification.defs#spacePreview",
+        "space" => "at:space/did:plc:me/org.atgrp.inbox/self",
+        "collection" => "org.atgrp.invite",
+        "text" => "Come help with the beds",
+        "createdAt" => "2026-10-01T00:00:00.000Z"
+      },
+      "isRead" => false,
+      "indexedAt" => "2026-10-01T00:00:00.000Z"
+    }
+
+    text =
+      AtMcp.Reading.notifications(%{"items" => [json(Summary.extract(:notification, invite))]})
+
+    assert text =~ ~s|invite to join the group "Garden" (@garden.groups.test) did:plc:grp|
+    assert text =~ "Come help with the beds"
+
+    assert text =~
+             "see get_group_invites, then join with accept_group_invite (group: did:plc:grp)"
+
+    refute text =~ "replying to"
+
+    # Without the group's profile, its DID still comes from the invite's uri.
+    bare = Map.put(invite, "author", %{"did" => "did:plc:grp"})
+    text = AtMcp.Reading.notifications(%{"items" => [json(Summary.extract(:notification, bare))]})
+    assert text =~ "invite to join the group did:plc:grp"
+    assert text =~ "accept_group_invite (group: did:plc:grp)"
+  end
+
   test "get_post_images lists each image with its alt text and what became of it" do
     text =
       AtMcp.Reading.post_images(%{

@@ -1563,6 +1563,45 @@ defmodule AtMcp.Reading do
     )
   end
 
+  # A group's invite, which the town AppView raises from the account's inbox:
+  # its author is the group, and its text the invite's message. Nothing in it
+  # is a post to answer, so it names the group by its DID, which
+  # accept_group_invite takes, and says how to join.
+  defp notification(%{"reason" => "space-invite"} = item, label) do
+    group = invite_group(item)
+    named = if is_binary(item["author"]), do: who(item)
+
+    header =
+      cat([
+        label,
+        ~L" ",
+        join(
+          [
+            cat([
+              ident(item["reason"]),
+              ~L": an invite to join the group ",
+              join([named, if(group, do: ident(group))], :space)
+            ]),
+            time(item["indexed_at"]),
+            if(item["is_read"] == false, do: ~L"unread")
+          ],
+          :dot
+        )
+      ])
+
+    next =
+      if group,
+        do:
+          cat([
+            ~L"Next: see get_group_invites, then join with accept_group_invite (group: ",
+            ident(group),
+            ~L")."
+          ]),
+        else: ~L"Next: see get_group_invites, then join with accept_group_invite."
+
+    join([header | body(item)] ++ [next, ids(item)], :line)
+  end
+
   defp notification(%{} = item, label) do
     header =
       cat([
@@ -1602,6 +1641,16 @@ defmodule AtMcp.Reading do
         ],
         :dot
       )
+    end
+  end
+
+  # The group an invite is from: the repo its record sits under in the inbox
+  # (`at:space/<me>/org.atgrp.inbox/self/<group>/org.atgrp.invite/<rkey>`),
+  # else the notification's author.
+  defp invite_group(item) do
+    case String.split(item["uri"] || "", "/") do
+      ["at:space", _me, "org.atgrp.inbox", _skey, "did:" <> _ = group | _] -> group
+      _ -> if is_binary(item["author_did"]), do: item["author_did"]
     end
   end
 
