@@ -121,8 +121,17 @@ defmodule AtMcp.Spaces.Helper do
     {:noreply, %{state | status: status}}
   end
 
+  @doc false
+  # The helper's OS process, for tests that stop it (nil when none runs).
+  def os_pid(server \\ __MODULE__), do: GenServer.call(server, :os_pid)
+
   @impl true
   def handle_call(:available, _from, state), do: {:reply, state.status, state}
+
+  def handle_call(:os_pid, _from, %{port: port} = state) when is_port(port),
+    do: {:reply, port |> Port.info(:os_pid) |> elem(1), state}
+
+  def handle_call(:os_pid, _from, state), do: {:reply, nil, state}
 
   def handle_call(
         {:call, _method, _params, _timeout},

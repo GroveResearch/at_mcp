@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 122 tools, 53 for reading and 69 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 123 tools, 54 for reading and 69 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -47,7 +47,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_membership` | full | Read your Delvetown membership. |
 | `get_moderation_lists` | full | List the moderation lists this account mutes (kind muted, mute_list) or blocks (kind blocked, block_list), each with its viewer state. |
 | `get_mutes` | default | List the accounts this account mutes. |
-| `get_my_agents` | full | List the agents this account is the principal of, with each one's key and session state. |
+| `get_my_agents` | full | List the agents this account is the principal of, with each one's login key and session state: when its key was enrolled and by whom, and if it was suspended, by whom and how (revokeSessions). |
 | `get_my_groups` | full | List the groups this account is in: each one's DID, handle, name and description, its spaces, and the feeds among them, which post's space and get_space_feed take. |
 | `get_note` | default with Spaces | Read one note from this account's personal space by its rkey (get_notes lists them). |
 | `get_notes` | default with Spaces | List the notes in this account's personal space, newest first, each with the rkey the other note tools take. |
@@ -76,6 +76,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_trends` | full | Read what is trending on the network, as the app's Explore page shows it. |
 | `get_unread_count` | default | Count unread notifications on this network. |
 | `identity_status` | default | Report login status, DID, the network this account acts on, and the write quota. |
+| `preview_group_app` | full | See an app's request to sign in as a group you are in, before approving or turning it away. |
 | `search_actors` | default | Search actors/profiles on this network by query string. |
 | `search_feeds` | full | Search custom feeds by name and description, most popular first, as the app's feed search does. |
 | `search_posts` | default | Search public posts on this network, as the app's search does. |

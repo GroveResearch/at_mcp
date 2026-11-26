@@ -1733,6 +1733,7 @@ defmodule AtMcp.MCP.Schemas do
           "description" => "What the app asked for and does not get"
         },
         "approved" => nullable_boolean(),
+        "previewed" => nullable_boolean(),
         "redirect_url" => nullable_string("Hand this to the app to finish its sign-in"),
         "request" => any_object()
       })

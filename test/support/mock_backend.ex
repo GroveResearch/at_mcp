@@ -357,6 +357,9 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:space_feed, _),
     do: %{count: 0, items: [], cursor: nil}
 
+  defp spaces_summary(:preview_group_app, args),
+    do: spaces_summary(:approve_group_app, args) |> Map.put(:previewed, true)
+
   defp spaces_summary(:approve_group_app, _),
     do: %{
       app: %{client_id: "https://app.example/client.json", name: "Example", uri: nil},

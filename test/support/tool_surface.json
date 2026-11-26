@@ -763,6 +763,16 @@
         "text"
       ]
     },
+    "preview_group_app": {
+      "arguments": {
+        "format": "string",
+        "group": "string",
+        "request_uri": "string"
+      },
+      "required": [
+        "request_uri"
+      ]
+    },
     "put_record": {
       "arguments": {
         "cid": "string",

@@ -827,8 +827,79 @@ defmodule AtMcp.Spaces do
   end
 
   @doc """
-  An app's request to sign in as a group: approved with what this member's
-  roles allow, or with `approve?` false turned away (the tool's `deny`, as
+  The consent screen for an app's request to sign in as a group: which app,
+  which group, and what it would get there (`granted`) and not (`withheld`).
+  Approves nothing. `approve_group_app` approves only a request this account
+  has previewed, for the group the preview showed.
+  """
+  def preview_group_app(session, request_uri, group) do
+    with :ok <- text_arg(request_uri, "request_uri"),
+         {:ok, facts} <- app_request(session, request_uri, group) do
+      :persistent_term.put(
+        {__MODULE__, :previewed, Session.did(session), request_uri},
+        {facts.group, System.monotonic_time(:second)}
+      )
+
+      {:ok, Map.merge(facts, %{approved: false, previewed: true})}
+    end
+  end
+
+  defp app_request(session, request_uri, group) do
+    with {:ok, preview} <-
+           group_host_get(session, "org.atgrp.internal.getAuthorization", %{
+             "requestUri" => request_uri
+           }),
+         {:ok, offered} <- offered_group(preview, group) do
+      client = preview["client"] || %{}
+
+      {:ok,
+       %{
+         app: %{client_id: client["clientId"], name: client["name"], uri: client["uri"]},
+         group: offered["did"],
+         granted: scopes(offered["granted"]),
+         withheld: scopes(offered["withheld"]),
+         request: preview
+       }}
+    end
+  end
+
+  # Approving takes a preview of the same request first, for the same group,
+  # in the last ten minutes, and spends it: an approval can't be taken back
+  # from here, only by the group's admins.
+  @preview_seconds 600
+
+  defp previewed(session, request_uri) do
+    case :persistent_term.get({__MODULE__, :previewed, Session.did(session), request_uri}, nil) do
+      {shown, at} ->
+        if System.monotonic_time(:second) - at <= @preview_seconds,
+          do: {:ok, shown},
+          else: not_previewed("The preview is too old: preview the request again first.")
+
+      _ ->
+        not_previewed(
+          "Look at the request first with preview_group_app (which app, and what it would get)."
+        )
+    end
+  end
+
+  defp same_as_previewed(_offered, nil), do: :ok
+  defp same_as_previewed(%{"did" => did}, did), do: :ok
+
+  defp same_as_previewed(%{"did" => did}, shown),
+    do:
+      not_previewed(
+        "The preview was for #{shown}, not #{did}: preview the request for that group first."
+      )
+
+  defp not_previewed(why),
+    do:
+      {:error,
+       Failure.new(:refused, detail: :not_previewed, message: why <> " Nothing was approved.")}
+
+  @doc """
+  An app's request to sign in as a group, once previewed
+  (`preview_group_app/3`): approved with what this member's roles allow, or
+  with `approve?` false turned away (the tool's `deny`, as
   Welcome Mat's `deny=1`). Answers which app it is, which group, and what it
   gets there (`granted`) and doesn't (`withheld`), from the host's preview,
   and the redirect URL to hand back to the app. Each answer is logged with
@@ -839,11 +910,14 @@ defmodule AtMcp.Spaces do
   """
   def approve_group_app(session, request_uri, group, approve?) do
     with :ok <- text_arg(request_uri, "request_uri"),
+         {:ok, shown} <- if(approve?, do: previewed(session, request_uri), else: {:ok, nil}),
          {:ok, preview} <-
            group_host_get(session, "org.atgrp.internal.getAuthorization", %{
              "requestUri" => request_uri
            }),
-         {:ok, offered} <- offered_group(preview, group) do
+         {:ok, offered} <- offered_group(preview, group || shown),
+         :ok <- same_as_previewed(offered, shown) do
+      :persistent_term.erase({__MODULE__, :previewed, Session.did(session), request_uri})
       group = offered["did"]
       client = preview["client"] || %{}
 

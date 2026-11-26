@@ -428,9 +428,16 @@ defmodule AtMcp.SpacesSessionTest do
 
     test "approves for the group the app asked for, by handle, or the only one offered", ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      assert {:ok, _} = AtMcp.Effects.spaces(ctx.effects, :preview_group_app, ["urn:req", nil])
 
       assert {:ok, %{group: "did:plc:group", approved: true}} =
                AtMcp.Effects.spaces(ctx.effects, :approve_group_app, ["urn:req", nil, true])
+
+      # Each approval spends its preview.
+      assert {:error, %AtMcp.Effects.Failure{detail: :not_previewed}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, ["urn:req", nil, true])
+
+      assert {:ok, _} = AtMcp.Effects.spaces(ctx.effects, :preview_group_app, ["urn:req", nil])
 
       assert {:ok, %{group: "did:plc:group"}} =
                AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
@@ -444,14 +451,34 @@ defmodule AtMcp.SpacesSessionTest do
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
 
+      # Not previewed: nothing is approved, and the refusal names no group.
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :not_previewed, message: m}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
+                 "urn:req",
+                 "did:plc:group",
+                 true
+               ])
+
+      refute m =~ "did:plc:"
+      refute_received {:approved, _}
+
       assert {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :group_not_offered}} =
+               AtMcp.Effects.spaces(ctx.effects, :preview_group_app, ["urn:req", "did:plc:other"])
+
+      assert {:ok, preview} =
+               AtMcp.Effects.spaces(ctx.effects, :preview_group_app, ["urn:req", nil])
+
+      assert preview.previewed and preview.approved == false
+      assert preview.granted == ["atproto", "include:org.atgrp.authParticipate"]
+      refute_received {:approved, _}
+
+      # Previewed for one group, not approved for another.
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused}} =
                AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
                  "urn:req",
                  "did:plc:other",
                  true
                ])
-
-      refute_received {:approved, _}
 
       assert {:ok, approved} =
                AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [

@@ -165,6 +165,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_note", %{"rkey" => "3k3333333333n"}},
     {"get_notes", %{}},
     {"get_my_groups", %{}},
+    {"preview_group_app", %{"request_uri" => "urn:ietf:params:oauth:request_uri:x"}},
     {"get_space_feed", %{"space" => "at:space/did:plc:group/town.delve.space.feed/general"}},
     {"update_note", %{"rkey" => "3k3333333333n", "title" => "t"}},
     {"delete_note", %{"rkey" => "3k3333333333n"}},

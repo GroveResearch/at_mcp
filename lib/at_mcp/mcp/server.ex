@@ -3360,10 +3360,36 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "preview_group_app",
+       "See an app's request to sign in as a group you are in, before approving or turning it away: which app it is (its client_id, which for a local app is a localhost address), which group, and what it would get there (granted) and not (withheld). Approves nothing. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:group_app))
+
+    param(:request_uri, :string,
+      required: true,
+      description: "The request_uri in the app's sign-in link"
+    )
+
+    param(:group, :string,
+      description:
+        "The group: its DID, or its handle. Leave it out for the group the app asked to sign in as, or the only one it offers"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :preview_group_app, [
+          Map.fetch!(a, :request_uri),
+          a[:group]
+        ]),
+        state
+      )
+    end)
+  end
+
   tool "approve_group_app",
        write_description(
          :approve_group_app,
-         "Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. Returns which app it is, and what it gets in the group (granted) and doesn't (withheld), and the redirect_url to give back to the app either way. A group the request doesn't offer you is refused, and nothing is approved. Only on delve.town."
+         "Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. Preview the request first with preview_group_app: an approval can't be taken back from here, only by the group's admins, who can sign the app out. Returns which app, what it got in the group (granted) and didn't (withheld), and the redirect_url to give back to the app. Only on delve.town."
        ) do
     annotations(
       write_annotations(:approve_group_app, %{
@@ -3558,7 +3584,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_my_agents",
-       "List the agents this account is the principal of, with each one's key and session state. Only on delve.town." do
+       "List the agents this account is the principal of, with each one's login key and session state: when its key was enrolled and by whom, and if it was suspended, by whom and how (revokeSessions). Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:agents))
 
