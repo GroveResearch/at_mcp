@@ -347,7 +347,15 @@ defmodule AtMcp.Test.MockBackend do
     do: %{uri: "at://did:plc:mock/town.delve.feed.post/3k4", cid: "bafypost", space: space}
 
   defp spaces_summary(:approve_group_app, _),
-    do: %{approved: false, redirect_url: nil, request: %{}}
+    do: %{
+      app: %{client_id: "https://app.example/client.json", name: "Example", uri: nil},
+      group: "did:plc:group",
+      granted: ["atproto"],
+      withheld: [],
+      approved: false,
+      redirect_url: nil,
+      request: %{}
+    }
 
   defp spaces_summary(op, [agent | _])
        when op in [:enroll_agent_key, :revoke_agent_sessions, :set_agent_status],

@@ -31,11 +31,15 @@ defmodule AtMcp.Spaces do
   town's own names come from `AtMcp.Network.spaces/0`.
   """
 
+  require Logger
+
   alias AtMcp.Effects.Failure
   alias AtMcp.Spaces.Helper
   alias ProtoRune.Session
 
   @readable_by "This account, and the apps it has granted access. Personal spaces are not encrypted: the operators of the server holding them can read them, so keep no secrets here."
+
+  @reader_notice "This account's group inbox now lets the town's AppView read the invites in it, so it can tell this account about them in get_notifications. Nothing else in the account becomes readable. The installation's operator can turn this off (AT_MCP_TOWN_INBOX_READER=false); the AppView can also be removed from the inbox's members."
 
   @doc "What a note result says about who can read it."
   def readable_by, do: @readable_by
@@ -74,12 +78,12 @@ defmodule AtMcp.Spaces do
   @doc """
   The accounts added to every new inbox as read-only members: the town
   AppView's own DID, so it can raise notifications of invites, on the network
-  that has town spaces and only with `AT_MCP_TOWN_INBOX_READER=true`. Off by
-  default: without it, an inbox has no members, as the group host's design
-  has it, and invites are seen with `list_group_invites`.
+  that has town spaces, unless `AT_MCP_TOWN_INBOX_READER=false`. Off, an inbox
+  has no members, as the group host's design has it, and invites are seen
+  with `list_group_invites` only. A reader added can be removed again.
   """
   def inbox_readers do
-    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, false) do
+    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, true) do
       [AtMcp.Network.appview_service() |> String.split("#") |> hd()]
     else
       []
@@ -271,9 +275,15 @@ defmodule AtMcp.Spaces do
   (with the town AppView as a read-only member, to raise notifications).
   """
   def list_group_invites(session) do
-    with {:ok, inbox, notifications} <- ensure_inbox(session),
+    with {:ok, inbox, notifications, notice} <- ensure_inbox(session),
          {:ok, body} <- group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
-      {:ok, %{invites: Map.get(body, "invites", []), inbox: inbox, notifications: notifications}}
+      result = %{
+        invites: Map.get(body, "invites", []),
+        inbox: inbox,
+        notifications: notifications
+      }
+
+      {:ok, if(notice, do: Map.put(result, :notice, notice), else: result)}
     end
   end
 
@@ -286,13 +296,19 @@ defmodule AtMcp.Spaces do
   """
   def ensure_inbox(session) do
     with {:ok, %{"space" => space} = inbox} <- helper(session, "inbox.ensure", %{}) do
-      notifications =
+      {notifications, notice} =
         case inbox["readers"] do
-          [_ | _] -> register_inbox(session, space)
-          _ -> "off"
+          [_ | _] ->
+            # Said once, when the inbox is made with the reader, or when the
+            # reader is first added to an inbox that had none.
+            {register_inbox(session, space),
+             if(inbox["added"] not in [nil, []], do: @reader_notice)}
+
+          _ ->
+            {"off", nil}
         end
 
-      {:ok, space, notifications}
+      {:ok, space, notifications, notice}
     end
   end
 
@@ -365,8 +381,13 @@ defmodule AtMcp.Spaces do
 
   @doc """
   An app's request to sign in as a group, as the group host shows it; with
-  `approve` true, approved with what this member's roles allow. Answers the
-  redirect URL to hand back to the app.
+  `approve` true, approved with what this member's roles allow. Answers which
+  app it is, which group, and what it gets there (`granted`) and doesn't
+  (`withheld`), from the host's preview, and on approval the redirect URL to
+  hand back to the app. The approval is logged with the same facts.
+
+  Nothing is approved for a group the preview does not offer this member:
+  the approval is exactly the request that was shown.
   """
   def approve_group_app(session, request_uri, group, approve?) do
     with :ok <- text_arg(request_uri, "request_uri"),
@@ -374,20 +395,60 @@ defmodule AtMcp.Spaces do
          {:ok, preview} <-
            group_host_get(session, "org.atgrp.internal.getAuthorization", %{
              "requestUri" => request_uri
-           }) do
+           }),
+         {:ok, offered} <- offered_group(preview, group) do
+      client = preview["client"] || %{}
+
+      facts = %{
+        app: %{client_id: client["clientId"], name: client["name"], uri: client["uri"]},
+        group: group,
+        granted: scopes(offered["granted"]),
+        withheld: scopes(offered["withheld"]),
+        request: preview
+      }
+
       if approve? do
         with {:ok, approved} <-
                group_host_post(session, "org.atgrp.internal.approveAuthorization", %{
                  "requestUri" => request_uri,
                  "group" => group
                }) do
-          {:ok, %{approved: true, redirect_url: approved["redirectUrl"], request: preview}}
+          Logger.info(
+            "#{Session.did(session)} approved app #{facts.app.client_id} for group #{group}: " <>
+              "granted #{Enum.join(facts.granted, " ")}" <>
+              if(facts.withheld == [],
+                do: "",
+                else: "; withheld #{Enum.join(facts.withheld, " ")}"
+              )
+          )
+
+          {:ok, Map.merge(facts, %{approved: true, redirect_url: approved["redirectUrl"]})}
         end
       else
-        {:ok, %{approved: false, request: preview}}
+        {:ok, Map.put(facts, :approved, false)}
       end
     end
   end
+
+  defp offered_group(preview, group) do
+    case Enum.find(preview["groups"] || [], &(&1["did"] == group)) do
+      nil ->
+        {:error,
+         Failure.new(:refused,
+           detail: :group_not_offered,
+           message:
+             "The app's request does not offer #{group} to this account (it offers #{Enum.map_join(preview["groups"] || [], ", ", & &1["did"])}); nothing was approved."
+         )}
+
+      offered ->
+        {:ok, offered}
+    end
+  end
+
+  defp scopes(list) when is_list(list),
+    do: for(%{"scope" => scope} <- list, do: scope)
+
+  defp scopes(_), do: []
 
   defp group_space_arg("at:space/" <> rest = space) do
     case String.split(rest, "/") do

@@ -151,8 +151,9 @@ export class Spaces {
       for await (const m of manager.members()) have.add((m as { did: string }).did)
       const missing = readers.filter((d) => !have.has(d))
       if (missing.length) await manager.putMembers(missing.map((d) => ({ did: d, read: true, write: false })) as never)
+      return { space: uri, created, readers, added: missing }
     }
-    return { space: uri, created, readers }
+    return { space: uri, created, readers, added: [] }
   }
 
   async list(did: string, { type, authority, cursor, limit }: { type?: string; authority?: string; cursor?: string; limit?: number } = {}) {

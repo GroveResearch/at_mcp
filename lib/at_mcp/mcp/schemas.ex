@@ -1665,6 +1665,10 @@ defmodule AtMcp.MCP.Schemas do
         "invites" => any_list(),
         "inbox" =>
           nullable_string("This account's inbox space, where groups write their invites"),
+        "notice" =>
+          nullable_string(
+            "Said once, when at_mcp lets the town AppView read this inbox's invites: what it reads, and how to turn it off"
+          ),
         "notifications" =>
           nullable_string(
             "Whether the town AppView raises this inbox's invites in get_notifications (registered), or why not; off when this installation does not add it"
@@ -1701,6 +1705,27 @@ defmodule AtMcp.MCP.Schemas do
   defp spaces_schema(:group_app),
     do:
       object(%{
+        "app" => %{
+          "type" => ["object", "null"],
+          "description" => "The app asking: its client_id, and the name and uri it gives",
+          "properties" => %{
+            "client_id" => nullable_string(),
+            "name" => nullable_string(),
+            "uri" => nullable_string()
+          }
+        },
+        "group" => nullable_string("The group it signs in as"),
+        "granted" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" =>
+            "What the app gets in the group: the scopes this account's roles let it have"
+        },
+        "withheld" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "What the app asked for and does not get"
+        },
         "approved" => nullable_boolean(),
         "redirect_url" => nullable_string("Hand this to the app to finish its sign-in"),
         "request" => any_object()

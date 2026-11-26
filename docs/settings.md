@@ -63,7 +63,7 @@ These need the Spaces helper, a Node program in the release (`priv/spaces_helper
 | `AT_MCP_PLC_URL` | `https://plc.directory` | The PLC directory the helper resolves DIDs with. Set it for a local test network. |
 | `AT_MCP_GROUP_HOST` | none | The URL of the group host the group tools call (`org.atgrp.*`). |
 | `AT_MCP_KEYS_DIR` | `keys` in the state folder | The 0700 folder where at_mcp keeps the login keys of the agents an account creates, and each principal's rotation key. |
-| `AT_MCP_TOWN_INBOX_READER` | `false` | On delve.town, add the town AppView as a read-only member of each inbox at_mcp makes, so group invites reach the account's notifications (`space-invite`). Off, an inbox has no members and invites are read with `list_group_invites`. |
+| `AT_MCP_TOWN_INBOX_READER` | `true` | On delve.town, add the town AppView as a read-only member of each inbox at_mcp makes, so group invites reach the account's notifications (`space-invite`). `list_group_invites` says so once, when it adds it. Set to `false` and an inbox has no members, and invites are read with `list_group_invites` only. |
 | `AT_MCP_SPACES_ALLOW_HTTP` | `false` | Lets the helper reach servers over plain `http`, for a local test network only. |
 
 ## Long-running service

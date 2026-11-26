@@ -3413,7 +3413,7 @@ defmodule AtMcp.MCP.Server do
   tool "approve_group_app",
        write_description(
          :approve_group_app,
-         "Let an app sign in as a group you are in, with what your roles there allow. Without approve, shows the app's request: the app, and what it asks for. With approve true, approves it and returns the redirect_url to give back to the app. Only on delve.town."
+         "Let an app sign in as a group you are in, with what your roles there allow. Without approve, shows the request: which app, and what it would get in the group (granted) and not get (withheld). With approve true, approves exactly that and returns the redirect_url to give back to the app. A group the request doesn't offer you is refused. Only on delve.town."
        ) do
     annotations(
       write_annotations(:approve_group_app, %{

@@ -31,9 +31,16 @@ defmodule AtMcp.SpacesSessionTest do
 
         _sent ->
           body =
-            if String.ends_with?(url, ".notification.registerSpace"),
-              do: %{status: "registered"},
-              else: %{count: 3}
+            cond do
+              String.ends_with?(url, ".notification.registerSpace") ->
+                %{status: "registered"}
+
+              String.contains?(url, "com.atproto.server.getServiceAuth") ->
+                %{token: "aaa.bbb.ccc"}
+
+              true ->
+                %{count: 3}
+            end
 
           {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
       end
@@ -231,7 +238,102 @@ defmodule AtMcp.SpacesSessionTest do
           "agent.test"
         )
 
-      assert {:ok, _space, "registered"} = AtMcp.Spaces.ensure_inbox(session)
+      assert {:ok, _space, "registered", notice} = AtMcp.Spaces.ensure_inbox(session)
+      # Said in plain words, with the way to turn it off.
+      assert notice =~ "town's AppView read the invites"
+      assert notice =~ "AT_MCP_TOWN_INBOX_READER=false"
+    end
+  end
+
+  defmodule GroupHost do
+    # A stand-in group host: its DID, an app's request to sign in as a group
+    # (the group the member may approve it for), and the approval.
+    use Plug.Router
+    plug(:match)
+    plug(Plug.Parsers, parsers: [:json], json_decoder: Jason)
+    plug(:dispatch)
+
+    get("/xrpc/com.atproto.server.describeServer",
+      do: json(conn, %{did: "did:web:groups.test"})
+    )
+
+    get "/xrpc/org.atgrp.internal.getAuthorization" do
+      json(conn, %{
+        client: %{clientId: "https://app.example/client.json", name: "Example app"},
+        requested: [%{scope: "atproto"}, %{scope: "include:org.atgrp.authManageAdmin"}],
+        groups: [
+          %{
+            did: "did:plc:group",
+            handle: "g.groups.test",
+            roles: [],
+            granted: [%{scope: "atproto"}, %{scope: "include:org.atgrp.authParticipate"}],
+            withheld: [%{scope: "include:org.atgrp.authManageAdmin"}]
+          }
+        ]
+      })
+    end
+
+    post "/xrpc/org.atgrp.internal.approveAuthorization" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:approved, conn.body_params}
+      )
+
+      json(conn, %{redirectUrl: "http://127.0.0.1/callback?code=c&state=s&iss=x"})
+    end
+
+    defp json(conn, body),
+      do: conn |> put_resp_content_type("application/json") |> send_resp(200, Jason.encode!(body))
+  end
+
+  describe "approve_group_app" do
+    setup do
+      {:ok, _} = Plug.Cowboy.http(GroupHost, [], port: 0, ref: :spaces_group_host)
+      port = :ranch.get_port(:spaces_group_host)
+      Application.put_env(:at_mcp, :group_host, "http://localhost:#{port}")
+
+      on_exit(fn ->
+        Plug.Cowboy.shutdown(:spaces_group_host)
+        Application.delete_env(:at_mcp, :group_host)
+      end)
+    end
+
+    test "says which app gets what in which group, and approves only a group the request offers",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, preview} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
+                 "urn:req",
+                 "did:plc:group",
+                 false
+               ])
+
+      assert preview.approved == false
+      assert preview.app.client_id == "https://app.example/client.json"
+      assert preview.granted == ["atproto", "include:org.atgrp.authParticipate"]
+      assert preview.withheld == ["include:org.atgrp.authManageAdmin"]
+      refute_received {:approved, _}
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :group_not_offered}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
+                 "urn:req",
+                 "did:plc:other",
+                 true
+               ])
+
+      refute_received {:approved, _}
+
+      assert {:ok, approved} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_group_app, [
+                 "urn:req",
+                 "did:plc:group",
+                 true
+               ])
+
+      assert approved.approved and approved.redirect_url =~ "code=c"
+      assert approved.group == "did:plc:group"
+      assert_received {:approved, %{"requestUri" => "urn:req", "group" => "did:plc:group"}}
     end
   end
 end

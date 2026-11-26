@@ -42,7 +42,7 @@ at_mcp's kinds (`refused`, `auth_refused`, `indeterminate`), and `code`.
 | `space.all` | `did`, `space`, `limit?` | `{records, more}`: every repo, verified, each record with `valid` |
 | `space.members.put\|remove\|list` | `did`, `space`, `members?` | `{members}` |
 | `space.pull` | `did`, `space`, `repo` | `{type, rev, changes, held}`: the helper keeps the synced copy |
-| `inbox.ensure` | `did` | `{space, created, readers}`: the account's `org.atgrp.inbox`, with `inboxReaders` read-only |
+| `inbox.ensure` | `did` | `{space, created, readers, added}` (`added`: the readers this call added): the account's `org.atgrp.inbox`, with `inboxReaders` read-only |
 
 `space` is an `at:space/{authority}/{type}/{skey}` URI, or `{type, authority?, skey?}`.
 

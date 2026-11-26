@@ -82,9 +82,11 @@ defmodule AtMcp.SpacesUnavailableTest do
         else: Application.delete_env(:at_mcp, :network)
     end)
 
+    # On by default: it can be undone, by the setting or by removing the reader.
+    assert AtMcp.Spaces.inbox_readers() == ["did:web:api.delve.town"]
+    Application.put_env(:at_mcp, :town_inbox_reader, false)
     assert AtMcp.Spaces.inbox_readers() == []
     Application.put_env(:at_mcp, :town_inbox_reader, true)
-    assert AtMcp.Spaces.inbox_readers() == ["did:web:api.delve.town"]
 
     Application.put_env(:at_mcp, :network, :bluesky)
     assert AtMcp.Spaces.inbox_readers() == []

@@ -52,7 +52,7 @@ const methods = {
     }
     return { uri: `${space}/${did}/${p.collection}/3kfake`, cid: 'bafyfake' }
   },
-  'inbox.ensure': (p) => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders }),
+  'inbox.ensure': (p) => ({ space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders, added: inboxReaders }),
   'init': (p) => {
     inboxReaders = p.inboxReaders ?? []
     return { protocol: 1, version: 'fake' }
