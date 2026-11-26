@@ -313,4 +313,15 @@ defmodule AtMcp.ToolSetTest do
     Application.put_env(:at_mcp, :network, :bluesky)
     assert init.(%{}) == nil
   end
+
+  test "a group's posts are said to be private to it where they are written and read" do
+    {:ok, tools, nil, _} = AtMcp.MCP.Server.handle_list_tools(nil, %{tools: "full"})
+    by_name = Map.new(tools, &{&1.name, &1})
+
+    assert by_name["get_space_feed"].description =~
+             "private to them: don't repost or quote them publicly"
+
+    assert inspect(by_name["post"].inputSchema[:properties][:space]) =~
+             "private to its members: don't repost them publicly"
+  end
 end

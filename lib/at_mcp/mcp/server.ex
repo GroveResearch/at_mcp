@@ -1461,7 +1461,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:space, :string,
       description:
-        "An at:space/ URI, such as a group's feed: post there, for its members only, instead of publicly. Text and langs only"
+        "An at:space/ URI, such as a group's feed: post there instead of publicly. Its posts are private to its members: don't repost them publicly. Text and langs only"
     )
 
     run(fn a, state ->
@@ -3440,7 +3440,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_space_feed",
-       "Read the posts in a space, such as a group's feed, newest first: each with its author and the likes, reposts and replies made there, every record checked against its server's signature. Only the space's members can read it. Reply, like and repost with the posts' at:space/ URIs, and post there with post's space. Only on delve.town." do
+       "Read the posts in a space, such as a group's feed, newest first: each with its author and the likes, reposts and replies made there, every record checked against its server's signature. Only the space's members can read it, and its posts are private to them: don't repost or quote them publicly, or repeat them in public posts without their authors' say. Reply, like and repost with the posts' at:space/ URIs, and post there with post's space. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.post_page())
 
