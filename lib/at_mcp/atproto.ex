@@ -359,10 +359,29 @@ defmodule AtMcp.ATProto do
   the other repeated-query endpoints below.
   """
   def list_notifications(session, params),
-    do: repeated_query(session, AtMcp.Network.nsid("notification.listNotifications"), params)
+    do:
+      repeated_query(
+        session,
+        AtMcp.Network.nsid("notification.listNotifications"),
+        with_spaces(params)
+      )
 
   def get_unread_count(session, params),
-    do: read(session, "notification.getUnreadCount", params, priority: :boolean)
+    do:
+      read(session, "notification.getUnreadCount", with_spaces(params),
+        priority: :boolean,
+        includeSpaces: :boolean
+      )
+
+  # The town AppView lists Spaces activity (the `space-*` reasons) and counts
+  # it as unread only for a client that asks with `includeSpaces`, so every
+  # notifications read and unread count asks, on a network with town spaces.
+  @doc false
+  def with_spaces(params) do
+    if Network.spaces(),
+      do: Map.put(Map.new(params), :includeSpaces, true),
+      else: params
+  end
 
   # The one write declared here. `ProtoRune.Bsky.update_seen/2` stringifies the
   # DateTime before a schema that requires a DateTime, and the XRPC client then
