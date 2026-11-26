@@ -460,7 +460,7 @@ defmodule AtMcp.PostGatesTest do
       refute Map.has_key?(result, :threadgate_uri)
     end
 
-    test "saved settings that cannot be read leave the post unsent and uncounted, quoting the service" do
+    test "saved settings that cannot be read don't block the post: it goes out open, and says how to choose" do
       unreadable = %{
         "app.bsky.actor.getPreferences" => {500, %{error: "InternalServerError", message: "down"}}
       }
@@ -472,36 +472,25 @@ defmodule AtMcp.PostGatesTest do
         }
       ]
 
-      for {answers, preferences, says, advice} <- [
-            # The service's answer is its own, quoted; the rest is at_mcp's,
-            # and one sentence says what to do.
-            {unreadable, [],
-             ~s|the account's service answered 500: "down". The account's saved settings for who may reply to and quote a new post could not be read|,
-             "Pass reply_rule and quotes to post without the saved settings, or wait a short while and try again."},
-            {%{}, unknown,
-             ~s|has a rule at_mcp cannot read ("app.bsky.feed.threadgate#somedayRule")|,
-             "Pass reply_rule to choose who may reply, and try again."}
-          ] do
+      for {answers, preferences} <- [{unreadable, []}, {%{}, unknown}] do
         %{effects: effects, pds: pds, state: state} = pds(%{}, answers, preferences)
         result = call(state, "post", %{"text" => "x"})
-        text = hd(result.content).text
 
-        assert result.isError
-        assert result.structuredContent.code == "saved_settings_unreadable"
-        assert result.structuredContent.retry == "change_argument"
-        assert text =~ says
-        assert String.ends_with?(text, advice)
-        refute text =~ "Wait about"
+        refute result[:isError], hd(result.content).text
+
+        assert result.structuredContent["warning"] =~
+                 "couldn't read your default reply settings; posted with replies open; pass reply_rule to choose"
+
+        # Written open: one post, no gate.
+        assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
         assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
-        assert FakePDS.sent(pds, "com.atproto.repo.createRecord") == []
-        assert AtMcp.Effects.quota_status(effects).used == 0
+        assert AtMcp.Effects.quota_status(effects).used == 1
 
-        if answers == unreadable,
-          do: assert(result.structuredContent.upstream_message == "down")
-
-        # Given both rules, the post needs nothing saved and is sent.
-        assert {:ok, _} =
+        # Given both rules, nothing saved is needed, and nothing is said.
+        assert {:ok, given} =
                  AtMcp.Effects.post(effects, "x", reply_rule: ["everyone"], quotes: "allowed")
+
+        refute Map.has_key?(given, :warning)
       end
     end
 
