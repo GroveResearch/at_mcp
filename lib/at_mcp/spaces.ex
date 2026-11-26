@@ -1019,7 +1019,7 @@ defmodule AtMcp.Spaces do
          Failure.new(:refused,
            detail: :group_needed,
            message:
-             "The app's request can sign in as any of #{Enum.map_join(groups, ", ", &"#{&1["handle"]} (#{&1["did"]})")}: give group; nothing was approved."
+             "The app's request can sign in as more than one of this account's groups: give group (get_my_groups lists them). Nothing was approved."
          )}
 
       nil ->
@@ -1027,7 +1027,7 @@ defmodule AtMcp.Spaces do
          Failure.new(:refused,
            detail: :group_not_offered,
            message:
-             "The app's request does not offer #{wanted} to this account (it offers #{Enum.map_join(groups, ", ", &"#{&1["handle"]} (#{&1["did"]})")}); nothing was approved."
+             "The app's request does not offer that group to this account. Leave group out to see the group it asks for. Nothing was approved."
          )}
 
       offered ->

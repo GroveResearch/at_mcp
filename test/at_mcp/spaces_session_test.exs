@@ -516,8 +516,13 @@ defmodule AtMcp.SpacesSessionTest do
       refute m =~ "did:plc:"
       refute_received {:approved, _}
 
-      assert {:error, %AtMcp.Effects.Failure{kind: :refused, detail: :group_not_offered}} =
+      # A refusal names no group: it can't be used to find one's DID.
+      assert {:error,
+              %AtMcp.Effects.Failure{kind: :refused, detail: :group_not_offered, message: msg}} =
                AtMcp.Effects.spaces(ctx.effects, :preview_group_app, ["urn:req", "did:plc:other"])
+
+      refute msg =~ "did:"
+      refute msg =~ "g.groups.test"
 
       assert {:ok, preview} =
                AtMcp.Effects.spaces(ctx.effects, :preview_group_app, ["urn:req", nil])
