@@ -14,8 +14,8 @@ defmodule AtMcp.ToolSetTest do
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
   @default_bound 51_000
-  # With the five note tools and get_group_invites, where Spaces work
-  # (delve.town with the Spaces helper running): 54,013. Models given no
+  # With the five note tools, get_group_invites and accept_group_invite,
+  # where Spaces work (delve.town with the Spaces helper running): 54,632. Models given no
   # private place refused to write a private note publicly and had nowhere
   # else to put it, and without the invites never learned a group asked
   # them in.
@@ -279,6 +279,7 @@ defmodule AtMcp.ToolSetTest do
     tools = listed(%{})
     assert Enum.all?(AtMcp.MCP.ToolSet.notes(), &(&1 in names(tools)))
     assert "get_group_invites" in names(tools)
+    assert "accept_group_invite" in names(tools)
     assert AtMcp.MCP.ToolSet.offers?(%{}, "create_note")
 
     size = String.length(Jason.encode!(%{tools: tools}))

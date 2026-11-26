@@ -37,12 +37,12 @@ defmodule AtMcp.MCP.ToolSet do
     get_record put_record delete_record
   )
 
-  # The personal notes, and the group invites waiting for the account, in the
-  # default set wherever Spaces work: on a network with town spaces, with the
+  # The personal notes, the group invites waiting for the account and the
+  # tool that accepts one, in the default set wherever Spaces work: on a network with town spaces, with the
   # Spaces helper running. Without the notes, an agent told to keep something
   # private has nowhere to put it but its public repository; without the
-  # invites, it never learns a group asked it in.
-  @notes ~w(create_note get_note get_notes update_note delete_note get_group_invites)
+  # invites, it never learns a group asked it in, nor can it say yes.
+  @notes ~w(create_note get_note get_notes update_note delete_note get_group_invites accept_group_invite)
 
   @sets ["default", "full"]
 

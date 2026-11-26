@@ -87,7 +87,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 
 | Tool | Set | Publishes | Scope | What it does |
 | --- | --- | --- | --- | --- |
-| `accept_group_invite` | full |  | write | Accept a group's invite and join it. |
+| `accept_group_invite` | default with Spaces |  | write | Accept a group's invite and join it. |
 | `add_to_list` | full |  | write | Put an account on a list or starter pack this account made. |
 | `approve_group_app` | full |  | write | Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. |
 | `block` | default |  | manage | Block an actor by handle or DID. |
