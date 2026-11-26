@@ -1331,7 +1331,7 @@ defmodule AtMcp.Spaces do
     # The audience names the PDS's service, as the explicit rpc: scope the
     # session holds does (`scope_for/2`).
     with {:ok, pds_did} <- pds_did(session),
-         {:ok, minting} <- privileged_session(session),
+         {:ok, minting} <- privileged_session(session, method),
          {:ok, token} <-
            AtMcp.ATProto.ServiceAuth.issue_for(minting, pds_did <> "#atproto_pds", method) do
       if body,
@@ -1343,9 +1343,46 @@ defmodule AtMcp.Spaces do
   # The session that may mint service auth for a privileged agent route: the
   # account's OAuth session (its own, or from its login key), since an app
   # password may not.
-  defp privileged_session(%ProtoRune.Atproto.OAuth.Session{} = session), do: {:ok, session}
+  defp privileged_session(session, method) do
+    with {:ok, oauth} <- oauth_session(session) do
+      if holds_method?(oauth, method) do
+        {:ok, oauth}
+      else
+        # A session that began before the account became a principal holds
+        # none of the agent routes: log in again with the key, once, for the
+        # scope the account now needs.
+        case AtMcp.Spaces.Login.fresh(Session.did(session)) do
+          {:ok, creds} ->
+            fresh = AtMcp.Spaces.Login.session(creds, Session.handle(session))
 
-  defp privileged_session(session) do
+            if holds_method?(fresh, method),
+              do: {:ok, fresh},
+              else: relogin_needed(method)
+
+          _ ->
+            relogin_needed(method)
+        end
+      end
+    end
+  end
+
+  defp holds_method?(%{scope: scope}, method) when is_binary(scope),
+    do: String.contains?(scope, "rpc:#{method}?")
+
+  defp holds_method?(_session, _method), do: false
+
+  defp relogin_needed(method),
+    do:
+      {:error,
+       Failure.new(:refused,
+         detail: :relogin_needed,
+         message:
+           "This account's session doesn't hold #{method}: it began before the account was made a principal (rotation_key). Log it in again: at_mcp-accounts reconnect NAME, or restart at_mcp."
+       )}
+
+  defp oauth_session(%ProtoRune.Atproto.OAuth.Session{} = session), do: {:ok, session}
+
+  defp oauth_session(session) do
     did = Session.did(session)
 
     case AtMcp.Spaces.Login.credentials(did) do

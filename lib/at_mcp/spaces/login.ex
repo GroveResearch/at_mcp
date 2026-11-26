@@ -90,6 +90,23 @@ defmodule AtMcp.Spaces.Login do
     end
   end
 
+  @doc """
+  A new session for `did`, logged in with its key for the scope it needs
+  now (`AtMcp.Spaces.scope_for/2`), and its credentials: for an account whose
+  needs changed while it ran, such as becoming a principal.
+  """
+  def fresh(did) do
+    case relogin_for(did) do
+      nil ->
+        {:error,
+         Failure.new(:refused, detail: :no_login_key, message: "No login key for #{did}.")}
+
+      relogin ->
+        with {:ok, %{"did" => ^did}} <- Helper.call("oauth.login", relogin),
+             do: Helper.call("oauth.credentials", %{did: did})
+    end
+  end
+
   @doc "Whether the account `did` has a login key AtMcp can log it in with."
   def key?(did), do: relogin_for(did) != nil
 

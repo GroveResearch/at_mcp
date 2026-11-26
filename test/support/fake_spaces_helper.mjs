@@ -16,6 +16,8 @@ let issuedTtl = Number(process.env.FAKE_FIRST_TTL ?? 10)
 const did = process.env.FAKE_DID ?? 'did:plc:oauthagent'
 const spaces = new Set()
 let inboxReaders = []
+// The scope the session was last logged in with.
+let currentScope = 'atproto transition:generic'
 const written = []
 
 const creds = () => ({
@@ -24,19 +26,23 @@ const creds = () => ({
   dpopJwk,
   serviceUrl: process.env.FAKE_SERVICE ?? 'https://pds.invalid',
   issuer: 'https://pds.invalid',
-  scope: 'atproto transition:generic',
+  scope: currentScope,
   expiresAt: new Date(Date.now() + issuedTtl * 1000).toISOString(),
 })
 
 const methods = {
   'oauth.credentials': (p) => {
+    if (p.relogin?.scope && currentScope === 'atproto transition:generic') currentScope = p.relogin.scope
     if (p.refresh) {
       n++
       issuedTtl = 3600
     }
     return creds()
   },
-  'oauth.login': () => ({ did, scope: 'atproto', expiresAt: null }),
+  'oauth.login': (p) => {
+    currentScope = p.scope ?? currentScope
+    return { did, scope: currentScope, expiresAt: null }
+  },
   'oauth.status': () => ({ did, held: true }),
   'space.get': (p) => {
     if (spaces.has(p.space)) return { space: p.space, policy: {} }

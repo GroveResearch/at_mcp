@@ -703,6 +703,21 @@ defmodule AtMcp.SpacesSessionTest do
       refute Enum.any?(File.ls!(AtMcp.Spaces.keys_dir()), &String.contains?(&1, "rotation"))
     end
 
+    test "an account made a principal while its session runs logs in again for the agent routes",
+         ctx do
+      ctx.write_accounts.(nil)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      # Now a principal: its session began without the agent routes.
+      ctx.write_accounts.(@rotation)
+
+      assert {:ok, %{did: "did:plc:newagent"}} =
+               AtMcp.Effects.spaces(ctx.effects, :create_agent, ["helper.test", "code"])
+
+      [login] = Enum.filter(calls(ctx.log), &(&1["method"] == "oauth.login"))
+      assert login["params"]["scope"] =~ "rpc:town.delve.agent.createAgent?aud="
+    end
+
     test "deletes an agent only with confirm, never this account itself, and retires its key",
          ctx do
       ctx.write_accounts.(@rotation)
