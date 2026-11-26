@@ -1153,7 +1153,9 @@ defmodule AtMcp.Spaces do
              handle: created["handle"] || handle,
              login_key: login["didKey"],
              rotation_key: rotation_key,
-             endorsement: endorsement
+             endorsement: endorsement,
+             next:
+               "The agent logs in with its own key, which at_mcp keeps for it. To run it on this installation, its operator runs: at_mcp-accounts add-agent NAME --did #{did}, then at_mcp-accounts reload, then at_mcp-accounts connection NAME for the agent's MCP client."
            }}
 
         error ->

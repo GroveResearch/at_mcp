@@ -1749,6 +1749,7 @@ defmodule AtMcp.MCP.Schemas do
         "enrolled" => nullable_boolean(),
         "revoked" => nullable_boolean(),
         "deleted" => nullable_boolean(),
+        "next" => nullable_string("How to run the new agent"),
         "status" => nullable_string()
       })
 

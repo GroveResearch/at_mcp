@@ -677,6 +677,7 @@ defmodule AtMcp.SpacesSessionTest do
                AtMcp.Effects.spaces(ctx.effects, :create_agent, ["Helper.Test", "code"])
 
       assert created.rotation_key == @rotation
+      assert created.next =~ "at_mcp-accounts add-agent NAME --did did:plc:newagent"
 
       assert_received {:agent_route, :create, body}
       assert body["rotationKey"] == @rotation
