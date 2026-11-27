@@ -78,6 +78,8 @@ defmodule AtMcp.Spaces do
           # A group's members space, read for its delegation token where the
           # AppView isn't a member of the group (`vouch_space/2`).
           "space:org.atgrp.members?authority=*&action=read",
+          # The member's own confirmation there (`confirm_membership/2`).
+          "space:org.atgrp.members?authority=*&collection=org.atgrp.confirmation",
           inbox_scope()
         ]
 
@@ -618,8 +620,15 @@ defmodule AtMcp.Spaces do
 
       with {:ok, joined} <- group_host_post(session, "org.atgrp.requestJoin", body) do
         case joined["status"] do
-          "admitted" -> {:ok, Map.put(joined, "group", group_view(session, group))}
-          _ -> {:ok, joined}
+          "admitted" ->
+            # Confirmed first, so the group as answered counts it.
+            confirmation = confirmed(confirm_membership(session, group))
+
+            {:ok,
+             joined |> Map.put("group", group_view(session, group)) |> Map.merge(confirmation)}
+
+          _ ->
+            {:ok, joined}
         end
       end
     end
@@ -658,7 +667,10 @@ defmodule AtMcp.Spaces do
       display_name: group["displayName"],
       description: group["description"],
       spaces: spaces,
-      feeds: for(%{type: ^feed_type, uri: uri} <- spaces, do: uri)
+      feeds: for(%{type: ^feed_type, uri: uri} <- spaces, do: uri),
+      # Whether the group host counts this account's own confirmation of its
+      # membership (`confirm_membership/2`); nil when it doesn't say.
+      confirmed: get_in(detail, ["group", "viewer", "accepted"])
     }
   end
 
@@ -737,11 +749,104 @@ defmodule AtMcp.Spaces do
   end
 
   def leave_group(session, group) do
-    with {:ok, group} <- group_arg(session, group),
-         {:ok, _} <- group_host_post(session, "org.atgrp.leaveGroup", %{"group" => group}) do
-      {:ok, %{left: true, group: group}}
+    with {:ok, group} <- group_arg(session, group) do
+      # The confirmation goes first, while this account may still write in
+      # the members space; it is put back if the group host refuses to let
+      # it leave.
+      unconfirmed = unconfirm_membership(session, group)
+
+      case group_host_post(session, "org.atgrp.leaveGroup", %{"group" => group}) do
+        {:ok, _} ->
+          {:ok, %{left: true, group: group, confirmation_removed: unconfirmed == :ok}}
+
+        error ->
+          if unconfirmed == :ok, do: confirm_membership(session, group)
+          error
+      end
     end
   end
+
+  # --- a member's confirmation ---
+  #
+  # Membership is two-sided (Atmosphere Groups, "Roles & Access"): the group
+  # writes `membership`, and the member writes `org.atgrp.confirmation`
+  # (rkey `self`) in the group's members space, which the roster counts.
+
+  @confirmation "org.atgrp.confirmation"
+
+  defp members_space(group), do: "at:space/#{group}/org.atgrp.members/self"
+
+  @doc """
+  Writes this account's confirmation of its membership in `group`
+  (`org.atgrp.confirmation`, rkey `self`, in the group's members space).
+  Writing it again only renews its time.
+  """
+  def confirm_membership(session, group) do
+    now = DateTime.utc_now() |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
+
+    with {:ok, _} <-
+           helper(session, "space.records.put", %{
+             space: members_space(group),
+             collection: @confirmation,
+             rkey: "self",
+             record: %{"createdAt" => now}
+           }),
+         do: {:ok, %{group: group, confirmed: true}}
+  end
+
+  @doc """
+  Whether this account's confirmation is in `group`'s members space:
+  `{:ok, true | false}`, or an error when it can't be read.
+  """
+  def membership_confirmed?(session, group) do
+    case helper(session, "space.records.get", %{
+           space: members_space(group),
+           collection: @confirmation,
+           rkey: "self",
+           repo: Session.did(session)
+         }) do
+      {:ok, _} ->
+        {:ok, true}
+
+      {:error, %Failure{detail: detail}} when detail in ["RecordNotFound", "NotFound"] ->
+        {:ok, false}
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  For InboxTokens' group pass: confirms this account's membership in
+  `group` if its confirmation isn't there (joined from another client, or
+  admitted after asking).
+  """
+  def ensure_confirmed(session, group) do
+    case membership_confirmed?(session, group) do
+      {:ok, true} -> {:ok, %{group: group, confirmed: true}}
+      _ -> confirm_membership(session, group)
+    end
+  end
+
+  defp unconfirm_membership(session, group) do
+    case helper(session, "space.records.delete", %{
+           space: members_space(group),
+           collection: @confirmation,
+           rkey: "self"
+         }) do
+      {:ok, _} -> :ok
+      _ -> :failed
+    end
+  end
+
+  defp confirmed({:ok, _}), do: %{"confirmed" => true}
+
+  defp confirmed({:error, failure}),
+    do: %{
+      "confirmed" => false,
+      "confirmation_note" =>
+        "Joined, but this account's confirmation could not be written in the group's members space (#{to_failure(failure).message || "refused"}), so the group's roster may not list it yet; at_mcp tries again when it next starts."
+    }
 
   # --- posts in a space (a group's feed) ---
   #

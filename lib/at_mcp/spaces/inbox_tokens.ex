@@ -204,6 +204,13 @@ defmodule AtMcp.Spaces.InboxTokens do
 
     case AtMcp.Effects.spaces(effects, :group_spaces, [[register: register]]) do
       {:ok, found} ->
+        # A group first seen here: this account's confirmation of its
+        # membership is written if missing (joined elsewhere, or admitted
+        # after asking).
+        for %{group: g} <- found,
+            not Map.has_key?(known, g),
+            do: AtMcp.Effects.spaces(effects, :ensure_confirmed, [g])
+
         groups =
           Map.new(found, fn %{group: g} = info ->
             {g,

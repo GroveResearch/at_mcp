@@ -1654,6 +1654,7 @@ defmodule AtMcp.MCP.Schemas do
   defp any_object, do: %{"type" => ["object", "null"]}
   defp any_list, do: %{"type" => ["array", "null"]}
   defp nullable_boolean, do: %{"type" => ["boolean", "null"]}
+  defp nullable_boolean(description), do: Map.put(nullable_boolean(), "description", description)
 
   defp group_schema,
     do: %{
@@ -1664,6 +1665,10 @@ defmodule AtMcp.MCP.Schemas do
         "display_name" => nullable_string(),
         "description" => nullable_string(),
         "spaces" => any_list(),
+        "confirmed" =>
+          nullable_boolean(
+            "Whether the group counts this account's own confirmation of its membership, which its roster needs; null when the group host doesn't say"
+          ),
         "feeds" => %{
           "type" => ["array", "null"],
           "items" => %{"type" => "string"},
@@ -1719,13 +1724,25 @@ defmodule AtMcp.MCP.Schemas do
     do:
       object(%{
         "status" => nullable_string("admitted, or pending while the group decides"),
+        "confirmed" =>
+          nullable_boolean(
+            "Whether this account's confirmation of its membership (org.atgrp.confirmation) is written in the group's members space, which the group's roster counts"
+          ),
+        "confirmation_note" =>
+          nullable_string("Why the confirmation isn't written yet, when it isn't"),
         "membership" => any_object(),
         "request" => any_object(),
         "group" => group_schema()
       })
 
   defp spaces_schema(:left),
-    do: object(%{"left" => nullable_boolean(), "group" => nullable_string()})
+    do:
+      object(%{
+        "left" => nullable_boolean(),
+        "group" => nullable_string(),
+        "confirmation_removed" =>
+          nullable_boolean("Whether this account's membership confirmation was removed first")
+      })
 
   defp spaces_schema(:group_app),
     do:

@@ -21,6 +21,7 @@ const inboxMembers = new Set()
 // The scope the session was last logged in with.
 let currentScope = 'atproto transition:generic'
 const written = []
+const keyed = new Map()
 
 const creds = () => ({
   did,
@@ -80,6 +81,22 @@ const methods = {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${space}"` }
     }
     return { records: written.map(({ rkey, record }) => ({ collection: p.collection, rkey, cid: 'bafyfake', value: record })) }
+  },
+  // Records kept under a key (put, get, delete): a member's confirmation in
+  // a group's members space, say. FAKE_REFUSE_PUT refuses every put.
+  'space.records.put': (p) => {
+    if (process.env.FAKE_REFUSE_PUT) throw { class: 'refused', code: 'Forbidden', status: 403, message: 'not a member' }
+    keyed.set(`${p.space} ${p.collection} ${p.rkey}`, p.record)
+    return { uri: `${p.space}/${did}/${p.collection}/${p.rkey}`, cid: 'bafykeyed' }
+  },
+  'space.records.get': (p) => {
+    const record = keyed.get(`${p.space} ${p.collection} ${p.rkey}`)
+    if (!record) throw { class: 'refused', code: 'RecordNotFound', status: 400, message: 'no such record' }
+    return { uri: `${p.space}/${p.repo ?? did}/${p.collection}/${p.rkey}`, cid: 'bafykeyed', value: record }
+  },
+  'space.records.delete': (p) => {
+    keyed.delete(`${p.space} ${p.collection} ${p.rkey}`)
+    return {}
   },
   'space.all': (p) => {
     if (!p.space.startsWith(`at:space/${did}/`)) {

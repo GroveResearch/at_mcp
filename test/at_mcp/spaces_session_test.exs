@@ -517,7 +517,8 @@ defmodule AtMcp.SpacesSessionTest do
           did: "did:plc:group",
           handle: "g.groups.test",
           displayName: "G",
-          description: "A group"
+          description: "A group",
+          viewer: %{member: true, accepted: true}
         },
         spaces: [
           %{uri: "at:space/did:plc:group/org.atgrp.members/self", spaceType: "org.atgrp.members"},
@@ -527,6 +528,10 @@ defmodule AtMcp.SpacesSessionTest do
           }
         ]
       })
+    end
+
+    post "/xrpc/org.atgrp.leaveGroup" do
+      json(conn, %{})
     end
 
     post "/xrpc/org.atgrp.requestJoin" do
@@ -835,6 +840,86 @@ defmodule AtMcp.SpacesSessionTest do
                AtMcp.Effects.spaces(ctx.effects, :invite_groups, [["did:plc:group"]])
 
       assert named["did:plc:group"] == %{handle: "g.groups.test", display_name: "G"}
+    end
+
+    # Membership is two-sided: the member writes its confirmation in the
+    # group's members space, which the roster counts.
+    test "joining writes this account's confirmation in the group's members space; leaving removes it first",
+         ctx do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      members = "at:space/did:plc:group/org.atgrp.members/self"
+
+      assert {:ok, joined} =
+               AtMcp.Effects.spaces(
+                 ctx.effects,
+                 :join_group,
+                 ["did:plc:group"],
+                 :accept_group_invite
+               )
+
+      assert joined["confirmed"] == true
+      # As the group host counts it.
+      assert joined["group"].confirmed == true
+      [put] = Enum.filter(calls(ctx.log), &(&1["method"] == "space.records.put"))
+
+      assert %{"space" => ^members, "collection" => "org.atgrp.confirmation", "rkey" => "self"} =
+               put["params"]
+
+      assert {:ok, _, _} = DateTime.from_iso8601(put["params"]["record"]["createdAt"])
+
+      assert {:ok, left} = AtMcp.Effects.spaces(ctx.effects, :leave_group, ["did:plc:group"])
+      assert left.confirmation_removed
+      methods = Enum.map(calls(ctx.log), & &1["method"])
+      assert "space.records.delete" in methods
+      [del] = Enum.filter(calls(ctx.log), &(&1["method"] == "space.records.delete"))
+      assert del["params"]["collection"] == "org.atgrp.confirmation"
+    end
+
+    test "a group's roster confirmation is written when InboxTokens first sees a group without one",
+         ctx do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      puts = fn -> Enum.count(calls(ctx.log), &(&1["method"] == "space.records.put")) end
+
+      {_, state} =
+        AtMcp.Spaces.InboxTokens.vouch_all(AtMcp.Spaces.InboxTokens.initial(), [
+          {:agent, ctx.effects}
+        ])
+
+      assert puts.() == 1
+
+      # Known now, and confirmed: not written again.
+      state =
+        put_in(
+          state.groups.agent.checked_at,
+          state.groups.agent.checked_at - AtMcp.Spaces.InboxTokens.keepalive_ms()
+        )
+
+      {_, _} = AtMcp.Spaces.InboxTokens.vouch_all(state, [{:agent, ctx.effects}])
+
+      {_, _} =
+        AtMcp.Spaces.InboxTokens.vouch_all(AtMcp.Spaces.InboxTokens.initial(), [
+          {:agent, ctx.effects}
+        ])
+
+      assert puts.() == 1
     end
 
     test "approves for the group the app asked for, by handle, or the only one offered", ctx do
