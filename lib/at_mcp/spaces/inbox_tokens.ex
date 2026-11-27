@@ -40,7 +40,8 @@ defmodule AtMcp.Spaces.InboxTokens do
   @impl true
   def handle_info(:vouch, state) do
     Process.send_after(self(), :vouch, state.every)
-    {:noreply, %{state | last: vouch_all()}}
+    {last, prepared} = vouch_all(Map.get(state, :prepared, MapSet.new()))
+    {:noreply, state |> Map.put(:last, last) |> Map.put(:prepared, prepared)}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -51,19 +52,47 @@ defmodule AtMcp.Spaces.InboxTokens do
   end
 
   @doc false
-  # One pass over the running accounts that have a login key.
-  def vouch_all do
+  # One pass over the running accounts that have a login key. The first pass
+  # for each account makes its inbox if it has none (`prepare/1`): a group
+  # can invite only an account whose inbox exists. Answers each account's
+  # status, and the accounts whose inbox is known to exist.
+  def vouch_all(prepared \\ MapSet.new()) do
     if on?() do
-      for id <- AtMcp.Identities.list_ids(),
-          effects = AtMcp.Identity.effects_name(id),
-          effects != nil,
-          key?(effects),
-          into: %{} do
-        {id, vouch(effects)}
-      end
+      Enum.reduce(running(), {%{}, prepared}, fn {id, effects}, {last, prepared} ->
+        prepared =
+          if MapSet.member?(prepared, id) or prepare(effects) != :ok,
+            do: prepared,
+            else: MapSet.put(prepared, id)
+
+        {Map.put(last, id, vouch(effects)), prepared}
+      end)
     else
-      %{}
+      {%{}, prepared}
     end
+  end
+
+  defp running do
+    for id <- AtMcp.Identities.list_ids(),
+        effects = AtMcp.Identity.effects_name(id),
+        effects != nil,
+        key?(effects),
+        do: {id, effects}
+  end
+
+  @doc false
+  # Makes the account's inbox, with the town AppView as its listed reader
+  # where that is on, and registers it with the AppView.
+  def prepare(effects) do
+    case AtMcp.Effects.spaces(effects, :prepare_inbox, []) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.info("making the account's invite inbox failed: #{inspect(reason, limit: 5)}")
+        :failed
+    end
+  catch
+    :exit, _ -> :failed
   end
 
   defp key?(effects) do

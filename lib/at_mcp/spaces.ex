@@ -357,7 +357,14 @@ defmodule AtMcp.Spaces do
   """
   def list_group_invites(session) do
     with {:ok, inbox, notifications, notice} <- ensure_inbox(session),
-         {:ok, body} <- group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
+         notice = notice || owed_notice(session),
+         # A notice not yet shown waits for the next read that answers.
+         {:ok, body} <-
+           owe_on_error(
+             group_host_get(session, "org.atgrp.internal.getActorInvites", %{}),
+             session,
+             notice
+           ) do
       invites =
         for invite <- Map.get(body, "invites", []) do
           did = get_in(invite, ["group", "did"])
@@ -414,6 +421,47 @@ defmodule AtMcp.Spaces do
   one is `get_group_invites`'.
   """
   def vouch_inbox(session) do
+    vouch_inbox_now(session)
+  end
+
+  @doc """
+  Makes the account's inbox if it has none, as `get_group_invites` does, so
+  a group can invite the account at all: a group writes its invite into the
+  invitee's inbox, and only the invitee's own client can make it.
+  `AtMcp.Spaces.InboxTokens` calls it once for each key-holding account when
+  AtMcp starts. A reader notice it owes is kept for the account's next
+  `get_group_invites`.
+  """
+  def prepare_inbox(session) do
+    with {:ok, space, notifications, notice} <- ensure_inbox(session) do
+      if notice,
+        do: :persistent_term.put({__MODULE__, :owed_notice, Session.did(session)}, notice)
+
+      {:ok, %{space: space, notifications: notifications}}
+    end
+  end
+
+  defp owe_on_error({:error, _} = error, session, notice) when is_binary(notice) do
+    :persistent_term.put({__MODULE__, :owed_notice, Session.did(session)}, notice)
+    error
+  end
+
+  defp owe_on_error(result, _session, _notice), do: result
+
+  defp owed_notice(session) do
+    key = {__MODULE__, :owed_notice, Session.did(session)}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        nil
+
+      notice ->
+        :persistent_term.erase(key)
+        notice
+    end
+  end
+
+  defp vouch_inbox_now(session) do
     space = "at:space/#{Session.did(session)}/org.atgrp.inbox/self"
 
     with {:ok, _} <- helper(session, "space.get", %{space: space}),

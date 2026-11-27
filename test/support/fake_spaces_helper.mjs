@@ -87,9 +87,12 @@ const methods = {
     return { didKey: `did:key:zDnaeFake${Buffer.from(p.keyFile).toString('hex').slice(-12)}`, jkt: 'jkt' }
   },
   'key.prove': (p) => ({ proof: 'proof:' + JSON.stringify({ iss: p.iss, sub: p.sub, aud: p.aud, lxm: p.lxm }) }),
+  // As the helper: the readers are added once, when the inbox is made.
   'inbox.ensure': (p) => {
-    spaces.add(`at:space/${did}/org.atgrp.inbox/self`)
-    return { space: `at:space/${did}/org.atgrp.inbox/self`, created: true, readers: inboxReaders, added: inboxReaders }
+    const uri = `at:space/${did}/org.atgrp.inbox/self`
+    const created = !spaces.has(uri)
+    spaces.add(uri)
+    return { space: uri, created, readers: inboxReaders, added: created ? inboxReaders : [] }
   },
   'init': (p) => {
     inboxReaders = p.inboxReaders ?? []

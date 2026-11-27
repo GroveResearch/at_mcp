@@ -359,7 +359,10 @@ defmodule AtMcp.SpacesSessionTest do
           "agent.test"
         )
 
-      assert {:ok, _space, "registered", notice} = AtMcp.Spaces.ensure_inbox(session)
+      # The reader was added by the first call, whose group host read failed:
+      # its notice waits for the next get_group_invites that answers.
+      assert {:ok, _space, "registered", nil} = AtMcp.Spaces.ensure_inbox(session)
+      notice = :persistent_term.get({AtMcp.Spaces, :owed_notice, "did:plc:oauthagent"})
       # Said in plain words, with the way to turn it off.
       assert notice =~ "town's AppView is now a listed reader of this account's invite inbox"
       assert notice =~ "To remove it, take the AppView off the inbox's members"
@@ -460,6 +463,55 @@ defmodule AtMcp.SpacesSessionTest do
 
     defp json(conn, body),
       do: conn |> put_resp_content_type("application/json") |> send_resp(200, Jason.encode!(body))
+  end
+
+  describe "an account's invite inbox, made when AtMcp starts" do
+    @describetag inbox_readers: ["did:web:api.delve.town"]
+
+    setup do
+      previous = Application.get_env(:at_mcp, :network)
+      Application.put_env(:at_mcp, :network, :delve)
+      {:ok, _} = Plug.Cowboy.http(GroupHost, [], port: 0, ref: :inbox_group_host)
+
+      Application.put_env(
+        :at_mcp,
+        :group_host,
+        "http://localhost:#{:ranch.get_port(:inbox_group_host)}"
+      )
+
+      on_exit(fn ->
+        Plug.Cowboy.shutdown(:inbox_group_host)
+        Application.delete_env(:at_mcp, :group_host)
+
+        if previous,
+          do: Application.put_env(:at_mcp, :network, previous),
+          else: Application.delete_env(:at_mcp, :network)
+      end)
+    end
+
+    test "a missing inbox is made with its reader and registered, and its notice waits for get_group_invites",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      # No inbox, so no group could invite this account yet.
+      assert {:error, %AtMcp.Effects.Failure{detail: "SpaceNotFound"}} =
+               AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
+
+      # InboxTokens' first pass for the account makes it.
+      assert :ok = AtMcp.Spaces.InboxTokens.prepare(ctx.effects)
+      assert_receive {:request, :post, url, _, _}, 5_000
+      assert url =~ "town.delve.notification.registerSpace"
+      assert "inbox.ensure" in Enum.map(calls(ctx.log), & &1["method"])
+
+      # And tokens for it follow, as the second path.
+      assert {:ok, %{status: _}} = AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
+
+      # The account hears of its reader the first time it looks, and once.
+      assert {:ok, %{notice: notice}} = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
+      assert notice =~ "listed reader of this account's invite inbox"
+      assert {:ok, again} = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
+      refute Map.has_key?(again, :notice)
+    end
   end
 
   describe "approve_group_app" do
