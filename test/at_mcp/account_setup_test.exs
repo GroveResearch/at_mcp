@@ -286,4 +286,165 @@ defmodule AtMcp.AccountSetupTest do
 
     refute File.exists?(path)
   end
+
+  describe "an account with a login key" do
+    setup %{path: path} do
+      key = Path.join(Path.dirname(path), "agent-key.json")
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(key, "{}")
+      File.chmod!(key, 0o600)
+      %{key: key}
+    end
+
+    defp key_login(did, service \\ "https://pds.delve.town") do
+      owner = self()
+
+      fn asked, key_file ->
+        send(owner, {:key_login, asked, key_file})
+        {:ok, %{did: did, service: service, handle: "agent.test"}}
+      end
+    end
+
+    test "add-agent saves a key-only account once its key has logged it in", %{
+      path: path,
+      key: key
+    } do
+      assert {:ok, %{account: account, key_file: ^key}} =
+               AtMcp.AccountSetup.execute(
+                 [
+                   "--file",
+                   path,
+                   "add-agent",
+                   "helper",
+                   "--did",
+                   "did:plc:agent",
+                   "--key-file",
+                   key
+                 ],
+                 key_login: key_login("did:plc:agent")
+               )
+
+      assert_received {:key_login, "did:plc:agent", ^key}
+
+      assert account == %{
+               "id" => "helper",
+               "handle" => "agent.test",
+               "did" => "did:plc:agent",
+               "service" => "https://pds.delve.town"
+             }
+
+      {:ok, [saved]} = AtMcp.AccountConfig.load(path)
+      assert saved["key_file"] == key
+      refute Map.has_key?(saved, "password")
+      assert :ok = AtMcp.AccountConfig.validate(saved)
+
+      # The same DID under a second name is refused.
+      assert {:error, :duplicate_did} =
+               AtMcp.AccountSetup.execute(
+                 [
+                   "--file",
+                   path,
+                   "add-agent",
+                   "again",
+                   "--did",
+                   "did:plc:agent",
+                   "--key-file",
+                   key
+                 ],
+                 key_login: key_login("did:plc:agent")
+               )
+    end
+
+    test "nothing is saved when the key logs in as another account, or is refused, or is missing",
+         %{path: path, key: key} do
+      args = ["--file", path, "add-agent", "helper", "--did", "did:plc:agent", "--key-file", key]
+
+      assert {:error, :account_identity_changed} =
+               AtMcp.AccountSetup.execute(args, key_login: key_login("did:plc:someone-else"))
+
+      assert {:error, :key_refused} =
+               AtMcp.AccountSetup.execute(args,
+                 key_login: fn _, _ ->
+                   {:error, AtMcp.Effects.Failure.new(:auth_refused, detail: "key_refused")}
+                 end
+               )
+
+      assert {:error, :key_file_missing} =
+               AtMcp.AccountSetup.execute(
+                 [
+                   "--file",
+                   path,
+                   "add-agent",
+                   "helper",
+                   "--did",
+                   "did:plc:agent",
+                   "--key-file",
+                   key <> ".none"
+                 ],
+                 key_login: key_login("did:plc:agent")
+               )
+
+      assert {:ok, []} = AtMcp.AccountConfig.load(path)
+    end
+
+    test "key gives an account with an app password a login key beside it", %{
+      path: path,
+      key: key
+    } do
+      {:ok, _} =
+        AtMcp.AccountSetup.execute(
+          ["--file", path, "add", "alice", "--handle", "alice.test"],
+          password: fn -> "private-password" end,
+          login: fn handle, _, _ -> {:ok, %{did: "did:plc:alice", handle: handle}} end
+        )
+
+      assert {:ok, _} =
+               AtMcp.AccountSetup.execute(["--file", path, "key", "alice", "--key-file", key],
+                 key_login: key_login("did:plc:alice")
+               )
+
+      {:ok, [saved]} = AtMcp.AccountConfig.load(path)
+      assert saved["key_file"] == key
+      assert saved["password"] == "private-password"
+    end
+  end
+
+  test "rotation-key makes an account a principal with its public rotation key, and takes nothing else",
+       %{path: path} do
+    {:ok, _} =
+      AtMcp.AccountSetup.execute(
+        ["--file", path, "add", "principal", "--handle", "principal.test"],
+        password: fn -> "private-password" end,
+        login: fn handle, _, _ -> {:ok, %{did: "did:plc:principal", handle: handle}} end
+      )
+
+    key = "did:key:zDnaeTiq1PdzvZXUaMdezchcMJQpBdH2VN4pgrrEhMCCbmwSb"
+
+    assert {:ok, %{rotation_key: ^key, next: next}} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "rotation-key",
+               "principal",
+               "--did-key",
+               key
+             ])
+
+    assert next =~ "private half"
+    {:ok, [saved]} = AtMcp.AccountConfig.load(path)
+    assert saved["rotation_key"] == key
+
+    # A private key, a file path or anything but a did:key is refused.
+    for not_public <- [~s({"kty":"EC","d":"secret"}), "/keys/rotation.json", "did:plc:principal"] do
+      assert {:error, :invalid_rotation_key} =
+               AtMcp.AccountSetup.execute([
+                 "--file",
+                 path,
+                 "rotation-key",
+                 "principal",
+                 "--did-key",
+                 not_public
+               ])
+    end
+  end
 end

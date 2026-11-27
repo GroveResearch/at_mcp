@@ -118,7 +118,14 @@ defmodule Mix.Tasks.AtMcp.ToolsDoc do
     "| `#{tool.name}` | #{set(tool.name)} | #{publishes} | #{scope(tool.name)} | #{summary(tool)} |"
   end
 
-  defp set(name), do: if(name in AtMcp.MCP.ToolSet.default(), do: "default", else: "full")
+  defp set(name) do
+    cond do
+      name in AtMcp.MCP.ToolSet.default() -> "default"
+      # In the default set where Spaces work (AtMcp.MCP.ToolSet.notes?/0).
+      name in AtMcp.MCP.ToolSet.notes() -> "default with Spaces"
+      true -> "full"
+    end
+  end
 
   defp scope(name),
     do: Enum.find([:read, :write, :manage], &AtMcp.Grants.permits_scope?(&1, name))

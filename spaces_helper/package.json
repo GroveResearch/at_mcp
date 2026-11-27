@@ -1,0 +1,33 @@
+{
+  "name": "at_mcp-spaces",
+  "private": true,
+  "version": "0.1.0",
+  "description": "at_mcp's local helper for atproto OAuth sessions approved by an agent's own key, and for Spaces",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json --noEmit",
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node22 --format=esm --outfile=../priv/spaces_helper/at_mcp-spaces.mjs --banner:js=\"import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);\" --legal-comments=external --log-level=warning",
+    "test": "node --test --experimental-transform-types --no-warnings test/*.test.ts"
+  },
+  "dependencies": {
+    "@atproto-labs/did-resolver": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/crypto": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/jwk-jose": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/lex": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/lex-client": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/lex-space": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/oauth-client-node": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/oauth-types": "0.0.0-spaces-alpha-20261124235736",
+    "@atproto/syntax": "0.0.0-spaces-alpha-20261124235736",
+    "jose": "5.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.7",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3"
+  }
+}

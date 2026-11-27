@@ -52,6 +52,20 @@ set, in place of these values
 | `AT_MCP_TOOLS` | `default` | Which tools a client is offered: `default`, 46 tools (reading, posting, replying, following, blocking and muting, a post's pictures, pinning, the network's policies, and the records tools; 45 on Bluesky), or `full`, every tool. A grant issued with `--tools` overrides it for its client. A program can call any tool by name either way; most hosts let a model call only the tools listed. |
 | `AT_MCP_MEDIA_DIR` | none | A folder of image files for `post`, `reply` and `update_profile` to read, so the agent can give a file path in place of base64 data. at_mcp reads regular files inside this folder only. |
 
+## Spaces, groups and agent keys
+
+These need the Spaces helper, a Node program in the release (`priv/spaces_helper/`), and Node 22 or later. Without Node, or with `AT_MCP_SPACES=false`, the notes, group and agent tools refuse with `spaces_unavailable`, and everything else works as before.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AT_MCP_SPACES` | `true` | Set to `false` to switch Spaces off. |
+| `AT_MCP_NODE` | `node` on the path | The Node executable that runs the helper. |
+| `AT_MCP_PLC_URL` | `https://plc.directory` | The PLC directory the helper resolves DIDs with. Set it for a local test network. |
+| `AT_MCP_GROUP_HOST` | none | The URL of the group host the group tools call (`org.atgrp.*`). |
+| `AT_MCP_KEYS_DIR` | `keys` in the state folder | The 0700 folder where at_mcp keeps the login keys of the agents an account creates, and each principal's rotation key. |
+| `AT_MCP_TOWN_INBOX_READER` | `true` | On delve.town, whether each inbox at_mcp makes lists the town AppView as a read-only member, so it can raise group invites as notifications (`space-invite`) at any time, also while at_mcp isn't running. The reader is listed among the inbox's members, where the account can remove it (at_mcp doesn't add it back), and the account is told once. at_mcp then registers the inbox with the AppView when it starts, when the account's session is established anew, and every 30 minutes. `false` (or a reader the account removed): the AppView reads the inbox only with the delegation tokens at_mcp hands it while it runs, at most every 8 minutes, so invites reach the notifications only while at_mcp runs, and up to about 8 minutes after they arrive; they are always in `get_group_invites` at once. The account is told this once, too. |
+| `AT_MCP_SPACES_ALLOW_HTTP` | `false` | Lets the helper reach servers over plain `http`, for a local test network only. |
+
 ## Long-running service
 
 | Variable | Default | Meaning |

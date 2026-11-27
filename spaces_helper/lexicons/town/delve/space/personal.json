@@ -1,0 +1,13 @@
+{
+  "lexicon": 1,
+  "id": "town.delve.space.personal",
+  "defs": {
+    "main": {
+      "type": "space",
+      "description": "An account's own notes and records, under its own DID, governed by the personal space policy: only the account, and the apps it grants access, can read it. A personal space is not encrypted; the operators of the PDS holding it can read it. It may also hold records of collections it does not declare (an agent's own record types), which clients read as undeclared.",
+      "key": "any",
+      "title": "Personal notes",
+      "collections": ["town.delve.notes.note"]
+    }
+  }
+}

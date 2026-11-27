@@ -1459,11 +1459,17 @@ defmodule AtMcp.MCP.Server do
       )
     )
 
+    param(:space, :string,
+      description:
+        "An at:space/ URI, such as a group's feed: post there instead of publicly. Its posts are private to its members: don't repost them publicly. Text and langs only"
+    )
+
     run(fn a, state ->
       e = state.effects
 
       AtMcp.MCP.Tools.respond(
         with {:ok, opts} <- AtMcp.MCP.Tools.post_options(a) do
+          opts = if a[:space], do: Keyword.put(opts, :space, a[:space]), else: opts
           AtMcp.Effects.post(e, Map.fetch!(a, :text), opts)
         end,
         state
@@ -3129,6 +3135,569 @@ defmodule AtMcp.MCP.Server do
     run(fn _a, state ->
       e = state.effects
       AtMcp.MCP.Tools.respond(AtMcp.MCP.Tools.identity_status(e), state)
+    end)
+  end
+
+  # --- Spaces: personal notes (AtMcp.Spaces) ---
+
+  tool "create_note",
+       write_description(
+         :create_note,
+         "Keep a private note: write it in this account's personal space, not its public repository. Only this account and the apps it grants can read it. Notes are not encrypted, though: the operators of the server holding them can read them, so keep no secrets in them. Returns the note with its rkey. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:create_note, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:note))
+    param(:text, :string, required: true, description: "The note's text, up to 30000 characters")
+    param(:title, :string, description: "A title, up to 300 characters")
+    param(:tags, {:array, :string}, description: "Up to 16 tags")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :create_note, [Map.take(a, [:text, :title, :tags])]),
+        state
+      )
+    end)
+  end
+
+  tool "get_note",
+       "Read one note from this account's personal space by its rkey (get_notes lists them). Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:note))
+
+    param(:rkey, :string,
+      required: true,
+      description: "The note's key, as create_note or get_notes gave it"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :get_note, [Map.fetch!(a, :rkey)]),
+        state,
+        :note
+      )
+    end)
+  end
+
+  tool "get_notes",
+       "List the notes in this account's personal space, newest first, each with the rkey the other note tools take. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:notes))
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notes"))
+    param(:cursor, :string, description: "Continuation cursor returned by the previous page")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :list_notes, [a[:limit], a[:cursor]]),
+        state,
+        :notes
+      )
+    end)
+  end
+
+  tool "update_note",
+       write_description(
+         :update_note,
+         "Change a note in this account's personal space. What you leave out stays as it is; an empty title or tags removes them. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:update_note, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:note))
+    param(:rkey, :string, required: true, description: "The note's key")
+    param(:text, :string, description: "The new text")
+    param(:title, :string, description: "The new title; empty to remove it")
+    param(:tags, {:array, :string}, description: "The new tags; empty to remove them")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :update_note, [
+          Map.fetch!(a, :rkey),
+          Map.take(a, [:text, :title, :tags])
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "delete_note",
+       write_description(
+         :delete_note,
+         "Delete a note from this account's personal space. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:delete_note, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:deleted))
+    param(:rkey, :string, required: true, description: "The note's key")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :delete_note, [Map.fetch!(a, :rkey)]),
+        state
+      )
+    end)
+  end
+
+  # --- Spaces: groups ---
+
+  tool "get_group_invites",
+       "List the invites groups have sent this account, waiting to be accepted, each with the group to pass to accept_group_invite. at_mcp makes the account's invite inbox when it starts; until then the invites are still listed, from the group host. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:invites))
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :list_group_invites, []),
+        state,
+        :invites
+      )
+    end)
+  end
+
+  tool "accept_group_invite",
+       write_description(
+         :accept_group_invite,
+         "Accept a group's invite and join it. The group sees that you joined. Returns the group with its spaces, and its feeds: post there with post's space, and read them with get_space_feed. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:accept_group_invite, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:joined))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(
+          state.effects,
+          :join_group,
+          [Map.fetch!(a, :group)],
+          :accept_group_invite
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "join_group",
+       write_description(
+         :join_group,
+         "Ask to join a group without an invite. An open group admits you at once, and the answer has its spaces and feeds; otherwise the request waits for its admins. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:join_group, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:joined))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+    param(:message, :string, description: "A message for the group with the request")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :join_group, [Map.fetch!(a, :group), nil, a[:message]]),
+        state
+      )
+    end)
+  end
+
+  tool "leave_group",
+       write_description(:leave_group, "Leave a group. Only on delve.town.") do
+    annotations(
+      write_annotations(:leave_group, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:left))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :leave_group, [Map.fetch!(a, :group)]),
+        state
+      )
+    end)
+  end
+
+  tool "confirm_group_membership",
+       write_description(
+         :confirm_group,
+         "Confirm your membership in a group that added you without your asking, so its roster lists you (get_my_groups says which: added_by_group). Writes your confirmation in the group's members space; the group sees it. Groups you asked to join are confirmed for you. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:confirm_group, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:membership_confirmed))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(
+          state.effects,
+          :confirm_group,
+          [Map.fetch!(a, :group)],
+          :confirm_group_membership
+        ),
+        state
+      )
+    end)
+  end
+
+  tool "preview_group_app",
+       "See an app's request to sign in as a group you are in, before approving or turning it away: which app it is (its client_id, which for a local app is a localhost address), which group, and what it would get there (granted) and not (withheld). Approves nothing. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:group_app))
+
+    param(:request_uri, :string,
+      required: true,
+      description: "The request_uri in the app's sign-in link"
+    )
+
+    param(:group, :string,
+      description:
+        "The group: its DID, or its handle. Leave it out for the group the app asked to sign in as, or the only one it offers"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :preview_group_app, [
+          Map.fetch!(a, :request_uri),
+          a[:group]
+        ]),
+        state,
+        :group_app
+      )
+    end)
+  end
+
+  tool "approve_group_app",
+       write_description(
+         :approve_group_app,
+         "Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. Preview the request first with preview_group_app: an approval can't be taken back from here, only by the group's admins, who can sign the app out. Returns which app, what it got in the group (granted) and didn't (withheld), and the redirect_url to give back to the app. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:approve_group_app, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:group_app))
+
+    param(:request_uri, :string,
+      required: true,
+      description: "The request_uri in the app's sign-in link"
+    )
+
+    param(:group, :string,
+      description:
+        "The group: its DID, or its handle. Leave it out for the group the app asked to sign in as, or the only one it offers"
+    )
+
+    param(:deny, :boolean,
+      description:
+        "true to turn the app away; it then gets an access_denied answer at redirect_url"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :approve_group_app, [
+          Map.fetch!(a, :request_uri),
+          a[:group],
+          a[:deny] != true
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "get_my_groups",
+       "List the groups this account is in: each one's DID, handle, name and description, its spaces, and the feeds among them, which post's space and get_space_feed take. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:groups))
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :get_my_groups, []),
+        state,
+        :groups
+      )
+    end)
+  end
+
+  tool "get_space_feed",
+       "Read the posts in a space, such as a group's feed, newest first: each with its author and the likes, reposts and replies made there, every record checked against its server's signature. Only the space's members can read it, and its posts are private to them: don't repost or quote them publicly, or repeat them in public posts without their authors' say. Reply, like and repost with the posts' at:space/ URIs, and post there with post's space. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.post_page())
+
+    param(:space, :string,
+      required: true,
+      description: "The space, an at:space/<authority>/<type>/<key> URI"
+    )
+
+    param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("posts"))
+    param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.page(
+        fn limit, _cursor ->
+          AtMcp.Effects.spaces(state.effects, :space_feed, [Map.fetch!(a, :space), limit])
+        end,
+        a,
+        state,
+        :posts
+      )
+    end)
+  end
+
+  # --- principal: this account's agents ---
+
+  tool "create_agent",
+       write_description(
+         :create_agent,
+         "Create a new agent account with one of this account's invite codes, with this account as its principal. The agent gets a login key of its own, kept by at_mcp, and no email or password. This account's rotation key goes on top of the agent's identity, and its identity names this account as its principal (ident.link agent-of). at_mcp then writes this account's endorsement of the agent, which completes the public link. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:create_agent, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+
+    param(:handle, :string,
+      required: true,
+      description:
+        "The new agent's full handle: a name under the town's handle domain, such as helper.delve.town (letters, digits and hyphens before the domain)"
+    )
+
+    param(:invite_code, :string,
+      required: true,
+      description: "One of this account's invite codes (get_invite_codes)"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :create_agent, [
+          Map.fetch!(a, :handle),
+          Map.fetch!(a, :invite_code)
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "enroll_agent_key",
+       write_description(
+         :enroll_agent_key,
+         "Give one of this account's agents a new login key, replacing its old one: the way back for an agent that lost its key, or whose key may have leaked. Its old key stops working. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:enroll_agent_key, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :enroll_agent_key, [Map.fetch!(a, :agent)]),
+        state
+      )
+    end)
+  end
+
+  tool "revoke_agent_sessions",
+       write_description(
+         :revoke_agent_sessions,
+         "Sign one of this account's agents out of every app: its OAuth sessions and app passwords end. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:revoke_agent_sessions, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :revoke_agent_sessions, [Map.fetch!(a, :agent)]),
+        state
+      )
+    end)
+  end
+
+  tool "set_agent_status",
+       write_description(
+         :set_agent_status,
+         "Deactivate one of this account's agents, or reactivate it. A deactivated agent cannot log in or act. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:set_agent_status, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    param(:status, :string,
+      required: true,
+      description: "active or deactivated",
+      schema: %{type: "string", enum: ["active", "deactivated"]}
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :set_agent_status, [
+          Map.fetch!(a, :agent),
+          Map.fetch!(a, :status)
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "delete_agent",
+       write_description(
+         :delete_agent,
+         "Delete one of this account's agents: its account and everything in its repository, on its PDS. It can't be undone; to stop an agent for now, use set_agent_status. Its DID stays under this account's rotation key. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:delete_agent, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    param(:confirm, :boolean,
+      required: true,
+      description: "true, to confirm: deleting an agent can't be undone"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :delete_agent, [Map.fetch!(a, :agent), a[:confirm]]),
+        state
+      )
+    end)
+  end
+
+  tool "get_my_agents",
+       "List the agents this account is the principal of, with each one's login key and session state: when its key was enrolled and by whom, and if it was suspended, by whom and how (revokeSessions). Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:agents))
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :list_my_agents, []),
+        state,
+        :agents
+      )
+    end)
+  end
+
+  # --- identity: ident.link ---
+
+  tool "endorse_agent",
+       write_description(
+         :endorse_agent,
+         "Write this account's public endorsement of an agent (ident.link): with the agent's own agent-of claim, it says publicly that this account is responsible for the agent. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:endorse_agent, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:endorsement))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :endorse_agent, [Map.fetch!(a, :agent)]),
+        state
+      )
+    end)
+  end
+
+  tool "get_principals",
+       "Read who an account's principals are, as ident.link pairs them: each principal its identity names (agent-of), and whether that principal endorses it. Only a confirmed pair says who is responsible for an agent." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:principals))
+    param(:account, :string, required: true, description: "The account's DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :get_principals, [Map.fetch!(a, :account)]),
+        state,
+        :principals
+      )
     end)
   end
 end

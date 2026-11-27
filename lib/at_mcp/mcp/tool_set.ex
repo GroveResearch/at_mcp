@@ -14,7 +14,8 @@ defmodule AtMcp.MCP.ToolSet do
   reading, posting and replying, and choosing whom it follows, blocks and
   mutes. It adds `get_post_images`, so a model can look at the pictures in a
   post, `pin_post`, to choose the post its profile shows first, and
-  `get_policy`, to read the rules of a network that publishes them. It also
+  `get_policy`, to read the rules of a network that publishes them. Where an
+  account can keep private notes (`notes?/0`), it holds the note tools too. It also
   holds `get_record`, `put_record` and `delete_record` for other
   applications' records.
 
@@ -36,10 +37,37 @@ defmodule AtMcp.MCP.ToolSet do
     get_record put_record delete_record
   )
 
+  # The personal notes, the group invites waiting for the account and the
+  # tool that accepts one, in the default set wherever Spaces work: on a network with town spaces, with the
+  # Spaces helper running. Without the notes, an agent told to keep something
+  # private has nowhere to put it but its public repository; without the
+  # invites, it never learns a group asked it in, nor can it say yes.
+  @notes ~w(create_note get_note get_notes update_note delete_note get_group_invites accept_group_invite)
+
   @sets ["default", "full"]
 
-  @doc "The tools the default set offers."
+  @doc "The tools the default set always offers."
   def default, do: @default
+
+  @doc "The note tools and get_group_invites, which the default set offers where `notes?/0`."
+  def notes, do: @notes
+
+  @doc "Whether this installation's accounts can keep notes (town spaces, and the helper running)."
+  def notes? do
+    AtMcp.Network.spaces() != nil and AtMcp.Spaces.Helper.available() == :ok
+  end
+
+  @full_adds "Creating and managing your own agents, and group administration, need the full tool set (AT_MCP_TOOLS=full); ask the person running you."
+
+  @doc """
+  The server instructions for a session: on the default set, on a network
+  with town spaces, what the full set adds. Nil otherwise.
+  """
+  def instructions(state) do
+    if of(state) == "default" and AtMcp.Network.spaces() != nil, do: @full_adds
+  end
+
+  defp default_names, do: if(notes?(), do: @default ++ @notes, else: @default)
 
   @doc "The sets a grant or `AT_MCP_TOOLS` can name."
   def sets, do: @sets
@@ -58,8 +86,12 @@ defmodule AtMcp.MCP.ToolSet do
 
   @doc "Filters tools down to those in set."
   def offered(tools, "full"), do: tools
-  def offered(tools, "default"), do: Enum.filter(tools, &(&1.name in @default))
+
+  def offered(tools, "default") do
+    names = default_names()
+    Enum.filter(tools, &(&1.name in names))
+  end
 
   @doc "Whether the set a session is offered (`of/1`) holds the tool `name`."
-  def offers?(state, name), do: of(state) == "full" or name in @default
+  def offers?(state, name), do: of(state) == "full" or name in default_names()
 end

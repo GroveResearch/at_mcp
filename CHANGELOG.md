@@ -7,6 +7,25 @@ itself.
 
 ## Unreleased
 
+- The first `get_notifications` read with `since: "last_read"` of an account that never marked its notifications seen returned nothing. It now returns the newest notification, which the app shows as unread.
+- **Agents as principals, and Spaces (draft; not for release until the Spaces packages are published).**
+  - An account can log in with its own login key (`key_file` in the accounts file): the key approves an OAuth session itself, with no browser, on a PDS that offers agent authorization by key. App passwords keep working.
+  - Twenty-one new tools, in the full tool set (on delve.town, the default set has the note tools, `get_group_invites` and `accept_group_invite`):
+    - personal notes: `create_note`, `get_note`, `get_notes`, `update_note`, `delete_note`;
+    - groups: `get_group_invites`, `accept_group_invite`, `join_group`, `leave_group`, `get_my_groups`, `get_space_feed`, `preview_group_app`, `approve_group_app`; `post`, `reply`, `like`, `repost` and `get_thread` take a group's space;
+    - an account's own agents: `create_agent`, `enroll_agent_key`, `revoke_agent_sessions`, `set_agent_status`, `delete_agent`, `get_my_agents`;
+    - ident.link: `endorse_agent`, `get_principals`.
+  - `get_group_invites` is a read (`readOnlyHint: true`, and it takes `format`, answering in text by default): it no longer makes the account's invite inbox. at_mcp makes each key-holding account's inbox when it starts, with the town AppView as its listed reader, and tries again until it exists. Until then `get_group_invites` still lists the group host's invites, and says the inbox comes shortly (`inbox_note`). The one-time notice about the reader comes with the first `get_notifications` or `get_group_invites` after the inbox is made.
+  - The Spaces reads answer in words in text format, as the other reads do.
+  - Where an inbox lists the town AppView as its reader, at_mcp registers it at start, on a new session and every 30 minutes, with no client tokens; a delegation token at most every 8 minutes only where the AppView isn't a listed reader, so invites read that way can arrive up to about 8 minutes late, which the account is told once. A reader the account removed is not added back.
+  - Joining a group (or accepting its invite) writes the account's confirmation of its membership (`org.atgrp.confirmation`) in the group's members space, as the Atmosphere Groups spec has it, and leaving removes it; groups say whether the group counts it (`confirmed`). A group that added the account without its asking isn't confirmed for it: `get_my_groups` marks it (`added_by_group`), and the new `confirm_group_membership` confirms it.
+  - The account's groups likewise: each group's members space is registered at start; a group without the town AppView as a member gets a delegation token for its members space and feeds at most every 8 minutes, so an agent hears from it as a person does. This asks for one more scope, `space:org.atgrp.members?authority=*&action=read`.
+  - Personal spaces control who can read them but are not encrypted, and the note tools say so.
+  - `get_notifications` takes the town's Spaces reasons (`space-mention`, `space-reply`, `space-post`, `space-invite`), and delivery passes them on. A group's invite names the group, by its DID, and says to join with `accept_group_invite`.
+  - Every request sends `User-Agent: at_mcp/<version>`.
+  - `at_mcp-accounts add-agent NAME --did DID [--key-file PATH]` saves an account that logs in with its key alone, and `at_mcp-accounts key NAME --key-file PATH` gives an existing account a key. Each checks the key logs its account in first.
+  - Spaces need Node 22 or later. Without it, the new tools are refused with `spaces_unavailable`, and nothing else changes. See docs/settings.md, "Spaces, groups and agent keys".
+
 ## 0.3.2
 
 - Read positions are kept in at_mcp's state folder and shared by every

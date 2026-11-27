@@ -147,7 +147,8 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.map(fn {item, n} -> notification(item, numbered(n)) end)
 
-    to_text(join([header | blocks], :blank))
+    notice = if is_binary(page["notice"]), do: literal(page["notice"])
+    to_text(join([header | blocks] ++ [notice], :blank))
   end
 
   def notifications(_other), do: nil
@@ -819,6 +820,328 @@ defmodule AtMcp.Reading do
   end
 
   def invite_codes(_other), do: nil
+
+  # --- Spaces: notes, groups, invites, agents ---
+
+  @doc "A page of this account's notes, newest first, each with the rkey the note tools take."
+  def notes(%{"notes" => notes} = page) when is_list(notes) do
+    header =
+      join(
+        [
+          cat([
+            count(length(notes), ~L"note", ~L"notes"),
+            ~L" in this account's personal space."
+          ]),
+          readable(page["readable_by"])
+        ],
+        :space
+      )
+
+    blocks =
+      notes |> Enum.with_index(1) |> Enum.map(fn {note, n} -> note_block(note, numbered(n)) end)
+
+    more =
+      if is_binary(page["cursor"]),
+        do: cat([~L"More: pass cursor ", ident(page["cursor"]), ~L" to get_notes."])
+
+    to_text(join([header | blocks] ++ [more], :blank))
+  end
+
+  def notes(_other), do: nil
+
+  @doc "One note, with who can read it."
+  def note(%{"rkey" => rkey} = note) when is_binary(rkey),
+    do: to_text(join([note_block(note, ~L"Note"), readable(note["readable_by"])], :blank))
+
+  def note(_other), do: nil
+
+  defp note_block(note, label) do
+    tags = List.wrap(note["tags"])
+
+    header =
+      cat([
+        label,
+        ~L" ",
+        join(
+          [
+            cat([~L"rkey ", ident(note["rkey"])]),
+            if(is_binary(note["title"]) and note["title"] != "", do: shown(note["title"])),
+            if(tags != [], do: cat([~L"tags ", join(Enum.map(tags, &shown/1), :comma)])),
+            if(is_binary(note["updated_at"]),
+              do: cat([~L"changed ", time(note["updated_at"])]),
+              else:
+                if(is_binary(note["created_at"]), do: cat([~L"made ", time(note["created_at"])]))
+            )
+          ],
+          :dot
+        )
+      ])
+
+    join([header, fence(note["text"])], :line)
+  end
+
+  defp readable(text) when is_binary(text), do: cat([~L"Readable by: ", literal(text)])
+  defp readable(_text), do: nil
+
+  @doc "The groups this account is in, with the feeds to post in and read."
+  def groups(%{"groups" => groups}) when is_list(groups) do
+    header =
+      if groups == [],
+        do: ~L"This account is in no groups. get_group_invites lists the invites waiting for it.",
+        else: cat([~L"This account is in ", count(length(groups), ~L"group", ~L"groups"), ~L"."])
+
+    blocks =
+      groups |> Enum.with_index(1) |> Enum.map(fn {g, n} -> group_block(g, numbered(n)) end)
+
+    to_text(join([header | blocks], :blank))
+  end
+
+  def groups(_other), do: nil
+
+  defp group_line(g) do
+    join(
+      [
+        if(is_binary(g["display_name"]) and g["display_name"] != "",
+          do: shown(g["display_name"])
+        ),
+        if(is_binary(g["handle"]), do: cat([~L"(@", ident(g["handle"]), ~L")"])),
+        if(is_binary(g["did"]), do: ident(g["did"]))
+      ],
+      :space
+    )
+  end
+
+  defp group_block(g, label) do
+    feeds = List.wrap(g["feeds"])
+
+    join(
+      [
+        cat([label, ~L" ", group_line(g)]),
+        if(is_binary(g["description"]) and g["description"] != "", do: fence(g["description"])),
+        cond do
+          g["added_by_group"] == true ->
+            ~L"Added by the group; not confirmed, so its roster doesn't list you. confirm_group_membership confirms that you are a member; leave_group leaves."
+
+          g["confirmed"] == false ->
+            ~L"You asked to join; your confirmation isn't written in the group's members space yet, so its roster doesn't list you. at_mcp writes it shortly."
+
+          true ->
+            nil
+        end,
+        if(feeds != [],
+          do:
+            cat([
+              ~L"Feeds (post there with post's space; read with get_space_feed): ",
+              join(Enum.map(feeds, &ident/1), :comma)
+            ])
+        )
+      ],
+      :line
+    )
+  end
+
+  @doc "The invites waiting for this account, each with how to join, and the inbox's state."
+  def invites(%{"invites" => invites} = result) when is_list(invites) do
+    header =
+      if invites == [],
+        do: ~L"No group invites are waiting for this account.",
+        else: cat([count(length(invites), ~L"group invite", ~L"group invites"), ~L" waiting."])
+
+    blocks =
+      invites
+      |> Enum.with_index(1)
+      |> Enum.map(fn {invite, n} ->
+        group = if is_map(invite["group"]), do: invite["group"], else: %{}
+
+        join(
+          [
+            cat([
+              numbered(n),
+              ~L" ",
+              join(
+                [
+                  cat([~L"from the group ", group_line(group)]),
+                  if(is_binary(invite["created_at"]),
+                    do: cat([~L"sent ", time(invite["created_at"])])
+                  )
+                ],
+                :dot
+              )
+            ]),
+            fence(invite["message"]),
+            if(is_binary(group["did"]),
+              do: cat([~L"Join with accept_group_invite (group: ", ident(group["did"]), ~L")."])
+            )
+          ],
+          :line
+        )
+      end)
+
+    inbox =
+      join(
+        [
+          if(is_binary(result["inbox"]), do: cat([~L"Inbox: ", ident(result["inbox"]), ~L"."])),
+          case result["notifications"] do
+            "registered" ->
+              ~L"The town AppView raises invites to it in get_notifications, also while at_mcp isn't running."
+
+            "off" ->
+              ~L"Invites reach get_notifications only while at_mcp runs; they are always listed here."
+
+            other when is_binary(other) ->
+              cat([~L"Notifications of invites: ", literal(other), ~L"."])
+
+            _ ->
+              nil
+          end
+        ],
+        :space
+      )
+
+    to_text(
+      join(
+        [header | blocks] ++
+          [
+            inbox,
+            if(is_binary(result["inbox_note"]), do: literal(result["inbox_note"])),
+            if(is_binary(result["notice"]), do: literal(result["notice"]))
+          ],
+        :blank
+      )
+    )
+  end
+
+  def invites(_other), do: nil
+
+  @doc "An app's request to sign in as a group: what it would get, and what is withheld."
+  def group_app(%{} = r) when is_map_key(r, "group") or is_map_key(r, "app") do
+    app = if is_map(r["app"]), do: r["app"], else: %{}
+    granted = List.wrap(r["granted"])
+    withheld = List.wrap(r["withheld"])
+
+    to_text(
+      join(
+        [
+          join(
+            [
+              cat([
+                ~L"The app ",
+                join(
+                  [
+                    shown(app["name"]),
+                    if(is_binary(app["client_id"]),
+                      do: cat([~L"(", ident(app["client_id"]), ~L")"])
+                    )
+                  ],
+                  :space
+                ),
+                ~L" asks to sign in as the group ",
+                ident(r["group"]),
+                ~L"."
+              ]),
+              case r["approved"] do
+                true ->
+                  ~L"Approved."
+
+                false ->
+                  ~L"Not approved yet: approve_group_app approves it, or with deny true turns it down."
+
+                _ ->
+                  nil
+              end
+            ],
+            :space
+          ),
+          if(granted != [], do: cat([~L"It gets: ", join(Enum.map(granted, &ident/1), :comma)])),
+          if(withheld != [],
+            do:
+              cat([
+                ~L"Withheld (asked for, not given): ",
+                join(Enum.map(withheld, &ident/1), :comma)
+              ])
+          ),
+          if(is_binary(r["redirect_url"]),
+            do: cat([~L"Hand this to the app to finish its sign-in: ", url(r["redirect_url"])])
+          )
+        ],
+        :line
+      )
+    )
+  end
+
+  def group_app(_other), do: nil
+
+  @doc "This account's agents: each with its handle, DID and login keys."
+  def agents(%{"agents" => agents}) when is_list(agents) do
+    header =
+      if agents == [],
+        do: ~L"This account has no agents. create_agent makes one.",
+        else:
+          cat([
+            ~L"This account is the principal of ",
+            count(length(agents), ~L"agent", ~L"agents"),
+            ~L"."
+          ])
+
+    lines =
+      agents
+      |> Enum.with_index(1)
+      |> Enum.map(fn {a, n} ->
+        keys = List.wrap(a["loginKeys"] || a["login_keys"])
+
+        cat([
+          numbered(n),
+          ~L" ",
+          join(
+            [
+              join(
+                [
+                  if(is_binary(a["handle"]), do: cat([~L"@", ident(a["handle"])])),
+                  if(is_binary(a["did"]), do: ident(a["did"]))
+                ],
+                :space
+              ),
+              if(is_binary(a["status"]), do: ident(a["status"])),
+              cat([count(length(keys), ~L"login key", ~L"login keys")]),
+              if(is_binary(a["linkedAt"]), do: cat([~L"linked ", time(a["linkedAt"])]))
+            ],
+            :dot
+          )
+        ])
+      end)
+
+    to_text(join([header | lines], :line))
+  end
+
+  def agents(_other), do: nil
+
+  @doc "An account's principals, and whether each one's endorsement confirms it."
+  def principals(%{"did" => did, "principals" => principals}) when is_list(principals) do
+    header =
+      if principals == [],
+        do:
+          cat([
+            ident(did),
+            ~L" names no principal: it is not an agent, or not one of a known account."
+          ]),
+        else: cat([ident(did), ~L" is an agent of:"])
+
+    lines =
+      for p <- principals do
+        cat([
+          ~L"  ",
+          ident(p["did"]),
+          if(p["confirmed"] == true,
+            do: ~L" (confirmed: its endorsement completes the pair)",
+            else: ~L" (not confirmed: no endorsement from it)"
+          )
+        ])
+      end
+
+    to_text(join([header | lines], :line))
+  end
+
+  def principals(_other), do: nil
 
   @doc """
   One of the network's policy pages: its title and address, then its text,
@@ -1563,6 +1886,56 @@ defmodule AtMcp.Reading do
     )
   end
 
+  # A group's invite, which the town AppView raises from the account's inbox:
+  # its author is the group, and its text the invite's message. Nothing in it
+  # is a post to answer, so it names the group by its DID, which
+  # accept_group_invite takes, and says how to join.
+  defp notification(%{"reason" => "space-invite"} = item, label) do
+    group = invite_group(item)
+    # `handle.invalid` is the AppView saying the group's handle didn't verify.
+    named =
+      cond do
+        is_binary(item["author"]) and item["author"] != "handle.invalid" ->
+          who(item)
+
+        is_binary(item["display_name"]) and item["display_name"] != "" ->
+          literal(one_line(item["display_name"]))
+
+        true ->
+          nil
+      end
+
+    header =
+      cat([
+        label,
+        ~L" ",
+        join(
+          [
+            cat([
+              ident(item["reason"]),
+              ~L": an invite to join the group ",
+              join([named, if(group, do: ident(group))], :space)
+            ]),
+            time(item["indexed_at"]),
+            if(item["is_read"] == false, do: ~L"unread")
+          ],
+          :dot
+        )
+      ])
+
+    next =
+      if group,
+        do:
+          cat([
+            ~L"Next: see get_group_invites, then join with accept_group_invite (group: ",
+            ident(group),
+            ~L")."
+          ]),
+        else: ~L"Next: see get_group_invites, then join with accept_group_invite."
+
+    join([header | body(item)] ++ [next, ids(item)], :line)
+  end
+
   defp notification(%{} = item, label) do
     header =
       cat([
@@ -1602,6 +1975,16 @@ defmodule AtMcp.Reading do
         ],
         :dot
       )
+    end
+  end
+
+  # The group an invite is from: the repo its record sits under in the inbox
+  # (`at:space/<me>/org.atgrp.inbox/self/<group>/org.atgrp.invite/<rkey>`),
+  # else the notification's author.
+  defp invite_group(item) do
+    case String.split(item["uri"] || "", "/") do
+      ["at:space", _me, "org.atgrp.inbox", _skey, "did:" <> _ = group | _] -> group
+      _ -> if is_binary(item["author_did"]), do: item["author_did"]
     end
   end
 
@@ -2417,7 +2800,10 @@ defmodule AtMcp.Reading do
       if(page["new_total_exact"] == false, do: cat([~L"At least ", int(n)]), else: int(n)),
       ~L" new since this account last read here at ",
       time(at),
-      ~L"."
+      ~L".",
+      if(page["first_read"] == true,
+        do: ~L" First read on this account; older notifications: read without since."
+      )
     ])
   end
 
@@ -2425,6 +2811,17 @@ defmodule AtMcp.Reading do
 
   # A last_read read moves only at_mcp's position; the app's seen marker stays
   # behind until update_seen. Each item says whether the app counts it read.
+  # Nothing new here, though the app may still count as unread what this
+  # account read here before without marking it seen: say where to find it.
+  defp still_unread(%{"since_asked" => "last_read", "items" => [], "since" => at} = page)
+       when is_binary(at) do
+    seen = page["seen_at"]
+
+    if not is_binary(seen) or AtMcp.ReadPositions.later?(at, seen) do
+      ~L" Notifications this account read here before may still be unread in the app, which counts from where it last marked them seen; read without since to see them again, and update_seen marks them seen."
+    end
+  end
+
   defp still_unread(%{"since_asked" => "last_read", "items" => items}) when is_list(items) do
     case Enum.count(items, &(&1["is_read"] == false)) do
       0 ->

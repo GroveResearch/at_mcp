@@ -629,7 +629,7 @@ defmodule AtMcp.MCP.Tools do
       cat([
         ~L"error: ",
         upstream_detail(upstream),
-        ~L" The account's saved settings for who may reply to and quote a new post could not be read, so the post was not sent: without them it would be open to everyone. Nothing was counted against the write quota."
+        ~L" The account's saved settings for who may reply to and quote a new post could not be read, and at_mcp has not read them for this account before, so the post was not sent: without them it would be open to everyone, which could undo who may reply that the account chose. Nothing was counted against the write quota."
       ]),
       change_any(
         ~L"Pass reply_rule and quotes to post without the saved settings, or wait a short while and try again."
@@ -764,7 +764,25 @@ defmodule AtMcp.MCP.Tools do
         }
       )
 
-  def respond(other, state), do: {:ok, encode(other), state}
+  def respond(%{} = summary, state), do: {:ok, encode(summary), state}
+
+  # Anything else is a fault of AtMcp's own (a value a handler didn't turn
+  # into a result): an error, never a raw Elixir term read as a success.
+  def respond(other, state) do
+    require Logger
+    Logger.error(["a tool answered an unexpected value: ", inspect(other, limit: 10)])
+
+    error(
+      state,
+      "failed",
+      ~L"error: at_mcp answered this call with something it should not have; nothing more can be said about whether it took effect.",
+      %{
+        retry: "unknown",
+        sentence: ~L"Check the account's records before trying again if the call was a write.",
+        fields: %{}
+      }
+    )
+  end
 
   @doc """
   `respond/2` for a read made of posts, accounts, lists, starter packs, feeds,
@@ -1022,13 +1040,15 @@ defmodule AtMcp.MCP.Tools do
     asked = Map.get(args, :since)
 
     case did && AtMcp.ReadPositions.get(did, feed) do
-      {:ok, %{at: held}} ->
-        held = held || seen(page, feed)
+      {:ok, %{at: saved}} ->
+        held = saved || seen(page, feed)
         since = if asked == "last_read", do: held, else: asked
         reached? = reached?(page, held, feed)
+        # From the app's seen marker, new is what the app counts unread.
+        from_seen? = is_nil(saved) and is_binary(held) and asked == "last_read"
 
         page
-        |> newer(since, asked, fetch, started, feed)
+        |> newer(since, asked, fetch, started, feed, from_seen?)
         |> mark(marks?(args) && reached?, marks?(args), did, feed)
 
       nil ->
@@ -1059,8 +1079,13 @@ defmodule AtMcp.MCP.Tools do
 
   # Where a feed with no position held starts. Notifications start where the
   # account last marked them seen, as the AppView's `seenAt` gives it, so the
-  # first read with last_read returns what the app shows as unread. A feed
-  # has no such marker, and starts from its newest item.
+  # first read with last_read returns what the app shows as unread. An
+  # account that never marked them seen gets the newest notification's time
+  # as its `seenAt`, with that notification unread (the AppView's
+  # listNotifications, "if there's no last-seen time, consider top
+  # notification unread"), so from there the notification at the marker
+  # that the app counts unread is new too. A feed has no such marker, and
+  # starts from its newest item.
   defp seen(page, "notifications"), do: if(is_binary(page[:seen_at]), do: page[:seen_at])
   defp seen(_page, _feed), do: nil
 
@@ -1094,16 +1119,23 @@ defmodule AtMcp.MCP.Tools do
   # newer/6 keeps the page's items newer than since. If every item is newer
   # and there is a cursor, it fetches up to four more pages to count the new
   # items and keeps the cursor for the caller.
-  defp newer(page, since, asked, fetch, started, feed) when is_binary(since) do
-    new = Enum.filter(page.items, &later?(&1, since, feed))
+  defp newer(page, since, asked, fetch, started, feed, from_seen? \\ false)
+
+  defp newer(page, since, asked, fetch, started, feed, from_seen?) when is_binary(since) do
+    new? = fn item ->
+      later?(item, since, feed) or (from_seen? and unread_at?(item, since, feed))
+    end
+
+    new = Enum.filter(page.items, new?)
     rest? = length(new) == length(page.items) and is_binary(page[:cursor])
 
     {more, exact?} =
       if rest?,
-        do: count_newer(fetch, page[:cursor], since, @count_pages, started, feed),
+        do: count_newer(fetch, page[:cursor], new?, @count_pages, started),
         else: {0, true}
 
-    Map.merge(page, %{
+    page
+    |> Map.merge(%{
       items: new,
       count: length(new),
       cursor: if(rest?, do: page[:cursor]),
@@ -1112,27 +1144,40 @@ defmodule AtMcp.MCP.Tools do
       new_total: length(new) + more,
       new_total_exact: exact?
     })
+    # The first read from the seen marker left older notifications out,
+    # which the app counts read but this account never read here.
+    |> then(fn result ->
+      if from_seen? and (length(new) < length(page.items) or is_binary(page[:cursor])),
+        do: Map.put(result, :first_read, true),
+        else: result
+    end)
   end
 
   # `last_read` with no position held: everything is new, and this is the
   # newest page.
-  defp newer(page, nil, "last_read", _fetch, _started, _feed),
+  defp newer(page, nil, "last_read", _fetch, _started, _feed, _from_seen?),
     do: Map.merge(page, %{since: nil, since_asked: "last_read"})
 
-  defp newer(page, _since, _asked, _fetch, _started, _feed), do: page
+  defp newer(page, _since, _asked, _fetch, _started, _feed, _from_seen?), do: page
 
-  defp count_newer(_fetch, _cursor, _at, 0, _started, _feed), do: {0, false}
+  # The notification the AppView put the seen marker on and counts unread.
+  defp unread_at?(item, at, feed) do
+    Map.get(item, :is_read) == false and is_binary(when_listed(item, feed)) and
+      not later?(item, at, feed) and not AtMcp.ReadPositions.later?(at, when_listed(item, feed))
+  end
 
-  defp count_newer(fetch, cursor, at, pages, started, feed) do
+  defp count_newer(_fetch, _cursor, _new?, 0, _started), do: {0, false}
+
+  defp count_newer(fetch, cursor, new?, pages, started) do
     with true <- time_left?(started),
          {:ok, %{items: items} = page} when is_list(items) <-
            fetch.(AtMcp.Effects.page_limits().max, cursor) do
-      new = Enum.count(items, &later?(&1, at, feed))
+      new = Enum.count(items, new?)
 
       if new < length(items) or not is_binary(page[:cursor]) do
         {new, true}
       else
-        {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1, started, feed)
+        {more, exact?} = count_newer(fetch, page[:cursor], new?, pages - 1, started)
         {new + more, exact?}
       end
     else
@@ -1412,9 +1457,21 @@ defmodule AtMcp.MCP.Tools do
       quota ->
         {:ok,
          status
-         |> Map.put(:write_quota, quota_view(quota))}
+         |> Map.put(:write_quota, quota_view(quota))
+         |> logged_out()}
     end
   end
+
+  # Said plainly when the account is logged out, beside logged_in: false.
+  defp logged_out(%{logged_in: false} = status),
+    do:
+      Map.put(
+        status,
+        :logged_out,
+        "This account is logged out. The next call that needs it logs it in again; if that fails, its operator checks it with at_mcp-accounts status."
+      )
+
+  defp logged_out(status), do: status
 
   # The tool surface reports one time format. `AtMcp.WriteQuota` keeps unix
   # seconds for embedding hosts and its own ledger.

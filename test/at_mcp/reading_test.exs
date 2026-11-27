@@ -1023,6 +1023,153 @@ defmodule AtMcp.ReadingTest do
              "on #{liked} via your repost #{repost}"
   end
 
+  # The town AppView's invite names the group as its author and carries the
+  # invite's message as a preview: the line says which group, and how to join.
+  test "a group invite names the group and the next step" do
+    invite = %{
+      "reason" => "space-invite",
+      "uri" => "at:space/did:plc:me/org.atgrp.inbox/self/did:plc:grp/org.atgrp.invite/3kinv",
+      "cid" => "bafyinv",
+      "author" => %{
+        "did" => "did:plc:grp",
+        "handle" => "garden.groups.test",
+        "displayName" => "Garden"
+      },
+      "record" => %{
+        "$type" => "town.delve.notification.defs#spacePreview",
+        "space" => "at:space/did:plc:me/org.atgrp.inbox/self",
+        "collection" => "org.atgrp.invite",
+        "text" => "Come help with the beds",
+        "createdAt" => "2026-10-01T00:00:00.000Z"
+      },
+      "isRead" => false,
+      "indexedAt" => "2026-10-01T00:00:00.000Z"
+    }
+
+    text =
+      AtMcp.Reading.notifications(%{"items" => [json(Summary.extract(:notification, invite))]})
+
+    assert text =~ ~s|invite to join the group "Garden" (@garden.groups.test) did:plc:grp|
+    assert text =~ "Come help with the beds"
+
+    assert text =~
+             "see get_group_invites, then join with accept_group_invite (group: did:plc:grp)"
+
+    refute text =~ "replying to"
+
+    # Without the group's profile, its DID still comes from the invite's uri.
+    bare = Map.put(invite, "author", %{"did" => "did:plc:grp"})
+    text = AtMcp.Reading.notifications(%{"items" => [json(Summary.extract(:notification, bare))]})
+    assert text =~ "invite to join the group did:plc:grp"
+    assert text =~ "accept_group_invite (group: did:plc:grp)"
+
+    # An unverified handle is not shown as the group's name.
+    unverified =
+      Map.put(invite, "author", %{"did" => "did:plc:grp", "handle" => "handle.invalid"})
+
+    text =
+      AtMcp.Reading.notifications(%{
+        "items" => [json(Summary.extract(:notification, unverified))]
+      })
+
+    assert text =~ "invite to join the group did:plc:grp"
+    refute text =~ "handle.invalid"
+  end
+
+  # The Spaces reads read as the other reads do, not as their JSON.
+  test "notes, groups, an app's request, agents and principals read as text" do
+    readable = "This account, and the apps it has granted access."
+
+    notes =
+      AtMcp.Reading.notes(%{
+        "notes" => [
+          %{
+            "rkey" => "3kn1",
+            "title" => "Plan",
+            "tags" => ["town"],
+            "text" => "line one\nline two",
+            "updated_at" => "2026-11-27T01:00:00Z"
+          }
+        ],
+        "cursor" => "c2",
+        "readable_by" => readable
+      })
+
+    assert notes =~ "1 note in this account's personal space."
+    assert notes =~ "[1] rkey 3kn1"
+    assert notes =~ ~s|"Plan"|
+    assert notes =~ "> line one\n> line two"
+    assert notes =~ "More: pass cursor c2 to get_notes."
+    refute notes =~ "{"
+
+    assert AtMcp.Reading.note(%{"rkey" => "3kn1", "text" => "hi", "readable_by" => readable}) =~
+             "Note rkey 3kn1"
+
+    group = %{
+      "did" => "did:plc:g",
+      "handle" => "g.groups.test",
+      "display_name" => "Garden",
+      "description" => "We grow",
+      "feeds" => ["at:space/did:plc:g/town.delve.space.feed/general"]
+    }
+
+    groups = AtMcp.Reading.groups(%{"groups" => [group]})
+    assert groups =~ "This account is in 1 group."
+    assert groups =~ ~s|[1] "Garden" (@g.groups.test) did:plc:g|
+
+    assert groups =~
+             "Feeds (post there with post's space; read with get_space_feed): at:space/did:plc:g/town.delve.space.feed/general"
+
+    assert AtMcp.Reading.groups(%{"groups" => []}) =~ "This account is in no groups."
+
+    added =
+      AtMcp.Reading.groups(%{
+        "groups" => [Map.merge(group, %{"confirmed" => false, "added_by_group" => true})]
+      })
+
+    assert added =~ "Added by the group; not confirmed"
+    assert added =~ "confirm_group_membership confirms that you are a member; leave_group leaves."
+
+    app =
+      AtMcp.Reading.group_app(%{
+        "app" => %{"name" => "Example app", "client_id" => "https://app.example/client.json"},
+        "group" => "did:plc:g",
+        "granted" => ["atproto"],
+        "withheld" => ["include:org.atgrp.authManageAdmin"],
+        "approved" => false
+      })
+
+    assert app =~
+             ~s|The app "Example app" (https://app.example/client.json) asks to sign in as the group did:plc:g.|
+
+    assert app =~ "It gets: atproto"
+    assert app =~ "Withheld (asked for, not given): include:org.atgrp.authManageAdmin"
+
+    agents =
+      AtMcp.Reading.agents(%{
+        "agents" => [
+          %{
+            "did" => "did:plc:a",
+            "handle" => "a.test",
+            "loginKeys" => [%{}],
+            "linkedAt" => "2026-11-27T01:00:00Z"
+          }
+        ]
+      })
+
+    assert agents =~ "This account is the principal of 1 agent."
+    assert agents =~ "[1] @a.test did:plc:a · 1 login key"
+
+    principals =
+      AtMcp.Reading.principals(%{
+        "did" => "did:plc:a",
+        "principals" => [%{"did" => "did:plc:p", "confirmed" => true}]
+      })
+
+    assert principals =~ "did:plc:a is an agent of:"
+    assert principals =~ "did:plc:p (confirmed: its endorsement completes the pair)"
+  end
+
   test "get_post_images lists each image with its alt text and what became of it" do
     text =
       AtMcp.Reading.post_images(%{

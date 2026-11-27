@@ -22,6 +22,12 @@ defmodule AtMcp.Effects.ProtoRune do
 
   @impl true
   def login(opts) do
+    if is_binary(opts[:key_file]) and not is_binary(opts[:password]),
+      do: AtMcp.Spaces.Login.login(opts),
+      else: password_login(opts)
+  end
+
+  defp password_login(opts) do
     handle = Keyword.fetch!(opts, :handle)
     password = Keyword.fetch!(opts, :password)
 
@@ -32,6 +38,9 @@ defmodule AtMcp.Effects.ProtoRune do
   end
 
   @impl true
+  def refresh(%ProtoRune.Atproto.OAuth.Session{} = session),
+    do: AtMcp.Spaces.Login.refresh(session)
+
   def refresh(session) do
     # proto_rune (0.5.3 and 0.6.0) POSTs `json: %{}` for refreshSession; Bluesky
     # replies 400 "A request body was provided when none was expected".
@@ -68,6 +77,9 @@ defmodule AtMcp.Effects.ProtoRune do
       end
     end
   end
+
+  @impl true
+  def spaces(session, op, args), do: apply(AtMcp.Spaces, op, [session | args])
 
   @impl true
   def get_membership(session) do
@@ -1837,6 +1849,7 @@ defmodule AtMcp.Effects.ProtoRune do
          gates: gates,
          saved: Keyword.get(opts, :saved_interactions, []),
          saved_unserved: Keyword.get(opts, :saved_interactions_unserved),
+         saved_last_known: Keyword.get(opts, :saved_interactions_last_known),
          link_card: link_card
        }}
     else
@@ -1937,7 +1950,8 @@ defmodule AtMcp.Effects.ProtoRune do
          |> with_link_card(prepared)
          |> mention_warnings(prepared.unresolved)
          |> root_warning(Map.get(prepared, :declared_root), record)
-         |> unserved_warning(Map.get(prepared, :saved_unserved))}
+         |> unserved_warning(Map.get(prepared, :saved_unserved))
+         |> last_known_warning(Map.get(prepared, :saved_last_known))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -1955,7 +1969,8 @@ defmodule AtMcp.Effects.ProtoRune do
          |> with_link_card(prepared)
          |> mention_warnings(unresolved)
          |> root_warning(Map.get(prepared, :declared_root), record)
-         |> unserved_warning(Map.get(prepared, :saved_unserved))}
+         |> unserved_warning(Map.get(prepared, :saved_unserved))
+         |> last_known_warning(Map.get(prepared, :saved_last_known))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -4598,35 +4613,54 @@ defmodule AtMcp.Effects.ProtoRune do
   # from it (social-app 62b95002, `createComposerState`). A reply takes the
   # saved quote rule; its thread's reply rule belongs to the thread's first
   # post, so it takes none. A rule given, `everyone` and `allowed` included,
-  # wins. Settings that cannot be read leave the post unsent rather than open
-  # to everyone: the account chose them. `:saved_interactions` names the
-  # rules taken from them that wrote a gate.
+  # wins. When the settings can't be read now, the post takes the ones last
+  # read for this account (`AtMcp.PostDefaults.last_known/1`) and says so:
+  # going out open could undo who may reply that the account chose. With none
+  # ever read, or a saved rule at_mcp can't read, the post is refused, saying
+  # to pass the rules. `:saved_interactions` names the rules taken from them
+  # that wrote a gate.
   defp saved_interactions(session, opts) do
     reply? = Keyword.has_key?(opts, :reply)
     want_rule? = not reply? and not Keyword.has_key?(opts, :reply_rule)
     want_quotes? = not Keyword.has_key?(opts, :quotes)
 
     if want_rule? or want_quotes? do
-      with {:ok, saved} when is_map(saved) <- saved_settings(session),
-           {:ok, rule} <- saved_rule(saved.reply_rule),
-           {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
-        taken =
-          if(want_rule? and rule != :everyone, do: [reply_rule: rule], else: []) ++
-            if(want_quotes? and quotes == :disabled, do: [quotes: quotes], else: [])
-
-        {:ok,
-         opts
-         |> Keyword.merge(taken)
-         |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
-      else
+      case saved_settings(session) do
         {:ok, {:unserved, status}} ->
           {:ok, Keyword.put(opts, :saved_interactions_unserved, status)}
+
+        {:ok, saved} when is_map(saved) ->
+          take_saved(saved, opts, want_rule?, want_quotes?)
+
+        {:error, {:saved_interactions_unreadable, _failure}} = error ->
+          case AtMcp.PostDefaults.last_known(session) do
+            {:ok, saved, read_at} ->
+              with {:ok, opts} <- take_saved(saved, opts, want_rule?, want_quotes?),
+                   do: {:ok, Keyword.put(opts, :saved_interactions_last_known, read_at)}
+
+            :error ->
+              error
+          end
 
         error ->
           error
       end
     else
       {:ok, opts}
+    end
+  end
+
+  defp take_saved(saved, opts, want_rule?, want_quotes?) do
+    with {:ok, rule} <- saved_rule(saved.reply_rule),
+         {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
+      taken =
+        if(want_rule? and rule != :everyone, do: [reply_rule: rule], else: []) ++
+          if(want_quotes? and quotes == :disabled, do: [quotes: quotes], else: [])
+
+      {:ok,
+       opts
+       |> Keyword.merge(taken)
+       |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
     end
   end
 
@@ -4660,6 +4694,15 @@ defmodule AtMcp.Effects.ProtoRune do
             end
         end
     end
+  end
+
+  defp last_known_warning(result, nil), do: result
+
+  defp last_known_warning(result, read_at) do
+    note =
+      "couldn't read your default reply settings just now, so this post took the ones at_mcp last read for this account, at #{read_at}; pass reply_rule and quotes to choose."
+
+    Map.update(result, :warning, note, &(&1 <> " " <> note))
   end
 
   defp unserved_warning(result, nil), do: result
@@ -6082,7 +6125,10 @@ defmodule AtMcp.Effects.ProtoRune do
   # the root first, the post at depth 0, then the replies depth first, each
   # followed by its own replies. summarize_thread/1 rebuilds that list into
   # the post with its `parent` chain and a `replies` list under each post.
-  defp summarize_thread(thread) when is_map(thread) do
+  @doc false
+  # Also `AtMcp.Spaces`' reading of a thread in a space, from a flat list it
+  # builds in the same shape.
+  def summarize_thread(thread) when is_map(thread) do
     items = Enum.filter(of_type(thread, :thread, &is_list/1) || [], &is_map/1)
     {above, rest} = Enum.split_with(items, &(depth(&1) < 0))
     below = Enum.filter(rest, &(depth(&1) > 0))
@@ -6104,7 +6150,7 @@ defmodule AtMcp.Effects.ProtoRune do
     |> Map.put(:other_replies, flag(thread, [:has_other_replies, :hasOtherReplies]))
   end
 
-  defp summarize_thread(other), do: %{value: to_string_safe(other)}
+  def summarize_thread(other), do: %{value: to_string_safe(other)}
 
   # Sets `replies_omitted` from the post's own reply count when the count is
   # higher than what the service returned. V2 sends `moreReplies: 0` for
@@ -6269,7 +6315,8 @@ defmodule AtMcp.Effects.ProtoRune do
 
   defp relationship_item(item), do: AtMcp.Summary.extract(:relationship, item)
 
-  defp post_view(post), do: AtMcp.Summary.extract(:post, post)
+  @doc false
+  def post_view(post), do: AtMcp.Summary.extract(:post, post)
 
   defp summarize_profile(p), do: AtMcp.Summary.extract(:profile, p)
 

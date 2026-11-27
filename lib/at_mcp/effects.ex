@@ -118,9 +118,15 @@ defmodule AtMcp.Effects do
     logged_in? = Keyword.get(opts, :logged_in, not is_nil(backend_state))
 
     credentials =
-      case {Keyword.get(opts, :handle), Keyword.get(opts, :password)} do
-        {h, p} when is_binary(h) and h != "" and is_binary(p) and p != "" ->
+      case {Keyword.get(opts, :handle), Keyword.get(opts, :password),
+            Keyword.get(opts, :key_file)} do
+        {h, p, _} when is_binary(h) and h != "" and is_binary(p) and p != "" ->
           %{handle: h, password: p}
+
+        # No app password: the account's login key logs it in to an OAuth
+        # session through the Spaces helper (`AtMcp.Spaces.Login`).
+        {h, _, k} when is_binary(h) and h != "" and is_binary(k) and k != "" ->
+          %{handle: h, key_file: k, did: Keyword.get(opts, :expected_did)}
 
         _ ->
           nil
@@ -285,9 +291,68 @@ defmodule AtMcp.Effects do
              ),
            {:ok, opts} <- page_options(opts) do
         with_session(effects, fn backend, session ->
-          backend.list_notifications(session, opts)
+          with {:ok, page} <- backend.list_notifications(session, opts),
+               do: {:ok, page |> name_invite_groups(backend, session) |> inbox_notice(session)}
         end)
       end
+    end
+  end
+
+  # A group's invite names the group as its author, from the AppView's view
+  # of the group's account, which may have no name or handle: the group host
+  # names it, as get_group_invites shows it. Without the group host the
+  # notification stays as the AppView gave it.
+  # The one-time notice about the account's inbox's reader, owed since
+  # AtMcp made the inbox (`AtMcp.Spaces.prepare_inbox/1`): said by the first
+  # get_notifications or get_group_invites after it.
+  defp inbox_notice(%{} = page, session) do
+    with %{} <- AtMcp.Network.spaces(),
+         %{did: did} when is_binary(did) <- session,
+         notice when is_binary(notice) <- AtMcp.Spaces.take_notice(did) do
+      Map.put(page, :notice, notice)
+    else
+      _ -> page
+    end
+  end
+
+  defp inbox_notice(page, _session), do: page
+
+  defp name_invite_groups(%{items: items} = page, backend, session) when is_list(items) do
+    dids =
+      for %{reason: "space-invite"} = item <- items,
+          did = invite_group_did(item),
+          uniq: true,
+          do: did
+
+    with [_ | _] <- dids,
+         %{} <- AtMcp.Network.spaces(),
+         {:ok, %{} = named} <- backend.spaces(session, :invite_groups, [dids]) do
+      %{
+        page
+        | items:
+            Enum.map(items, fn item ->
+              case {item[:reason], named[invite_group_did(item)]} do
+                {"space-invite", %{} = group} ->
+                  item
+                  |> Map.put(:author, group.handle || item[:author])
+                  |> Map.put(:display_name, group.display_name || item[:display_name])
+
+                _ ->
+                  item
+              end
+            end)
+      }
+    else
+      _ -> page
+    end
+  end
+
+  defp name_invite_groups(page, _backend, _session), do: page
+
+  defp invite_group_did(item) do
+    case String.split(item[:uri] || "", "/") do
+      ["at:space", _me, "org.atgrp.inbox", _skey, "did:" <> _ = group | _] -> group
+      _ -> item[:author_did]
     end
   end
 
@@ -323,7 +388,16 @@ defmodule AtMcp.Effects do
   failed read of them leaves the thread as read and says why in
   `hidden_replies_unread`.
   """
-  def get_thread(effects, uri, opts \\ []) when is_binary(uri) do
+  def get_thread(effects, uri, opts \\ [])
+
+  # A post in a space (`at:space/` URI) is read from the space's own records.
+  def get_thread(effects, "at:space/" <> _ = uri, _opts),
+    do:
+      with_session(effects, fn backend, session ->
+        backend.spaces(session, :space_thread, [uri])
+      end)
+
+  def get_thread(effects, uri, opts) when is_binary(uri) do
     with :ok <- post_key_of(uri, "uri") do
       read_thread(effects, uri, opts)
     end
@@ -884,6 +958,46 @@ defmodule AtMcp.Effects do
     with_session(effects, fn backend, session -> backend.get_invite_codes(session) end)
   end
 
+  # The `AtMcp.Spaces` operations that change nothing.
+  @spaces_reads [
+    :ensure_confirmed,
+    :group_spaces,
+    :vouch_space,
+    :register_inbox_now,
+    :invite_groups,
+    :get_note,
+    :list_notes,
+    :list_group_invites,
+    :get_my_groups,
+    :preview_group_app,
+    :space_feed,
+    :list_my_agents,
+    :get_principals
+  ]
+
+  @doc """
+  One of `AtMcp.Spaces`' operations on this account: a read with the
+  session, or a write in the account's write lane. Posts in a space go
+  through `post` and `reply`, and count against the write quota as any post.
+  `verb` names the write for the quota when the
+  tool's name differs from the operation (`accept_group_invite` is
+  `join_group` with an invite).
+  """
+  def spaces(effects, op, args, verb \\ nil) when is_atom(op) and is_list(args) do
+    # What can be refused from the arguments alone is refused before a slot
+    # is reserved, as a post's text is.
+    with :ok <- AtMcp.Spaces.check(op, args), do: spaces_call(effects, op, args, verb)
+  end
+
+  defp spaces_call(effects, op, args, verb) do
+    if op in @spaces_reads,
+      do: with_session(effects, fn backend, session -> backend.spaces(session, op, args) end),
+      else:
+        take_and_write(effects, verb || op, fn backend, session ->
+          backend.spaces(session, op, args)
+        end)
+  end
+
   @doc "One of the network's published policy pages (`AtMcp.Network.policy_url/1`)."
   def get_policy(effects, page) when is_binary(page) do
     with_session(effects, fn backend, session -> backend.get_policy(session, page) end)
@@ -950,16 +1064,55 @@ defmodule AtMcp.Effects do
   posts, as in the app; pass `reply_rule: ["everyone"], quotes: "allowed"` to
   post open whatever is saved.
   """
-  def post(effects, text, opts \\ []) when is_binary(text) and is_list(opts),
-    do: publish(effects, :post, text, opts)
+  def post(effects, text, opts \\ [])
+
+  # With `space`, the post goes to that space (`AtMcp.Spaces`): read by its
+  # members only, and counted as any post.
+  def post(effects, text, opts) when is_binary(text) and is_list(opts) do
+    case Keyword.get(opts, :space) do
+      nil -> publish(effects, :post, text, opts)
+      space -> publish_in_space(effects, :post, space, text, opts)
+    end
+  end
 
   @doc """
   Reply to a post. A reply is a post with a parent, so it is the same write
   with the same options, `facets: :none` included; only the tool surface names
   it separately.
   """
-  def reply(effects, uri, text, opts \\ []) when is_binary(uri) and is_binary(text),
+  def reply(effects, uri, text, opts \\ [])
+
+  # A reply to a post in a space goes in the same space.
+  def reply(effects, "at:space/" <> _ = uri, text, opts) when is_binary(text) do
+    case AtMcp.Spaces.space_uri(uri) do
+      {:record, space, _, _, _} ->
+        if Keyword.get(opts, :space) in [nil, space],
+          do: publish_in_space(effects, :reply, space, text, Keyword.put(opts, :reply_to, uri)),
+          else: invalid("space", "must be the space the post replied to is in (#{space})")
+
+      _ ->
+        invalid("uri", "must be a post in a space")
+    end
+  end
+
+  def reply(effects, uri, text, opts) when is_binary(uri) and is_binary(text),
     do: publish(effects, :reply, text, Keyword.put(opts, :reply, uri))
+
+  defp publish_in_space(effects, verb, space, text, opts) do
+    with :ok <- validate_post_text(text),
+         :ok <- AtMcp.Spaces.check(:post, [space, text, opts]) do
+      take_and_write(
+        effects,
+        verb,
+        fn backend, session ->
+          backend.spaces(session, :prepare_space_post, [space, text, opts])
+        end,
+        fn prepared ->
+          fn backend, session -> backend.spaces(session, :write_space_post, [prepared]) end
+        end
+      )
+    end
+  end
 
   defp publish(effects, verb, text, opts) do
     with :ok <- validate_post_text(text),
@@ -1030,7 +1183,16 @@ defmodule AtMcp.Effects do
   `cid` may be nil: the subject's current CID is then taken from the same
   AppView read that finds an existing like. See `subject_cid/3`.
   """
-  def like(effects, uri, cid \\ nil) when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
+  def like(effects, uri, cid \\ nil)
+
+  # A like of a post in a space is written in that space.
+  def like(effects, "at:space/" <> _ = uri, cid) when is_binary(cid) or is_nil(cid),
+    do:
+      take_and_write(effects, :like, fn backend, session ->
+        backend.spaces(session, :space_subject, [:like, uri, cid])
+      end)
+
+  def like(effects, uri, cid) when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
     with {:ok, _} <-
            record_argument(
              uri,
@@ -1052,6 +1214,15 @@ defmodule AtMcp.Effects do
   # A repost, like a like, names its subject by DID: the AppView counts a
   # repost whose subject is a handle-form AT URI nowhere.
   def repost(effects, uri, cid \\ nil)
+
+  # A repost of a post in a space is written in that space: its members see it.
+  def repost(effects, "at:space/" <> _ = uri, cid) when is_binary(cid) or is_nil(cid),
+    do:
+      take_and_write(effects, :repost, fn backend, session ->
+        backend.spaces(session, :space_subject, [:repost, uri, cid])
+      end)
+
+  def repost(effects, uri, cid)
       when is_binary(uri) and (is_binary(cid) or is_nil(cid)) do
     with {:ok, _} <- at_uri_argument(uri, "uri"),
          :ok <- post_key_of(uri, "uri") do
@@ -3185,6 +3356,11 @@ defmodule AtMcp.Effects do
       {:error, :call_deadline_exceeded} = late ->
         late
 
+      # The account's login key itself was refused (a principal revoked the
+      # agent or replaced its key): say so.
+      {:error, %AtMcp.Effects.Failure{detail: "key_refused"}} = refused ->
+        refused
+
       # Recovery failed, so the credential is refused and the account is now
       # logged out. Reporting the service's original complaint would send an
       # agent to edit its request when the request was never the problem.
@@ -3212,6 +3388,9 @@ defmodule AtMcp.Effects do
           case recover_session(session) do
             {:ok, backend, session} -> fun.(backend, session)
             {:error, :account_identity_changed} = mismatch -> mismatch
+            # The account's login key itself was refused: that, not the
+            # request's complaint, is what the agent needs to know.
+            {:error, %AtMcp.Effects.Failure{detail: "key_refused"}} = refused -> refused
             {:error, _} -> err
           end
         else
@@ -3440,9 +3619,18 @@ defmodule AtMcp.Effects do
         {:reply, {:error, :account_identity_changed}, state}
 
       %{logged_in?: true, backend_state: session, backend: backend} when not is_nil(session) ->
-        if identity_matches?(state, session),
-          do: {:reply, {:ok, backend, session}, state},
-          else: {:reply, {:error, :account_identity_changed}, reject_identity(state)}
+        cond do
+          not identity_matches?(state, session) ->
+            {:reply, {:error, :account_identity_changed}, reject_identity(state)}
+
+          # An OAuth access token is never used past the expiry the helper
+          # gave it: the call waits for a fresh one.
+          AtMcp.Spaces.Login.expiring?(session) ->
+            {:noreply, session_work(state, {:recover, session}, {from, :session})}
+
+          true ->
+            {:reply, {:ok, backend, session}, state}
+        end
 
       state ->
         if has_credentials?(state),
@@ -4063,6 +4251,10 @@ defmodule AtMcp.Effects do
 
   defp has_credentials?(%{credentials: %{handle: h, password: p}})
        when is_binary(h) and h != "" and is_binary(p) and p != "",
+       do: true
+
+  defp has_credentials?(%{credentials: %{handle: h, key_file: k}})
+       when is_binary(h) and h != "" and is_binary(k) and k != "",
        do: true
 
   defp has_credentials?(_state), do: false

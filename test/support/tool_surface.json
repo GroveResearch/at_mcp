@@ -1,6 +1,14 @@
 {
   "about": "The MCP tools and arguments AtMcp has published. test/at_mcp/tool_surface_test.exs holds the rules for changing it.",
   "tools": {
+    "accept_group_invite": {
+      "arguments": {
+        "group": "string"
+      },
+      "required": [
+        "group"
+      ]
+    },
     "add_to_list": {
       "arguments": {
         "actor": "string",
@@ -9,6 +17,16 @@
       "required": [
         "actor",
         "list"
+      ]
+    },
+    "approve_group_app": {
+      "arguments": {
+        "deny": "boolean",
+        "group": "string",
+        "request_uri": "string"
+      },
+      "required": [
+        "request_uri"
       ]
     },
     "block": {
@@ -35,6 +53,24 @@
         "uri"
       ]
     },
+    "confirm_group_membership": {
+      "arguments": {
+        "group": "string"
+      },
+      "required": [
+        "group"
+      ]
+    },
+    "create_agent": {
+      "arguments": {
+        "handle": "string",
+        "invite_code": "string"
+      },
+      "required": [
+        "handle",
+        "invite_code"
+      ]
+    },
     "create_list": {
       "arguments": {
         "avatar": "object",
@@ -47,6 +83,16 @@
         "purpose"
       ]
     },
+    "create_note": {
+      "arguments": {
+        "tags": "array",
+        "text": "string",
+        "title": "string"
+      },
+      "required": [
+        "text"
+      ]
+    },
     "create_starter_pack": {
       "arguments": {
         "actors": "array",
@@ -56,6 +102,16 @@
       },
       "required": [
         "name"
+      ]
+    },
+    "delete_agent": {
+      "arguments": {
+        "agent": "string",
+        "confirm": "boolean"
+      },
+      "required": [
+        "agent",
+        "confirm"
       ]
     },
     "delete_draft": {
@@ -72,6 +128,14 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "delete_note": {
+      "arguments": {
+        "rkey": "string"
+      },
+      "required": [
+        "rkey"
       ]
     },
     "delete_post": {
@@ -107,6 +171,22 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "endorse_agent": {
+      "arguments": {
+        "agent": "string"
+      },
+      "required": [
+        "agent"
+      ]
+    },
+    "enroll_agent_key": {
+      "arguments": {
+        "agent": "string"
+      },
+      "required": [
+        "agent"
       ]
     },
     "feed_feedback": {
@@ -244,6 +324,12 @@
         "actor"
       ]
     },
+    "get_group_invites": {
+      "arguments": {
+        "format": "string"
+      },
+      "required": []
+    },
     "get_invite_codes": {
       "arguments": {
         "format": "string"
@@ -340,6 +426,35 @@
       },
       "required": []
     },
+    "get_my_agents": {
+      "arguments": {
+        "format": "string"
+      },
+      "required": []
+    },
+    "get_my_groups": {
+      "arguments": {
+        "format": "string"
+      },
+      "required": []
+    },
+    "get_note": {
+      "arguments": {
+        "format": "string",
+        "rkey": "string"
+      },
+      "required": [
+        "rkey"
+      ]
+    },
+    "get_notes": {
+      "arguments": {
+        "cursor": "string",
+        "format": "string",
+        "limit": "integer"
+      },
+      "required": []
+    },
     "get_notification_settings": {
       "arguments": {
         "format": "string"
@@ -391,6 +506,15 @@
         "format": "string"
       },
       "required": []
+    },
+    "get_principals": {
+      "arguments": {
+        "account": "string",
+        "format": "string"
+      },
+      "required": [
+        "account"
+      ]
     },
     "get_profile": {
       "arguments": {
@@ -449,6 +573,17 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "get_space_feed": {
+      "arguments": {
+        "detail": "string",
+        "format": "string",
+        "limit": "integer",
+        "space": "string"
+      },
+      "required": [
+        "space"
       ]
     },
     "get_starter_pack": {
@@ -561,6 +696,23 @@
       },
       "required": []
     },
+    "join_group": {
+      "arguments": {
+        "group": "string",
+        "message": "string"
+      },
+      "required": [
+        "group"
+      ]
+    },
+    "leave_group": {
+      "arguments": {
+        "group": "string"
+      },
+      "required": [
+        "group"
+      ]
+    },
     "like": {
       "arguments": {
         "cid": "string",
@@ -624,10 +776,21 @@
         "quote": "string",
         "quotes": "string",
         "reply_rule": "array",
+        "space": "string",
         "text": "string"
       },
       "required": [
         "text"
+      ]
+    },
+    "preview_group_app": {
+      "arguments": {
+        "format": "string",
+        "group": "string",
+        "request_uri": "string"
+      },
+      "required": [
+        "request_uri"
       ]
     },
     "put_record": {
@@ -695,6 +858,14 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "revoke_agent_sessions": {
+      "arguments": {
+        "agent": "string"
+      },
+      "required": [
+        "agent"
       ]
     },
     "save_draft": {
@@ -769,6 +940,16 @@
         "urls": "array"
       },
       "required": []
+    },
+    "set_agent_status": {
+      "arguments": {
+        "agent": "string",
+        "status": "string"
+      },
+      "required": [
+        "agent",
+        "status"
+      ]
     },
     "set_label_visibility": {
       "arguments": {
@@ -982,6 +1163,17 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "update_note": {
+      "arguments": {
+        "rkey": "string",
+        "tags": "array",
+        "text": "string",
+        "title": "string"
+      },
+      "required": [
+        "rkey"
       ]
     },
     "update_profile": {

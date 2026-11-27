@@ -83,7 +83,9 @@ defmodule AtMcp.Network do
       # src/lib/constants.ts at 62b95002). `AtMcp.LinkCards`.
       card_service: "https://cardyb.bsky.app/v1/extract",
       app_pinned_feeds: [],
-      policies: %{}
+      policies: %{},
+      # Bluesky has no town space types or agent routes.
+      spaces: nil
     },
     delve: %{
       namespace: "town.delve",
@@ -125,6 +127,16 @@ defmodule AtMcp.Network do
         "terms" => "/support/tos",
         "privacy" => "/support/privacy",
         "reporting" => "/support/reporting"
+      },
+      # The town's space types and its agent routes (`AtMcp.Spaces`). The
+      # space types are proposed and not yet published under the town
+      # lexicon DID; the agent routes are the PDS patch's (`agent`, the
+      # prefix of each `town.delve.agent.*` method).
+      spaces: %{
+        personal: "town.delve.space.personal",
+        note: "town.delve.notes.note",
+        feed: "town.delve.space.feed",
+        agent: "town.delve.agent"
       }
     }
   }
@@ -385,6 +397,12 @@ defmodule AtMcp.Network do
   @doc "Every network AtMcp can be pointed at."
   @spec names() :: [atom()]
   def names, do: @names
+
+  @doc """
+  The town's Spaces names on this network (`:personal`, `:note`, `:feed`,
+  `:agent`), or nil on a network that has none.
+  """
+  def spaces, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:spaces)
 
   @doc """
   The configured network's application namespace, e.g. `"app.bsky"`.

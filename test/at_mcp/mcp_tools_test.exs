@@ -161,6 +161,29 @@ defmodule AtMcp.MCP.ToolsTest do
   # Every tool, called the way a client calls it. Check the contract explicitly:
   # runtime validation diagnoses a mismatch but cannot undo a completed action.
   @calls [
+    {"create_note", %{"text" => "remember this"}},
+    {"get_note", %{"rkey" => "3k3333333333n"}},
+    {"get_notes", %{}},
+    {"get_my_groups", %{}},
+    {"preview_group_app", %{"request_uri" => "urn:ietf:params:oauth:request_uri:x"}},
+    {"get_space_feed", %{"space" => "at:space/did:plc:group/town.delve.space.feed/general"}},
+    {"update_note", %{"rkey" => "3k3333333333n", "title" => "t"}},
+    {"delete_note", %{"rkey" => "3k3333333333n"}},
+    {"get_group_invites", %{}},
+    {"accept_group_invite", %{"group" => "did:plc:group"}},
+    {"join_group", %{"group" => "did:plc:group"}},
+    {"leave_group", %{"group" => "did:plc:group"}},
+    {"confirm_group_membership", %{"group" => "did:plc:group"}},
+    {"approve_group_app",
+     %{"request_uri" => "urn:ietf:params:oauth:request_uri:x", "group" => "did:plc:group"}},
+    {"create_agent", %{"handle" => "helper.test", "invite_code" => "town-abc"}},
+    {"enroll_agent_key", %{"agent" => "did:plc:agent"}},
+    {"delete_agent", %{"agent" => "did:plc:agent", "confirm" => true}},
+    {"revoke_agent_sessions", %{"agent" => "did:plc:agent"}},
+    {"set_agent_status", %{"agent" => "did:plc:agent", "status" => "deactivated"}},
+    {"get_my_agents", %{}},
+    {"endorse_agent", %{"agent" => "did:plc:agent"}},
+    {"get_principals", %{"account" => "did:plc:agent"}},
     {"get_notifications", %{}},
     {"get_unread_count", %{}},
     {"get_timeline", %{}},
@@ -294,6 +317,7 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_notifications" => :notifications,
     "get_timeline" => :posts,
     "get_author_feed" => :posts,
+    "get_space_feed" => :posts,
     "get_posts" => :posts,
     "search_posts" => :posts,
     "get_quotes" => :posts,
@@ -331,7 +355,14 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_post_images" => :post_images,
     "get_preferences" => :preferences,
     "get_notification_settings" => :notification_settings,
-    "get_activity_subscriptions" => :profiles
+    "get_activity_subscriptions" => :profiles,
+    "get_note" => :note,
+    "get_group_invites" => :invites,
+    "get_notes" => :notes,
+    "get_my_groups" => :groups,
+    "preview_group_app" => :group_app,
+    "get_my_agents" => :agents,
+    "get_principals" => :principals
   }
 
   test "a read returns text alone, and its summary when asked; a write returns its summary" do
@@ -361,6 +392,20 @@ defmodule AtMcp.MCP.ToolsTest do
                AtMcp.MCP.Server.handle_call_tool(name, json_arguments, state)
 
       refute result[:isError], "#{name}: #{inspect(result)}"
+
+      # No result is ever a raw Elixir term. (The mock backend echoes what it
+      # was given as `request`, and a report's `subject`: the mock's, not a
+      # tool's.)
+      for %{text: t} <- result.content do
+        t =
+          case Jason.decode(t) do
+            {:ok, %{} = json} -> Jason.encode!(Map.drop(json, ["request", "subject"]))
+            _ -> t
+          end
+
+        refute t =~ ~r/\{:[a-z_]+,|%\{|#PID<|#Reference</, "#{name} answered #{t}"
+      end
+
       assert Schema.valid?(result.structuredContent, schema), "#{name} output schema"
       text = Enum.find(result.content, &(&1.type == "text")).text
       assert result.structuredContent == Jason.decode!(text), "#{name} json text"
@@ -598,4 +643,18 @@ defmodule AtMcp.MCP.ToolsTest do
 
   defp descriptions(list) when is_list(list), do: Enum.flat_map(list, &descriptions/1)
   defp descriptions(_), do: []
+
+  test "a value a handler didn't turn into a result is an error, never a raw term read as a success" do
+    for odd <- [
+          {:record, "at:space/a/b/c", "did:plc:x", "org.atgrp.invite", "3k"},
+          :ok,
+          "text",
+          7
+        ] do
+      {:ok, result, _} = AtMcp.MCP.Tools.respond(odd, %{})
+      assert result[:isError] == true
+      text = hd(result.content).text
+      refute text =~ ~r/\{:|:record|at:space/
+    end
+  end
 end

@@ -163,6 +163,37 @@ saves the account under the local name given, `alice` here. In a script,
 hosted outside the network's own server, add `--service URL`. The accounts
 file holds app passwords, so at_mcp writes it with mode 600.
 
+An account can also log in with its own login key instead of an app
+password, on a PDS that offers agent authorization by key (Spaces need it,
+see docs/settings.md). Two commands save one, and each saves nothing until
+the key has logged its account in:
+
+```sh
+at_mcp-accounts add-agent helper --did did:plc:...      # an agent create_agent made here
+at_mcp-accounts add-agent helper --did did:plc:... --key-file /abs/path/key.json
+at_mcp-accounts key alice --key-file /abs/path/alice-key.json   # beside alice's app password
+```
+
+`add-agent` saves an account with a key and no app password. For an agent
+this installation created with `create_agent`, its key is already in the key
+folder (`AT_MCP_KEYS_DIR`) under its DID, so `--key-file` can be left out.
+`key` gives an existing account a key beside its app password, for Spaces
+and the agent tools. A key file is a P-256 private JWK with mode 600; no tool
+shows it or its path.
+
+An account that creates agents (`create_agent`) is their principal, and
+needs a PLC rotation key. at_mcp takes only its public half:
+
+```sh
+at_mcp-accounts rotation-key alice --did-key did:key:zDnae...
+```
+
+Make the key pair outside at_mcp, and keep its private half offline, with
+whoever runs the principal. It goes on top of each agent's rotation keys, so
+it is what takes an agent's identity back if the agent, its PDS or its
+at_mcp are lost or compromised. at_mcp never makes it, asks for it or holds
+it.
+
 `status`, `reload`, `disconnect` and `reconnect` connect to the running
 service, using the cookie. `reload` tells the service to start new accounts
 and apply changes, and `status` shows each account's state. The other

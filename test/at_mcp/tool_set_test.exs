@@ -14,9 +14,17 @@ defmodule AtMcp.ToolSetTest do
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
   @default_bound 51_000
-  # Every tool, for a client that asks for the full set: 99,487 on
-  # Delvetown and 101,914 on Bluesky.
-  @full_bound 104_000
+  # With the five note tools, get_group_invites and accept_group_invite,
+  # where Spaces work (delve.town with the Spaces helper running): 54,632. Models given no
+  # private place refused to write a private note publicly and had nowhere
+  # else to put it, and without the invites never learned a group asked
+  # them in.
+  @default_with_notes_bound 55_000
+  # Every tool, for a client that asks for the full set: 113,836 on
+  # Delvetown and 116,263 on Bluesky, with the notes, groups, principal and
+  # identity tools (about 14,000), of which only the notes and the invites
+  # are in the default set.
+  @full_bound 119_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)
@@ -241,5 +249,80 @@ defmodule AtMcp.ToolSetTest do
              AtMcp.Grants.issue("acct", tools: "full", path: path)
 
     assert {:ok, %{tools: "full"}} = AtMcp.Grants.request(token, path: path)
+  end
+
+  test "where Spaces work, the default set holds the note tools and the group invites" do
+    Application.put_env(:at_mcp, :network, :delve)
+    refute AtMcp.MCP.ToolSet.notes?()
+    refute "create_note" in names(listed(%{}))
+
+    :ok = Supervisor.terminate_child(AtMcp.Supervisor, AtMcp.Spaces.Helper)
+
+    {:ok, helper} =
+      AtMcp.Spaces.Helper.start_link(
+        script: Path.expand("../support/fake_spaces_helper.mjs", __DIR__),
+        enabled: true
+      )
+
+    on_exit(fn ->
+      # Linked to the test, the helper may already be stopping with it.
+      try do
+        GenServer.stop(helper)
+      catch
+        :exit, _ -> :ok
+      end
+
+      Supervisor.restart_child(AtMcp.Supervisor, AtMcp.Spaces.Helper)
+    end)
+
+    assert AtMcp.MCP.ToolSet.notes?()
+    tools = listed(%{})
+    assert Enum.all?(AtMcp.MCP.ToolSet.notes(), &(&1 in names(tools)))
+    assert "get_group_invites" in names(tools)
+    assert "accept_group_invite" in names(tools)
+    assert AtMcp.MCP.ToolSet.offers?(%{}, "create_note")
+
+    size = String.length(Jason.encode!(%{tools: tools}))
+
+    assert size <= @default_with_notes_bound,
+           "the default tools/list with notes is #{size} characters"
+
+    # Bluesky has no town spaces, so no notes.
+    Application.put_env(:at_mcp, :network, :bluesky)
+    refute "create_note" in names(listed(%{}))
+  end
+
+  test "a session on the default set is told what the full set adds, where the town tools exist" do
+    init = fn state ->
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_initialize(
+          %{
+            "protocolVersion" => "2025-06-18",
+            "capabilities" => %{},
+            "clientInfo" => %{"name" => "t", "version" => "1"}
+          },
+          state
+        )
+
+      result["instructions"]
+    end
+
+    Application.put_env(:at_mcp, :network, :delve)
+    assert init.(%{}) =~ "need the full tool set (AT_MCP_TOOLS=full); ask the person running you"
+    assert init.(%{tools: "full"}) == nil
+
+    Application.put_env(:at_mcp, :network, :bluesky)
+    assert init.(%{}) == nil
+  end
+
+  test "a group's posts are said to be private to it where they are written and read" do
+    {:ok, tools, nil, _} = AtMcp.MCP.Server.handle_list_tools(nil, %{tools: "full"})
+    by_name = Map.new(tools, &{&1.name, &1})
+
+    assert by_name["get_space_feed"].description =~
+             "private to them: don't repost or quote them publicly"
+
+    assert inspect(by_name["post"].inputSchema[:properties][:space]) =~
+             "private to its members: don't repost them publicly"
   end
 end

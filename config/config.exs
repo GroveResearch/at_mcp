@@ -9,6 +9,10 @@ config :at_mcp, start_mcp: true
 # this override when ProtoRune no longer nests its retry loop around Req.
 config :proto_rune, :retry, false
 
+# A request with a DPoP proof is sent once: Req's retry would send the same
+# proof again, which the server refuses as replayed (AtMcp.ProtoRuneHTTP).
+config :proto_rune, :http_client, AtMcp.ProtoRuneHTTP
+
 # ExMCP checks each tool call's arguments and result against the tool's
 # schema in a separate process, and gives up after 100 ms by default. The
 # check takes microseconds, but on a busy machine that process can wait longer

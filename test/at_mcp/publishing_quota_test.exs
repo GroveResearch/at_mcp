@@ -54,13 +54,32 @@ defmodule AtMcp.PublishingQuotaTest do
   end
 
   test "only publishing counts" do
-    assert AtMcp.Effects.publishing() == [:post, :reply, :repost, :put_record, :delete_record]
+    assert AtMcp.Effects.publishing() ==
+             [:post, :reply, :repost, :put_record, :delete_record]
   end
 
   # Every mutating tool, called through the MCP surface with no writes left:
   # the tools that the classification says publish are refused, the rest are
   # not, and each description carries the sentence the classification gives it.
   @arguments %{
+    "create_note" => %{"text" => "remember this"},
+    "update_note" => %{"rkey" => "3k3333333333n", "text" => "changed"},
+    "delete_note" => %{"rkey" => "3k3333333333n"},
+    "accept_group_invite" => %{"group" => "did:plc:group"},
+    "join_group" => %{"group" => "did:plc:group"},
+    "leave_group" => %{"group" => "did:plc:group"},
+    "confirm_group_membership" => %{"group" => "did:plc:group"},
+    "approve_group_app" => %{
+      "request_uri" => "urn:x",
+      "group" => "did:plc:group",
+      "deny" => false
+    },
+    "create_agent" => %{"handle" => "helper.test", "invite_code" => "town-abc"},
+    "enroll_agent_key" => %{"agent" => "did:plc:agent"},
+    "delete_agent" => %{"agent" => "did:plc:agent", "confirm" => true},
+    "revoke_agent_sessions" => %{"agent" => "did:plc:agent"},
+    "set_agent_status" => %{"agent" => "did:plc:agent", "status" => "active"},
+    "endorse_agent" => %{"agent" => "did:plc:agent"},
     "post" => %{"text" => "t"},
     "reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222", "text" => "t"},
     "like" => %{"uri" => "at://u", "cid" => "c"},

@@ -69,6 +69,46 @@ defmodule AtMcp.NotificationsTest do
     refute_receive {:delivered, _}
   end
 
+  test "the town AppView's Spaces activity is delivered, with its at:space/ thread", ctx do
+    space = "at:space/did:plc:group/town.delve.space.feed/general"
+
+    reply =
+      Map.merge(item("space reply", -20), %{
+        reason: "space-reply",
+        uri: "#{space}/did:plc:author/town.delve.feed.post/3kreply",
+        reply_parent_uri: "#{space}/did:plc:paged/town.delve.feed.post/3kparent",
+        subject_uri: "#{space}/did:plc:paged/town.delve.feed.post/3kparent"
+      })
+
+    invite =
+      Map.merge(item("invite", -10), %{
+        reason: "space-invite",
+        uri: "at:space/did:plc:paged/org.atgrp.inbox/self/did:plc:group/org.atgrp.invite/3kinv",
+        reply_parent_uri: nil,
+        subject_uri: nil
+      })
+
+    pages(%{nil => page([invite, reply])})
+    parent = self()
+
+    AtMcp.Deliver.set_callback(@did, fn event ->
+      send(parent, {:delivered, event})
+      :ok
+    end)
+
+    send(poller(ctx), :poll)
+
+    assert_receive {:delivered, %{reason: "space-reply"} = delivered}, 2_000
+    assert delivered.thread_parent_uri == reply.reply_parent_uri
+    assert delivered.thread_root_uri == reply.reply_parent_uri
+
+    assert_receive {:delivered, %{reason: "space-invite"} = delivered}, 2_000
+    refute Map.has_key?(delivered, :thread_root_uri)
+
+    for reason <- ~w(space-mention space-reply space-post space-invite),
+        do: assert(reason in AtMcp.Notifications.reasons())
+  end
+
   test "first collection takes a recent window rather than waking the entire unread inbox", ctx do
     recent = Map.put(item("recent", -30), :is_read, false)
     ancient = Map.put(item("ancient", -86_400), :is_read, false)

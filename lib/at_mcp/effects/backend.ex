@@ -17,7 +17,7 @@ defmodule AtMcp.Effects.Backend do
   a write means an unknown outcome that AtMcp will not retry.
   """
 
-  @optional_callbacks requires_credentials?: 0
+  @optional_callbacks requires_credentials?: 0, spaces: 3
 
   @type state :: term()
   @type summary :: map()
@@ -33,6 +33,12 @@ defmodule AtMcp.Effects.Backend do
   @callback requires_credentials?() :: boolean()
 
   @callback login(opts :: keyword()) :: {:ok, state()} | {:error, reason()}
+
+  @doc """
+  One of `AtMcp.Spaces`' operations (`op`, with `args` after the session):
+  personal notes, groups, an account's agents, ident.link.
+  """
+  @callback spaces(state(), op :: atom(), args :: list()) :: {:ok, summary()} | {:error, reason()}
 
   @doc """
   Read the records a post refers to, before the write quota is charged.

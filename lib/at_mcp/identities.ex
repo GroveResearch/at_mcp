@@ -234,7 +234,8 @@ defmodule AtMcp.Identities do
       handle: account["handle"],
       password: account["password"],
       service: account["service"],
-      expected_did: account["did"]
+      expected_did: account["did"],
+      key_file: account["key_file"]
     ]
 
     opts =

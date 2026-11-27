@@ -31,7 +31,11 @@ defmodule AtMcp.Notifications do
   @interval_ms 60_000
   # The overlap with the last completed sweep, for late indexing (see above).
   @overlap_us 300_000_000
-  @reasons ["mention", "reply", "quote", "like", "repost"]
+  # The town AppView adds Spaces activity to the same list, under the same
+  # seen marker (`space-*`): mentions, replies and posts in an account's
+  # groups, and group invites.
+  @space_reasons ["space-mention", "space-reply", "space-post", "space-invite"]
+  @reasons ["mention", "reply", "quote", "like", "repost"] ++ @space_reasons
   # One page's worth, the page this poller reads (`AtMcp.Effects.page_limits/0`):
   # each accept rewrites the outbox file, so a chunk per event would multiply
   # that cost, and one chunk per sweep could never fit a sweep larger than the
@@ -42,8 +46,10 @@ defmodule AtMcp.Notifications do
   # (`knownValues` at bluesky-social/atproto 9f66a7e), which `get_notifications`
   # takes as its `reasons` filter. A reason the lexicon adds later is refused
   # until it is added here, rather than sent as a filter that matches nothing.
+  # The `space-*` reasons are the town AppView's, and match nothing elsewhere.
   @lexicon_reasons ~w(like repost follow mention reply quote starterpack-joined verified
-                      unverified like-via-repost repost-via-repost subscribed-post contact-match)
+                      unverified like-via-repost repost-via-repost subscribed-post contact-match) ++
+                     @space_reasons
 
   @doc "The notification reasons the lexicon names, which `get_notifications` filters by."
   def reasons, do: @lexicon_reasons

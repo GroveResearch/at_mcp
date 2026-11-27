@@ -28,3 +28,7 @@ at_mcp-*.tar
 # Python release-check bytecode is local build output.
 __pycache__/
 /VERSION
+# The Spaces helper's bundle is built from spaces_helper/ (`make spaces-helper`)
+# before a release; its dependencies stay out of the repository.
+/priv/spaces_helper/
+/spaces_helper/node_modules/

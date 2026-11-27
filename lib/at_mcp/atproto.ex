@@ -359,10 +359,29 @@ defmodule AtMcp.ATProto do
   the other repeated-query endpoints below.
   """
   def list_notifications(session, params),
-    do: repeated_query(session, AtMcp.Network.nsid("notification.listNotifications"), params)
+    do:
+      repeated_query(
+        session,
+        AtMcp.Network.nsid("notification.listNotifications"),
+        with_spaces(params)
+      )
 
   def get_unread_count(session, params),
-    do: read(session, "notification.getUnreadCount", params, priority: :boolean)
+    do:
+      read(session, "notification.getUnreadCount", with_spaces(params),
+        priority: :boolean,
+        includeSpaces: :boolean
+      )
+
+  # The town AppView lists Spaces activity (the `space-*` reasons) and counts
+  # it as unread only for a client that asks with `includeSpaces`, so every
+  # notifications read and unread count asks, on a network with town spaces.
+  @doc false
+  def with_spaces(params) do
+    if Network.spaces(),
+      do: Map.put(Map.new(params), :includeSpaces, true),
+      else: params
+  end
 
   # The one write declared here. `ProtoRune.Bsky.update_seen/2` stringifies the
   # DateTime before a schema that requires a DateTime, and the XRPC client then
@@ -372,6 +391,15 @@ defmodule AtMcp.ATProto do
   # this off `ProtoRune.Bsky`.
   def update_seen(session, params),
     do: write(session, "notification.updateSeen", params, seen_at: {:required, :string})
+
+  # The town AppView's: asks it to read a space (an inbox) so its activity
+  # reaches the notification list.
+  def register_space(session, params),
+    do:
+      write(session, "notification.registerSpace", params,
+        space: {:required, :string},
+        delegationToken: :string
+      )
 
   # --- graph writes that are methods rather than records ---
 
@@ -882,6 +910,24 @@ defmodule AtMcp.ATProto do
   @doc "Read one record out of a repository."
   def get_record(session, params),
     do: query(session, "com.atproto.repo.getRecord", @repo_get, params)
+
+  @doc """
+  An authenticated call to the account's own PDS of a `com.atproto.*`
+  method these declarations do not cover, as the session's credential
+  allows: a GET with `params` or a POST with `body` as JSON. Answers the
+  decoded body.
+  """
+  def pds_get(session, "com.atproto." <> _ = method, params \\ %{}) do
+    query =
+      Query.new(method, base_url: base_url(session)) |> Map.put(:params, flatten_query(params))
+
+    execute(session, query, "GET")
+  end
+
+  def pds_post(session, "com.atproto." <> _ = method, body) do
+    proc = Procedure.new(method, base_url: base_url(session)) |> Map.put(:body, body)
+    execute(session, proc, "POST")
+  end
 
   @doc """
   One record exactly as its repository holds it: `%{"uri", "cid", "value"}`,

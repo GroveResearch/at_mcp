@@ -11,6 +11,9 @@ defmodule AtMcp.AccountSetup do
     format: :string,
     tools: :string,
     password_stdin: :boolean,
+    did: :string,
+    key_file: :string,
+    did_key: :string,
     transport: :string,
     url: :string,
     token_file: :string,
@@ -176,6 +179,57 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  # An account with a login key and no app password: an agent this
+  # installation created (`create_agent` keeps its key in the key folder,
+  # under its DID), or one whose key file the operator gives.
+  defp dispatch(["add-agent", id], opts, dependencies) do
+    with "did:" <> _ = did <- opts[:did] || :usage,
+         key_file = Path.expand(opts[:key_file] || AtMcp.Spaces.key_path(did)),
+         {:ok, accounts} <- AccountConfig.load(path(opts)),
+         false <- Enum.any?(accounts, &(&1["id"] == id)),
+         :ok <-
+           unless(Enum.any?(accounts, &(&1["did"] == did)),
+             do: :ok,
+             else: {:error, :duplicate_did}
+           ),
+         :ok <- key_file_present(key_file),
+         {:ok, verified} <- key_login(did, key_file, dependencies),
+         account = %{
+           "id" => id,
+           "handle" => opts[:handle] || verified.handle || did,
+           "did" => did,
+           "service" => opts[:service] || verified.service,
+           "key_file" => key_file
+         },
+         :ok <- AccountConfig.validate(account),
+         {:ok, saved} <- AccountConfig.add(path(opts), account) do
+      {:ok,
+       %{account: public(saved), file: path(opts), key_file: key_file, next: reload_message()}}
+    else
+      true -> {:error, :duplicate_id}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :usage}
+    end
+  end
+
+  # Gives an existing account a login key, beside its app password.
+  defp dispatch(["key", id], opts, dependencies) do
+    with key when is_binary(key) <- opts[:key_file] || :usage,
+         key_file = Path.expand(key),
+         {:ok, accounts} <- AccountConfig.load(path(opts)),
+         {:ok, current} <- find(accounts, id),
+         :ok <- key_file_present(key_file),
+         {:ok, _verified} <- key_login(current["did"], key_file, dependencies),
+         {:ok, saved} <-
+           AccountConfig.update(path(opts), id, Map.put(current, "key_file", key_file)) do
+      {:ok,
+       %{account: public(saved), file: path(opts), key_file: key_file, next: reload_message()}}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :usage}
+    end
+  end
+
   defp dispatch(["update", id], opts, dependencies) do
     with {:ok, accounts} <- AccountConfig.load(path(opts)),
          {:ok, current} <- find(accounts, id),
@@ -225,7 +279,33 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  # Makes an account a principal: its public PLC rotation key. The private
+  # half is never given here.
+  defp dispatch(["rotation-key", id], opts, _dependencies) do
+    with key when is_binary(key) <- opts[:did_key] || :usage,
+         {:ok, accounts} <- AccountConfig.load(path(opts)),
+         {:ok, current} <- find(accounts, id),
+         candidate = Map.put(current, "rotation_key", key),
+         :ok <- AccountConfig.validate(candidate) |> rotation_key_valid(),
+         {:ok, saved} <- AccountConfig.update(path(opts), id, candidate) do
+      {:ok,
+       %{
+         account: public(saved),
+         rotation_key: key,
+         next:
+           reload_message() <>
+             " Keep the private half of this key offline: it is what takes an agent's identity back. at_mcp never holds it."
+       }}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :usage}
+    end
+  end
+
   defp dispatch(_, _, _), do: {:error, :usage}
+
+  defp rotation_key_valid(:ok), do: :ok
+  defp rotation_key_valid(_), do: {:error, :invalid_rotation_key}
 
   @doc """
   Write an accounts file for an installation that has only account variables set.
@@ -336,6 +416,80 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  defp key_file_present(path),
+    do: if(File.regular?(path), do: :ok, else: {:error, :key_file_missing})
+
+  # A key is saved only once it has logged its account in. The check runs on
+  # a helper of its own, with a state folder of its own, so it never touches
+  # the running service's sessions, and it signs its session out after.
+  defp key_login(did, key_file, dependencies) do
+    check = Keyword.get(dependencies, :key_login, &check_key/2)
+
+    case check.(did, key_file) do
+      {:ok, %{did: ^did} = verified} ->
+        {:ok, verified}
+
+      {:ok, _other} ->
+        {:error, :account_identity_changed}
+
+      {:error, %AtMcp.Effects.Failure{detail: "key_refused"}} ->
+        {:error, :key_refused}
+
+      {:error, %AtMcp.Effects.Failure{detail: :spaces_unavailable}} ->
+        {:error, :spaces_unavailable}
+
+      _ ->
+        {:error, :key_login_failed}
+    end
+  end
+
+  defp check_key(did, key_file) do
+    # Random, not unique_integer/1: two fresh nodes would pick the same one.
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "at_mcp-key-check-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+      )
+
+    {:ok, helper} = AtMcp.Spaces.Helper.start_link(name: nil, state_dir: dir)
+    call = &AtMcp.Spaces.Helper.call(&1, &2, server: helper)
+
+    try do
+      with {:ok, %{"did" => ^did}} <-
+             call.("oauth.login", %{
+               account: did,
+               keyFile: key_file,
+               scope: AtMcp.Spaces.scope_for(did)
+             }),
+           {:ok, creds} <- call.("oauth.credentials", %{did: did}) do
+        _ = call.("oauth.logout", %{did: did})
+        {:ok, %{did: did, service: creds["serviceUrl"], handle: handle_of(did)}}
+      else
+        {:ok, %{"did" => other}} -> {:ok, %{did: other}}
+        error -> error
+      end
+    after
+      GenServer.stop(helper)
+      File.rm_rf(dir)
+    end
+  end
+
+  # The handle the DID document names, if the directory answers.
+  defp handle_of("did:plc:" <> _ = did) do
+    plc = Application.get_env(:at_mcp, :plc_url) || "https://plc.directory"
+
+    with {:ok, %{status: 200, body: body}} <-
+           Req.get(String.trim_trailing(plc, "/") <> "/" <> did, retry: false, decode_body: false),
+         {:ok, %{"alsoKnownAs" => aka}} <- Jason.decode(body),
+         "at://" <> handle <- Enum.find(aka, &String.starts_with?(&1, "at://")) do
+      handle
+    else
+      _ -> nil
+    end
+  end
+
+  defp handle_of(_did), do: nil
+
   defp password(opts, dependencies) do
     read =
       Keyword.get(dependencies, :password, fn ->
@@ -425,6 +579,10 @@ defmodule AtMcp.AccountSetup do
                                 [--password-stdin]
       update NAME [--handle HANDLE] [--service URL]
                   [--password-stdin]
+      add-agent NAME --did DID [--key-file ABSOLUTE_PATH] [--handle HANDLE]
+                     [--service URL]
+      key NAME --key-file ABSOLUTE_PATH
+      rotation-key NAME --did-key did:key:...
       remove NAME
       delivery NAME --url URL --token-file ABSOLUTE_PATH
       delivery NAME --disable
@@ -461,6 +619,26 @@ defmodule AtMcp.AccountSetup do
       "Use a simple account name and a valid PDS URL; a write limit and window are positive integers."
 
   defp message(:invalid_scope), do: "Choose --scope read, write or manage."
+
+  defp message(:invalid_rotation_key),
+    do:
+      "Give the public rotation key as a did:key (did:key:z...). Only the public half: its private half stays offline."
+
+  defp message(:key_file_missing),
+    do:
+      "No login key at that path. For an agent this installation created, leave --key-file out: its key is in the key folder under its DID."
+
+  defp message(:key_refused),
+    do:
+      "The account's PDS refused this login key: it was never enrolled, or its principal revoked or replaced it. No account was changed."
+
+  defp message(:key_login_failed),
+    do:
+      "The login key did not log the account in (the PDS may not offer agent authorization by key). No account was changed."
+
+  defp message(:spaces_unavailable),
+    do:
+      "Logging in with a key needs the Spaces helper and Node 22 or later (docs/settings.md). No account was changed."
 
   defp message(:invalid_tools),
     do:

@@ -516,6 +516,9 @@ defmodule AtMcp.MCP.Schemas do
     Macro.escape(description: description, schema: schema)
   end
 
+  @doc "What the notes, group, principal and identity tools return (`AtMcp.Spaces`), by kind."
+  defmacro spaces(kind), do: Macro.escape(spaces_schema(kind))
+
   defmacro identity_status, do: Macro.escape(identity_status_schema())
 
   defmacro post_images, do: Macro.escape(post_images_schema())
@@ -581,6 +584,12 @@ defmodule AtMcp.MCP.Schemas do
       ["properties", "seen_at"],
       nullable_string(
         "When the account last marked its notifications seen, as an ISO 8601 timestamp"
+      )
+    )
+    |> put_in(
+      ["properties", "notice"],
+      nullable_string(
+        "Said once, after at_mcp made this account's invite inbox: that the town AppView is a listed reader of it, and how to remove it"
       )
     )
   end
@@ -1481,6 +1490,8 @@ defmodule AtMcp.MCP.Schemas do
   defp identity_status_schema do
     object(%{
       "logged_in" => %{"type" => "boolean"},
+      "logged_out" =>
+        nullable_string("When the account is logged out: that it is, and what happens next"),
       "did" => nullable_string("Account DID"),
       "handle" => nullable_string("Account handle"),
       "login_count" => %{"type" => "integer"},
@@ -1593,7 +1604,12 @@ defmodule AtMcp.MCP.Schemas do
         "read_position_unsaved" =>
           nullable_string("The error that stopped at_mcp from saving the read position."),
         "since_unread" =>
-          nullable_string("The error at_mcp got loading the read position for since: last_read.")
+          nullable_string("The error at_mcp got loading the read position for since: last_read."),
+        "first_read" => %{
+          "type" => "boolean",
+          "description" =>
+            "True on this account's first notifications read with last_read, which starts from seen_at, when older notifications were left out: the app counts them read, but this account never read them here. Read without since to see them."
+        }
       })
     end)
   end
@@ -1619,6 +1635,195 @@ defmodule AtMcp.MCP.Schemas do
   defp promising(schema, required) do
     Map.put(schema, "anyOf", [%{"required" => required}, %{"required" => ["code"]}])
   end
+
+  defp note_properties do
+    %{
+      "uri" => nullable_string("The note's URI in this account's personal space"),
+      "rkey" =>
+        nullable_string("The note's key, which get_note, update_note and delete_note take"),
+      "cid" => nullable_string("CID of the note as written"),
+      "title" => nullable_string("The note's title, if it has one"),
+      "text" => nullable_string("The note's text"),
+      "tags" => %{"type" => ["array", "null"], "items" => %{"type" => "string"}},
+      "created_at" => nullable_string("When the note was made"),
+      "updated_at" => nullable_string("When the note was last changed"),
+      "readable_by" => nullable_string("Who can read this note, and that it is not encrypted")
+    }
+  end
+
+  defp any_object, do: %{"type" => ["object", "null"]}
+  defp any_list, do: %{"type" => ["array", "null"]}
+  defp nullable_boolean, do: %{"type" => ["boolean", "null"]}
+  defp nullable_boolean(description), do: Map.put(nullable_boolean(), "description", description)
+
+  defp group_schema,
+    do: %{
+      "type" => ["object", "null"],
+      "properties" => %{
+        "did" => nullable_string("The group's DID, which the group tools take"),
+        "handle" => nullable_string(),
+        "display_name" => nullable_string(),
+        "description" => nullable_string(),
+        "spaces" => any_list(),
+        "confirmed" =>
+          nullable_boolean(
+            "Whether the group counts this account's own confirmation of its membership, which its roster needs; null when the group host doesn't say"
+          ),
+        "added_by_group" =>
+          nullable_boolean(
+            "True when the group made this account a member without it asking, and it hasn't confirmed: confirm_group_membership confirms, leave_group leaves"
+          ),
+        "feeds" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" =>
+            "The group's feeds, at:space/ URIs: post there with post's space, read with get_space_feed"
+        }
+      }
+    }
+
+  defp spaces_schema(:groups),
+    do: object(%{"groups" => %{"type" => ["array", "null"], "items" => group_schema()}})
+
+  defp spaces_schema(:note), do: object(note_properties())
+
+  defp spaces_schema(:notes),
+    do:
+      object(%{
+        "notes" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "object", "properties" => note_properties()}
+        },
+        "cursor" => nullable_string("Pass to get_notes for the next page"),
+        "readable_by" =>
+          nullable_string("Who can read these notes, and that they are not encrypted")
+      })
+
+  defp spaces_schema(:deleted),
+    do: object(%{"deleted" => nullable_boolean(), "rkey" => nullable_string()})
+
+  defp spaces_schema(:invites),
+    do:
+      object(%{
+        "invites" => any_list(),
+        "inbox" =>
+          nullable_string(
+            "This account's inbox space, where groups write their invites; null until at_mcp has made it"
+          ),
+        "inbox_note" =>
+          nullable_string(
+            "When the inbox doesn't exist yet: that it will be made shortly, and that the invites are listed from the group host meanwhile"
+          ),
+        "notice" =>
+          nullable_string(
+            "Said once, after at_mcp made this account's inbox: that the town AppView is a listed reader of it and how to remove it, or, without the reader, that invites reach get_notifications only while at_mcp runs and up to about 8 minutes late"
+          ),
+        "notifications" =>
+          nullable_string(
+            "Whether the town AppView raises this inbox's invites in get_notifications (registered), or why not; off when this installation does not add it"
+          )
+      })
+
+  defp spaces_schema(:joined),
+    do:
+      object(%{
+        "status" => nullable_string("admitted, or pending while the group decides"),
+        "confirmed" =>
+          nullable_boolean(
+            "Whether this account's confirmation of its membership (org.atgrp.confirmation) is written in the group's members space, which the group's roster counts"
+          ),
+        "confirmation_note" =>
+          nullable_string("Why the confirmation isn't written yet, when it isn't"),
+        "membership" => any_object(),
+        "request" => any_object(),
+        "group" => group_schema()
+      })
+
+  defp spaces_schema(:membership_confirmed),
+    do: object(%{"group" => nullable_string(), "confirmed" => nullable_boolean()})
+
+  defp spaces_schema(:left),
+    do:
+      object(%{
+        "left" => nullable_boolean(),
+        "group" => nullable_string(),
+        "confirmation_removed" =>
+          nullable_boolean("Whether this account's membership confirmation was removed first")
+      })
+
+  defp spaces_schema(:group_app),
+    do:
+      object(%{
+        "app" => %{
+          "type" => ["object", "null"],
+          "description" => "The app asking: its client_id, and the name and uri it gives",
+          "properties" => %{
+            "client_id" => nullable_string(),
+            "name" => nullable_string(),
+            "uri" => nullable_string()
+          }
+        },
+        "group" => nullable_string("The group it signs in as"),
+        "granted" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" =>
+            "What the app gets in the group: the scopes this account's roles let it have"
+        },
+        "withheld" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "What the app asked for and does not get"
+        },
+        "approved" => nullable_boolean(),
+        "previewed" => nullable_boolean(),
+        "redirect_url" => nullable_string("Hand this to the app to finish its sign-in"),
+        "request" => any_object()
+      })
+
+  defp spaces_schema(:agent),
+    do:
+      object(%{
+        "did" => nullable_string(),
+        "handle" => nullable_string(),
+        "login_key" => nullable_string("The agent's public login key, a did:key"),
+        "rotation_key" => nullable_string("This account's rotation key, on top of the agent's"),
+        "endorsement" => any_object(),
+        "enrolled" => nullable_boolean(),
+        "revoked" => nullable_boolean(),
+        "deleted" => nullable_boolean(),
+        "next" => nullable_string("How to run the new agent"),
+        "status" => nullable_string()
+      })
+
+  defp spaces_schema(:agents), do: object(%{"agents" => any_list()})
+
+  defp spaces_schema(:endorsement),
+    do:
+      object(%{
+        "agent" => nullable_string(),
+        "uri" => nullable_string(),
+        "cid" => nullable_string()
+      })
+
+  defp spaces_schema(:principals),
+    do:
+      object(%{
+        "did" => nullable_string(),
+        "principals" => %{
+          "type" => ["array", "null"],
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "did" => %{"type" => "string"},
+              "confirmed" => %{
+                "type" => "boolean",
+                "description" => "true when the principal's endorsement completes the pair"
+              }
+            }
+          }
+        }
+      })
 
   defp object(properties) do
     %{"type" => "object", "properties" => Map.merge(properties, @error_properties)}

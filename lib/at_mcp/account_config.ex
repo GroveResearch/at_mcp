@@ -14,10 +14,23 @@ defmodule AtMcp.AccountConfig do
   (`set_write_quota/3`): an object holding `limit`, `window_seconds` or both,
   each a positive integer. An account without one, or a field it leaves out,
   uses the service's (`AT_MCP_WRITE_LIMIT`, `AT_MCP_WRITE_WINDOW_SECONDS`).
+
+  `key_file` is the absolute path of the account's login key (a P-256
+  private JWK, 0600), which logs it in to an OAuth session through the
+  Spaces helper (`AtMcp.Spaces.Login`). An account with a key file and no
+  `password` uses that OAuth session for everything; one with both keeps its
+  app password for the public app and uses the OAuth session for Spaces.
+  Only deterministic code reads the key: no tool takes or shows its path.
+
+  `rotation_key` is a principal's public PLC rotation key, a `did:key`. With
+  it, the account acts as a principal: `create_agent` puts it on top of each
+  agent's rotation keys, and its OAuth session asks for the agent routes.
+  Its private half is never given to AtMcp; it stays offline with whoever
+  runs the principal.
   """
 
   @fields ~w(id handle did password service)
-  @optional ~w(delivery write_quota)
+  @optional ~w(delivery write_quota key_file rotation_key)
 
   @doc "Configuration path: `:accounts_file` (`AT_MCP_ACCOUNTS_FILE`), or a per-user default."
   def path do
@@ -271,10 +284,18 @@ defmodule AtMcp.AccountConfig do
 
   @doc "Validate an account configuration without filesystem or network access."
   def validate(account) when is_map(account) do
+    # An account with a login key may have no app password.
+    required =
+      if Map.has_key?(account, "key_file") and not Map.has_key?(account, "password"),
+        do: @fields -- ["password"],
+        else: @fields
+
     valid =
-      Enum.sort(Map.keys(Map.drop(account, @optional))) == Enum.sort(@fields) and
+      Enum.sort(Map.keys(Map.drop(account, @optional))) == Enum.sort(required) and
+        valid_key_file?(Map.get(account, "key_file", :none)) and
+        valid_rotation_key?(Map.get(account, "rotation_key", :none)) and
         Enum.all?(
-          @fields,
+          required,
           &(is_binary(account[&1]) and String.valid?(account[&1]) and
               String.trim(account[&1]) != "")
         )
@@ -288,6 +309,31 @@ defmodule AtMcp.AccountConfig do
   end
 
   def validate(_), do: {:error, :invalid_account}
+
+  defp valid_key_file?(:none), do: true
+
+  defp valid_key_file?(path) when is_binary(path),
+    do: String.valid?(path) and Path.type(path) == :absolute
+
+  defp valid_key_file?(_), do: false
+
+  # Only the public half: a did:key, never a key file.
+  defp valid_rotation_key?(:none), do: true
+
+  defp valid_rotation_key?("did:key:z" <> rest),
+    do: Regex.match?(~r/\A[1-9A-HJ-NP-Za-km-z]{40,60}\z/, rest)
+
+  defp valid_rotation_key?(_), do: false
+
+  @doc "The account with `did` that has a login key, from the file at `path`."
+  def with_key(did, path \\ path()) do
+    with {:ok, accounts} <- load(path) do
+      case Enum.find(accounts, &(&1["did"] == did and is_binary(&1["key_file"]))) do
+        nil -> {:error, :not_found}
+        account -> {:ok, account}
+      end
+    end
+  end
 
   @doc "Save a notification destination without changing the account credentials."
   def set_delivery(path, id, delivery) do
