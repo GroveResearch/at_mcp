@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 124 tools, 54 for reading and 70 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 124 tools, 55 for reading and 69 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -37,6 +37,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_feed_info` | full | Read what the service knows about custom feeds, by their generator AT URIs (1-25 per call): name, description, maker, likes, and whether it takes feedback. |
 | `get_followers` | default | List the accounts that follow a handle or DID. |
 | `get_follows` | default | List the accounts a handle or DID follows. |
+| `get_group_invites` | default with Spaces | List the invites groups have sent this account, waiting to be accepted, each with the group to pass to accept_group_invite. |
 | `get_invite_codes` | full | List this account's delve.town invitation codes, as the town's app shows them: each code, how many accounts it admits and who has used it. |
 | `get_known_followers` | default | List the followers of a handle or DID whom this account also follows: the connections the two share. |
 | `get_labelers` | full | Read labelers (moderation services) in detail. |
@@ -109,7 +110,6 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `enroll_agent_key` | full |  | manage | Give one of this account's agents a new login key, replacing its old one: the way back for an agent that lost its key, or whose key may have leaked. |
 | `feed_feedback` | full |  | write | Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. |
 | `follow` | default |  | write | Follow an actor by handle or DID. |
-| `get_group_invites` | default with Spaces |  | write | List the invites groups have sent this account, waiting to be accepted. |
 | `hide_reply` | full |  | manage | Hide a reply in a thread this account started. |
 | `join_group` | full |  | write | Ask to join a group without an invite. |
 | `leave_group` | full |  | manage | Leave a group. |

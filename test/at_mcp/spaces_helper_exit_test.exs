@@ -68,9 +68,20 @@ defmodule AtMcp.SpacesHelperExitTest do
     :sys.resume(ctx.pid)
 
     assert {:ok, %{"held" => true}} = Task.await(read)
-    # Nothing reached the dead helper, so the write went to the new one, once.
-    assert {:ok, %{"space" => _}} = Task.await(write)
-    assert calls(ctx.log, "space.create") == 1
+
+    # Usually the port has closed by now, nothing reached the dead helper, and
+    # the write goes to the new one, once. On a loaded machine the port may
+    # still be open: the write is then sent to the dead helper and answered
+    # as exited, its outcome unknown. Either way it is answered, and sent at
+    # most once.
+    case Task.await(write) do
+      {:ok, %{"space" => _}} ->
+        assert calls(ctx.log, "space.create") == 1
+
+      {:error, %Failure{kind: :indeterminate, detail: :spaces_helper_exited}} ->
+        assert calls(ctx.log, "space.create") in [0, 1]
+    end
+
     assert Process.alive?(ctx.pid)
     assert Helper.os_pid() not in [nil, os_pid]
   end

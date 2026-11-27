@@ -39,6 +39,7 @@ defmodule AtMcp.Spaces do
 
   @readable_by "This account, and the apps it has granted access. Personal spaces are not encrypted: the operators of the server holding them can read them, so keep no secrets here."
 
+  @inbox_soon "Your invite inbox will be created shortly; until then, invites are listed from the group host."
   @reader_notice "The town's AppView is now a listed reader of this account's invite inbox, so it can tell this account about group invites in get_notifications, also while at_mcp isn't running. It reads only the invites; nothing else in the account becomes readable. To remove it, take the AppView off the inbox's members; the installation's operator can stop at_mcp adding it to new inboxes (AT_MCP_TOWN_INBOX_READER=false)."
 
   @doc "What a note result says about who can read it."
@@ -351,20 +352,25 @@ defmodule AtMcp.Spaces do
   # --- groups ---
 
   @doc """
-  The invites waiting for this account, from the group host's own list. Makes
-  the account's inbox first if it has none, so groups can invite it there
-  (with the town AppView as a read-only member, to raise notifications).
+  The invites waiting for this account, from the group host's own list. A
+  read: the account's inbox is made by `AtMcp.Spaces.InboxTokens` when AtMcp
+  starts (`prepare_inbox/1`), not here. Until it exists, the invites are
+  still listed from the group host, and the result says the inbox will be
+  made shortly. The one-time notice about the inbox's reader comes with the
+  first read after the inbox was made that answers (`take_notice/1`).
   """
   def list_group_invites(session) do
-    with {:ok, inbox, notifications, notice} <- ensure_inbox(session),
-         notice = notice || owed_notice(session),
-         # A notice not yet shown waits for the next read that answers.
-         {:ok, body} <-
-           owe_on_error(
-             group_host_get(session, "org.atgrp.internal.getActorInvites", %{}),
-             session,
-             notice
-           ) do
+    space = "at:space/#{Session.did(session)}/org.atgrp.inbox/self"
+
+    inbox =
+      case helper(session, "space.get", %{space: space}) do
+        {:ok, _} -> space
+        {:error, %Failure{detail: "SpaceNotFound"}} -> nil
+        # Can't tell now: the group host's list still answers.
+        {:error, _} -> :unknown
+      end
+
+    with {:ok, body} <- group_host_get(session, "org.atgrp.internal.getActorInvites", %{}) do
       invites =
         for invite <- Map.get(body, "invites", []) do
           did = get_in(invite, ["group", "did"])
@@ -377,13 +383,19 @@ defmodule AtMcp.Spaces do
           }
         end
 
-      result = %{
-        invites: invites,
-        inbox: inbox,
-        notifications: notifications
-      }
+      result =
+        %{
+          invites: invites,
+          inbox: if(is_binary(inbox), do: inbox),
+          notifications:
+            if(is_binary(inbox),
+              do: :persistent_term.get({__MODULE__, :inbox_status, Session.did(session)}, nil)
+            )
+        }
+        |> put_present(:inbox_note, if(is_nil(inbox), do: @inbox_soon))
+        |> put_present(:notice, if(is_binary(inbox), do: take_notice(Session.did(session))))
 
-      {:ok, if(notice, do: Map.put(result, :notice, notice), else: result)}
+      {:ok, result}
     end
   end
 
@@ -418,38 +430,36 @@ defmodule AtMcp.Spaces do
   raise its invites as notifications without being a member of it. A token
   lasts 60 seconds and is spent once; `AtMcp.Spaces.InboxTokens` hands one
   over as often as the AppView needs. Only for an inbox that exists: making
-  one is `get_group_invites`'.
+  one is `prepare_inbox/1`'s.
   """
   def vouch_inbox(session) do
     vouch_inbox_now(session)
   end
 
   @doc """
-  Makes the account's inbox if it has none, as `get_group_invites` does, so
-  a group can invite the account at all: a group writes its invite into the
-  invitee's inbox, and only the invitee's own client can make it.
-  `AtMcp.Spaces.InboxTokens` calls it once for each key-holding account when
-  AtMcp starts. A reader notice it owes is kept for the account's next
-  `get_group_invites`.
+  Makes the account's inbox if it has none, so a group can invite the
+  account at all: a group writes its invite into the invitee's inbox, and
+  only the invitee's own client can make it. `AtMcp.Spaces.InboxTokens` calls
+  it for each key-holding account when AtMcp starts, and again until the
+  inbox exists. The reader notice it owes waits for the account's next
+  `get_notifications` or `get_group_invites` (`take_notice/1`).
   """
   def prepare_inbox(session) do
-    with {:ok, space, notifications, notice} <- ensure_inbox(session) do
-      if notice,
-        do: :persistent_term.put({__MODULE__, :owed_notice, Session.did(session)}, notice)
+    did = Session.did(session)
 
+    with {:ok, space, notifications, notice} <- ensure_inbox(session) do
+      :persistent_term.put({__MODULE__, :inbox_status, did}, notifications)
+      if notice, do: :persistent_term.put({__MODULE__, :owed_notice, did}, notice)
       {:ok, %{space: space, notifications: notifications}}
     end
   end
 
-  defp owe_on_error({:error, _} = error, session, notice) when is_binary(notice) do
-    :persistent_term.put({__MODULE__, :owed_notice, Session.did(session)}, notice)
-    error
-  end
-
-  defp owe_on_error(result, _session, _notice), do: result
-
-  defp owed_notice(session) do
-    key = {__MODULE__, :owed_notice, Session.did(session)}
+  @doc """
+  The one-time notice owed to the account `did` about its inbox's reader,
+  once: nil when none is owed or it was already given.
+  """
+  def take_notice(did) when is_binary(did) do
+    key = {__MODULE__, :owed_notice, did}
 
     case :persistent_term.get(key, nil) do
       nil ->
@@ -460,6 +470,8 @@ defmodule AtMcp.Spaces do
         notice
     end
   end
+
+  def take_notice(_did), do: nil
 
   defp vouch_inbox_now(session) do
     space = "at:space/#{Session.did(session)}/org.atgrp.inbox/self"

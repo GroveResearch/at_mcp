@@ -3261,25 +3261,15 @@ defmodule AtMcp.MCP.Server do
   # --- Spaces: groups ---
 
   tool "get_group_invites",
-       write_description(
-         :get_group_invites,
-         "List the invites groups have sent this account, waiting to be accepted. Makes this account's inbox first if it has none, so groups can invite it. Only on delve.town."
-       ) do
-    annotations(
-      write_annotations(:get_group_invites, %{
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: true
-      })
-    )
-
+       "List the invites groups have sent this account, waiting to be accepted, each with the group to pass to accept_group_invite. at_mcp makes the account's invite inbox when it starts; until then the invites are still listed, from the group host. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:invites))
 
     run(fn _a, state ->
       AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.spaces(state.effects, :list_group_invites, [], :get_group_invites),
-        state
+        AtMcp.Effects.spaces(state.effects, :list_group_invites, []),
+        state,
+        :invites
       )
     end)
   end

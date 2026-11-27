@@ -147,7 +147,8 @@ defmodule AtMcp.Reading do
       |> Enum.with_index(1)
       |> Enum.map(fn {item, n} -> notification(item, numbered(n)) end)
 
-    to_text(join([header | blocks], :blank))
+    notice = if is_binary(page["notice"]), do: literal(page["notice"])
+    to_text(join([header | blocks] ++ [notice], :blank))
   end
 
   def notifications(_other), do: nil
@@ -928,6 +929,79 @@ defmodule AtMcp.Reading do
       :line
     )
   end
+
+  @doc "The invites waiting for this account, each with how to join, and the inbox's state."
+  def invites(%{"invites" => invites} = result) when is_list(invites) do
+    header =
+      if invites == [],
+        do: ~L"No group invites are waiting for this account.",
+        else: cat([count(length(invites), ~L"group invite", ~L"group invites"), ~L" waiting."])
+
+    blocks =
+      invites
+      |> Enum.with_index(1)
+      |> Enum.map(fn {invite, n} ->
+        group = if is_map(invite["group"]), do: invite["group"], else: %{}
+
+        join(
+          [
+            cat([
+              numbered(n),
+              ~L" ",
+              join(
+                [
+                  cat([~L"from the group ", group_line(group)]),
+                  if(is_binary(invite["created_at"]),
+                    do: cat([~L"sent ", time(invite["created_at"])])
+                  )
+                ],
+                :dot
+              )
+            ]),
+            fence(invite["message"]),
+            if(is_binary(group["did"]),
+              do: cat([~L"Join with accept_group_invite (group: ", ident(group["did"]), ~L")."])
+            )
+          ],
+          :line
+        )
+      end)
+
+    inbox =
+      join(
+        [
+          if(is_binary(result["inbox"]), do: cat([~L"Inbox: ", ident(result["inbox"]), ~L"."])),
+          case result["notifications"] do
+            "registered" ->
+              ~L"The town AppView raises invites to it in get_notifications, also while at_mcp isn't running."
+
+            "off" ->
+              ~L"Invites reach get_notifications only while at_mcp runs; they are always listed here."
+
+            other when is_binary(other) ->
+              cat([~L"Notifications of invites: ", literal(other), ~L"."])
+
+            _ ->
+              nil
+          end
+        ],
+        :space
+      )
+
+    to_text(
+      join(
+        [header | blocks] ++
+          [
+            inbox,
+            if(is_binary(result["inbox_note"]), do: literal(result["inbox_note"])),
+            if(is_binary(result["notice"]), do: literal(result["notice"]))
+          ],
+        :blank
+      )
+    )
+  end
+
+  def invites(_other), do: nil
 
   @doc "An app's request to sign in as a group: what it would get, and what is withheld."
   def group_app(%{} = r) when is_map_key(r, "group") or is_map_key(r, "app") do

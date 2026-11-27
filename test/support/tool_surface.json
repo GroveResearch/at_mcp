@@ -317,7 +317,9 @@
       ]
     },
     "get_group_invites": {
-      "arguments": {},
+      "arguments": {
+        "format": "string"
+      },
       "required": []
     },
     "get_invite_codes": {

@@ -356,6 +356,7 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_notification_settings" => :notification_settings,
     "get_activity_subscriptions" => :profiles,
     "get_note" => :note,
+    "get_group_invites" => :invites,
     "get_notes" => :notes,
     "get_my_groups" => :groups,
     "preview_group_app" => :group_app,

@@ -46,6 +46,9 @@ defmodule AtMcp.SpacesSessionTest do
               String.contains?(url, "com.atproto.server.getServiceAuth") ->
                 %{token: "aaa.bbb.ccc"}
 
+              String.contains?(url, "notification.listNotifications") ->
+                %{notifications: []}
+
               true ->
                 %{count: 3}
             end
@@ -347,22 +350,21 @@ defmodule AtMcp.SpacesSessionTest do
       on_exit(fn -> Application.delete_env(:at_mcp, :group_host) end)
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
 
-      # The group host isn't there, so the call fails after the inbox step.
-      _ = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
-
-      assert_receive {:request, :post, url, "DPoP tok-" <> _, _}, 5_000
-      assert url =~ "town.delve.notification.registerSpace"
-
       session =
         AtMcp.Spaces.Login.session(
           elem(AtMcp.Spaces.Login.credentials("did:plc:oauthagent"), 1),
           "agent.test"
         )
 
-      # The reader was added by the first call, whose group host read failed:
-      # its notice waits for the next get_group_invites that answers.
+      # InboxTokens makes the inbox when AtMcp starts.
+      assert {:ok, %{notifications: "registered"}} = AtMcp.Spaces.prepare_inbox(session)
+      assert_receive {:request, :post, url, "DPoP tok-" <> _, _}, 5_000
+      assert url =~ "town.delve.notification.registerSpace"
+
+      # Its notice waits for the account's next read that can say it.
       assert {:ok, _space, "registered", nil} = AtMcp.Spaces.ensure_inbox(session)
-      notice = :persistent_term.get({AtMcp.Spaces, :owed_notice, "did:plc:oauthagent"})
+      notice = AtMcp.Spaces.take_notice("did:plc:oauthagent")
+      assert AtMcp.Spaces.take_notice("did:plc:oauthagent") == nil
       # Said in plain words, with the way to turn it off.
       assert notice =~ "town's AppView is now a listed reader of this account's invite inbox"
       assert notice =~ "To remove it, take the AppView off the inbox's members"
@@ -493,9 +495,18 @@ defmodule AtMcp.SpacesSessionTest do
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
 
-      # No inbox, so no group could invite this account yet.
+      # No inbox, so no group could invite this account yet. get_group_invites
+      # is a read: it makes nothing, still lists the group host's invites,
+      # and says the inbox comes shortly.
       assert {:error, %AtMcp.Effects.Failure{detail: "SpaceNotFound"}} =
                AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
+
+      assert {:ok, before} = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
+      assert before.inbox == nil
+      assert before.inbox_note =~ "will be created shortly"
+      assert [%{group: %{did: "did:plc:group"}}] = before.invites
+      refute "inbox.ensure" in Enum.map(calls(ctx.log), & &1["method"])
+      assert AtMcp.Effects.quota_status(ctx.effects).used == 0
 
       # InboxTokens' first pass for the account makes it.
       assert :ok = AtMcp.Spaces.InboxTokens.prepare(ctx.effects)
@@ -506,11 +517,30 @@ defmodule AtMcp.SpacesSessionTest do
       # And tokens for it follow, as the second path.
       assert {:ok, %{status: _}} = AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
 
-      # The account hears of its reader the first time it looks, and once.
+      # The account hears of its reader the first time it looks, in
+      # get_notifications or get_group_invites, and once.
+      assert {:ok, %{notice: notice}} = AtMcp.Effects.list_notifications(ctx.effects)
+      assert notice =~ "listed reader of this account's invite inbox"
+      assert {:ok, page} = AtMcp.Effects.list_notifications(ctx.effects)
+      refute Map.has_key?(page, :notice)
+      :persistent_term.put({AtMcp.Spaces, :owed_notice, "did:plc:oauthagent"}, notice)
       assert {:ok, %{notice: notice}} = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
       assert notice =~ "listed reader of this account's invite inbox"
       assert {:ok, again} = AtMcp.Effects.spaces(ctx.effects, :list_group_invites, [])
       refute Map.has_key?(again, :notice)
+      assert again.notifications == "registered"
+      refute Map.has_key?(again, :inbox_note)
+    end
+
+    test "a failed attempt to make an inbox is tried again soon, then less often, up to the pass" do
+      every = AtMcp.Spaces.InboxTokens.every_ms()
+
+      delays =
+        Enum.scan(1..7, nil, fn _, prev ->
+          AtMcp.Spaces.InboxTokens.next_delay(prev && %{delay: prev}, 5_000, every)
+        end)
+
+      assert delays == [5_000, 10_000, 20_000, 40_000, 80_000, 100_000, 100_000]
     end
   end
 

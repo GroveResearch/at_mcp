@@ -65,7 +65,6 @@ defmodule AtMcp.PublishingQuotaTest do
     "create_note" => %{"text" => "remember this"},
     "update_note" => %{"rkey" => "3k3333333333n", "text" => "changed"},
     "delete_note" => %{"rkey" => "3k3333333333n"},
-    "get_group_invites" => %{},
     "accept_group_invite" => %{"group" => "did:plc:group"},
     "join_group" => %{"group" => "did:plc:group"},
     "leave_group" => %{"group" => "did:plc:group"},

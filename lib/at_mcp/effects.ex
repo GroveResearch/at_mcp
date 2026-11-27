@@ -292,7 +292,7 @@ defmodule AtMcp.Effects do
            {:ok, opts} <- page_options(opts) do
         with_session(effects, fn backend, session ->
           with {:ok, page} <- backend.list_notifications(session, opts),
-               do: {:ok, name_invite_groups(backend, session, page)}
+               do: {:ok, page |> name_invite_groups(backend, session) |> inbox_notice(session)}
         end)
       end
     end
@@ -302,7 +302,22 @@ defmodule AtMcp.Effects do
   # of the group's account, which may have no name or handle: the group host
   # names it, as get_group_invites shows it. Without the group host the
   # notification stays as the AppView gave it.
-  defp name_invite_groups(backend, session, %{items: items} = page) when is_list(items) do
+  # The one-time notice about the account's inbox's reader, owed since
+  # AtMcp made the inbox (`AtMcp.Spaces.prepare_inbox/1`): said by the first
+  # get_notifications or get_group_invites after it.
+  defp inbox_notice(%{} = page, session) do
+    with %{} <- AtMcp.Network.spaces(),
+         %{did: did} when is_binary(did) <- session,
+         notice when is_binary(notice) <- AtMcp.Spaces.take_notice(did) do
+      Map.put(page, :notice, notice)
+    else
+      _ -> page
+    end
+  end
+
+  defp inbox_notice(page, _session), do: page
+
+  defp name_invite_groups(%{items: items} = page, backend, session) when is_list(items) do
     dids =
       for %{reason: "space-invite"} = item <- items,
           did = invite_group_did(item),
@@ -332,7 +347,7 @@ defmodule AtMcp.Effects do
     end
   end
 
-  defp name_invite_groups(_backend, _session, page), do: page
+  defp name_invite_groups(page, _backend, _session), do: page
 
   defp invite_group_did(item) do
     case String.split(item[:uri] || "", "/") do
@@ -960,8 +975,7 @@ defmodule AtMcp.Effects do
   One of `AtMcp.Spaces`' operations on this account: a read with the
   session, or a write in the account's write lane. Posts in a space go
   through `post` and `reply`, and count against the write quota as any post.
-  `get_group_invites` (`:list_group_invites`) may make the account's inbox, which is a write, so
-  it takes the write lane too. `verb` names the write for the quota when the
+  `verb` names the write for the quota when the
   tool's name differs from the operation (`accept_group_invite` is
   `join_group` with an invite).
   """
@@ -972,7 +986,7 @@ defmodule AtMcp.Effects do
   end
 
   defp spaces_call(effects, op, args, verb) do
-    if op in @spaces_reads and op != :list_group_invites,
+    if op in @spaces_reads,
       do: with_session(effects, fn backend, session -> backend.spaces(session, op, args) end),
       else:
         take_and_write(effects, verb || op, fn backend, session ->

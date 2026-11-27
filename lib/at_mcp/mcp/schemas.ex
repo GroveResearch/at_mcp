@@ -586,6 +586,12 @@ defmodule AtMcp.MCP.Schemas do
         "When the account last marked its notifications seen, as an ISO 8601 timestamp"
       )
     )
+    |> put_in(
+      ["properties", "notice"],
+      nullable_string(
+        "Said once, after at_mcp made this account's invite inbox: that the town AppView is a listed reader of it, and how to remove it"
+      )
+    )
   end
 
   defp relationship_page_schema, do: page(record(:relationship))
@@ -1692,10 +1698,16 @@ defmodule AtMcp.MCP.Schemas do
       object(%{
         "invites" => any_list(),
         "inbox" =>
-          nullable_string("This account's inbox space, where groups write their invites"),
+          nullable_string(
+            "This account's inbox space, where groups write their invites; null until at_mcp has made it"
+          ),
+        "inbox_note" =>
+          nullable_string(
+            "When the inbox doesn't exist yet: that it will be made shortly, and that the invites are listed from the group host meanwhile"
+          ),
         "notice" =>
           nullable_string(
-            "Said once, when at_mcp lets the town AppView read this inbox's invites: what it reads, and how to turn it off"
+            "Said once, after at_mcp made this account's inbox: that the town AppView is a listed reader of it, and how to remove it"
           ),
         "notifications" =>
           nullable_string(
