@@ -112,6 +112,7 @@ This file lists the design decisions at_mcp depends on, one bullet per decision.
   - A read moves the position forward when it passes `since: "last_read"` without `mark_read: false`, or `mark_read: true` without `since`.
   - A page stopping short of the old position stores its newest time as pending, and the read getting back to the position commits it.
   - Positions are kept per DID in `read-positions.json` under `AtMcp.PrivateFile`'s lock, so every at_mcp client using that state folder shares them. The network's seen marker, which the app counts unread from, is separate; only `update_seen` moves it.
+  - The first notifications read with `last_read` starts at the AppView's `seenAt` and returns what the app counts unread. An account that never marked its notifications seen gets the newest notification's time as `seenAt`, with that notification unread, so the read returns it too, though it is not later than `seenAt` (2026-11-27).
   - Evidence: `AtMcp.ReadPositions`; `AtMcp.MCP.Tools.page/5`; `test/at_mcp/read_position_test.exs`.
 - 2026-10-29, provisional (#137, #203). `get_thread` calls `unspecced.getPostThreadV2` with the parameters social-app's `usePostThread` (62b95002) uses: every parent, the account's `threadViewPref` sort (`top` by default) and its view.
   - The linear view reads 10 levels with one reply under each reply. The tree view reads 4 levels with 10.

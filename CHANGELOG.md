@@ -7,6 +7,8 @@ itself.
 
 ## Unreleased
 
+- The first `get_notifications` read with `since: "last_read"` of an account that never marked its notifications seen returned nothing. It now returns the newest notification, which the app shows as unread.
+
 ## 0.3.2
 
 - Read positions are kept in at_mcp's state folder and shared by every
