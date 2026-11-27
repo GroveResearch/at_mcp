@@ -15,9 +15,30 @@ defmodule AtMcp.UserAgent do
     end
   end
 
-  @doc "Makes it Req's default for every request in this node."
+  @doc """
+  Makes it Req's default for every request in this node, with the
+  certificate authorities `AT_MCP_CA_FILE` names when it is set
+  (`ca_options/0`).
+  """
   def install do
-    Req.default_options(user_agent: value())
+    Req.default_options([user_agent: value()] ++ ca_options())
     :ok
+  end
+
+  @doc """
+  Req's options for `AT_MCP_CA_FILE`: a PEM bundle of the certificate
+  authorities to trust, in place of the system's, for a test network whose
+  services have certificates of its own (a local proxy's root). Nothing in
+  production needs it. The Spaces helper, a Node process, reads Node's
+  `NODE_EXTRA_CA_CERTS` instead.
+  """
+  def ca_options do
+    case Application.get_env(:at_mcp, :ca_file) do
+      file when is_binary(file) and file != "" ->
+        [connect_options: [transport_opts: [cacertfile: file]]]
+
+      _ ->
+        []
+    end
   end
 end

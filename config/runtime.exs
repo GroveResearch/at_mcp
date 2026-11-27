@@ -98,6 +98,9 @@ if config_env() != :test do
     # The town AppView's OAuth client_id, whose read grants on an inbox or a
     # group at_mcp approves (AtMcp.Spaces.appview_client_id/0).
     {"AT_MCP_APPVIEW_CLIENT_ID", url, nil},
+    # A PEM bundle of certificate authorities to trust in place of the
+    # system's, for a test network's own TLS (AtMcp.UserAgent.ca_options/0).
+    {"AT_MCP_CA_FILE", text, nil},
     {"AT_MCP_DELIVERY_URL", url, nil},
     {"AT_MCP_DELIVERY_TOKEN", text, nil},
     {"AT_MCP_DELIVERY_TOKEN_FILE", text, nil},
@@ -221,6 +224,7 @@ if config_env() != :test do
     spaces_allow_http: value["AT_MCP_SPACES_ALLOW_HTTP"],
     town_inbox_reader: value["AT_MCP_TOWN_INBOX_READER"],
     appview_client_id: value["AT_MCP_APPVIEW_CLIENT_ID"],
+    ca_file: value["AT_MCP_CA_FILE"],
     delivery: [
       url: value["AT_MCP_DELIVERY_URL"],
       token: value["AT_MCP_DELIVERY_TOKEN"],
