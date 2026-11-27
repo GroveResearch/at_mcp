@@ -934,6 +934,69 @@ defmodule AtMcp.SpacesSessionTest do
       assert_received {:approved, %{"requestUri" => "urn:req:group", "group" => "did:plc:group"}}
     end
 
+    test "an outside app signs in as the account only after its request was previewed, and gets exactly that",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      key = AtMcp.Spaces.key_path("did:plc:oauthagent")
+      File.mkdir_p!(Path.dirname(key))
+      File.write!(key, "{}")
+      on_exit(fn -> File.rm(key) end)
+      url = "#{ctx.fake_service}/oauth/authorize?client_id=x&request_uri=urn:req:app"
+
+      # Approving with no preview is refused.
+      assert {:error, %AtMcp.Effects.Failure{detail: :not_previewed}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_app_sign_in, [url, false])
+
+      # An authorize URL elsewhere than the account's own PDS isn't taken.
+      assert {:error, %AtMcp.Effects.Failure{message: elsewhere}} =
+               AtMcp.Effects.spaces(ctx.effects, :preview_app_sign_in, [
+                 "https://other.example/oauth/authorize?request_uri=x"
+               ])
+
+      assert elsewhere =~ "this account's own PDS"
+
+      # Nor one asking to sign in as another account.
+      assert {:error, %AtMcp.Effects.Failure{detail: :another_account}} =
+               AtMcp.Effects.spaces(ctx.effects, :preview_app_sign_in, [
+                 url <> "&hint=did:plc:someone"
+               ])
+
+      assert {:ok, preview} = AtMcp.Effects.spaces(ctx.effects, :preview_app_sign_in, [url])
+      assert preview.app.client_id == "https://app.example/client-metadata.json"
+      assert preview.redirect_url == "https://app.example/callback"
+
+      assert "act as this account in full, as an app password does: post, follow, change its profile and settings, and read what it can read (not its email or other accounts)" in preview.granted_in_words
+
+      assert "read in any such space it can reach town.delve.space.feed spaces" in preview.granted_in_words
+
+      assert {:ok, approved} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_app_sign_in, [url, false])
+
+      assert approved.approved and approved.callback_url =~ "https://app.example/callback?code="
+      assert approved.note =~ "Hand callback_url back to the app"
+
+      [signed] = Enum.filter(calls(ctx.log), &(&1["method"] == "oauth.approveApp"))
+
+      assert %{
+               "clientId" => "https://app.example/client-metadata.json",
+               "scope" =>
+                 "atproto transition:generic space:town.delve.space.feed?authority=*&action=read",
+               "redirectUri" => "https://app.example/callback"
+             } = signed["params"]
+
+      # The preview is spent: approving again needs another.
+      assert {:error, %AtMcp.Effects.Failure{detail: :not_previewed}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_app_sign_in, [url, false])
+
+      # Denied: nothing signed.
+      assert {:ok, _} = AtMcp.Effects.spaces(ctx.effects, :preview_app_sign_in, [url])
+
+      assert {:ok, %{denied: true, approved: false}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_app_sign_in, [url, true])
+
+      assert Enum.count(calls(ctx.log), &(&1["method"] == "oauth.approveApp")) == 1
+    end
+
     test "a failed attempt to make an inbox is tried again soon, then less often, up to the pass" do
       every = AtMcp.Spaces.InboxTokens.every_ms()
 

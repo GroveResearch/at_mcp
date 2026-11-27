@@ -99,6 +99,9 @@ export class Helper {
     // Another app's grant (the town AppView's read on the inbox), approved
     // with the account's key.
     'oauth.approveFor': async (p) => this.#o.approveFor(p as never),
+    // An outside app's sign-in as the account: what it asks, then approving it.
+    'oauth.previewApp': async (p) => this.#o.previewApp(p as never),
+    'oauth.approveApp': async (p) => this.#o.approveApp(p as never),
     'oauth.credentials': async (p) =>
       this.#o.credentials(p.did, { refresh: !!p.refresh, relogin: p.relogin }),
     'oauth.status': async (p) => this.#o.status(p.did),

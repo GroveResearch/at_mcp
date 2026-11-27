@@ -3558,6 +3558,54 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "preview_app_sign_in",
+       "See what an app asks before it signs in as this account: give the authorize URL the app showed you (at this account's PDS). Shows the app (its client_id, which for a local app is a localhost address), where it returns to, and each thing it would be able to do, in plain words. Signs nothing. Approve or deny it after, with approve_app_sign_in." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:app_sign_in))
+
+    param(:url, :string,
+      required: true,
+      description: "The app's authorize URL, as the app gave it"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :preview_app_sign_in, [Map.fetch!(a, :url)]),
+        state,
+        :app_sign_in
+      )
+    end)
+  end
+
+  tool "approve_app_sign_in",
+       write_description(
+         :approve_app_sign_in,
+         "Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. Refused unless that url was previewed in this session. Approved, it answers the callback URL to hand back to the app."
+       ) do
+    annotations(
+      write_annotations(:approve_app_sign_in, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:app_sign_in))
+    param(:url, :string, required: true, description: "The app's authorize URL, as previewed")
+    param(:deny, :boolean, description: "true turns the app down: nothing is signed")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :approve_app_sign_in, [
+          Map.fetch!(a, :url),
+          a[:deny] == true
+        ]),
+        state
+      )
+    end)
+  end
+
   tool "preview_group_app",
        "See an app's request to sign in as a group you are in, before approving or turning it away: which app it is (its client_id, which for a local app is a localhost address), which group, and what it would get there (granted) and not (withheld). Approves nothing. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})

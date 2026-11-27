@@ -1038,6 +1038,225 @@ defmodule AtMcp.Spaces do
 
   defp read_only_scope?(_scope), do: false
 
+  # --- an outside app signing in as this account ---
+  #
+  # An app asks to sign in as the account (its authorize URL, at the
+  # account's PDS). The agent sees what it asks, in plain words
+  # (`preview_app_sign_in/2`); approving (`approve_app_sign_in/3`) signs with
+  # the account's login key exactly what was previewed, and answers the
+  # callback URL to hand back to the app. Approving without a preview of the
+  # same URL in this session is refused; a preview lasts ten minutes and is
+  # spent by its approval or denial.
+
+  @app_preview_ms 600_000
+
+  def preview_app_sign_in(session, url) do
+    did = Session.did(session)
+
+    with {:ok, url} <- app_url(session, url),
+         {:ok, asked} <- Helper.call("oauth.previewApp", %{authorizationUrl: url}),
+         :ok <- for_this_account(session, asked["loginHint"]) do
+      :persistent_term.put(
+        {__MODULE__, :app_preview, did, url},
+        {asked, System.monotonic_time(:millisecond)}
+      )
+
+      {:ok, app_view(asked) |> Map.put(:approved, false) |> Map.put(:previewed, true)}
+    end
+  end
+
+  def approve_app_sign_in(session, url, deny \\ false) do
+    did = Session.did(session)
+
+    with {:ok, url} <- app_url(session, url),
+         {:ok, asked} <- take_app_preview(did, url) do
+      if deny do
+        {:ok,
+         app_view(asked)
+         |> Map.merge(%{
+           approved: false,
+           denied: true,
+           note: "Not approved: nothing was signed, and the app's request lapses."
+         })}
+      else
+        case AtMcp.Spaces.Login.key_file(did) do
+          nil ->
+            {:error,
+             Failure.new(:refused,
+               detail: :no_login_key,
+               message:
+                 "Only this account's login key can approve an app's sign-in here, and at_mcp has none for it."
+             )}
+
+          key_file ->
+            with {:ok, %{"callbackUrl" => callback}} <-
+                   Helper.call("oauth.approveApp", %{
+                     keyFile: key_file,
+                     account: asked["loginHint"] || did,
+                     authorizationUrl: url,
+                     clientId: asked["clientId"],
+                     scope: asked["scope"],
+                     redirectUri: asked["redirectUri"]
+                   }) do
+              {:ok,
+               app_view(asked)
+               |> Map.merge(%{
+                 approved: true,
+                 callback_url: callback,
+                 note:
+                   "Approved: the app is signed in as this account with what it asked for (granted). Hand callback_url back to the app to finish its sign-in; the code in it is used once, soon."
+               })}
+            end
+        end
+      end
+    end
+  end
+
+  # The authorize URL, at this account's own PDS: an atproto app signs in
+  # where the account's identity lives.
+  defp app_url(session, url) when is_binary(url) do
+    with %URI{scheme: scheme, host: host} = parsed
+         when scheme in ["https", "http"] and is_binary(host) <-
+           URI.parse(url),
+         own = URI.parse(AtMcp.ATProto.base_url(session) |> String.trim_trailing("/xrpc")),
+         true <- {parsed.scheme, parsed.host, parsed.port} == {own.scheme, own.host, own.port} do
+      {:ok, url}
+    else
+      false ->
+        invalid(
+          "url",
+          "must be an authorize URL at this account's own PDS (#{AtMcp.ATProto.base_url(session) |> String.trim_trailing("/xrpc")})"
+        )
+
+      _ ->
+        invalid("url", "must be an app's authorize URL (https)")
+    end
+  end
+
+  defp app_url(_session, _url), do: invalid("url", "must be an app's authorize URL")
+
+  defp for_this_account(_session, nil), do: :ok
+
+  defp for_this_account(session, hint) do
+    if String.downcase(hint) in [
+         Session.did(session),
+         String.downcase(Session.handle(session) || "")
+       ],
+       do: :ok,
+       else:
+         {:error,
+          Failure.new(:refused,
+            detail: :another_account,
+            message:
+              "The app asks to sign in as #{hint}, not as this account; nothing is shown or signed for it."
+          )}
+  end
+
+  defp take_app_preview(did, url) do
+    key = {__MODULE__, :app_preview, did, url}
+
+    case :persistent_term.get(key, nil) do
+      {asked, at} ->
+        :persistent_term.erase(key)
+
+        if System.monotonic_time(:millisecond) - at <= @app_preview_ms,
+          do: {:ok, asked},
+          else: not_previewed()
+
+      nil ->
+        not_previewed()
+    end
+  end
+
+  defp not_previewed,
+    do:
+      {:error,
+       Failure.new(:refused,
+         detail: :not_previewed,
+         message:
+           "This app's sign-in hasn't been previewed in this session: call preview_app_sign_in with the same url first, read what it asks, then approve or deny."
+       )}
+
+  defp app_view(asked) do
+    scopes = String.split(asked["scope"] || "", " ", trim: true)
+
+    %{
+      app: %{client_id: asked["clientId"], name: asked["clientName"], uri: asked["clientUri"]},
+      redirect_url: asked["redirectUri"],
+      granted: scopes,
+      granted_in_words: Enum.map(scopes, &scope_in_words/1)
+    }
+  end
+
+  @doc "What one OAuth scope lets an app do, in plain words."
+  def scope_in_words("atproto"), do: "know which account it is (its DID and handle)"
+
+  def scope_in_words("transition:generic"),
+    do:
+      "act as this account in full, as an app password does: post, follow, change its profile and settings, and read what it can read (not its email or other accounts)"
+
+  def scope_in_words("transition:email"), do: "read this account's email address"
+  def scope_in_words("transition:chat.bsky"), do: "read and send its direct messages"
+
+  def scope_in_words("space:" <> rest) do
+    {type, params} = scope_parts(rest)
+    actions = Map.get(params, "action", [])
+    manages = Map.get(params, "manage", [])
+
+    what =
+      cond do
+        actions == ["read"] -> "read"
+        actions == [] -> "read and write"
+        true -> Enum.join(actions, ", ")
+      end
+
+    whose =
+      case Map.get(params, "authority") do
+        ["*"] -> " in any such space it can reach"
+        [a] -> " in #{a}'s"
+        _ -> " in this account's own"
+      end
+
+    "#{what}#{whose} #{type} spaces" <>
+      if(manages != [], do: ", and #{Enum.join(manages, " and ")} them", else: "")
+  end
+
+  def scope_in_words("rpc:" <> rest) do
+    {method, params} = scope_parts(rest)
+
+    "call #{method} as this account" <>
+      if(params["aud"], do: " (on #{hd(params["aud"])})", else: "")
+  end
+
+  def scope_in_words("repo:" <> rest) do
+    {collection, params} = scope_parts(rest)
+    actions = Map.get(params, "action", ["create", "update", "delete"])
+    "#{Enum.join(actions, ", ")} #{collection} records in this account's repository"
+  end
+
+  def scope_in_words("blob:" <> _), do: "upload images and files as this account"
+  def scope_in_words("account:" <> rest), do: "change this account's #{rest}"
+  def scope_in_words("identity:" <> rest), do: "change this account's identity (#{rest})"
+  def scope_in_words("include:" <> set), do: "everything the permission set #{set} grants"
+
+  def scope_in_words(other),
+    do: "#{other} (not one at_mcp can describe: read it before approving)"
+
+  defp scope_parts(rest) do
+    case String.split(rest, "?", parts: 2) do
+      [name] ->
+        {name, %{}}
+
+      [name, query] ->
+        params =
+          query
+          |> URI.query_decoder()
+          |> Enum.group_by(fn {k, _} -> k end, fn {_, v} -> v end)
+
+        {name, params}
+    end
+  end
+
   # --- founding a group, and running it ---
   #
   # The same calls as the web app's "Start a group" and group-host's own

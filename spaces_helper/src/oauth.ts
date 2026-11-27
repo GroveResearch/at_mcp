@@ -274,6 +274,54 @@ export class OAuthSessions {
     return { approved: true, delivered: delivered.status < 400, status: delivered.status }
   }
 
+  /**
+   * What an outside app's authorization request asks, as the authorization
+   * server shows it (the JSON preview of agent authorization): its
+   * client_id, the name and links its metadata gives, the scopes, the
+   * redirect and the login hint. Signs nothing.
+   */
+  async previewApp({ authorizationUrl }: { authorizationUrl: string }) {
+    const url = new URL(authorizationUrl)
+    const res = await this.config.fetch(url, { headers: { accept: 'application/json' }, redirect: 'manual' })
+    const type = res.headers.get('content-type') ?? ''
+    if (!res.ok || !type.includes('application/json')) {
+      throw refused(
+        'signed_authorize_unsupported',
+        `the authorization server at ${url.origin} gave no JSON preview (HTTP ${res.status}); it does not offer agent authorization by key`,
+      )
+    }
+    const body = (await res.json()) as { consent_request?: Record<string, unknown> }
+    const req = body.consent_request ?? {}
+    const meta = (req.client_metadata ?? {}) as Record<string, unknown>
+    return {
+      clientId: req.client_id ?? null,
+      clientName: meta.client_name ?? null,
+      clientUri: meta.client_uri ?? null,
+      scope: req.scope ?? null,
+      redirectUri: req.redirect_uri ?? null,
+      loginHint: req.login_hint ?? null,
+    }
+  }
+
+  /**
+   * Approves an outside app's request with the account's login key, only if
+   * it is still exactly what was previewed (client, scope, redirect, and the
+   * account), and answers the callback URL, which the agent hands back to
+   * the app. The callback is not fetched here.
+   */
+  async approveApp({
+    keyFile,
+    account,
+    authorizationUrl,
+    clientId,
+    scope,
+    redirectUri,
+  }: { keyFile: string; account: string; authorizationUrl: string; clientId: string; scope: string; redirectUri: string }) {
+    const key = await loadKey(keyFile)
+    const location = await this.approve(new URL(authorizationUrl), key, { clientId, scope, account, redirectUri })
+    return { callbackUrl: location.toString() }
+  }
+
   async #restore(did: string, refresh: boolean | 'auto'): Promise<OAuthSession> {
     const saved = await this.sessions.get(did)
     if (!saved) throw authRefused('no_session', `no OAuth session is held for ${did}`)

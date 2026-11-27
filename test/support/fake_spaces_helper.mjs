@@ -48,6 +48,17 @@ const methods = {
   },
   'oauth.status': () => ({ did, held: true }),
   'oauth.approveFor': (p) => ({ approved: true, delivered: true, status: 200 }),
+  // An outside app's request, as the authorization server previews it; the
+  // login hint from the URL's own hint= parameter, for tests.
+  'oauth.previewApp': (p) => ({
+    clientId: 'https://app.example/client-metadata.json',
+    clientName: 'Example app',
+    clientUri: 'https://app.example',
+    scope: 'atproto transition:generic space:town.delve.space.feed?authority=*&action=read',
+    redirectUri: 'https://app.example/callback',
+    loginHint: new URL(p.authorizationUrl).searchParams.get('hint'),
+  }),
+  'oauth.approveApp': (p) => ({ callbackUrl: `${p.redirectUri}?code=fake-code&iss=x` }),
   'space.get': (p) => {
     if (spaces.has(p.space)) return { space: p.space, policy: {} }
     throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }

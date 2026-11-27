@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 130 tools, 55 for reading and 75 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 132 tools, 56 for reading and 76 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -77,6 +77,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_trends` | full | Read what is trending on the network, as the app's Explore page shows it. |
 | `get_unread_count` | default | Count unread notifications on this network. |
 | `identity_status` | default | Report login status, DID, the network this account acts on, and the write quota. |
+| `preview_app_sign_in` | full | See what an app asks before it signs in as this account: give the authorize URL the app showed you (at this account's PDS). |
 | `preview_group_app` | full | See an app's request to sign in as a group you are in, before approving or turning it away. |
 | `search_actors` | default | Search actors/profiles on this network by query string. |
 | `search_feeds` | full | Search custom feeds by name and description, most popular first, as the app's feed search does. |
@@ -90,6 +91,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | --- | --- | --- | --- | --- |
 | `accept_group_invite` | default with Spaces |  | write | Accept a group's invite and join it. |
 | `add_to_list` | full |  | write | Put an account on a list or starter pack this account made. |
+| `approve_app_sign_in` | full |  | write | Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. |
 | `approve_group_app` | full |  | write | Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. |
 | `approve_join_request` | full |  | write | Admit someone who asked to join a group you run, as a member. |
 | `block` | default |  | manage | Block an actor by handle or DID. |

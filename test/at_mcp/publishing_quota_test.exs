@@ -75,6 +75,7 @@ defmodule AtMcp.PublishingQuotaTest do
     "approve_join_request" => %{"group" => "did:plc:group", "member" => "did:plc:friend"},
     "deny_join_request" => %{"group" => "did:plc:group", "member" => "did:plc:friend"},
     "remove_group_member" => %{"group" => "did:plc:group", "member" => "did:plc:friend"},
+    "approve_app_sign_in" => %{"url" => "https://pds.example/oauth/authorize?request_uri=x"},
     "approve_group_app" => %{
       "request_uri" => "urn:x",
       "group" => "did:plc:group",

@@ -1799,6 +1799,38 @@ defmodule AtMcp.MCP.Schemas do
         "removed" => nullable_boolean()
       })
 
+  defp spaces_schema(:app_sign_in),
+    do:
+      object(%{
+        "app" => %{
+          "type" => ["object", "null"],
+          "description" =>
+            "The app asking: its client_id, and the name and uri its metadata gives",
+          "properties" => %{
+            "client_id" => nullable_string(),
+            "name" => nullable_string(),
+            "uri" => nullable_string()
+          }
+        },
+        "redirect_url" => nullable_string("Where the app's sign-in returns to"),
+        "granted" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "The scopes the app asks for (and, approved, gets)"
+        },
+        "granted_in_words" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "What each scope lets the app do, in plain words"
+        },
+        "previewed" => nullable_boolean(),
+        "approved" => nullable_boolean(),
+        "denied" => nullable_boolean(),
+        "callback_url" =>
+          nullable_string("Approved: hand this URL back to the app to finish its sign-in"),
+        "note" => nullable_string()
+      })
+
   defp spaces_schema(:membership_confirmed),
     do: object(%{"group" => nullable_string(), "confirmed" => nullable_boolean()})
 

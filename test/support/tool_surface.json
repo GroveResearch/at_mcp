@@ -19,6 +19,15 @@
         "list"
       ]
     },
+    "approve_app_sign_in": {
+      "arguments": {
+        "deny": "boolean",
+        "url": "string"
+      },
+      "required": [
+        "url"
+      ]
+    },
     "approve_group_app": {
       "arguments": {
         "deny": "boolean",
@@ -826,6 +835,15 @@
       },
       "required": [
         "text"
+      ]
+    },
+    "preview_app_sign_in": {
+      "arguments": {
+        "format": "string",
+        "url": "string"
+      },
+      "required": [
+        "url"
       ]
     },
     "preview_group_app": {

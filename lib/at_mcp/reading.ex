@@ -1070,6 +1070,55 @@ defmodule AtMcp.Reading do
 
   def join_requests(_other), do: nil
 
+  @doc "An outside app's request to sign in as this account: who, where it returns, and what it could do."
+  def app_sign_in(%{} = r) when is_map_key(r, "app") or is_map_key(r, "granted") do
+    app = if is_map(r["app"]), do: r["app"], else: %{}
+    words = List.wrap(r["granted_in_words"])
+
+    to_text(
+      join(
+        [
+          cat([
+            ~L"The app ",
+            join(
+              [
+                shown(app["name"]),
+                if(is_binary(app["client_id"]), do: cat([~L"(", ident(app["client_id"]), ~L")"]))
+              ],
+              :space
+            ),
+            ~L" asks to sign in as this account, returning to ",
+            if(is_binary(r["redirect_url"]),
+              do: url(r["redirect_url"]),
+              else: ~L"no redirect it named"
+            ),
+            ~L"."
+          ]),
+          if(words != [],
+            do:
+              join(
+                [~L"It would be able to:" | Enum.map(words, &cat([~L"- ", literal(&1)]))],
+                :line
+              )
+          ),
+          cond do
+            r["approved"] == true ->
+              cat([~L"Approved. Hand this back to the app: ", url(r["callback_url"])])
+
+            r["denied"] == true ->
+              ~L"Not approved: nothing was signed."
+
+            true ->
+              ~L"Approve with approve_app_sign_in (the same url), or turn it down with deny true."
+          end
+        ],
+        :blank
+      )
+    )
+  end
+
+  def app_sign_in(_other), do: nil
+
   @doc "An app's request to sign in as a group: what it would get, and what is withheld."
   def group_app(%{} = r) when is_map_key(r, "group") or is_map_key(r, "app") do
     app = if is_map(r["app"]), do: r["app"], else: %{}
