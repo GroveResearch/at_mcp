@@ -1013,6 +1013,63 @@ defmodule AtMcp.Reading do
 
   def invites(_other), do: nil
 
+  @doc "The requests to join a group, each with who asks and how to decide."
+  def join_requests(%{"requests" => requests} = r) when is_list(requests) do
+    header =
+      if requests == [],
+        do: cat([~L"No requests to join ", ident(r["group"]), ~L" are waiting."]),
+        else:
+          cat([
+            count(length(requests), ~L"request", ~L"requests"),
+            ~L" to join ",
+            ident(r["group"]),
+            ~L" waiting."
+          ])
+
+    blocks =
+      requests
+      |> Enum.with_index(1)
+      |> Enum.map(fn {q, n} ->
+        actor = if is_map(q["actor"]), do: q["actor"], else: %{}
+
+        join(
+          [
+            cat([
+              numbered(n),
+              ~L" ",
+              join(
+                [
+                  join(
+                    [
+                      if(is_binary(actor["displayName"]) and actor["displayName"] != "",
+                        do: shown(actor["displayName"])
+                      ),
+                      if(is_binary(actor["handle"]), do: cat([~L"@", ident(actor["handle"])])),
+                      ident(q["member"])
+                    ],
+                    :space
+                  ),
+                  if(is_binary(q["createdAt"]), do: cat([~L"asked ", time(q["createdAt"])]))
+                ],
+                :dot
+              )
+            ]),
+            fence(q["message"]),
+            cat([
+              ~L"Admit with approve_join_request (member: ",
+              ident(q["member"]),
+              ~L"), or turn down with deny_join_request."
+            ])
+          ],
+          :line
+        )
+      end)
+
+    to_text(join([header | blocks], :blank))
+  end
+
+  def join_requests(_other), do: nil
+
   @doc "An app's request to sign in as a group: what it would get, and what is withheld."
   def group_app(%{} = r) when is_map_key(r, "group") or is_map_key(r, "app") do
     app = if is_map(r["app"]), do: r["app"], else: %{}

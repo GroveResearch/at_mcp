@@ -105,7 +105,10 @@ defmodule AtMcp.MCP.WebLinks do
     "unmute_thread" => %{"uri" => @post},
     "bookmark" => %{"uri" => @post},
     "unbookmark" => %{"uri" => @post},
-    "get_record" => %{"uri" => @embeddable}
+    "get_record" => %{"uri" => @embeddable},
+    "invite_to_group" => %{"who" => @account},
+    "approve_join_request" => %{"member" => @account},
+    "deny_join_request" => %{"member" => @account}
   }
 
   @doc "The arguments of each tool that take a web link, and what each may name."

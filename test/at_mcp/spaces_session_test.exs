@@ -435,6 +435,24 @@ defmodule AtMcp.SpacesSessionTest do
     end
   end
 
+  defp delve(_ctx) do
+    previous = Application.get_env(:at_mcp, :network)
+    Application.put_env(:at_mcp, :network, :delve)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if previous,
+        do: Application.put_env(:at_mcp, :network, previous),
+        else: Application.delete_env(:at_mcp, :network)
+    end)
+  end
+
+  defp session_of do
+    AtMcp.Spaces.Login.session(
+      elem(AtMcp.Spaces.Login.credentials("did:plc:oauthagent"), 1),
+      "agent.test"
+    )
+  end
+
   # How many registerSpace calls reached the AppView since the last look.
   defp receive_all_registers(n) do
     receive do
@@ -456,7 +474,7 @@ defmodule AtMcp.SpacesSessionTest do
     plug(:dispatch)
 
     get("/xrpc/com.atproto.server.describeServer",
-      do: json(conn, %{did: "did:web:groups.test"})
+      do: json(conn, %{did: "did:web:groups.test", availableUserDomains: [".groups.test"]})
     )
 
     get "/xrpc/org.atgrp.internal.getAuthorization" do
@@ -528,6 +546,45 @@ defmodule AtMcp.SpacesSessionTest do
           }
         ]
       })
+    end
+
+    post "/xrpc/org.atgrp.internal.createGroup" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:created, conn.body_params}
+      )
+
+      case Application.get_env(:at_mcp, :spaces_session_test_create) do
+        {status, error, message} ->
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(status, Jason.encode!(%{error: error, message: message}))
+
+        nil ->
+          json(conn, %{
+            did: "did:plc:newgroup",
+            meta: "at:space/did:plc:newgroup/org.atgrp.meta/self",
+            members: "at:space/did:plc:newgroup/org.atgrp.members/self"
+          })
+      end
+    end
+
+    get "/xrpc/org.atgrp.listJoinRequests" do
+      json(conn, %{
+        requests: [
+          %{member: "did:plc:friend", createdAt: "2026-11-27T00:00:00Z", message: "hello"},
+          %{member: "did:web:api.delve.town", createdAt: "2026-11-27T00:00:01Z"}
+        ]
+      })
+    end
+
+    post "/xrpc/org.atgrp.denyJoinRequest" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:denied, conn.body_params}
+      )
+
+      json(conn, %{})
     end
 
     post "/xrpc/org.atgrp.leaveGroup" do
@@ -940,6 +997,163 @@ defmodule AtMcp.SpacesSessionTest do
                )
 
       assert puts.() == 2
+    end
+
+    test "create_group founds the group on the group host, makes its feed as the group, confirms the founder and asks the AppView in",
+         ctx do
+      delve(ctx)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, made} =
+               AtMcp.Effects.spaces(ctx.effects, :create_group, [
+                 %{
+                   name: "Garden-Club",
+                   display_name: "Garden Club",
+                   description: "We grow",
+                   join_policy: "invite"
+                 }
+               ])
+
+      # createGroup with the handle under the host's domain.
+      assert_received {:created, created}
+
+      # Founded taking requests, so the AppView can ask in; invite-only after.
+      assert created == %{
+               "handle" => "garden-club.groups.test",
+               "displayName" => "Garden Club",
+               "description" => "We grow",
+               "joinPolicy" => "approval"
+             }
+
+      assert made.join_policy == "invite"
+
+      assert made.group.did == "did:plc:newgroup" and made.role == "admin"
+      assert made.feeds == ["at:space/did:plc:newgroup/town.delve.space.feed/general"]
+      assert made.confirmed
+      assert made.next =~ "invite_to_group (group: did:plc:newgroup)"
+      assert made.notifications_member =~ "bot member"
+
+      # Its feed, made as the group: members read and write, the bot reads.
+      acts = Enum.filter(calls(ctx.log), &(&1["method"] == "group.act"))
+
+      # The bot role first: the feed's policy names it.
+      [role | _] = acts
+      assert role["params"]["space"] == "at:space/did:plc:newgroup/org.atgrp.members/self"
+
+      assert [%{"body" => %{"collection" => "org.atgrp.role", "rkey" => "bot"}}] =
+               role["params"]["calls"]
+
+      act = Enum.find(acts, &(&1["params"]["space"] =~ "town.delve.space.feed"))
+      assert act["params"]["group"] == "did:plc:newgroup"
+      assert act["params"]["space"] == "at:space/did:plc:newgroup/town.delve.space.feed/general"
+      [%{"method" => "com.atproto.space.createSpace", "body" => space}] = act["params"]["calls"]
+
+      assert space["policy"]["grants"] == [
+               %{"role" => "member", "read" => true, "write" => true},
+               %{"role" => "bot", "read" => true}
+             ]
+
+      # The founder's confirmation, since it asked.
+      assert Enum.any?(
+               calls(ctx.log),
+               &(&1["method"] == "space.records.put" and
+                   &1["params"]["space"] == "at:space/did:plc:newgroup/org.atgrp.members/self")
+             )
+
+      # The AppView is asked to read the members space, then admitted as a
+      # bot member once its request is there (the stand-in lists one).
+      assert_receive {:request, :post, url, _, _}, 5_000
+      assert url =~ "notification.registerSpace"
+
+      assert {:ok, _} = AtMcp.Spaces.add_notifications_member(session_of(), "did:plc:newgroup")
+
+      admits =
+        Enum.filter(
+          calls(ctx.log),
+          &(&1["method"] == "group.act" and &1["params"]["space"] =~ "org.atgrp.members")
+        )
+
+      writes =
+        admits
+        |> List.last()
+        |> get_in(["params", "calls"])
+        |> Enum.map(& &1["body"]["collection"])
+
+      assert writes == ["org.atgrp.role", "org.atgrp.membership"]
+
+      membership =
+        admits |> List.last() |> get_in(["params", "calls"]) |> List.last() |> get_in(["body"])
+
+      assert membership["rkey"] == "did:web:api.delve.town"
+      assert membership["record"]["roles"] == ["member", "bot"]
+    end
+
+    test "create_group says plainly why a group wasn't made, and checks the name before sending anything",
+         ctx do
+      delve(ctx)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_create) end)
+
+      create = fn name ->
+        AtMcp.Effects.spaces(ctx.effects, :create_group, [%{name: name, display_name: "G"}])
+      end
+
+      assert {:error, %AtMcp.Effects.Failure{message: bad}} = create.("not a label")
+      assert bad =~ "one label of letters, numbers and hyphens"
+      refute_received {:created, _}
+
+      for {answer, says} <- [
+            {{400, "HandleTaken", "taken"}, "garden.groups.test is taken: choose another name."},
+            {{403, "NotAllowed", "groups.example starts groups for its town's members"},
+             "The group host refused (groups.example starts groups for its town's members). No group was made."},
+            {{503, "FounderCheckUnavailable", "the AppView is down"},
+             "No group was made; try again in a minute."}
+          ] do
+        Application.put_env(:at_mcp, :spaces_session_test_create, answer)
+        assert {:error, %AtMcp.Effects.Failure{message: message}} = create.("garden")
+        assert message =~ says
+      end
+    end
+
+    test "invite_to_group writes the invite as the group into their inbox; join requests are listed, admitted and denied",
+         ctx do
+      delve(ctx)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, %{invited: "did:plc:friend", invite: invite}} =
+               AtMcp.Effects.spaces(ctx.effects, :invite_to_group, [
+                 "did:plc:group",
+                 "did:plc:friend",
+                 "join us"
+               ])
+
+      assert invite =~ "at:space/did:plc:friend/org.atgrp.inbox/self"
+      act = calls(ctx.log) |> Enum.filter(&(&1["method"] == "group.act")) |> List.last()
+      assert act["params"]["space"] == "at:space/did:plc:friend/org.atgrp.inbox/self"
+      [%{"method" => "com.atproto.space.createRecord", "body" => body}] = act["params"]["calls"]
+      assert body["collection"] == "org.atgrp.invite" and body["record"]["message"] == "join us"
+
+      assert {:ok, %{requests: [%{"member" => "did:plc:friend"} | _]}} =
+               AtMcp.Effects.spaces(ctx.effects, :get_join_requests, ["did:plc:group"])
+
+      assert {:ok, %{admitted: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :approve_join_request, [
+                 "did:plc:group",
+                 "did:plc:friend"
+               ])
+
+      act = calls(ctx.log) |> Enum.filter(&(&1["method"] == "group.act")) |> List.last()
+      [%{"body" => admit}] = act["params"]["calls"]
+      assert admit["collection"] == "org.atgrp.membership" and admit["rkey"] == "did:plc:friend"
+      assert admit["record"]["roles"] == ["member"]
+
+      assert {:ok, %{denied: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :deny_join_request, [
+                 "did:plc:group",
+                 "did:plc:friend"
+               ])
+
+      assert_received {:denied, %{"group" => "did:plc:group", "member" => "did:plc:friend"}}
     end
 
     test "approves for the group the app asked for, by handle, or the only one offered", ctx do

@@ -960,6 +960,7 @@ defmodule AtMcp.Effects do
 
   # The `AtMcp.Spaces` operations that change nothing.
   @spaces_reads [
+    :get_join_requests,
     :ensure_confirmed,
     :group_spaces,
     :vouch_space,

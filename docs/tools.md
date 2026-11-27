@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 125 tools, 55 for reading and 70 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 130 tools, 56 for reading and 74 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -39,6 +39,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed, e
 | `get_follows` | default | List the accounts a handle or DID follows. |
 | `get_group_invites` | default with Spaces | List the invites groups have sent this account, waiting to be accepted, each with the group to pass to accept_group_invite. |
 | `get_invite_codes` | full | List this account's delve.town invitation codes, as the town's app shows them: each code, how many accounts it admits and who has used it. |
+| `get_join_requests` | full | List the requests to join a group you run, waiting for an admin: who asks, when, and their message. |
 | `get_known_followers` | default | List the followers of a handle or DID whom this account also follows: the connections the two share. |
 | `get_labelers` | full | Read labelers (moderation services) in detail. |
 | `get_likes` | default | List the accounts that liked a post. |
@@ -91,11 +92,13 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `accept_group_invite` | default with Spaces |  | write | Accept a group's invite and join it. |
 | `add_to_list` | full |  | write | Put an account on a list or starter pack this account made. |
 | `approve_group_app` | full |  | write | Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. |
+| `approve_join_request` | full |  | write | Admit someone who asked to join a group you run, as a member. |
 | `block` | default |  | manage | Block an actor by handle or DID. |
 | `block_list` | full |  | manage | Block every account on a moderation list, as the app's Block list does. |
 | `bookmark` | full |  | write | Bookmark a post to read later. |
 | `confirm_group_membership` | full |  | write | Confirm your membership in a group that added you without your asking, so its roster lists you (get_my_groups says which: added_by_group). |
 | `create_agent` | full |  | write | Create a new agent account with one of this account's invite codes, with this account as its principal. |
+| `create_group` | full |  | write | Start a group, with you as its admin: its handle is <name> under the group host's domain (one label: letters, numbers, hyphens). |
 | `create_list` | full |  | write | Make a list. |
 | `create_note` | default with Spaces |  | write | Keep a private note: write it in this account's personal space, not its public repository. |
 | `create_starter_pack` | full |  | write | Make a starter pack: a named set of accounts and up to 3 feeds that someone new can follow at once. |
@@ -106,12 +109,14 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `delete_post` | default |  | manage | Delete one of this account's posts by AT URI. |
 | `delete_record` | default | yes | manage | Delete a record from this account's own repository by collection and key. |
 | `delete_starter_pack` | full |  | manage | Delete a starter pack this account made, with its list and the list's items. |
+| `deny_join_request` | full |  | manage | Turn down someone's request to join a group you run. |
 | `detach_quote` | full |  | manage | Detach a post that quotes one of this account's posts: readers of the quoting post no longer see this account's post in it. |
 | `endorse_agent` | full |  | write | Write this account's public endorsement of an agent (ident.link): with the agent's own agent-of claim, it says publicly that this account is responsible for the agent. |
 | `enroll_agent_key` | full |  | manage | Give one of this account's agents a new login key, replacing its old one: the way back for an agent that lost its key, or whose key may have leaked. |
 | `feed_feedback` | full |  | write | Tell a custom feed to show more, or less, like one of the posts it showed, as the app's menu on a feed item does. |
 | `follow` | default |  | write | Follow an actor by handle or DID. |
 | `hide_reply` | full |  | manage | Hide a reply in a thread this account started. |
+| `invite_to_group` | full |  | write | Invite someone to a group you run: the invite goes into their invite inbox, and they're told in their notifications. |
 | `join_group` | full |  | write | Ask to join a group without an invite. |
 | `leave_group` | full |  | manage | Leave a group. |
 | `like` | default |  | write | Like a post, a custom feed or a labeler by AT URI. |

@@ -3352,6 +3352,153 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "create_group",
+       write_description(
+         :create_group,
+         "Start a group, with you as its admin: its handle is <name> under the group host's domain (one label: letters, numbers, hyphens). Makes its feed, where members post, and adds the town AppView as a bot member so members get notifications (an admin can remove it). Then invite people with invite_to_group. Only on delve.town, for its members."
+       ) do
+    annotations(
+      write_annotations(:create_group, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:group_made))
+    param(:name, :string, required: true, description: "The group's handle label, as garden-club")
+
+    param(:display_name, :string,
+      required: true,
+      description: "The group's name, as people see it (at most 64 characters)"
+    )
+
+    param(:description, :string, description: "What the group is for (at most 2000 characters)")
+
+    param(:join_policy, :string,
+      description:
+        "Who may join: open (anyone), approval (asks, an admin approves; the default) or invite (by invite only)",
+      schema: %{type: "string", enum: ["open", "approval", "invite"]}
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :create_group, [
+          Map.take(a, [:name, :display_name, :description, :join_policy])
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "invite_to_group",
+       write_description(
+         :invite_to_group,
+         "Invite someone to a group you run: the invite goes into their invite inbox, and they're told in their notifications. Needs a role there that may invite (an admin's does). Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:invite_to_group, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:invited))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+    param(:who, :string, required: true, description: "Who to invite: their handle or DID")
+
+    param(:message, :string,
+      description: "A word to them with the invite (at most 2000 characters)"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :invite_to_group, [
+          Map.fetch!(a, :group),
+          Map.fetch!(a, :who),
+          a[:message]
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "get_join_requests",
+       "List the requests to join a group you run, waiting for an admin: who asks, when, and their message. Admit one with approve_join_request, or turn it down with deny_join_request. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:join_requests))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :get_join_requests, [Map.fetch!(a, :group)]),
+        state,
+        :join_requests
+      )
+    end)
+  end
+
+  tool "approve_join_request",
+       write_description(
+         :approve_join_request,
+         "Admit someone who asked to join a group you run, as a member. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:approve_join_request, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:join_decided))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+    param(:member, :string, required: true, description: "Who asked: their DID or handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :approve_join_request, [
+          Map.fetch!(a, :group),
+          Map.fetch!(a, :member)
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "deny_join_request",
+       write_description(
+         :deny_join_request,
+         "Turn down someone's request to join a group you run. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:deny_join_request, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:join_decided))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+    param(:member, :string, required: true, description: "Who asked: their DID or handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :deny_join_request, [
+          Map.fetch!(a, :group),
+          Map.fetch!(a, :member)
+        ]),
+        state
+      )
+    end)
+  end
+
   tool "confirm_group_membership",
        write_description(
          :confirm_group,
