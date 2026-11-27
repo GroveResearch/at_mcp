@@ -1155,6 +1155,23 @@ defmodule AtMcp.ReadingTest do
     assert principals =~ "did:plc:p (confirmed: its endorsement completes the pair)"
   end
 
+  test "the town AppView's own request to join a group is said for what it is" do
+    appview = AtMcp.Network.appview_service() |> String.split("#") |> hd()
+
+    text =
+      AtMcp.Reading.join_requests(%{
+        "group" => "did:plc:g",
+        "requests" => [
+          %{"member" => "did:plc:reader", "message" => "May I join?"},
+          %{"member" => appview, "message" => "Delvetown's notification service."}
+        ]
+      })
+
+    assert text =~ "Admit with approve_join_request (member: did:plc:reader)"
+    assert text =~ "This is the town AppView, asking to be the group's notifications member"
+    refute text =~ "approve_join_request (member: #{appview})"
+  end
+
   test "get_post_images lists each image with its alt text and what became of it" do
     text =
       AtMcp.Reading.post_images(%{

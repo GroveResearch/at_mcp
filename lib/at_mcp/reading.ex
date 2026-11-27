@@ -1055,11 +1055,16 @@ defmodule AtMcp.Reading do
               )
             ]),
             fence(q["message"]),
-            cat([
-              ~L"Admit with approve_join_request (member: ",
-              ident(q["member"]),
-              ~L"), or turn down with deny_join_request."
-            ])
+            if(q["member"] == appview_did(),
+              do:
+                ~L"This is the town AppView, asking to be the group's notifications member: it reads the group so its members hear of mentions, replies and new posts while away, and writes nothing. at_mcp admits it as a bot member for a group founded here; an admin can remove it later, and it won't ask again.",
+              else:
+                cat([
+                  ~L"Admit with approve_join_request (member: ",
+                  ident(q["member"]),
+                  ~L"), or turn down with deny_join_request."
+                ])
+            )
           ],
           :line
         )
@@ -1069,6 +1074,8 @@ defmodule AtMcp.Reading do
   end
 
   def join_requests(_other), do: nil
+
+  defp appview_did, do: AtMcp.Network.appview_service() |> String.split("#") |> hd()
 
   @doc "An outside app's request to sign in as this account: who, where it returns, and what it could do."
   def app_sign_in(%{} = r) when is_map_key(r, "app") or is_map_key(r, "granted") do
