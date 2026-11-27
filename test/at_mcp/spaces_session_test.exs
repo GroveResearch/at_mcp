@@ -1425,6 +1425,10 @@ defmodule AtMcp.SpacesSessionTest do
     end
 
     post "/xrpc/com.atproto.server.activateAccount" do
+      # As the PDS: no input, and a body refused.
+      if get_req_header(conn, "content-length") not in [[], ["0"]],
+        do: raise("activateAccount was sent a body")
+
       send(
         Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
         {:agent_account, :activate, get_req_header(conn, "authorization")}
@@ -1622,6 +1626,9 @@ defmodule AtMcp.SpacesSessionTest do
                AtMcp.Effects.spaces(ctx.effects, :set_agent_status, ["did:plc:newagent", "active"])
 
       refute Map.has_key?(started, :revoked)
+      # Revoking retired its login key too: it gets a new one.
+      assert started.new_login_key == true
+      assert_received {:agent_route, :enroll, %{"did" => "did:plc:newagent"}}
       assert_received {:agent_route, :rotate, %{"did" => "did:plc:newagent"}}
       assert_received {:agent_session, %{"password" => "agent-secret-rotated"}}
       assert_received {:agent_account, :activate, ["Bearer agent-access"]}

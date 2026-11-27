@@ -2425,6 +2425,7 @@ defmodule AtMcp.Spaces do
   def set_agent_status(session, agent, status) when status in ["active", "deactivated"] do
     with {:ok, agent} <- did_arg(agent, "agent"),
          :ok <- not_self(session, agent),
+         revoked_before? = AtMcp.Spaces.AgentPasswords.stale?(Session.did(session), agent),
          {:ok, token} <- signed_in_as_agent(session, agent),
          {:ok, _} <-
            agent_account_call(
@@ -2436,7 +2437,16 @@ defmodule AtMcp.Spaces do
         if status == "deactivated",
           do: match?({:ok, _}, revoke_agent_sessions(session, agent))
 
-      {:ok, %{did: agent, status: status} |> put_present(:revoked, revoked)}
+      # Revoking also retired the agent's login key: started again, it gets
+      # a new one, which its at_mcp logs in with.
+      rekeyed =
+        if status == "active" and revoked_before?,
+          do: match?({:ok, _}, enroll_agent_key(session, agent))
+
+      {:ok,
+       %{did: agent, status: status}
+       |> put_present(:revoked, revoked)
+       |> put_present(:new_login_key, rekeyed)}
     end
   end
 
@@ -2509,7 +2519,11 @@ defmodule AtMcp.Spaces do
   defp agent_account_call(session, token, method) do
     url = Path.join(AtMcp.ATProto.base_url(session), "com.atproto.server.#{method}")
 
-    case Req.post(url, json: %{}, headers: [{"authorization", "Bearer " <> token}], retry: false) do
+    # deactivateAccount takes an (empty) input; activateAccount takes none, and
+    # refuses a body.
+    body = if method == "deactivateAccount", do: [json: %{}], else: [body: ""]
+
+    case Req.post(url, [headers: [{"authorization", "Bearer " <> token}], retry: false] ++ body) do
       {:ok, %{status: 200}} ->
         {:ok, method}
 
