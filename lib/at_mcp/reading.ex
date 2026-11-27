@@ -918,10 +918,16 @@ defmodule AtMcp.Reading do
       [
         cat([label, ~L" ", group_line(g)]),
         if(is_binary(g["description"]) and g["description"] != "", do: fence(g["description"])),
-        if(g["confirmed"] == false,
-          do:
-            ~L"Your membership isn't confirmed in the group's members space yet, so its roster doesn't list you; at_mcp writes the confirmation when it next starts."
-        ),
+        cond do
+          g["added_by_group"] == true ->
+            ~L"Added by the group; not confirmed, so its roster doesn't list you. confirm_group_membership confirms that you are a member; leave_group leaves."
+
+          g["confirmed"] == false ->
+            ~L"You asked to join; your confirmation isn't written in the group's members space yet, so its roster doesn't list you. at_mcp writes it shortly."
+
+          true ->
+            nil
+        end,
         if(feeds != [],
           do:
             cat([

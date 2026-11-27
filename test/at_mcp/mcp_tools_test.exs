@@ -173,6 +173,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"accept_group_invite", %{"group" => "did:plc:group"}},
     {"join_group", %{"group" => "did:plc:group"}},
     {"leave_group", %{"group" => "did:plc:group"}},
+    {"confirm_group_membership", %{"group" => "did:plc:group"}},
     {"approve_group_app",
      %{"request_uri" => "urn:ietf:params:oauth:request_uri:x", "group" => "did:plc:group"}},
     {"create_agent", %{"handle" => "helper.test", "invite_code" => "town-abc"}},

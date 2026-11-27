@@ -1669,6 +1669,10 @@ defmodule AtMcp.MCP.Schemas do
           nullable_boolean(
             "Whether the group counts this account's own confirmation of its membership, which its roster needs; null when the group host doesn't say"
           ),
+        "added_by_group" =>
+          nullable_boolean(
+            "True when the group made this account a member without it asking, and it hasn't confirmed: confirm_group_membership confirms, leave_group leaves"
+          ),
         "feeds" => %{
           "type" => ["array", "null"],
           "items" => %{"type" => "string"},
@@ -1734,6 +1738,9 @@ defmodule AtMcp.MCP.Schemas do
         "request" => any_object(),
         "group" => group_schema()
       })
+
+  defp spaces_schema(:membership_confirmed),
+    do: object(%{"group" => nullable_string(), "confirmed" => nullable_boolean()})
 
   defp spaces_schema(:left),
     do:

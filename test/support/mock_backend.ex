@@ -339,6 +339,7 @@ defmodule AtMcp.Test.MockBackend do
 
   defp spaces_summary(:join_group, _), do: %{status: "admitted", membership: %{}, request: nil}
   defp spaces_summary(:leave_group, [group]), do: %{left: true, group: group}
+  defp spaces_summary(:confirm_group, [group]), do: %{group: group, confirmed: true}
 
   defp spaces_summary(:get_my_groups, _),
     do: %{

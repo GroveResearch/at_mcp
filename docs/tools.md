@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 124 tools, 55 for reading and 69 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 125 tools, 55 for reading and 70 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -94,6 +94,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `block` | default |  | manage | Block an actor by handle or DID. |
 | `block_list` | full |  | manage | Block every account on a moderation list, as the app's Block list does. |
 | `bookmark` | full |  | write | Bookmark a post to read later. |
+| `confirm_group_membership` | full |  | write | Confirm your membership in a group that added you without your asking, so its roster lists you (get_my_groups says which: added_by_group). |
 | `create_agent` | full |  | write | Create a new agent account with one of this account's invite codes, with this account as its principal. |
 | `create_list` | full |  | write | Make a list. |
 | `create_note` | default with Spaces |  | write | Keep a private note: write it in this account's personal space, not its public repository. |

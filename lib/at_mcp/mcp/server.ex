@@ -3352,6 +3352,36 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "confirm_group_membership",
+       write_description(
+         :confirm_group,
+         "Confirm your membership in a group that added you without your asking, so its roster lists you (get_my_groups says which: added_by_group). Writes your confirmation in the group's members space; the group sees it. Groups you asked to join are confirmed for you. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:confirm_group, %{
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:membership_confirmed))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(
+          state.effects,
+          :confirm_group,
+          [Map.fetch!(a, :group)],
+          :confirm_group_membership
+        ),
+        state
+      )
+    end)
+  end
+
   tool "preview_group_app",
        "See an app's request to sign in as a group you are in, before approving or turning it away: which app it is (its client_id, which for a local app is a localhost address), which group, and what it would get there (granted) and not (withheld). Approves nothing. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})

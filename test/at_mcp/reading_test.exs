@@ -1122,6 +1122,14 @@ defmodule AtMcp.ReadingTest do
 
     assert AtMcp.Reading.groups(%{"groups" => []}) =~ "This account is in no groups."
 
+    added =
+      AtMcp.Reading.groups(%{
+        "groups" => [Map.merge(group, %{"confirmed" => false, "added_by_group" => true})]
+      })
+
+    assert added =~ "Added by the group; not confirmed"
+    assert added =~ "confirm_group_membership confirms that you are a member; leave_group leaves."
+
     app =
       AtMcp.Reading.group_app(%{
         "app" => %{"name" => "Example app", "client_id" => "https://app.example/client.json"},

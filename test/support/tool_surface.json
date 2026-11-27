@@ -53,6 +53,14 @@
         "uri"
       ]
     },
+    "confirm_group_membership": {
+      "arguments": {
+        "group": "string"
+      },
+      "required": [
+        "group"
+      ]
+    },
     "create_agent": {
       "arguments": {
         "handle": "string",

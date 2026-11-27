@@ -621,13 +621,19 @@ defmodule AtMcp.Spaces do
       with {:ok, joined} <- group_host_post(session, "org.atgrp.requestJoin", body) do
         case joined["status"] do
           "admitted" ->
-            # Confirmed first, so the group as answered counts it.
-            confirmation = confirmed(confirm_membership(session, group))
+            # Confirmed first, so the group as answered counts it. If it
+            # can't be written now, this account's asking is kept, so it is
+            # confirmed later.
+            result = confirm_membership(session, group)
+            if match?({:error, _}, result), do: remember_asked(session, group)
+            confirmation = confirmed(result)
 
             {:ok,
              joined |> Map.put("group", group_view(session, group)) |> Map.merge(confirmation)}
 
           _ ->
+            # Asked, and waiting: confirmed when the group lets it in.
+            remember_asked(session, group)
             {:ok, joined}
         end
       end
@@ -670,7 +676,11 @@ defmodule AtMcp.Spaces do
       feeds: for(%{type: ^feed_type, uri: uri} <- spaces, do: uri),
       # Whether the group host counts this account's own confirmation of its
       # membership (`confirm_membership/2`); nil when it doesn't say.
-      confirmed: get_in(detail, ["group", "viewer", "accepted"])
+      confirmed: get_in(detail, ["group", "viewer", "accepted"]),
+      # Unconfirmed and never asked for: the group made this account a
+      # member. It decides: confirm_group_membership, or leave_group.
+      added_by_group:
+        get_in(detail, ["group", "viewer", "accepted"]) == false and not asked?(session, did)
     }
   end
 
@@ -757,6 +767,7 @@ defmodule AtMcp.Spaces do
 
       case group_host_post(session, "org.atgrp.leaveGroup", %{"group" => group}) do
         {:ok, _} ->
+          forget_asked(session, group)
           {:ok, %{left: true, group: group, confirmation_removed: unconfirmed == :ok}}
 
         error ->
@@ -818,14 +829,80 @@ defmodule AtMcp.Spaces do
 
   @doc """
   For InboxTokens' group pass: confirms this account's membership in
-  `group` if its confirmation isn't there (joined from another client, or
-  admitted after asking).
+  `group` if its confirmation isn't there and this account asked to join
+  (a `requestJoin` or invite acceptance it made, kept in its state, the
+  case of asking and being admitted later). A group can make someone a
+  member who never asked; that membership stays unconfirmed, for the
+  account to confirm (`confirm_group/2`) or leave.
   """
   def ensure_confirmed(session, group) do
     case membership_confirmed?(session, group) do
-      {:ok, true} -> {:ok, %{group: group, confirmed: true}}
-      _ -> confirm_membership(session, group)
+      {:ok, true} ->
+        forget_asked(session, group)
+        {:ok, %{group: group, confirmed: true}}
+
+      _ ->
+        if asked?(session, group) do
+          with {:ok, done} <- confirm_membership(session, group) do
+            forget_asked(session, group)
+            {:ok, done}
+          end
+        else
+          {:ok, %{group: group, confirmed: false}}
+        end
     end
+  end
+
+  @doc """
+  `confirm_group_membership`: this account confirms its membership in a
+  group it was added to, so the group's roster lists it.
+  """
+  def confirm_group(session, group) do
+    with {:ok, group} <- group_arg(session, group),
+         {:ok, _} <- confirm_membership(session, group) do
+      forget_asked(session, group)
+      {:ok, %{group: group, confirmed: true}}
+    end
+  end
+
+  # The groups this account asked to join, kept in its state folder until
+  # its confirmation is written: `group-requests.json`, by DID.
+  @doc false
+  def asked_path, do: Path.join(AtMcp.Inbound.Store.default_dir(), "group-requests.json")
+
+  defp asked(contents) do
+    with contents when is_binary(contents) <- contents,
+         {:ok, %{"accounts" => %{} = accounts}} <- Jason.decode(contents) do
+      accounts
+    else
+      _ -> %{}
+    end
+  end
+
+  defp asked?(session, group) do
+    case AtMcp.PrivateFile.read(asked_path()) do
+      {:ok, contents} -> group in List.wrap(asked(contents)[Session.did(session)])
+      _ -> false
+    end
+  end
+
+  defp remember_asked(session, group), do: change_asked(session, &Enum.uniq([group | &1]))
+  defp forget_asked(session, group), do: change_asked(session, &List.delete(&1, group))
+
+  defp change_asked(session, change) do
+    did = Session.did(session)
+
+    AtMcp.PrivateFile.mutate(asked_path(), fn current ->
+      accounts = asked(if current == :missing, do: nil, else: current)
+      groups = change.(List.wrap(accounts[did]))
+
+      accounts =
+        if groups == [], do: Map.delete(accounts, did), else: Map.put(accounts, did, groups)
+
+      {:ok, Jason.encode!(%{"version" => 1, "accounts" => accounts}), :ok}
+    end)
+
+    :ok
   end
 
   defp unconfirm_membership(session, group) do

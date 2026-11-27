@@ -540,7 +540,13 @@ defmodule AtMcp.SpacesSessionTest do
         {:joined, conn.body_params}
       )
 
-      json(conn, %{status: "admitted", membership: %{uri: "at:space/x", cid: "c"}})
+      case Application.get_env(:at_mcp, :spaces_session_test_join, "admitted") do
+        "admitted" ->
+          json(conn, %{status: "admitted", membership: %{uri: "at:space/x", cid: "c"}})
+
+        status ->
+          json(conn, %{status: status, request: %{uri: "at:space/r", cid: "c"}})
+      end
     end
 
     post "/xrpc/org.atgrp.internal.declineAuthorization" do
@@ -884,42 +890,56 @@ defmodule AtMcp.SpacesSessionTest do
       assert del["params"]["collection"] == "org.atgrp.confirmation"
     end
 
-    test "a group's roster confirmation is written when InboxTokens first sees a group without one",
+    # A confirmation is the member's own consent to appear in the roster: a
+    # group can make someone a member who never asked.
+    test "a membership this account never asked for gets no confirmation; one it asked for, admitted later, does",
          ctx do
       previous = Application.get_env(:at_mcp, :network)
       Application.put_env(:at_mcp, :network, :delve)
+      File.rm(AtMcp.Spaces.asked_path())
 
       on_exit(fn ->
+        Application.delete_env(:at_mcp, :spaces_session_test_join)
+        File.rm(AtMcp.Spaces.asked_path())
+
         if previous,
           do: Application.put_env(:at_mcp, :network, previous),
           else: Application.delete_env(:at_mcp, :network)
       end)
 
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      alias AtMcp.Spaces.InboxTokens
       puts = fn -> Enum.count(calls(ctx.log), &(&1["method"] == "space.records.put")) end
 
-      {_, state} =
-        AtMcp.Spaces.InboxTokens.vouch_all(AtMcp.Spaces.InboxTokens.initial(), [
-          {:agent, ctx.effects}
-        ])
+      # The stand-in group host lists this account as a member of a group it
+      # never asked to join: InboxTokens confirms nothing.
+      {_, _} = InboxTokens.vouch_all(InboxTokens.initial(), [{:agent, ctx.effects}])
+      assert puts.() == 0
 
+      # It asks; the group decides later. Admitted, the next first sight of
+      # the group confirms it, once.
+      Application.put_env(:at_mcp, :spaces_session_test_join, "pending")
+
+      assert {:ok, %{"status" => "pending"}} =
+               AtMcp.Effects.spaces(ctx.effects, :join_group, ["did:plc:group"])
+
+      assert puts.() == 0
+      {_, state} = InboxTokens.vouch_all(InboxTokens.initial(), [{:agent, ctx.effects}])
       assert puts.() == 1
-
-      # Known now, and confirmed: not written again.
-      state =
-        put_in(
-          state.groups.agent.checked_at,
-          state.groups.agent.checked_at - AtMcp.Spaces.InboxTokens.keepalive_ms()
-        )
-
-      {_, _} = AtMcp.Spaces.InboxTokens.vouch_all(state, [{:agent, ctx.effects}])
-
-      {_, _} =
-        AtMcp.Spaces.InboxTokens.vouch_all(AtMcp.Spaces.InboxTokens.initial(), [
-          {:agent, ctx.effects}
-        ])
-
+      {_, _} = InboxTokens.vouch_all(InboxTokens.initial(), [{:agent, ctx.effects}])
       assert puts.() == 1
+      _ = state
+
+      # And the account can confirm a group that added it, itself.
+      assert {:ok, %{confirmed: true}} =
+               AtMcp.Effects.spaces(
+                 ctx.effects,
+                 :confirm_group,
+                 ["did:plc:group"],
+                 :confirm_group_membership
+               )
+
+      assert puts.() == 2
     end
 
     test "approves for the group the app asked for, by handle, or the only one offered", ctx do

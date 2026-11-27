@@ -68,6 +68,7 @@ defmodule AtMcp.PublishingQuotaTest do
     "accept_group_invite" => %{"group" => "did:plc:group"},
     "join_group" => %{"group" => "did:plc:group"},
     "leave_group" => %{"group" => "did:plc:group"},
+    "confirm_group_membership" => %{"group" => "did:plc:group"},
     "approve_group_app" => %{
       "request_uri" => "urn:x",
       "group" => "did:plc:group",
