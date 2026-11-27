@@ -629,7 +629,7 @@ defmodule AtMcp.MCP.Tools do
       cat([
         ~L"error: ",
         upstream_detail(upstream),
-        ~L" The account's saved settings for who may reply to and quote a new post could not be read, so the post was not sent: without them it would be open to everyone. Nothing was counted against the write quota."
+        ~L" The account's saved settings for who may reply to and quote a new post could not be read, and at_mcp has not read them for this account before, so the post was not sent: without them it would be open to everyone, which could undo who may reply that the account chose. Nothing was counted against the write quota."
       ]),
       change_any(
         ~L"Pass reply_rule and quotes to post without the saved settings, or wait a short while and try again."

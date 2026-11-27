@@ -1849,7 +1849,7 @@ defmodule AtMcp.Effects.ProtoRune do
          gates: gates,
          saved: Keyword.get(opts, :saved_interactions, []),
          saved_unserved: Keyword.get(opts, :saved_interactions_unserved),
-         saved_unread: Keyword.get(opts, :saved_interactions_unread, false),
+         saved_last_known: Keyword.get(opts, :saved_interactions_last_known),
          link_card: link_card
        }}
     else
@@ -1951,7 +1951,7 @@ defmodule AtMcp.Effects.ProtoRune do
          |> mention_warnings(prepared.unresolved)
          |> root_warning(Map.get(prepared, :declared_root), record)
          |> unserved_warning(Map.get(prepared, :saved_unserved))
-         |> unread_warning(Map.get(prepared, :saved_unread, false))}
+         |> last_known_warning(Map.get(prepared, :saved_last_known))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -1970,7 +1970,7 @@ defmodule AtMcp.Effects.ProtoRune do
          |> mention_warnings(unresolved)
          |> root_warning(Map.get(prepared, :declared_root), record)
          |> unserved_warning(Map.get(prepared, :saved_unserved))
-         |> unread_warning(Map.get(prepared, :saved_unread, false))}
+         |> last_known_warning(Map.get(prepared, :saved_last_known))}
 
       {:error, reason} ->
         {:error, failure(reason)}
@@ -4613,45 +4613,54 @@ defmodule AtMcp.Effects.ProtoRune do
   # from it (social-app 62b95002, `createComposerState`). A reply takes the
   # saved quote rule; its thread's reply rule belongs to the thread's first
   # post, so it takes none. A rule given, `everyone` and `allowed` included,
-  # wins. Settings that cannot be read don't block the post: it is written
-  # open, which is reversible, and its result says so, rather than every post
-  # failing while the preferences can't be read. `:saved_interactions` names the
-  # rules taken from them that wrote a gate.
+  # wins. When the settings can't be read now, the post takes the ones last
+  # read for this account (`AtMcp.PostDefaults.last_known/1`) and says so:
+  # going out open could undo who may reply that the account chose. With none
+  # ever read, or a saved rule at_mcp can't read, the post is refused, saying
+  # to pass the rules. `:saved_interactions` names the rules taken from them
+  # that wrote a gate.
   defp saved_interactions(session, opts) do
     reply? = Keyword.has_key?(opts, :reply)
     want_rule? = not reply? and not Keyword.has_key?(opts, :reply_rule)
     want_quotes? = not Keyword.has_key?(opts, :quotes)
 
     if want_rule? or want_quotes? do
-      with {:ok, saved} when is_map(saved) <- saved_settings(session),
-           {:ok, rule} <- saved_rule(saved.reply_rule),
-           {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
-        taken =
-          if(want_rule? and rule != :everyone, do: [reply_rule: rule], else: []) ++
-            if(want_quotes? and quotes == :disabled, do: [quotes: quotes], else: [])
-
-        {:ok,
-         opts
-         |> Keyword.merge(taken)
-         |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
-      else
+      case saved_settings(session) do
         {:ok, {:unserved, status}} ->
           {:ok, Keyword.put(opts, :saved_interactions_unserved, status)}
 
-        # Settings that can't be read don't block the post: it goes out with
-        # replies and quotes open, which the account can still change, and
-        # says so (`unread_warning/2`).
-        {:error, {:saved_interactions_unreadable, _failure}} ->
-          {:ok, Keyword.put(opts, :saved_interactions_unread, true)}
+        {:ok, saved} when is_map(saved) ->
+          take_saved(saved, opts, want_rule?, want_quotes?)
 
-        {:error, {:saved_reply_rule_unreadable, _words}} ->
-          {:ok, Keyword.put(opts, :saved_interactions_unread, true)}
+        {:error, {:saved_interactions_unreadable, _failure}} = error ->
+          case AtMcp.PostDefaults.last_known(session) do
+            {:ok, saved, read_at} ->
+              with {:ok, opts} <- take_saved(saved, opts, want_rule?, want_quotes?),
+                   do: {:ok, Keyword.put(opts, :saved_interactions_last_known, read_at)}
+
+            :error ->
+              error
+          end
 
         error ->
           error
       end
     else
       {:ok, opts}
+    end
+  end
+
+  defp take_saved(saved, opts, want_rule?, want_quotes?) do
+    with {:ok, rule} <- saved_rule(saved.reply_rule),
+         {:ok, quotes} <- AtMcp.Interactions.quotes(saved.quotes) do
+      taken =
+        if(want_rule? and rule != :everyone, do: [reply_rule: rule], else: []) ++
+          if(want_quotes? and quotes == :disabled, do: [quotes: quotes], else: [])
+
+      {:ok,
+       opts
+       |> Keyword.merge(taken)
+       |> Keyword.put(:saved_interactions, Keyword.keys(taken))}
     end
   end
 
@@ -4687,11 +4696,11 @@ defmodule AtMcp.Effects.ProtoRune do
     end
   end
 
-  defp unread_warning(result, false), do: result
+  defp last_known_warning(result, nil), do: result
 
-  defp unread_warning(result, true) do
+  defp last_known_warning(result, read_at) do
     note =
-      "couldn't read your default reply settings; posted with replies open; pass reply_rule to choose (and quotes, for who may quote it)."
+      "couldn't read your default reply settings just now, so this post took the ones at_mcp last read for this account, at #{read_at}; pass reply_rule and quotes to choose."
 
     Map.update(result, :warning, note, &(&1 <> " " <> note))
   end

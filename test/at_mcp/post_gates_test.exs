@@ -460,7 +460,61 @@ defmodule AtMcp.PostGatesTest do
       refute Map.has_key?(result, :threadgate_uri)
     end
 
-    test "saved settings that cannot be read don't block the post: it goes out open, and says how to choose" do
+    # Without the saved settings, a post would go out open, which could undo
+    # who may reply that the account chose: it takes the ones last read for
+    # the account, and is refused when there are none.
+    defp forget_post_defaults do
+      :ets.delete_all_objects(AtMcp.PostDefaults)
+      File.rm(AtMcp.PostDefaults.path())
+    end
+
+    test "saved settings that cannot be read now: the post takes the last ones read, and says when" do
+      forget_post_defaults()
+      on_exit(&forget_post_defaults/0)
+      down = {500, %{error: "InternalServerError", message: "down"}}
+
+      # Read once, then the preferences can't be read.
+      answers = %{"app.bsky.actor.getPreferences" => [:default, down]}
+      %{effects: effects, pds: pds, session: session, state: state} = pds(%{}, answers, @saved)
+
+      assert {:ok, %{from_saved_settings: ["reply_rule", "quotes"]}} =
+               AtMcp.Effects.post(effects, "one")
+
+      # Kept longer than a minute, they are read again, and that read fails.
+      key = {session.did, session.service_url}
+      stale = System.monotonic_time(:millisecond) - AtMcp.PostDefaults.ttl_ms() - 1
+      true = :ets.update_element(AtMcp.PostDefaults, key, {3, stale})
+
+      result = call(state, "post", %{"text" => "two"})
+      refute result[:isError], hd(result.content).text
+      assert result.structuredContent["from_saved_settings"] == ["reply_rule", "quotes"]
+
+      assert result.structuredContent["warning"] =~
+               "couldn't read your default reply settings just now, so this post took the ones at_mcp last read for this account, at "
+
+      [_, second] = FakePDS.sent(pds, "com.atproto.repo.applyWrites")
+      assert [_post, threadgate, _postgate] = second.body["writes"]
+
+      assert threadgate["value"]["allow"] == [
+               %{"$type" => "app.bsky.feed.threadgate#followingRule"}
+             ]
+
+      # They outlast this process: kept in the state folder, with when.
+      :ets.delete_all_objects(AtMcp.PostDefaults)
+
+      assert {:ok, %{reply_rule: ["following"], quotes: "disabled"}, read_at} =
+               AtMcp.PostDefaults.last_known(session)
+
+      assert {:ok, _, _} = DateTime.from_iso8601(read_at)
+
+      assert {:ok, %{from_saved_settings: ["reply_rule", "quotes"], warning: _}} =
+               AtMcp.Effects.post(effects, "three")
+    end
+
+    test "saved settings never read and unreadable now, or a saved rule at_mcp can't read: the post is refused" do
+      forget_post_defaults()
+      on_exit(&forget_post_defaults/0)
+
       unreadable = %{
         "app.bsky.actor.getPreferences" => {500, %{error: "InternalServerError", message: "down"}}
       }
@@ -472,21 +526,23 @@ defmodule AtMcp.PostGatesTest do
         }
       ]
 
-      for {answers, preferences} <- [{unreadable, []}, {%{}, unknown}] do
+      for {answers, preferences, says} <- [
+            {unreadable, [],
+             "at_mcp has not read them for this account before, so the post was not sent"},
+            {%{}, unknown, "has a rule at_mcp cannot read"}
+          ] do
+        forget_post_defaults()
         %{effects: effects, pds: pds, state: state} = pds(%{}, answers, preferences)
         result = call(state, "post", %{"text" => "x"})
 
-        refute result[:isError], hd(result.content).text
-
-        assert result.structuredContent["warning"] =~
-                 "couldn't read your default reply settings; posted with replies open; pass reply_rule to choose"
-
-        # Written open: one post, no gate.
-        assert [_] = FakePDS.sent(pds, "com.atproto.repo.createRecord")
+        assert result[:isError]
+        assert hd(result.content).text =~ says
+        assert hd(result.content).text =~ "reply_rule"
+        assert FakePDS.sent(pds, "com.atproto.repo.createRecord") == []
         assert FakePDS.sent(pds, "com.atproto.repo.applyWrites") == []
-        assert AtMcp.Effects.quota_status(effects).used == 1
+        assert AtMcp.Effects.quota_status(effects).used == 0
 
-        # Given both rules, nothing saved is needed, and nothing is said.
+        # Given both rules, nothing saved is needed, and the post goes out.
         assert {:ok, given} =
                  AtMcp.Effects.post(effects, "x", reply_rule: ["everyone"], quotes: "allowed")
 
