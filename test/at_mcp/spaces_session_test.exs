@@ -361,7 +361,8 @@ defmodule AtMcp.SpacesSessionTest do
 
       assert {:ok, _space, "registered", notice} = AtMcp.Spaces.ensure_inbox(session)
       # Said in plain words, with the way to turn it off.
-      assert notice =~ "town's AppView read the invites"
+      assert notice =~ "town's AppView is now a listed reader of this account's invite inbox"
+      assert notice =~ "To remove it, take the AppView off the inbox's members"
       assert notice =~ "AT_MCP_TOWN_INBOX_READER=false"
     end
   end

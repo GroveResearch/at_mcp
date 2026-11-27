@@ -2,8 +2,9 @@ defmodule AtMcp.Spaces.InboxTokens do
   @moduledoc """
   While AtMcp runs, hands the town AppView a delegation token for each
   key-holding account's inbox, so group invites reach its notifications
-  without the AppView being a member of the inbox (`AT_MCP_TOWN_INBOX_READER`
-  off, the default).
+  whether or not the AppView is a listed reader of the inbox
+  (`AT_MCP_TOWN_INBOX_READER`): a second path beside the reader, and the
+  only one where the reader is off or was removed.
 
   The cadence follows the town AppView's space sync: it holds a space
   credential for 600 seconds and renews it in the last 120, using a client's
@@ -46,9 +47,7 @@ defmodule AtMcp.Spaces.InboxTokens do
 
   @doc "Whether tokens are handed over: town spaces, Spaces on, and no standing reader."
   def on? do
-    AtMcp.Network.spaces() != nil and
-      not Application.get_env(:at_mcp, :town_inbox_reader, false) and
-      AtMcp.Spaces.Helper.available() == :ok
+    AtMcp.Network.spaces() != nil and AtMcp.Spaces.Helper.available() == :ok
   end
 
   @doc false

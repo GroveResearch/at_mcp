@@ -13,8 +13,14 @@ defmodule AtMcp.SpacesHelperExitTest do
   @fake Path.expand("../support/fake_spaces_helper.mjs", __DIR__)
 
   setup do
+    # Nothing else calls the helper meanwhile (InboxTokens' pass, say).
+    :ok = Supervisor.terminate_child(AtMcp.Supervisor, AtMcp.Spaces.InboxTokens)
     :ok = Supervisor.terminate_child(AtMcp.Supervisor, Helper)
-    on_exit(fn -> {:ok, _} = Supervisor.restart_child(AtMcp.Supervisor, Helper) end)
+
+    on_exit(fn ->
+      {:ok, _} = Supervisor.restart_child(AtMcp.Supervisor, Helper)
+      {:ok, _} = Supervisor.restart_child(AtMcp.Supervisor, AtMcp.Spaces.InboxTokens)
+    end)
 
     log = Path.join(System.tmp_dir!(), "helper-exit-#{System.unique_integer([:positive])}.log")
     System.put_env("FAKE_LOG", log)

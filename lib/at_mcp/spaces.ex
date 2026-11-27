@@ -39,7 +39,7 @@ defmodule AtMcp.Spaces do
 
   @readable_by "This account, and the apps it has granted access. Personal spaces are not encrypted: the operators of the server holding them can read them, so keep no secrets here."
 
-  @reader_notice "This account's group inbox now lets the town's AppView read the invites in it, so it can tell this account about them in get_notifications. Nothing else in the account becomes readable. The installation's operator can turn this off (AT_MCP_TOWN_INBOX_READER=false); the AppView can also be removed from the inbox's members."
+  @reader_notice "The town's AppView is now a listed reader of this account's invite inbox, so it can tell this account about group invites in get_notifications, also while at_mcp isn't running. It reads only the invites; nothing else in the account becomes readable. To remove it, take the AppView off the inbox's members; the installation's operator can stop at_mcp adding it to new inboxes (AT_MCP_TOWN_INBOX_READER=false)."
 
   @doc "What a note result says about who can read it."
   def readable_by, do: @readable_by
@@ -96,7 +96,7 @@ defmodule AtMcp.Spaces do
   # needs (`vouch_inbox/1`); adding the AppView to its members, only when
   # the installation does (`inbox_readers/0`).
   defp inbox_scope do
-    if Application.get_env(:at_mcp, :town_inbox_reader, false),
+    if Application.get_env(:at_mcp, :town_inbox_reader, true),
       do: "space:org.atgrp.inbox?action=read&manage=create&manage=update",
       else: "space:org.atgrp.inbox?action=read&manage=create"
   end
@@ -135,13 +135,15 @@ defmodule AtMcp.Spaces do
   @doc """
   The accounts added to every new inbox as read-only members: the town
   AppView's own DID, so it can raise notifications of invites, on the network
-  that has town spaces, and only with `AT_MCP_TOWN_INBOX_READER=true`. Off,
-  the default, an inbox has no members, as the group host's design has it,
-  and the AppView reads it only with the tokens AtMcp hands it while it runs
-  (`AtMcp.Spaces.InboxTokens`). A reader added can be removed again.
+  that has town spaces, unless `AT_MCP_TOWN_INBOX_READER=false`. The reader
+  is the only way the account hears of an invite while AtMcp isn't running;
+  it is listed among the inbox's members, where it can be seen and removed.
+  Off, an inbox has no members, and the AppView reads it only with the
+  tokens AtMcp hands it while it runs (`AtMcp.Spaces.InboxTokens`), which it
+  does either way.
   """
   def inbox_readers do
-    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, false) do
+    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, true) do
       [AtMcp.Network.appview_service() |> String.split("#") |> hd()]
     else
       []
