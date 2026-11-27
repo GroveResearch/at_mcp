@@ -905,6 +905,14 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  @doc """
+  registerSpace's answer for `space`, as the AppView gives it, without
+  acting on it: `registered` with no `requestUri` when it holds a grant.
+  For checks.
+  """
+  def registration(session, space) when is_binary(space),
+    do: AtMcp.ATProto.register_space(session, %{space: space})
+
   defp grant_needed(answer) do
     status = answer[:status] || answer["status"]
     uri = answer[:requestUri] || answer["requestUri"] || answer[:request_uri]
