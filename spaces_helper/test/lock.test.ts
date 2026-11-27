@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fork } from 'node:child_process'
 import { lockFileName, withFileLock } from '../src/lock.ts'
+import { townPost } from '../src/types.ts'
 import { generateKey, keyProof, loadKey } from '../src/keys.ts'
 import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from 'jose'
 
@@ -87,4 +88,11 @@ test('a key proof is the login key signing one call by one caller about one agen
   assert.ok(payload.jti && payload.iat)
   await jwtVerify(proof, await importJWK(key.jwk, 'ES256'))
   assert.match(pub.didKey, /^did:key:zDn/)
+})
+
+test("a space post's text is held to town.delve.feed.post's limits, not app.bsky's", () => {
+  const post = (text: string) => ({ $type: 'town.delve.feed.post', text, createdAt: '2026-11-27T00:00:00.000Z' })
+  assert.equal(townPost.safeParse(post('a'.repeat(301))).success, true)
+  assert.equal(townPost.safeParse(post('a'.repeat(100000))).success, true)
+  assert.equal(townPost.safeParse(post('a'.repeat(100001))).success, false)
 })

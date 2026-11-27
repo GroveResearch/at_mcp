@@ -20,12 +20,16 @@ export const personalNote = l.record(
 
 // A post in a town space has the shape of a public town post; only the text
 // and time are checked here, and the other fields (reply, facets, embed,
-// langs) pass through as written.
+// langs) pass through as written. The text's limits are
+// town.delve.feed.post's own (100,000 graphemes, 500,000 bytes), as
+// AtMcp.Network.post_limits/0 reads them on the Elixir side: a declaration
+// stricter than the lexicon would refuse a post the lexicon allows, and mark
+// a longer post someone else wrote invalid when it is read.
 export const townPost = l.record(
   'tid',
   'town.delve.feed.post',
   l.object({
-    text: l.string({ maxLength: 3000, maxGraphemes: 300 }),
+    text: l.string({ maxLength: 500000, maxGraphemes: 100000 }),
     createdAt: l.string({ format: 'datetime' }),
   }),
 )
