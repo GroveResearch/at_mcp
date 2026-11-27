@@ -1707,7 +1707,7 @@ defmodule AtMcp.MCP.Schemas do
           ),
         "notice" =>
           nullable_string(
-            "Said once, after at_mcp made this account's inbox: that the town AppView is a listed reader of it, and how to remove it"
+            "Said once, after at_mcp made this account's inbox: that the town AppView is a listed reader of it and how to remove it, or, without the reader, that invites reach get_notifications only while at_mcp runs and up to about 8 minutes late"
           ),
         "notifications" =>
           nullable_string(

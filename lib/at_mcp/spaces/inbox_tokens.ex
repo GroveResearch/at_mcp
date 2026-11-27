@@ -21,14 +21,16 @@ defmodule AtMcp.Spaces.InboxTokens do
       account falls back to client tokens, and the keep-alive tries the
       reader again later.
     * **The reader is off, or the account removed it:** AtMcp hands the
-      AppView a delegation token for the inbox every 100 seconds. The AppView
-      holds a space credential for 600 seconds and renews it in the last 120,
-      with a client's token only if it is under 50 seconds old: one token per
-      renewal window, and no more often.
+      AppView a delegation token for the inbox at most every 8 minutes, as
+      the web app does. The AppView holds a space credential for 600 seconds
+      and takes a client's token only while it is under 50 seconds old, so
+      invites read this way can reach the notifications up to about 8
+      minutes late: the cost of opting out of the reader.
 
-  With 1000 agents, a token every 100 seconds was 10 `registerSpace` calls a
-  second on the AppView, before the calls each token sets off there; with the
-  reader, the keep-alive is about one every two seconds.
+  Whatever the AppView answers, no inbox gets a token more often than every
+  8 minutes, except one at once after the account's session is established
+  anew. The pass runs every 100 seconds and checks each account; most passes
+  send nothing.
   """
 
   use GenServer
@@ -41,7 +43,7 @@ defmodule AtMcp.Spaces.InboxTokens do
   def start_link(opts \\ []),
     do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
-  @doc "How often a token is handed over, in milliseconds."
+  @doc "How often the pass runs, in milliseconds: it checks each account, and most passes send nothing."
   def every_ms, do: @every_ms
 
   # A missing inbox that could not be made is tried again sooner than the
@@ -49,6 +51,11 @@ defmodule AtMcp.Spaces.InboxTokens do
   @retry_first_ms 5_000
   # Where the AppView reads the inbox as a member: a keep-alive registration.
   @keepalive_ms 30 * 60_000
+  # Where it doesn't: a delegation token at most this often, as the web app.
+  @token_ms 8 * 60_000
+
+  @doc "How often, at most, an inbox's delegation token is handed over."
+  def token_ms, do: @token_ms
 
   @doc "How often an inbox the AppView reads as a member is registered again."
   def keepalive_ms, do: @keepalive_ms
@@ -77,6 +84,7 @@ defmodule AtMcp.Spaces.InboxTokens do
      %{
        every: every,
        keepalive: Keyword.get(opts, :keepalive_ms, @keepalive_ms),
+       token_every: Keyword.get(opts, :token_ms, @token_ms),
        last: %{},
        # account id => %{mode: :reader | :tokens, at: when last registered}
        modes: %{},
@@ -148,31 +156,54 @@ defmodule AtMcp.Spaces.InboxTokens do
         {:reader, state}
 
       %{mode: :reader} ->
-        keep_alive(state, id, effects, now)
+        keep_alive(state, id, effects, now, renewed?)
+
+      %{mode: :tokens, listed: false} ->
+        # The inbox doesn't list the AppView: tokens are the only way.
+        token(state, id, effects, now, renewed?)
 
       %{mode: :tokens, at: at} ->
-        # Now and then, see whether the AppView reads it as a member again.
+        # Listed, but the AppView wouldn't read it as a member: now and
+        # then, see whether it does again.
         if renewed? or now - at >= state.keepalive,
-          do: keep_alive(state, id, effects, now),
-          else: {vouch(effects), state}
+          do: keep_alive(state, id, effects, now, renewed?),
+          else: token(state, id, effects, now, false)
     end
   end
 
   # Registers the inbox without a token where it lists the AppView; any
-  # answer but `registered` falls back to tokens, and one goes over at once.
-  defp keep_alive(state, id, effects, now) do
+  # answer but `registered` falls back to tokens.
+  defp keep_alive(state, id, effects, now, renewed?) do
+    token_at = get_in(state.modes, [id, :token_at])
+
     case register(effects) do
       "registered" ->
-        {"registered", put_mode(state, id, :reader, now)}
+        {"registered", put_mode(state, id, :reader, now, token_at, true)}
 
       _other ->
-        state = put_mode(state, id, :tokens, now)
-        {vouch(effects), state}
+        state |> put_mode(id, :tokens, now, token_at) |> token(id, effects, now, renewed?)
     end
   end
 
-  defp put_mode(state, id, mode, now),
-    do: %{state | modes: Map.put(state.modes, id, %{mode: mode, at: now})}
+  # A delegation token, at most every 8 minutes for the inbox, whatever the
+  # AppView answers; once at once after the session is established anew.
+  defp token(state, id, effects, now, renewed?) do
+    token_at = get_in(state.modes, [id, :token_at])
+
+    if renewed? or is_nil(token_at) or now - token_at >= state.token_every do
+      status = vouch(effects)
+      {status, put_in(state.modes[id][:token_at], now)}
+    else
+      {:tokens, state}
+    end
+  end
+
+  defp put_mode(state, id, mode, now, token_at \\ nil, listed \\ true),
+    do: %{
+      state
+      | modes:
+          Map.put(state.modes, id, %{mode: mode, at: now, token_at: token_at, listed: listed})
+    }
 
   defp pending_retry?(state, id), do: match?(%{timer: t} when t != nil, state.retries[id])
 
@@ -182,10 +213,18 @@ defmodule AtMcp.Spaces.InboxTokens do
         # Registered as a listed reader when the inbox was made or found:
         # no tokens. Otherwise tokens, from this pass on.
         mode = if notifications == "registered", do: :reader, else: :tokens
+        # "off": the inbox doesn't list the AppView.
+        listed = notifications != "off"
         now = System.monotonic_time(:millisecond)
-        if mode == :tokens, do: vouch(effects)
 
-        %{put_mode(state, id, mode, now) | retries: Map.delete(state.retries, id)}
+        state = %{
+          put_mode(state, id, mode, now, nil, listed)
+          | retries: Map.delete(state.retries, id)
+        }
+
+        if mode == :tokens,
+          do: state |> token(id, effects, now, false) |> elem(1),
+          else: state
 
       :failed ->
         delay = next_delay(state.retries[id], state.retry_first, state.every)

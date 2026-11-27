@@ -40,6 +40,7 @@ defmodule AtMcp.Spaces do
   @readable_by "This account, and the apps it has granted access. Personal spaces are not encrypted: the operators of the server holding them can read them, so keep no secrets here."
 
   @inbox_soon "Your invite inbox will be created shortly; until then, invites are listed from the group host."
+  @tokens_notice "This installation doesn't list the town's AppView as a reader of this account's invite inbox (AT_MCP_TOWN_INBOX_READER=false), so the AppView reads it only with the short-lived tokens at_mcp hands it while it runs: group invites reach get_notifications only while at_mcp runs, and up to about 8 minutes after they arrive. They are always listed in get_group_invites at once."
   @reader_notice "The town's AppView is now a listed reader of this account's invite inbox, so it can tell this account about group invites in get_notifications, also while at_mcp isn't running. It reads only the invites; nothing else in the account becomes readable. To remove it, take the AppView off the inbox's members; the installation's operator can stop at_mcp adding it to new inboxes (AT_MCP_TOWN_INBOX_READER=false)."
 
   @doc "What a note result says about who can read it."
@@ -426,7 +427,8 @@ defmodule AtMcp.Spaces do
              if(inbox["added"] not in [nil, []], do: @reader_notice)}
 
           _ ->
-            {"off", nil}
+            # Said once, when the inbox is made without the reader.
+            {"off", if(inbox["created"] == true, do: @tokens_notice)}
         end
 
       {:ok, space, notifications, notice}

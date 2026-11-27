@@ -347,7 +347,9 @@ defmodule AtMcp.SpacesSessionTest do
         )
 
       # The inbox, with no reader: no notice, and nothing registered.
-      assert {:ok, space, "off", nil} = AtMcp.Spaces.ensure_inbox(session)
+      # Made without the reader: said once, with what it costs.
+      assert {:ok, space, "off", notice} = AtMcp.Spaces.ensure_inbox(session)
+      assert notice =~ "up to about 8 minutes"
 
       assert {:ok, %{status: "registered", space: ^space}} =
                AtMcp.Effects.spaces(ctx.effects, :vouch_inbox, [])
@@ -359,13 +361,36 @@ defmodule AtMcp.SpacesSessionTest do
       assert "space.delegationToken" in asked
     end
 
-    test "a token goes over once per AppView renewal window, and no more often" do
-      # The town AppView holds a space credential 600 s, renews it in the
-      # last 120 s, at most 5 s after a token comes, and takes a client's
-      # token only while it is under 50 s old.
-      every = AtMcp.Spaces.InboxTokens.every_ms()
-      assert every + 5_000 <= 120_000
-      assert every > 50_000
+    test "without the reader, a token goes over at most every 8 minutes, and the account is told once what that costs",
+         ctx do
+      assert AtMcp.Spaces.InboxTokens.token_ms() == 8 * 60_000
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      alias AtMcp.Spaces.InboxTokens
+      accounts = [{:agent, ctx.effects}]
+      tokens = fn -> Enum.count(calls(ctx.log), &(&1["method"] == "space.delegationToken")) end
+
+      # Made without the reader: a token at once, and the notice is owed.
+      {%{agent: :tokens}, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
+      assert tokens.() == 1
+      notice = AtMcp.Spaces.take_notice("did:plc:oauthagent")
+      assert notice =~ "up to about 8 minutes"
+      assert notice =~ "AT_MCP_TOWN_INBOX_READER=false"
+
+      # Passes within 8 minutes send none.
+      {%{agent: :tokens}, state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 1
+
+      # 8 minutes on, the next.
+      state = update_in(state.modes.agent.token_at, &(&1 - InboxTokens.token_ms()))
+      {_, state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 2
+
+      # A session established anew gets one at once, once.
+      state = %{state | renewed: MapSet.put(state.renewed, "did:plc:oauthagent")}
+      {_, state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 3
+      {_, _state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 3
     end
   end
 
@@ -614,17 +639,20 @@ defmodule AtMcp.SpacesSessionTest do
       assert drain.() == 1
       assert tokens.() == 0
 
-      # An AppView that won't read it as a member: tokens, at once and on
-      # every pass after.
+      # An AppView that won't read it as a member: a token at once, then at
+      # most every 8 minutes, whatever it answers.
       Application.put_env(:at_mcp, :spaces_session_test_register_status, "disabled")
       state = put_in(state.modes.agent.at, state.modes.agent.at - InboxTokens.keepalive_ms())
       {_, state} = InboxTokens.vouch_all(state, accounts)
       assert tokens.() == 1
+      {_, state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 1
+      state = update_in(state.modes.agent.token_at, &(&1 - InboxTokens.token_ms()))
       {_, _state} = InboxTokens.vouch_all(state, accounts)
       assert tokens.() == 2
     end
 
-    test "an inbox whose owner removed the AppView gets tokens every pass, and the reader isn't added again",
+    test "an inbox whose owner removed the AppView gets tokens, and the reader isn't added again",
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
       alias AtMcp.Spaces.InboxTokens
@@ -643,8 +671,8 @@ defmodule AtMcp.SpacesSessionTest do
 
       {%{agent: :tokens}, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
       assert tokens.() == 1
-      {%{agent: _}, _} = InboxTokens.vouch_all(state, accounts)
-      assert tokens.() == 2
+      {%{agent: :tokens}, _} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 1
 
       # Not added back.
       session =
