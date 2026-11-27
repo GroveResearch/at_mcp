@@ -1352,6 +1352,30 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  @doc """
+  Puts `member` out of `group`: their membership, deleted as the group in
+  its members space, as group-host's own console does (`member_eject`).
+  """
+  def remove_group_member(session, group, member) do
+    with {:ok, group} <- group_arg(session, group),
+         {:ok, member} <- account_arg(session, member),
+         :ok <- not_self(session, member) do
+      members = members_space(group)
+
+      with {:ok, _} <-
+             as_group(session, group, members, [
+               {"com.atproto.space.deleteRecord",
+                %{
+                  "repo" => group,
+                  "space" => members,
+                  "collection" => "org.atgrp.membership",
+                  "rkey" => member
+                }}
+             ]),
+           do: {:ok, %{group: group, member: member, removed: true}}
+    end
+  end
+
   @doc "Turns down `member`'s request to join `group`."
   def deny_join_request(session, group, member) do
     with {:ok, group} <- group_arg(session, group),

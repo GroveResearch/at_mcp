@@ -3470,6 +3470,35 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "remove_group_member",
+       write_description(
+         :remove_group_member,
+         "Put a member out of a group you run: their membership is deleted, and they can no longer read or post there. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:remove_group_member, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:join_decided))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+    param(:member, :string, required: true, description: "The member: their DID or handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :remove_group_member, [
+          Map.fetch!(a, :group),
+          Map.fetch!(a, :member)
+        ]),
+        state
+      )
+    end)
+  end
+
   tool "deny_join_request",
        write_description(
          :deny_join_request,

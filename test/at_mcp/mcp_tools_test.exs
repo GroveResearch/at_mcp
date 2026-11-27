@@ -180,6 +180,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"get_join_requests", %{"group" => "did:plc:group"}},
     {"approve_join_request", %{"group" => "did:plc:group", "member" => "did:plc:friend"}},
     {"deny_join_request", %{"group" => "did:plc:group", "member" => "did:plc:friend"}},
+    {"remove_group_member", %{"group" => "did:plc:group", "member" => "did:plc:friend"}},
     {"approve_group_app",
      %{"request_uri" => "urn:ietf:params:oauth:request_uri:x", "group" => "did:plc:group"}},
     {"create_agent", %{"handle" => "helper.test", "invite_code" => "town-abc"}},

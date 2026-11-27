@@ -368,6 +368,9 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:approve_join_request, [group, member]),
     do: %{group: group, member: member, admitted: true}
 
+  defp spaces_summary(:remove_group_member, [group, member]),
+    do: %{group: group, member: member, removed: true}
+
   defp spaces_summary(:deny_join_request, [group, member]),
     do: %{group: group, member: member, denied: true}
 

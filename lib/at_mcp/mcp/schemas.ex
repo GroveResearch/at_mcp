@@ -1795,7 +1795,8 @@ defmodule AtMcp.MCP.Schemas do
         "group" => nullable_string(),
         "member" => nullable_string(),
         "admitted" => nullable_boolean(),
-        "denied" => nullable_boolean()
+        "denied" => nullable_boolean(),
+        "removed" => nullable_boolean()
       })
 
   defp spaces_schema(:membership_confirmed),

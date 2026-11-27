@@ -1273,6 +1273,16 @@ defmodule AtMcp.SpacesSessionTest do
       assert admit["collection"] == "org.atgrp.membership" and admit["rkey"] == "did:plc:friend"
       assert admit["record"]["roles"] == ["member"]
 
+      assert {:ok, %{removed: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :remove_group_member, [
+                 "did:plc:group",
+                 "did:plc:friend"
+               ])
+
+      act = calls(ctx.log) |> Enum.filter(&(&1["method"] == "group.act")) |> List.last()
+      [%{"method" => "com.atproto.space.deleteRecord", "body" => out}] = act["params"]["calls"]
+      assert out["collection"] == "org.atgrp.membership" and out["rkey"] == "did:plc:friend"
+
       assert {:ok, %{denied: true}} =
                AtMcp.Effects.spaces(ctx.effects, :deny_join_request, [
                  "did:plc:group",

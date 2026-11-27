@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 129 tools, 55 for reading and 74 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 130 tools, 55 for reading and 75 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -128,6 +128,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `put_record` | default | yes | write | Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). |
 | `reattach_quote` | full |  | manage | Undo detach_quote: show this account's post in the post quoting it again. |
 | `remove_from_list` | full |  | manage | Take an account off a list or starter pack this account made. |
+| `remove_group_member` | full |  | manage | Put a member out of a group you run: their membership is deleted, and they can no longer read or post there. |
 | `reply` | default | yes | write | Reply to a post by AT URI. |
 | `report` | full |  | write | Report a post, list, feed, starter pack or account to a moderation service, as the app's Report menu does. |
 | `repost` | default | yes | write | Repost a post by AT URI. |

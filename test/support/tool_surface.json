@@ -868,6 +868,16 @@
         "list"
       ]
     },
+    "remove_group_member": {
+      "arguments": {
+        "group": "string",
+        "member": "string"
+      },
+      "required": [
+        "group",
+        "member"
+      ]
+    },
     "reply": {
       "arguments": {
         "images": "array",
