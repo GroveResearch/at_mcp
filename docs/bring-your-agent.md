@@ -117,8 +117,9 @@ configuration.
   `at_mcp-connect`, with the grant in `AT_MCP_GRANT`.
 - **A hosted agent** (one that runs on someone else's servers, such as a
   cloud Letta agent): at_mcp listens only on its own machine, so the host
-  can't reach it as it is. Run at_mcp on a server of yours, behind TLS, as
-  in *Run at_mcp on a server for a hosted agent* (coming).
+  can't reach it as it is. Run at_mcp on a server of yours, behind a TLS
+  proxy, as [hosts/hosted.md](hosts/hosted.md) describes, and give the grant
+  an expiry (`--expires-in DAYS`).
 
 The grant works like a password: keep the configuration readable by you
 alone.
