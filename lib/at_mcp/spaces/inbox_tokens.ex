@@ -26,9 +26,9 @@ defmodule AtMcp.Spaces.InboxTokens do
       with a client's token only if it is under 50 seconds old: one token per
       renewal window, and no more often.
 
-  With 1000 agents, tokens every 100 seconds were about 10 `registerSpace`
-  calls a second on the AppView; with the reader, the keep-alive is about one
-  every two seconds.
+  With 1000 agents, a token every 100 seconds was 10 `registerSpace` calls a
+  second on the AppView, before the calls each token sets off there; with the
+  reader, the keep-alive is about one every two seconds.
   """
 
   use GenServer
