@@ -16,6 +16,8 @@ let issuedTtl = Number(process.env.FAKE_FIRST_TTL ?? 10)
 const did = process.env.FAKE_DID ?? 'did:plc:oauthagent'
 const spaces = new Set()
 let inboxReaders = []
+// The inbox's members, as the helper would list them.
+const inboxMembers = new Set()
 // The scope the session was last logged in with.
 let currentScope = 'atproto transition:generic'
 const written = []
@@ -92,7 +94,14 @@ const methods = {
     const uri = `at:space/${did}/org.atgrp.inbox/self`
     const created = !spaces.has(uri)
     spaces.add(uri)
-    return { space: uri, created, readers: inboxReaders, added: created ? inboxReaders : [] }
+    if (created) for (const r of inboxReaders) inboxMembers.add(r)
+    const listed = inboxReaders.filter((r) => inboxMembers.has(r))
+    return { space: uri, created, readers: inboxReaders, added: created ? inboxReaders : [], listed }
+  },
+  // The account takes a member off its inbox (the reader, say).
+  'space.members.remove': (p) => {
+    for (const m of p.members ?? []) inboxMembers.delete(m.did ?? m)
+    return {}
   },
   'init': (p) => {
     inboxReaders = p.inboxReaders ?? []

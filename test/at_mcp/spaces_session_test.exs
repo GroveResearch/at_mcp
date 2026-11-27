@@ -41,7 +41,14 @@ defmodule AtMcp.SpacesSessionTest do
           body =
             cond do
               String.ends_with?(url, ".notification.registerSpace") ->
-                %{status: "registered"}
+                %{
+                  status:
+                    Application.get_env(
+                      :at_mcp,
+                      :spaces_session_test_register_status,
+                      "registered"
+                    )
+                }
 
               String.contains?(url, "com.atproto.server.getServiceAuth") ->
                 %{token: "aaa.bbb.ccc"}
@@ -403,6 +410,18 @@ defmodule AtMcp.SpacesSessionTest do
     end
   end
 
+  # How many registerSpace calls reached the AppView since the last look.
+  defp receive_all_registers(n) do
+    receive do
+      {:request, :post, url, _, _} ->
+        if url =~ "notification.registerSpace",
+          do: receive_all_registers(n + 1),
+          else: receive_all_registers(n)
+    after
+      200 -> n
+    end
+  end
+
   defmodule GroupHost do
     # A stand-in group host: its DID, an app's request to sign in as a group
     # (the group the member may approve it for), and the approval.
@@ -561,6 +580,80 @@ defmodule AtMcp.SpacesSessionTest do
       refute Map.has_key?(again, :notice)
       assert again.notifications == "registered"
       refute Map.has_key?(again, :inbox_note)
+    end
+
+    test "an inbox the AppView reads as a listed member is registered at start, on a new session and every 30 minutes, with no tokens",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      alias AtMcp.Spaces.InboxTokens
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_register_status) end)
+      accounts = [{:agent, ctx.effects}]
+      tokens = fn -> Enum.count(calls(ctx.log), &(&1["method"] == "space.delegationToken")) end
+      drain = fn -> receive_all_registers(0) end
+
+      # The first pass makes the inbox with its reader and registers it.
+      {last, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
+      assert last == %{agent: :reader}
+      assert drain.() == 1
+      assert tokens.() == 0
+
+      # Passes within the keep-alive send nothing.
+      {last, state} = InboxTokens.vouch_all(state, accounts)
+      assert last == %{agent: :reader}
+      assert drain.() == 0
+
+      # A session established anew registers it again, without a token.
+      state = %{state | renewed: MapSet.put(state.renewed, "did:plc:oauthagent")}
+      {last, state} = InboxTokens.vouch_all(state, accounts)
+      assert last == %{agent: "registered"}
+      assert drain.() == 1
+
+      # So does the keep-alive, 30 minutes on.
+      state = put_in(state.modes.agent.at, state.modes.agent.at - InboxTokens.keepalive_ms())
+      {%{agent: "registered"}, state} = InboxTokens.vouch_all(state, accounts)
+      assert drain.() == 1
+      assert tokens.() == 0
+
+      # An AppView that won't read it as a member: tokens, at once and on
+      # every pass after.
+      Application.put_env(:at_mcp, :spaces_session_test_register_status, "disabled")
+      state = put_in(state.modes.agent.at, state.modes.agent.at - InboxTokens.keepalive_ms())
+      {_, state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 1
+      {_, _state} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 2
+    end
+
+    test "an inbox whose owner removed the AppView gets tokens every pass, and the reader isn't added again",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      alias AtMcp.Spaces.InboxTokens
+      accounts = [{:agent, ctx.effects}]
+      tokens = fn -> Enum.count(calls(ctx.log), &(&1["method"] == "space.delegationToken")) end
+
+      {%{agent: :reader}, _} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
+
+      # The owner takes the AppView off its inbox; at_mcp starts again.
+      {:ok, _} =
+        AtMcp.Spaces.Helper.call("space.members.remove", %{
+          did: "did:plc:oauthagent",
+          space: "at:space/did:plc:oauthagent/org.atgrp.inbox/self",
+          members: ["did:web:api.delve.town"]
+        })
+
+      {%{agent: :tokens}, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
+      assert tokens.() == 1
+      {%{agent: _}, _} = InboxTokens.vouch_all(state, accounts)
+      assert tokens.() == 2
+
+      # Not added back.
+      session =
+        AtMcp.Spaces.Login.session(
+          elem(AtMcp.Spaces.Login.credentials("did:plc:oauthagent"), 1),
+          "agent.test"
+        )
+
+      assert {:ok, _space, "off", nil} = AtMcp.Spaces.ensure_inbox(session)
     end
 
     test "a failed attempt to make an inbox is tried again soon, then less often, up to the pass" do

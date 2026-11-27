@@ -17,6 +17,7 @@ itself.
     - ident.link: `endorse_agent`, `get_principals`.
   - `get_group_invites` is a read (`readOnlyHint: true`, and it takes `format`, answering in text by default): it no longer makes the account's invite inbox. at_mcp makes each key-holding account's inbox when it starts, with the town AppView as its listed reader, and tries again until it exists. Until then `get_group_invites` still lists the group host's invites, and says the inbox comes shortly (`inbox_note`). The one-time notice about the reader comes with the first `get_notifications` or `get_group_invites` after the inbox is made.
   - The Spaces reads answer in words in text format, as the other reads do.
+  - Where an inbox lists the town AppView as its reader, at_mcp registers it at start, on a new session and every 30 minutes, with no client tokens; tokens every 100 s only where the AppView isn't a listed reader. A reader the account removed is not added back.
   - Personal spaces control who can read them but are not encrypted, and the note tools say so.
   - `get_notifications` takes the town's Spaces reasons (`space-mention`, `space-reply`, `space-post`, `space-invite`), and delivery passes them on. A group's invite names the group, by its DID, and says to join with `accept_group_invite`.
   - Every request sends `User-Agent: at_mcp/<version>`.

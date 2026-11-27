@@ -418,7 +418,7 @@ defmodule AtMcp.Spaces do
   def ensure_inbox(session) do
     with {:ok, %{"space" => space} = inbox} <- helper(session, "inbox.ensure", %{}) do
       {notifications, notice} =
-        case inbox["readers"] do
+        case inbox["listed"] || inbox["readers"] do
           [_ | _] ->
             # Said once, when the inbox is made with the reader, or when the
             # reader is first added to an inbox that had none.
@@ -493,6 +493,23 @@ defmodule AtMcp.Spaces do
         {:ok, _} -> {:ok, %{space: space, status: "registered"}}
         {:error, reason} -> {:error, to_failure(reason)}
       end
+    end
+  end
+
+  @doc """
+  Asks the town AppView to read this account's inbox as the listed reader
+  it is (`registerSpace` without a token): `{:ok, "registered"}`, or the
+  AppView's other answer (`disabled`, `unsupported`, `limit`), or an error.
+  `AtMcp.Spaces.InboxTokens`' keep-alive where the inbox lists the AppView.
+  """
+  def register_inbox_now(session) do
+    space = "at:space/#{Session.did(session)}/org.atgrp.inbox/self"
+
+    case AtMcp.ATProto.register_space(session, %{space: space}) do
+      {:ok, %{status: status}} -> {:ok, status}
+      {:ok, %{"status" => status}} -> {:ok, status}
+      {:ok, _} -> {:ok, "registered"}
+      {:error, reason} -> {:error, to_failure(reason)}
     end
   end
 

@@ -126,8 +126,10 @@ export class Spaces {
 
   /**
    * The account's inbox, made if it has none, with the configured readers
-   * among its members (added again if an earlier attempt stopped before it
-   * could add them).
+   * among its members when it is made. A reader the account later removed is
+   * not added again: the reader is the account's to remove. Answers which
+   * of the configured readers the inbox lists now (`listed`), so AtMcp knows
+   * whether the AppView reads it as a member or needs client tokens.
    */
   async ensureInbox(did: string) {
     const uri = `at:space/${did}/org.atgrp.inbox/self`
@@ -146,15 +148,14 @@ export class Spaces {
       created = true
     }
     const readers = this.config.inboxReaders
-    if (readers.length) {
-      const manager = await SpaceManager.open(client.agent, uri as never, { policies: [MemberspacePolicyManager] })
-      const have = new Set<string>()
-      for await (const m of manager.members()) have.add((m as { did: string }).did)
-      const missing = readers.filter((d) => !have.has(d))
-      if (missing.length) await manager.putMembers(missing.map((d) => ({ did: d, read: true, write: false })) as never)
-      return { space: uri, created, readers, added: missing }
+    const manager = await SpaceManager.open(client.agent, uri as never, { policies: [MemberspacePolicyManager] })
+    if (created && readers.length) {
+      await manager.putMembers(readers.map((d) => ({ did: d, read: true, write: false })) as never)
+      return { space: uri, created, readers, added: readers, listed: readers }
     }
-    return { space: uri, created, readers, added: [] }
+    const have = new Set<string>()
+    for await (const m of manager.members()) have.add((m as { did: string }).did)
+    return { space: uri, created, readers, added: [], listed: readers.filter((d) => have.has(d)) }
   }
 
   /**

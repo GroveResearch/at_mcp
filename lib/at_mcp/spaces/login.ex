@@ -48,7 +48,11 @@ defmodule AtMcp.Spaces.Login do
              do: Helper.call("oauth.credentials", %{did: did})
       end
 
-    with {:ok, creds} <- result, do: {:ok, session(creds, opts[:handle])}
+    with {:ok, creds} <- result do
+      # A session established anew: the town AppView hears of its inbox again.
+      AtMcp.Spaces.InboxTokens.renewed(creds["did"])
+      {:ok, session(creds, opts[:handle])}
+    end
   end
 
   @doc "A fresh session for `stale`'s account: the helper refreshes first."
@@ -103,7 +107,10 @@ defmodule AtMcp.Spaces.Login do
 
       relogin ->
         with {:ok, %{"did" => ^did}} <- Helper.call("oauth.login", relogin),
-             do: Helper.call("oauth.credentials", %{did: did})
+             {:ok, creds} <- Helper.call("oauth.credentials", %{did: did}) do
+          AtMcp.Spaces.InboxTokens.renewed(did)
+          {:ok, creds}
+        end
     end
   end
 
