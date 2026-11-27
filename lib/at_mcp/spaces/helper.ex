@@ -85,6 +85,11 @@ defmodule AtMcp.Spaces.Helper do
   catch
     :exit, {:timeout, _} ->
       {:error, Failure.new(:indeterminate, detail: :spaces_helper_timeout)}
+
+    # The helper's process stopped, or was not there, as the call was made
+    # (a restart): what the call did is unknown, as when the helper exits.
+    :exit, _ ->
+      {:error, Failure.new(:indeterminate, detail: :spaces_helper_exited)}
   end
 
   @doc "Where the helper script is in this release."
@@ -156,11 +161,42 @@ defmodule AtMcp.Spaces.Helper do
       do: {:reply, {:error, unavailable(reason)}, state}
 
   def handle_call({:call, method, params, timeout}, from, state) do
-    case ensure_port(state) do
-      {:ok, state} -> {:noreply, send_call(state, method, params, from, timeout)}
-      {:error, reason, state} -> {:reply, {:error, unavailable({:init_failed, reason})}, state}
+    with {:ok, state} <- ensure_port(gone(state)),
+         {:ok, state} <- send_call(state, method, params, from, timeout) do
+      {:noreply, state}
+    else
+      # The port closed between the check and the send: nothing was sent,
+      # so the call goes to a helper started in its place.
+      {:closed, state} ->
+        case ensure_port(state) do
+          {:ok, state} ->
+            case send_call(state, method, params, from, timeout) do
+              {:ok, state} -> {:noreply, state}
+              {:closed, state} -> {:reply, {:error, exited()}, state}
+            end
+
+          {:error, reason, state} ->
+            {:reply, {:error, unavailable({:init_failed, reason})}, state}
+        end
+
+      {:error, reason, state} ->
+        {:reply, {:error, unavailable({:init_failed, reason})}, state}
     end
   end
+
+  # A helper that died while this call waited in the mailbox has a closed
+  # port before its exit_status is read: the calls it was sent fail as if it
+  # had exited (their outcome is unknown), and the next call starts another.
+  # The old port's exit_status, read later, matches no port and is ignored.
+  defp gone(%{port: port} = state) when is_port(port) do
+    if Port.info(port) == nil,
+      do: fail_pending(%{state | port: nil, buffer: []}, :spaces_helper_exited),
+      else: state
+  end
+
+  defp gone(state), do: state
+
+  defp exited, do: Failure.new(:indeterminate, detail: :spaces_helper_exited)
 
   @impl true
   def handle_info({port, {:data, {:eol, chunk}}}, %{port: port} = state) do
@@ -346,7 +382,10 @@ defmodule AtMcp.Spaces.Helper do
     id = state.next_id
     Port.command(state.port, encode(id, method, params))
     timer = Process.send_after(self(), {:timeout, id}, timeout)
-    %{state | next_id: id + 1, pending: Map.put(state.pending, id, {from, timer})}
+    {:ok, %{state | next_id: id + 1, pending: Map.put(state.pending, id, {from, timer})}}
+  rescue
+    # A closed port refuses the command: nothing reached the helper.
+    ArgumentError -> {:closed, gone(state) |> Map.merge(%{port: nil, buffer: []})}
   end
 
   defp encode(id, method, params),
