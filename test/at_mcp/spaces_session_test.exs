@@ -234,15 +234,18 @@ defmodule AtMcp.SpacesSessionTest do
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
     end
 
-    test "an account with no principal has no state space, so no notes, and is told why", ctx do
+    test "an account with no principal keeps its state in a space of its own, made at its first note",
+         ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
       :persistent_term.put({AtMcp.Spaces, :principal_of, "did:plc:oauthagent"}, :none)
+      own = "at:space/did:plc:oauthagent/town.delve.space.agent/did:plc:oauthagent"
 
-      assert {:error, %AtMcp.Effects.Failure{detail: :no_state_space, message: message}} =
-               AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "x"}])
+      # The fake helper says no such space for one the account hasn't made.
+      assert {:ok, note} = AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "mine"}])
+      assert note.uri =~ own
 
-      assert message =~ "names no principal"
-      refute Enum.any?(calls(ctx.log), &String.starts_with?(&1["method"], "space."))
+      writes = Enum.filter(calls(ctx.log), &(&1["method"] == "space.records.create"))
+      assert Enum.all?(writes, &(&1["params"]["space"] == own))
     end
 
     # Each refused before anything is sent, as the note lexicon
@@ -1398,7 +1401,7 @@ defmodule AtMcp.SpacesSessionTest do
         {:agent_session, conn.body_params}
       )
 
-      if conn.body_params["password"] == "agent-secret-once",
+      if conn.body_params["password"] in ["agent-secret-once", "agent-secret-rotated"],
         do: json(conn, %{accessJwt: "agent-access", did: conn.body_params["identifier"]}),
         else:
           conn
@@ -1428,6 +1431,15 @@ defmodule AtMcp.SpacesSessionTest do
       )
 
       json(conn, %{})
+    end
+
+    post "/xrpc/town.delve.agent.rotatePassword" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_route, :rotate, conn.body_params}
+      )
+
+      json(conn, %{password: "agent-secret-rotated"})
     end
 
     post "/xrpc/town.delve.agent.revokeSessions" do
@@ -1509,7 +1521,7 @@ defmodule AtMcp.SpacesSessionTest do
       scope = AtMcp.Spaces.scope_for("did:plc:oauthagent", ctx.fake_service)
       aud = URI.encode_www_form("did:web:pds.test#atproto_pds")
 
-      for m <- ~w(createAgent enrollKey revokeSessions deleteAgent),
+      for m <- ~w(createAgent enrollKey revokeSessions deleteAgent rotatePassword),
           do: assert(scope =~ "rpc:town.delve.agent.#{m}?aud=#{aud}")
 
       refute scope =~ "aud=*"
@@ -1604,11 +1616,20 @@ defmodule AtMcp.SpacesSessionTest do
       assert_received {:agent_account, :deactivate, ["Bearer agent-access"]}
       assert_received {:agent_route, :revoke, %{"did" => "did:plc:newagent"}}
 
+      # Revoking set its password to one nobody knows: it is rotated before
+      # the agent is started again, and the new one kept.
       assert {:ok, %{status: "active"} = started} =
                AtMcp.Effects.spaces(ctx.effects, :set_agent_status, ["did:plc:newagent", "active"])
 
       refute Map.has_key?(started, :revoked)
+      assert_received {:agent_route, :rotate, %{"did" => "did:plc:newagent"}}
+      assert_received {:agent_session, %{"password" => "agent-secret-rotated"}}
       assert_received {:agent_account, :activate, ["Bearer agent-access"]}
+
+      assert {:ok, "agent-secret-rotated"} =
+               AtMcp.Spaces.AgentPasswords.get("did:plc:oauthagent", "did:plc:newagent")
+
+      refute AtMcp.Spaces.AgentPasswords.stale?("did:plc:oauthagent", "did:plc:newagent")
 
       # An agent this installation didn't create has no kept password.
       assert {:error, %AtMcp.Effects.Failure{detail: :no_agent_password, message: message}} =
@@ -1620,7 +1641,7 @@ defmodule AtMcp.SpacesSessionTest do
       assert message =~ "revoke_agent_sessions still stops"
     end
 
-    test "an agent can't create agents, and is told before anything is made", ctx do
+    test "an agent creates agents too, and makes their state spaces as their principal", ctx do
       ctx.write_accounts.(@rotation)
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
 
@@ -1629,13 +1650,10 @@ defmodule AtMcp.SpacesSessionTest do
         {:ok, "did:plc:principal"}
       )
 
-      assert {:error,
-              %AtMcp.Effects.Failure{detail: :agent_cannot_create_agents, message: message}} =
+      assert {:ok, %{did: "did:plc:newagent", agent_space: space}} =
                AtMcp.Effects.spaces(ctx.effects, :create_agent, ["helper.test", "code"])
 
-      assert message =~ "agents can't create agents"
-      refute_received {:agent_route, :create, _}
-      refute "key.generate" in Enum.map(calls(ctx.log), & &1["method"])
+      assert space == "at:space/did:plc:oauthagent/town.delve.space.agent/did:plc:newagent"
     end
 
     test "an account made a principal while its session runs logs in again for the agent routes",

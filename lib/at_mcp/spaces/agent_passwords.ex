@@ -24,6 +24,36 @@ defmodule AtMcp.Spaces.AgentPasswords do
     end)
   end
 
+  @doc """
+  Marks `principal`'s agent `agent`'s kept password stale: revoking its
+  sessions also sets it to one nobody knows, so the next sign-in as the
+  agent rotates it first.
+  """
+  def mark_stale(principal, agent) do
+    AtMcp.PrivateFile.mutate(path(), fn current ->
+      data = decode(current)
+
+      case get_in(data, [principal, agent]) do
+        %{} = row ->
+          data = put_in(data, [principal, agent], Map.put(row, "stale", true))
+          {:ok, Jason.encode!(%{"version" => 1, "principals" => data}), :ok}
+
+        _ ->
+          {:ok, Jason.encode!(%{"version" => 1, "principals" => data}), :ok}
+      end
+    end)
+  end
+
+  @doc "Whether the password kept for `principal`'s agent `agent` is stale."
+  def stale?(principal, agent) do
+    with {:ok, contents} <- AtMcp.PrivateFile.read(path()),
+         %{"stale" => true} <- get_in(decode(contents), [principal, agent]) do
+      true
+    else
+      _ -> false
+    end
+  end
+
   @doc "The password kept for `principal`'s agent `agent`, or `:error`."
   def get(principal, agent) do
     with {:ok, contents} <- AtMcp.PrivateFile.read(path()),

@@ -67,7 +67,8 @@ const methods = {
   },
   'space.records.create': (p) => {
     const space = typeof p.space === 'string' ? p.space : `at:space/${did}/${p.space.type}/${p.space.skey ?? 'self'}`
-    if (space.includes('town.delve.space.personal') && !spaces.has(space)) {
+    // A space of its own (its own state space) exists once made.
+    if (space.startsWith(`at:space/${did}/town.delve.space.agent/`) && !spaces.has(space)) {
       throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
     }
     const rkey = `3kfake${written.length}`

@@ -50,7 +50,7 @@ defmodule AtMcp.Spaces do
   # The town PDS counts the mutating agent routes as privileged: service auth
   # for them is minted only for a session that holds the matching `rpc:`
   # scope (or a full password session), never for an app password.
-  @agent_methods ~w(createAgent enrollKey revokeSessions deleteAgent)
+  @agent_methods ~w(createAgent enrollKey revokeSessions deleteAgent rotatePassword)
 
   @doc """
   The OAuth scope at_mcp asks for when an account's key logs it in, no more
@@ -178,11 +178,16 @@ defmodule AtMcp.Spaces do
     with {:ok, names} <- names(),
          {:ok, record} <- note_record(fields, nil),
          {:ok, space} <- notes_space(session) do
-      helper(session, "space.records.create", %{
-        space: space,
-        collection: names.note,
-        record: record
-      })
+      write = fn ->
+        helper(session, "space.records.create", %{
+          space: space,
+          collection: names.note,
+          record: record
+        })
+      end
+
+      write.()
+      |> own_state_space(session, space, write)
       |> missing_state_space(space)
       |> note_written(record)
     end
@@ -356,7 +361,9 @@ defmodule AtMcp.Spaces do
     do: "#{space}/#{Session.did(session)}/#{names.note}/#{rkey}"
 
   # Where this account keeps its notes: its state space, under its
-  # principal (`agent_space_uri/2`). An account with no principal has none.
+  # principal (`agent_space_uri/2`); an account with no principal (a
+  # resident, an email agent) keeps one under its own DID, as its own
+  # authority, made at its first note.
   defp notes_space(session) do
     # Spaces off is said first: it is so for every account.
     with :ok <- helper_ready(), do: notes_space_of(session)
@@ -370,17 +377,11 @@ defmodule AtMcp.Spaces do
   end
 
   defp notes_space_of(session) do
-    case principal_of(session) do
-      {:ok, principal} ->
-        {:ok, agent_space_uri(principal, Session.did(session))}
+    did = Session.did(session)
 
-      :none ->
-        {:error,
-         Failure.new(:refused,
-           detail: :no_state_space,
-           message:
-             "Notes live in an agent's state space, which its principal holds; this account names no principal (agent-of), so it has none."
-         )}
+    case principal_of(session) do
+      {:ok, principal} -> {:ok, agent_space_uri(principal, did)}
+      :none -> {:ok, agent_space_uri(did, did)}
     end
   end
 
@@ -410,6 +411,32 @@ defmodule AtMcp.Spaces do
         found
     end
   end
+
+  # An account that is its own authority makes its state space at its
+  # first note; an agent's is its principal's to make.
+  defp own_state_space(
+         {:error, %Failure{detail: "SpaceNotFound"}} = missing,
+         session,
+         space,
+         write
+       ) do
+    did = Session.did(session)
+
+    if space == agent_space_uri(did, did) do
+      with {:ok, _} <-
+             helper(session, "space.create", %{
+               type: @agent_space,
+               skey: did,
+               policy: "member",
+               members: [%{did: did, read: true, write: true}]
+             }),
+           do: write.()
+    else
+      missing
+    end
+  end
+
+  defp own_state_space(result, _session, _space, _write), do: result
 
   # The state space is the principal's to make.
   defp missing_state_space({:error, %Failure{detail: "SpaceNotFound"} = f}, space),
@@ -2144,7 +2171,6 @@ defmodule AtMcp.Spaces do
   """
   def create_agent(session, handle, invite_code) do
     with {:ok, names} <- names(),
-         :ok <- not_an_agent(session),
          :ok <- handle_arg(handle),
          :ok <- text_arg(invite_code, "invite_code"),
          {:ok, rotation_key} <- principal_rotation_key(Session.did(session)),
@@ -2249,23 +2275,6 @@ defmodule AtMcp.Spaces do
 
       {:error, failure} ->
         %{error: "The agent's state space wasn't made: #{to_failure(failure).message}"}
-    end
-  end
-
-  # An agent can't create agents (the PDS refuses createAgent from an
-  # account with a principal): said before a key is made.
-  defp not_an_agent(session) do
-    case principal_of(session) do
-      {:ok, principal} ->
-        {:error,
-         Failure.new(:refused,
-           detail: :agent_cannot_create_agents,
-           message:
-             "This account is an agent (of #{principal}), and agents can't create agents: its principal can."
-         )}
-
-      :none ->
-        :ok
     end
   end
 
@@ -2409,8 +2418,7 @@ defmodule AtMcp.Spaces do
   def set_agent_status(session, agent, status) when status in ["active", "deactivated"] do
     with {:ok, agent} <- did_arg(agent, "agent"),
          :ok <- not_self(session, agent),
-         {:ok, password} <- agent_password(session, agent),
-         {:ok, token} <- agent_password_session(session, agent, password),
+         {:ok, token} <- signed_in_as_agent(session, agent),
          {:ok, _} <-
            agent_account_call(
              session,
@@ -2427,6 +2435,30 @@ defmodule AtMcp.Spaces do
 
   def set_agent_status(_session, _agent, _status),
     do: invalid("status", "must be active or deactivated")
+
+  # A full session as the agent. Revoking its sessions also sets its password
+  # to one nobody knows, so a password kept from before (marked stale, or
+  # refused) is rotated first (`rotatePassword`), and the new one kept.
+  defp signed_in_as_agent(session, agent) do
+    principal = Session.did(session)
+
+    with {:ok, password} <- agent_password(session, agent) do
+      stale? = AtMcp.Spaces.AgentPasswords.stale?(principal, agent)
+
+      case if(stale?, do: :stale, else: agent_password_session(session, agent, password)) do
+        {:ok, token} ->
+          {:ok, token}
+
+        _stale_or_refused ->
+          with {:ok, names} <- names(),
+               {:ok, %{"password" => fresh}} <-
+                 agent_call(session, names, "rotatePassword", %{"did" => agent}) do
+            AtMcp.Spaces.AgentPasswords.put(principal, agent, fresh)
+            agent_password_session(session, agent, fresh)
+          end
+      end
+    end
+  end
 
   defp agent_password(session, agent) do
     case AtMcp.Spaces.AgentPasswords.get(Session.did(session), agent) do
@@ -2493,6 +2525,8 @@ defmodule AtMcp.Spaces do
     with {:ok, names} <- names(),
          {:ok, agent} <- did_arg(agent, "agent"),
          {:ok, _} <- agent_call(session, names, "revokeSessions", %{"did" => agent}) do
+      # The PDS sets its password to one nobody knows: the kept one is stale.
+      AtMcp.Spaces.AgentPasswords.mark_stale(Session.did(session), agent)
       {:ok, %{did: agent, revoked: true}}
     end
   end
