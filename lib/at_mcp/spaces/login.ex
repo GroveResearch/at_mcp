@@ -114,6 +114,14 @@ defmodule AtMcp.Spaces.Login do
     end
   end
 
+  @doc "The login key file of the account `did`, or nil when AtMcp has none."
+  def key_file(did) do
+    case relogin_for(did) do
+      %{keyFile: file} -> file
+      _ -> nil
+    end
+  end
+
   @doc "Whether the account `did` has a login key AtMcp can log it in with."
   def key?(did), do: relogin_for(did) != nil
 

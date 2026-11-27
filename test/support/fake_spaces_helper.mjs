@@ -47,6 +47,7 @@ const methods = {
     return { did, scope: currentScope, expiresAt: null }
   },
   'oauth.status': () => ({ did, held: true }),
+  'oauth.approveFor': (p) => ({ approved: true, delivered: true, status: 200 }),
   'space.get': (p) => {
     if (spaces.has(p.space)) return { space: p.space, policy: {} }
     throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
@@ -77,7 +78,8 @@ const methods = {
   // that isn't the account's is refused for a missing scope.
   'space.records.list': (p) => {
     const space = typeof p.space === 'string' ? p.space : `at:space/${did}/${p.space.type}/${p.space.skey ?? 'self'}`
-    if (!space.startsWith(`at:space/${did}/`)) {
+    // Its own spaces, and its state space under its principal.
+    if (!space.startsWith(`at:space/${did}/`) && !space.endsWith(`/town.delve.space.agent/${did}`)) {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${space}"` }
     }
     return { records: written.map(({ rkey, record }) => ({ collection: p.collection, rkey, cid: 'bafyfake', value: record })) }

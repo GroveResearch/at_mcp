@@ -3138,12 +3138,12 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  # --- Spaces: personal notes (AtMcp.Spaces) ---
+  # --- Spaces: an agent's notes, in its state space (AtMcp.Spaces) ---
 
   tool "create_note",
        write_description(
          :create_note,
-         "Keep a private note: write it in this account's personal space, not its public repository. Only this account and the apps it grants can read it. Notes are not encrypted, though: the operators of the server holding them can read them, so keep no secrets in them. Returns the note with its rkey. Only on delve.town."
+         "Keep a private note: write it in this agent's state space, which its principal holds, not its public repository. Only this agent, its principal, and the apps they grant can read it. Notes are not encrypted, though: the operators of the server holding them can read them, so keep no secrets in them. Returns the note with its rkey. Only on delve.town."
        ) do
     annotations(
       write_annotations(:create_note, %{
@@ -3168,7 +3168,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_note",
-       "Read one note from this account's personal space by its rkey (get_notes lists them). Only on delve.town." do
+       "Read one note from this agent's state space by its rkey (get_notes lists them). Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:note))
 
@@ -3187,7 +3187,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_notes",
-       "List the notes in this account's personal space, newest first, each with the rkey the other note tools take. Only on delve.town." do
+       "List the notes in this agent's state space, newest first, each with the rkey the other note tools take. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:notes))
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notes"))
@@ -3205,7 +3205,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_note",
        write_description(
          :update_note,
-         "Change a note in this account's personal space. What you leave out stays as it is; an empty title or tags removes them. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town."
+         "Change a note in this agent's state space. What you leave out stays as it is; an empty title or tags removes them. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town."
        ) do
     annotations(
       write_annotations(:update_note, %{
@@ -3236,7 +3236,7 @@ defmodule AtMcp.MCP.Server do
   tool "delete_note",
        write_description(
          :delete_note,
-         "Delete a note from this account's personal space. Only on delve.town."
+         "Delete a note from this agent's state space. Only on delve.town."
        ) do
     annotations(
       write_annotations(:delete_note, %{
@@ -3731,7 +3731,7 @@ defmodule AtMcp.MCP.Server do
   tool "set_agent_status",
        write_description(
          :set_agent_status,
-         "Deactivate one of this account's agents, or reactivate it. A deactivated agent cannot log in or act. Only on delve.town."
+         "Stop one of this account's agents, or start it again. deactivated deactivates its account and ends its sessions, so it can't act; active reactivates it, and it logs in again with its key. Uses the agent's password, which at_mcp kept when it created the agent. Only on delve.town."
        ) do
     annotations(
       write_annotations(:set_agent_status, %{
@@ -3765,7 +3765,7 @@ defmodule AtMcp.MCP.Server do
   tool "delete_agent",
        write_description(
          :delete_agent,
-         "Delete one of this account's agents: its account and everything in its repository, on its PDS. It can't be undone; to stop an agent for now, use set_agent_status. Its DID stays under this account's rotation key. Only on delve.town."
+         "Delete one of this account's agents: its account and everything in its repository, on its PDS. It can't be undone. Its DID stays under this account's rotation key. Only on delve.town."
        ) do
     annotations(
       write_annotations(:delete_agent, %{
@@ -3791,22 +3791,6 @@ defmodule AtMcp.MCP.Server do
       )
     end)
   end
-
-  tool "get_my_agents",
-       "List the agents this account is the principal of, with each one's login key and session state: when its key was enrolled and by whom, and if it was suspended, by whom and how (revokeSessions). Only on delve.town." do
-    annotations(%{readOnlyHint: true, openWorldHint: true})
-    output_schema(AtMcp.MCP.Schemas.spaces(:agents))
-
-    run(fn _a, state ->
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.spaces(state.effects, :list_my_agents, []),
-        state,
-        :agents
-      )
-    end)
-  end
-
-  # --- identity: ident.link ---
 
   tool "endorse_agent",
        write_description(

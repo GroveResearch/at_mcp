@@ -4,10 +4,11 @@ defmodule AtMcp.Spaces do
   agents, for one account: the work behind the notes, group, principal and
   identity tools.
 
-  - **Personal notes** live in the account's personal space
-    (`town.delve.space.personal`, key `self`), as `town.delve.notes.note`
-    records. A personal space decides who can read it (the account, and apps
-    it grants), but it is **not encrypted**: the operators of the PDS holding
+  - **Notes** are an agent's: they live in its state space,
+    `town.delve.space.agent`, whose authority is its principal and whose key
+    is the agent's DID; principal and agent are both read/write members. The
+    principal's at_mcp makes it when it creates the agent. A space decides who
+    can read it, but it is **not encrypted**: the operators of the PDS holding
     it can read it. `readable_by/0` says so in every note result.
   - **Groups** are on a group host (`AT_MCP_GROUP_HOST`). Joining, leaving,
     accepting an invite and approving an app for a group are `org.atgrp.*`
@@ -37,7 +38,7 @@ defmodule AtMcp.Spaces do
   alias AtMcp.Spaces.Helper
   alias ProtoRune.Session
 
-  @readable_by "This account, and the apps it has granted access. Personal spaces are not encrypted: the operators of the server holding them can read them, so keep no secrets here."
+  @readable_by "This agent and its principal, and the apps they have granted access. Spaces are not encrypted: the operators of the server holding them can read them, so keep no secrets here."
 
   @inbox_soon "Your invite inbox will be created shortly; until then, invites are listed from the group host."
   @tokens_notice "This installation doesn't list the town's AppView as a reader of this account's invite inbox (AT_MCP_TOWN_INBOX_READER=false), so the AppView reads it only with the short-lived tokens at_mcp hands it while it runs: group invites reach get_notifications only while at_mcp runs, and up to about 8 minutes after they arrive. They are always listed in get_group_invites at once."
@@ -49,14 +50,15 @@ defmodule AtMcp.Spaces do
   # The town PDS counts the mutating agent routes as privileged: service auth
   # for them is minted only for a session that holds the matching `rpc:`
   # scope (or a full password session), never for an app password.
-  @agent_methods ~w(createAgent enrollKey revokeSessions setStatus deleteAgent listAgents)
+  @agent_methods ~w(createAgent enrollKey revokeSessions deleteAgent)
 
   @doc """
   The OAuth scope at_mcp asks for when an account's key logs it in, no more
   than the account needs:
 
   - `transition:generic`, for the app's public tools;
-  - its personal space (any collection, and creating it), every group feed
+  - its agents' state spaces (creating them and setting their members), and,
+    as an agent, its own state space under its principal; every group feed
     it is in, and its own inbox (creating it, reading its own repository
     there, and adding the town AppView to its members, which takes
     `manage=update`);
@@ -69,15 +71,18 @@ defmodule AtMcp.Spaces do
   """
   def scope_for(did, service \\ nil) do
     case AtMcp.Network.spaces() do
-      %{personal: personal, feed: feed, agent: agent} ->
+      %{feed: feed, agent: agent} ->
         base = [
           "atproto",
           "transition:generic",
-          "space:#{personal}?collection=*&manage=create",
           "space:#{feed}?authority=*",
           # A group's members space, read for its delegation token where the
           # AppView isn't a member of the group (`vouch_space/2`).
           "space:org.atgrp.members?authority=*&action=read",
+          # Its agents' state spaces, as their principal (`make_agent_space/2`),
+          # and, as an agent, its own, under its principal.
+          "space:town.delve.space.agent?manage=create&manage=update",
+          "space:town.delve.space.agent?authority=*&collection=*",
           # The member's own confirmation there (`confirm_membership/2`).
           "space:org.atgrp.members?authority=*&collection=org.atgrp.confirmation",
           inbox_scope()
@@ -157,7 +162,10 @@ defmodule AtMcp.Spaces do
     end
   end
 
-  # --- personal notes ---
+  # --- an agent's notes, in its state space ---
+
+  # An agent's state space (`agent_space_uri/2`), where an agent's notes go.
+  @agent_space "town.delve.space.agent"
 
   @note_fields ~w(text title tags)
   # The note lexicon's limits (`town.delve.notes.note`, in
@@ -168,14 +176,14 @@ defmodule AtMcp.Spaces do
 
   def create_note(session, fields) do
     with {:ok, names} <- names(),
-         {:ok, record} <- note_record(fields, nil) do
-      in_personal(session, fn space ->
-        helper(session, "space.records.create", %{
-          space: space,
-          collection: names.note,
-          record: record
-        })
-      end)
+         {:ok, record} <- note_record(fields, nil),
+         {:ok, space} <- notes_space(session) do
+      helper(session, "space.records.create", %{
+        space: space,
+        collection: names.note,
+        record: record
+      })
+      |> missing_state_space(space)
       |> note_written(record)
     end
   end
@@ -183,22 +191,28 @@ defmodule AtMcp.Spaces do
   def get_note(session, rkey) do
     with {:ok, names} <- names(),
          :ok <- rkey_arg(rkey),
+         {:ok, space} <- notes_space(session),
          {:ok, got} <-
            helper(session, "space.records.get", %{
-             space: personal(session, names),
+             space: space,
              collection: names.note,
              rkey: rkey
            }) do
       {:ok,
-       note_summary(note_uri(session, names, got["uri"], rkey), got["cid"], got["value"] || %{})}
+       note_summary(
+         note_uri(space, session, names, got["uri"], rkey),
+         got["cid"],
+         got["value"] || %{}
+       )}
     end
   end
 
   def list_notes(session, limit, cursor) do
     with {:ok, names} <- names(),
+         {:ok, space} <- notes_space(session),
          {:ok, page} <-
            helper(session, "space.records.list", %{
-             space: personal(session, names),
+             space: space,
              collection: names.note,
              limit: limit || AtMcp.Effects.page_limits().default,
              cursor: cursor
@@ -208,7 +222,7 @@ defmodule AtMcp.Spaces do
          notes:
            for r <- page["records"] || [] do
              note_summary(
-               note_uri(session, names, r["uri"], r["rkey"]),
+               note_uri(space, session, names, r["uri"], r["rkey"]),
                r["cid"],
                r["value"] || %{}
              )
@@ -228,15 +242,16 @@ defmodule AtMcp.Spaces do
   def update_note(session, rkey, fields) do
     with {:ok, names} <- names(),
          :ok <- rkey_arg(rkey),
+         {:ok, space} <- notes_space(session),
          {:ok, got} <-
            helper(session, "space.records.get", %{
-             space: personal(session, names),
+             space: space,
              collection: names.note,
              rkey: rkey
            }),
          {:ok, record} <- note_record(fields, got["value"] || %{}) do
       helper(session, "space.records.put", %{
-        space: personal(session, names),
+        space: space,
         collection: names.note,
         rkey: rkey,
         record: record
@@ -248,9 +263,10 @@ defmodule AtMcp.Spaces do
   def delete_note(session, rkey) do
     with {:ok, names} <- names(),
          :ok <- rkey_arg(rkey),
+         {:ok, space} <- notes_space(session),
          {:ok, _} <-
            helper(session, "space.records.delete", %{
-             space: personal(session, names),
+             space: space,
              collection: names.note,
              rkey: rkey
            }) do
@@ -333,36 +349,79 @@ defmodule AtMcp.Spaces do
   # A space's listRecords and getRecord answer the record's key and CID but
   # no URI, so a note's URI is built from the space, the account and the key:
   # the URI a write answers for it.
-  defp note_uri(_session, _names, uri, _rkey) when is_binary(uri), do: uri
-  defp note_uri(_session, _names, nil, nil), do: nil
+  defp note_uri(_space, _session, _names, uri, _rkey) when is_binary(uri), do: uri
+  defp note_uri(_space, _session, _names, nil, nil), do: nil
 
-  defp note_uri(session, names, nil, rkey),
-    do: "#{personal(session, names)}/#{Session.did(session)}/#{names.note}/#{rkey}"
+  defp note_uri(space, session, names, nil, rkey),
+    do: "#{space}/#{Session.did(session)}/#{names.note}/#{rkey}"
 
-  defp personal(session, names),
-    do: "at:space/#{Session.did(session)}/#{names.personal}/self"
+  # Where this account keeps its notes: its state space, under its
+  # principal (`agent_space_uri/2`). An account with no principal has none.
+  defp notes_space(session) do
+    # Spaces off is said first: it is so for every account.
+    with :ok <- helper_ready(), do: notes_space_of(session)
+  end
 
-  # Runs `fun` on the personal space, creating it first when it does not
-  # exist yet.
-  defp in_personal(session, fun) do
-    with {:ok, names} <- names() do
-      space = personal(session, names)
-
-      case fun.(space) do
-        {:error, %Failure{detail: "SpaceNotFound"}} ->
-          with {:ok, _} <-
-                 helper(session, "space.create", %{
-                   type: names.personal,
-                   skey: "self",
-                   policy: "personal"
-                 }),
-               do: fun.(space)
-
-        result ->
-          result
-      end
+  defp helper_ready do
+    case Helper.available() do
+      :ok -> :ok
+      {:error, reason} -> {:error, Helper.unavailable(reason)}
     end
   end
+
+  defp notes_space_of(session) do
+    case principal_of(session) do
+      {:ok, principal} ->
+        {:ok, agent_space_uri(principal, Session.did(session))}
+
+      :none ->
+        {:error,
+         Failure.new(:refused,
+           detail: :no_state_space,
+           message:
+             "Notes live in an agent's state space, which its principal holds; this account names no principal (agent-of), so it has none."
+         )}
+    end
+  end
+
+  # The principal the account's DID document names (`agent-of`), cached.
+  defp principal_of(session) do
+    did = Session.did(session)
+    key = {__MODULE__, :principal_of, did}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        found =
+          case resolve_did_doc(session, did) do
+            {:ok, doc} ->
+              case for("https://ident.link/agent-of/" <> p <- doc["alsoKnownAs"] || [], do: p) do
+                [principal | _] -> {:ok, principal}
+                [] -> :none
+              end
+
+            _ ->
+              :none
+          end
+
+        :persistent_term.put(key, found)
+        found
+
+      found ->
+        found
+    end
+  end
+
+  # The state space is the principal's to make.
+  defp missing_state_space({:error, %Failure{detail: "SpaceNotFound"} = f}, space),
+    do:
+      {:error,
+       %{
+         f
+         | message:
+             "This agent's state space (#{space}) doesn't exist yet: its principal's at_mcp makes it when it creates the agent, or the principal can make it."
+       }}
+
+  defp missing_state_space(result, _space), do: result
 
   # --- groups ---
 
@@ -494,7 +553,7 @@ defmodule AtMcp.Spaces do
 
     with {:ok, _} <- helper(session, "space.get", %{space: space}),
          {:ok, %{"token" => token}} <- helper(session, "space.delegationToken", %{space: space}) do
-      case AtMcp.ATProto.register_space(session, %{space: space, delegationToken: token}) do
+      case register_space(session, %{space: space, delegationToken: token}) do
         {:ok, %{status: status}} -> {:ok, %{space: space, status: status}}
         {:ok, %{"status" => status}} -> {:ok, %{space: space, status: status}}
         {:ok, _} -> {:ok, %{space: space, status: "registered"}}
@@ -532,7 +591,7 @@ defmodule AtMcp.Spaces do
              register -> register == true
            end
 
-         if register?, do: AtMcp.ATProto.register_space(session, %{space: members})
+         if register?, do: register_space(session, %{space: members})
 
          member? =
            case group_host_get(session, "org.atgrp.internal.listMembers", %{
@@ -561,7 +620,7 @@ defmodule AtMcp.Spaces do
   """
   def vouch_space(session, space) when is_binary(space) do
     with {:ok, %{"token" => token}} <- space_token(session, space) do
-      case AtMcp.ATProto.register_space(session, %{space: space, delegationToken: token}) do
+      case register_space(session, %{space: space, delegationToken: token}) do
         {:ok, %{status: status}} -> {:ok, %{space: space, status: status}}
         {:ok, %{"status" => status}} -> {:ok, %{space: space, status: status}}
         {:ok, _} -> {:ok, %{space: space, status: "registered"}}
@@ -592,7 +651,7 @@ defmodule AtMcp.Spaces do
   def register_inbox_now(session) do
     space = "at:space/#{Session.did(session)}/org.atgrp.inbox/self"
 
-    case AtMcp.ATProto.register_space(session, %{space: space}) do
+    case register_space(session, %{space: space}) do
       {:ok, %{status: status}} -> {:ok, status}
       {:ok, %{"status" => status}} -> {:ok, status}
       {:ok, _} -> {:ok, "registered"}
@@ -601,7 +660,7 @@ defmodule AtMcp.Spaces do
   end
 
   defp register_inbox(session, space) do
-    case AtMcp.ATProto.register_space(session, %{space: space}) do
+    case register_space(session, %{space: space}) do
       {:ok, %{status: status}} -> status
       {:ok, %{"status" => status}} -> status
       {:ok, _} -> "registered"
@@ -777,6 +836,173 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  # --- the town AppView's read grants ---
+  #
+  # The AppView reads an inbox, or a group's spaces, through a read-only OAuth
+  # grant its owner approves: the account for its inbox, a member for a
+  # group. Every registerSpace goes through `register_space/2`: when the
+  # AppView answers `grantNeeded`, with its request, at_mcp approves it (an
+  # inbox with the account's login key; a group with approveAuthorization)
+  # and registers again. Before approving, it checks the request is exactly
+  # the AppView's client asking for exactly the read scope. Until grants are
+  # on in the AppView, it never answers `grantNeeded`, and nothing changes.
+
+  @inbox_grant "atproto space:org.atgrp.inbox?authority=self&action=read"
+  # A group's grant is checked as it is asked (getAuthorization): read alone
+  # (`atproto space:org.atgrp.members?authority=self&action=read
+  # space:town.delve.space.feed?authority=self&action=read`, as the AppView
+  # asks it), whatever space types it names.
+
+  @doc "The town AppView's OAuth client_id, whose read grants at_mcp approves."
+  def appview_client_id,
+    do:
+      Application.get_env(:at_mcp, :appview_client_id) ||
+        "https://api.delve.town/oauth/client-metadata.json"
+
+  defp register_space(session, %{space: space} = params) do
+    case AtMcp.ATProto.register_space(session, params) do
+      {:ok, answer} ->
+        case grant_needed(answer) do
+          nil ->
+            {:ok, answer}
+
+          request ->
+            with {:ok, _} <- approve_grant(session, space, request) do
+              # Registered again, now that the grant is held.
+              AtMcp.ATProto.register_space(session, Map.delete(params, :delegationToken))
+            end
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp grant_needed(answer) do
+    status = answer[:status] || answer["status"]
+    uri = answer[:requestUri] || answer["requestUri"] || answer[:request_uri]
+    url = answer[:authorizationUrl] || answer["authorizationUrl"] || answer[:authorization_url]
+
+    if status == "grantNeeded" and (is_binary(uri) or is_binary(url)),
+      do: %{request_uri: uri, url: url}
+  end
+
+  defp approve_grant(session, space, request) do
+    did = Session.did(session)
+
+    case space_uri(space) do
+      {:space, _} ->
+        case String.split(space, "/") do
+          ["at:space", ^did, "org.atgrp.inbox", _] ->
+            approve_inbox_grant(session, did, request)
+
+          ["at:space", group, "org.atgrp.members", _] ->
+            approve_group_grant(session, group, request)
+
+          _ ->
+            {:error,
+             Failure.new(:refused,
+               detail: :no_grant_for_space,
+               message: "No grant is approved for #{space}."
+             )}
+        end
+
+      _ ->
+        {:error,
+         Failure.new(:refused,
+           detail: :no_grant_for_space,
+           message: "No grant is approved for #{space}."
+         )}
+    end
+  end
+
+  defp approve_inbox_grant(_session, did, %{url: url}) when is_binary(url) do
+    case AtMcp.Spaces.Login.key_file(did) do
+      nil ->
+        {:error,
+         Failure.new(:refused,
+           detail: :no_login_key,
+           message:
+             "The town AppView asks to read this account's invite inbox, and only the account's login key can approve it here; it has none in at_mcp."
+         )}
+
+      key_file ->
+        Helper.call("oauth.approveFor", %{
+          keyFile: key_file,
+          account: did,
+          authorizationUrl: url,
+          clientId: appview_client_id(),
+          scope: @inbox_grant
+        })
+    end
+  end
+
+  defp approve_inbox_grant(_session, _did, _request),
+    do:
+      {:error,
+       Failure.new(:refused,
+         detail: :no_authorization_url,
+         message: "The AppView's request named no authorization URL."
+       )}
+
+  # A member approves the AppView's session as the group: getAuthorization
+  # first, to check it is the AppView asking for read alone.
+  defp approve_group_grant(session, group, %{request_uri: uri}) when is_binary(uri) do
+    with {:ok, asked} <-
+           group_host_get(session, "org.atgrp.internal.getAuthorization", %{"requestUri" => uri}),
+         :ok <- appview_asking(asked),
+         {:ok, %{"redirectUrl" => redirect}} <-
+           group_host_post(session, "org.atgrp.internal.approveAuthorization", %{
+             "requestUri" => uri,
+             "group" => group
+           }) do
+      # The code in it lives 60 seconds: delivered at once.
+      _ = Req.get(redirect, redirect: false, retry: false)
+      {:ok, %{approved: true, group: group}}
+    end
+  end
+
+  defp approve_group_grant(_session, _group, _request),
+    do:
+      {:error,
+       Failure.new(:refused,
+         detail: :no_request_uri,
+         message: "The AppView's request named no request_uri."
+       )}
+
+  defp appview_asking(asked) do
+    client = get_in(asked, ["client", "clientId"]) || get_in(asked, ["client", "client_id"])
+    scopes = for %{"scope" => s} <- asked["requested"] || [], do: s
+
+    cond do
+      client != appview_client_id() ->
+        {:error,
+         Failure.new(:refused,
+           detail: :not_the_appview,
+           message:
+             "The request to sign in as the group isn't the town AppView's (#{inspect(client)}); nothing was approved."
+         )}
+
+      Enum.any?(scopes, &(not read_only_scope?(&1))) ->
+        {:error,
+         Failure.new(:refused,
+           detail: :more_than_read,
+           message:
+             "The town AppView's request asks for more than read (#{Enum.join(scopes, " ")}); nothing was approved."
+         )}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp read_only_scope?("atproto"), do: true
+
+  defp read_only_scope?("space:" <> _ = scope),
+    do: String.contains?(scope, "action=read") and not String.contains?(scope, "manage=")
+
+  defp read_only_scope?(_scope), do: false
+
   # --- founding a group, and running it ---
   #
   # The same calls as the web app's "Start a group" and group-host's own
@@ -852,7 +1078,7 @@ defmodule AtMcp.Spaces do
         ])
 
       confirmed = confirm_membership(session, group)
-      _ = AtMcp.ATProto.register_space(session, %{space: members})
+      _ = register_space(session, %{space: members})
       add_notifications_member_later(session, group, members, made["meta"], policy)
 
       {:ok,
@@ -1918,6 +2144,7 @@ defmodule AtMcp.Spaces do
   """
   def create_agent(session, handle, invite_code) do
     with {:ok, names} <- names(),
+         :ok <- not_an_agent(session),
          :ok <- handle_arg(handle),
          :ok <- text_arg(invite_code, "invite_code"),
          {:ok, rotation_key} <- principal_rotation_key(Session.did(session)),
@@ -1941,16 +2168,31 @@ defmodule AtMcp.Spaces do
              "inviteCode" => invite_code,
              "loginKey" => login["didKey"],
              "loginKeyProof" => proof,
+             # recoveryKey, as the PDS names it now; rotationKey, as it did.
+             "recoveryKey" => rotation_key,
              "rotationKey" => rotation_key
            }) do
         {:ok, %{"did" => did} = created} ->
           File.rename!(pending, key_path(did))
 
+          # The agent's password, given once: kept in this principal's state,
+          # never shown (`AtMcp.Spaces.AgentPasswords`).
+          if is_binary(created["password"]),
+            do: AtMcp.Spaces.AgentPasswords.put(Session.did(session), did, created["password"])
+
+          # The PDS writes the principal's endorsement when it hosts the
+          # principal (endorsed); otherwise this account writes it.
           endorsement =
-            case endorse_agent(session, did) do
-              {:ok, written} -> written
-              {:error, failure} -> %{error: failure.message}
+            if created["endorsed"] == true do
+              %{uri: created["endorsement"], written_by: "the PDS"}
+            else
+              case endorse_agent(session, did) do
+                {:ok, written} -> written
+                {:error, failure} -> %{error: failure.message}
+              end
             end
+
+          state = make_agent_space(session, did)
 
           {:ok,
            %{
@@ -1959,6 +2201,12 @@ defmodule AtMcp.Spaces do
              login_key: login["didKey"],
              rotation_key: rotation_key,
              endorsement: endorsement,
+             agent_space: state,
+             password:
+               if(is_binary(created["password"]),
+                 do:
+                   "kept in at_mcp's state folder for this principal (agent-passwords.json), shown nowhere"
+               ),
              next:
                "The agent logs in with its own key, which at_mcp keeps for it. To run it on this installation, its operator runs: at_mcp-accounts add-agent NAME --did #{did}, then at_mcp-accounts reload, then at_mcp-accounts connection NAME for the agent's MCP client."
            }}
@@ -1967,6 +2215,57 @@ defmodule AtMcp.Spaces do
           File.rm(pending)
           error
       end
+    end
+  end
+
+  # --- an agent's state: one space, its principal's ---
+  #
+  # Each agent's state lives in `town.delve.space.agent`, with its principal
+  # as authority and the agent's DID as key; principal and agent are both
+  # read/write members. The principal's at_mcp makes it after createAgent.
+  # It holds the agent's notes (and any records of its own). An account with
+  # no principal has no state space, and so no notes.
+
+  @doc "The URI of `agent`'s state space under `principal`."
+  def agent_space_uri(principal, agent), do: "at:space/#{principal}/#{@agent_space}/#{agent}"
+
+  defp make_agent_space(session, agent) do
+    principal = Session.did(session)
+
+    case helper(session, "space.create", %{
+           type: @agent_space,
+           skey: agent,
+           policy: "member",
+           members: [
+             %{did: principal, read: true, write: true},
+             %{did: agent, read: true, write: true}
+           ]
+         }) do
+      {:ok, %{"space" => space}} ->
+        space
+
+      {:error, %Failure{detail: "SpaceAlreadyExists"}} ->
+        agent_space_uri(principal, agent)
+
+      {:error, failure} ->
+        %{error: "The agent's state space wasn't made: #{to_failure(failure).message}"}
+    end
+  end
+
+  # An agent can't create agents (the PDS refuses createAgent from an
+  # account with a principal): said before a key is made.
+  defp not_an_agent(session) do
+    case principal_of(session) do
+      {:ok, principal} ->
+        {:error,
+         Failure.new(:refused,
+           detail: :agent_cannot_create_agents,
+           message:
+             "This account is an agent (of #{principal}), and agents can't create agents: its principal can."
+         )}
+
+      :none ->
+        :ok
     end
   end
 
@@ -2100,30 +2399,101 @@ defmodule AtMcp.Spaces do
     end
   end
 
-  def revoke_agent_sessions(session, agent) do
-    with {:ok, names} <- names(),
-         {:ok, agent} <- did_arg(agent, "agent"),
-         {:ok, _} <- agent_call(session, names, "revokeSessions", %{"did" => agent}) do
-      {:ok, %{did: agent, revoked: true}}
-    end
-  end
-
+  @doc """
+  Stops one of this account's agents, or starts it again, as its PDS has a
+  principal do it: signed in as the agent with the password kept when it
+  was created (`AtMcp.Spaces.AgentPasswords`), `deactivateAccount` or
+  `activateAccount`. Deactivating doesn't end the agent's OAuth sessions,
+  so stopping also revokes them (`revokeSessions`).
+  """
   def set_agent_status(session, agent, status) when status in ["active", "deactivated"] do
-    with {:ok, names} <- names(),
-         {:ok, agent} <- did_arg(agent, "agent"),
+    with {:ok, agent} <- did_arg(agent, "agent"),
+         :ok <- not_self(session, agent),
+         {:ok, password} <- agent_password(session, agent),
+         {:ok, token} <- agent_password_session(session, agent, password),
          {:ok, _} <-
-           agent_call(session, names, "setStatus", %{"did" => agent, "status" => status}) do
-      {:ok, %{did: agent, status: status}}
+           agent_account_call(
+             session,
+             token,
+             if(status == "deactivated", do: "deactivateAccount", else: "activateAccount")
+           ) do
+      revoked =
+        if status == "deactivated",
+          do: match?({:ok, _}, revoke_agent_sessions(session, agent))
+
+      {:ok, %{did: agent, status: status} |> put_present(:revoked, revoked)}
     end
   end
 
   def set_agent_status(_session, _agent, _status),
     do: invalid("status", "must be active or deactivated")
 
-  def list_my_agents(session) do
+  defp agent_password(session, agent) do
+    case AtMcp.Spaces.AgentPasswords.get(Session.did(session), agent) do
+      {:ok, password} ->
+        {:ok, password}
+
+      :error ->
+        {:error,
+         Failure.new(:refused,
+           detail: :no_agent_password,
+           message:
+             "at_mcp holds no password for #{agent}: it keeps the one the PDS gives when it creates an agent, on this installation. Without it, revoke_agent_sessions still stops the agent's sessions."
+         )}
+    end
+  end
+
+  # A full session as the agent (createSession with its password), for the
+  # account methods its principal uses: the token only.
+  defp agent_password_session(session, agent, password) do
+    url = Path.join(AtMcp.ATProto.base_url(session), "com.atproto.server.createSession")
+
+    case Req.post(url, json: %{identifier: agent, password: password}, retry: false) do
+      {:ok, %{status: 200, body: %{"accessJwt" => token}}} ->
+        {:ok, token}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error,
+         Failure.new(if(status in 400..499, do: :refused, else: :indeterminate),
+           status: status,
+           detail: is_map(body) && body["error"],
+           message:
+             "Signing in as the agent with its password failed (#{(is_map(body) && body["message"]) || status})."
+         )}
+
+      {:error, error} ->
+        {:error,
+         Failure.new(:indeterminate, detail: :transport, message: Exception.message(error))}
+    end
+  end
+
+  defp agent_account_call(session, token, method) do
+    url = Path.join(AtMcp.ATProto.base_url(session), "com.atproto.server.#{method}")
+
+    case Req.post(url, json: %{}, headers: [{"authorization", "Bearer " <> token}], retry: false) do
+      {:ok, %{status: 200}} ->
+        {:ok, method}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error,
+         Failure.new(:refused,
+           status: status,
+           detail: is_map(body) && body["error"],
+           message:
+             "#{method} as the agent answered #{status}: #{(is_map(body) && body["message"]) || ""}"
+         )}
+
+      {:error, error} ->
+        {:error,
+         Failure.new(:indeterminate, detail: :transport, message: Exception.message(error))}
+    end
+  end
+
+  def revoke_agent_sessions(session, agent) do
     with {:ok, names} <- names(),
-         {:ok, body} <- agent_call(session, names, "listAgents", nil) do
-      {:ok, %{agents: Map.get(body, "agents", [])}}
+         {:ok, agent} <- did_arg(agent, "agent"),
+         {:ok, _} <- agent_call(session, names, "revokeSessions", %{"did" => agent}) do
+      {:ok, %{did: agent, revoked: true}}
     end
   end
 
@@ -2374,8 +2744,14 @@ defmodule AtMcp.Spaces do
 
         own =
           case AtMcp.Network.spaces() do
-            %{personal: personal} ->
-              "at:space/#{did}/#{personal}/self (personal notes: the note tools)"
+            %{} ->
+              case principal_of(session) do
+                {:ok, principal} ->
+                  "#{agent_space_uri(principal, did)} (this agent's notes: the note tools)"
+
+                :none ->
+                  nil
+              end
 
             nil ->
               nil

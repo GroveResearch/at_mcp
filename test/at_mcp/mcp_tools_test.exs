@@ -174,6 +174,7 @@ defmodule AtMcp.MCP.ToolsTest do
     {"join_group", %{"group" => "did:plc:group"}},
     {"leave_group", %{"group" => "did:plc:group"}},
     {"confirm_group_membership", %{"group" => "did:plc:group"}},
+    {"set_agent_status", %{"agent" => "did:plc:agent", "status" => "deactivated"}},
     {"create_group", %{"name" => "garden", "display_name" => "Garden"}},
     {"invite_to_group", %{"group" => "did:plc:group", "who" => "did:plc:friend"}},
     {"get_join_requests", %{"group" => "did:plc:group"}},
@@ -185,8 +186,6 @@ defmodule AtMcp.MCP.ToolsTest do
     {"enroll_agent_key", %{"agent" => "did:plc:agent"}},
     {"delete_agent", %{"agent" => "did:plc:agent", "confirm" => true}},
     {"revoke_agent_sessions", %{"agent" => "did:plc:agent"}},
-    {"set_agent_status", %{"agent" => "did:plc:agent", "status" => "deactivated"}},
-    {"get_my_agents", %{}},
     {"endorse_agent", %{"agent" => "did:plc:agent"}},
     {"get_principals", %{"account" => "did:plc:agent"}},
     {"get_notifications", %{}},
@@ -367,7 +366,6 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_notes" => :notes,
     "get_my_groups" => :groups,
     "preview_group_app" => :group_app,
-    "get_my_agents" => :agents,
     "get_principals" => :principals
   }
 

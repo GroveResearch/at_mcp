@@ -96,6 +96,9 @@ export class Helper {
       proof: await keyProof(await loadKey(p.keyFile), { iss: p.iss, sub: p.sub, aud: p.aud, lxm: p.lxm }),
     }),
     'oauth.login': async (p) => this.#o.login({ account: p.account, keyFile: p.keyFile, scope: p.scope }),
+    // Another app's grant (the town AppView's read on the inbox), approved
+    // with the account's key.
+    'oauth.approveFor': async (p) => this.#o.approveFor(p as never),
     'oauth.credentials': async (p) =>
       this.#o.credentials(p.did, { refresh: !!p.refresh, relogin: p.relogin }),
     'oauth.status': async (p) => this.#o.status(p.did),

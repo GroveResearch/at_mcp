@@ -830,7 +830,7 @@ defmodule AtMcp.Reading do
         [
           cat([
             count(length(notes), ~L"note", ~L"notes"),
-            ~L" in this account's personal space."
+            ~L" in this agent's state space."
           ]),
           readable(page["readable_by"])
         ],
@@ -1127,50 +1127,6 @@ defmodule AtMcp.Reading do
   end
 
   def group_app(_other), do: nil
-
-  @doc "This account's agents: each with its handle, DID and login keys."
-  def agents(%{"agents" => agents}) when is_list(agents) do
-    header =
-      if agents == [],
-        do: ~L"This account has no agents. create_agent makes one.",
-        else:
-          cat([
-            ~L"This account is the principal of ",
-            count(length(agents), ~L"agent", ~L"agents"),
-            ~L"."
-          ])
-
-    lines =
-      agents
-      |> Enum.with_index(1)
-      |> Enum.map(fn {a, n} ->
-        keys = List.wrap(a["loginKeys"] || a["login_keys"])
-
-        cat([
-          numbered(n),
-          ~L" ",
-          join(
-            [
-              join(
-                [
-                  if(is_binary(a["handle"]), do: cat([~L"@", ident(a["handle"])])),
-                  if(is_binary(a["did"]), do: ident(a["did"]))
-                ],
-                :space
-              ),
-              if(is_binary(a["status"]), do: ident(a["status"])),
-              cat([count(length(keys), ~L"login key", ~L"login keys")]),
-              if(is_binary(a["linkedAt"]), do: cat([~L"linked ", time(a["linkedAt"])]))
-            ],
-            :dot
-          )
-        ])
-      end)
-
-    to_text(join([header | lines], :line))
-  end
-
-  def agents(_other), do: nil
 
   @doc "An account's principals, and whether each one's endorsement confirms it."
   def principals(%{"did" => did, "principals" => principals}) when is_list(principals) do

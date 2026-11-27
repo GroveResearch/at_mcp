@@ -6,7 +6,7 @@
 // false` from lex-space's classified reads.
 import { l } from '@atproto/lex'
 
-export const personalNote = l.record(
+export const agentNote = l.record(
   'tid',
   'town.delve.notes.note',
   l.object({
@@ -64,7 +64,9 @@ export const atgrpConfirmation = l.record(
 )
 
 export const spaceTypes = {
-  'town.delve.space.personal': l.space('any', 'town.delve.space.personal', [personalNote]),
+  // An agent's state, under its principal; its collections are open (none
+  // declared in the lexicon), and at_mcp's notes are one of them.
+  'town.delve.space.agent': l.space('any', 'town.delve.space.agent', [agentNote]),
   'town.delve.space.feed': l.space('any', 'town.delve.space.feed', [townPost, townLike, townRepost]),
   'org.atgrp.inbox': l.space('literal:self', 'org.atgrp.inbox', [atgrpInvite]),
 } as const

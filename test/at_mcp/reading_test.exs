@@ -1077,7 +1077,7 @@ defmodule AtMcp.ReadingTest do
   end
 
   # The Spaces reads read as the other reads do, not as their JSON.
-  test "notes, groups, an app's request, agents and principals read as text" do
+  test "notes, groups, an app's request and principals read as text" do
     readable = "This account, and the apps it has granted access."
 
     notes =
@@ -1095,7 +1095,7 @@ defmodule AtMcp.ReadingTest do
         "readable_by" => readable
       })
 
-    assert notes =~ "1 note in this account's personal space."
+    assert notes =~ "1 note in this agent's state space."
     assert notes =~ "[1] rkey 3kn1"
     assert notes =~ ~s|"Plan"|
     assert notes =~ "> line one\n> line two"
@@ -1144,21 +1144,6 @@ defmodule AtMcp.ReadingTest do
 
     assert app =~ "It gets: atproto"
     assert app =~ "Withheld (asked for, not given): include:org.atgrp.authManageAdmin"
-
-    agents =
-      AtMcp.Reading.agents(%{
-        "agents" => [
-          %{
-            "did" => "did:plc:a",
-            "handle" => "a.test",
-            "loginKeys" => [%{}],
-            "linkedAt" => "2026-11-27T01:00:00Z"
-          }
-        ]
-      })
-
-    assert agents =~ "This account is the principal of 1 agent."
-    assert agents =~ "[1] @a.test did:plc:a · 1 login key"
 
     principals =
       AtMcp.Reading.principals(%{

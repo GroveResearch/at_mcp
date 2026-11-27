@@ -414,7 +414,6 @@ defmodule AtMcp.Test.MockBackend do
       rotation_key: "did:key:zDn"
     }
 
-  defp spaces_summary(:list_my_agents, _), do: %{agents: []}
   defp spaces_summary(:endorse_agent, [agent]), do: %{agent: agent, uri: "at://x", cid: "c"}
 
   defp spaces_summary(:get_principals, [account]),

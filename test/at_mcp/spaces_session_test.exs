@@ -41,14 +41,21 @@ defmodule AtMcp.SpacesSessionTest do
           body =
             cond do
               String.ends_with?(url, ".notification.registerSpace") ->
-                %{
-                  status:
-                    Application.get_env(
-                      :at_mcp,
-                      :spaces_session_test_register_status,
-                      "registered"
-                    )
-                }
+                # A list of answers is taken one per call, the last staying.
+                case Application.get_env(
+                       :at_mcp,
+                       :spaces_session_test_register_status,
+                       "registered"
+                     ) do
+                  [answer | rest] ->
+                    if rest != [],
+                      do: Application.put_env(:at_mcp, :spaces_session_test_register_status, rest)
+
+                    answer
+
+                  status ->
+                    %{status: status}
+                end
 
               String.contains?(url, "com.atproto.server.getServiceAuth") ->
                 %{token: "aaa.bbb.ccc"}
@@ -71,6 +78,14 @@ defmodule AtMcp.SpacesSessionTest do
     log = Path.join(System.tmp_dir!(), "fake-helper-#{System.unique_integer([:positive])}.log")
     System.put_env("FAKE_LOG", log)
     System.put_env("FAKE_DID", "did:plc:oauthagent")
+    # The account is an agent of did:plc:principal, as its DID document
+    # would say (agent-of): its notes are in its state space there.
+    :persistent_term.put(
+      {AtMcp.Spaces, :principal_of, "did:plc:oauthagent"},
+      {:ok, "did:plc:principal"}
+    )
+
+    on_exit(fn -> :persistent_term.erase({AtMcp.Spaces, :principal_of, "did:plc:oauthagent"}) end)
     die = Path.join(System.tmp_dir!(), "fake-die-#{System.unique_integer([:positive])}")
     System.put_env("FAKE_DIE", die)
     if service = Map.get(ctx, :fake_service), do: System.put_env("FAKE_SERVICE", service)
@@ -196,7 +211,7 @@ defmodule AtMcp.SpacesSessionTest do
       end)
     end
 
-    test "a first note makes the personal space, then writes the note, and says it is not encrypted",
+    test "an agent's note is written in its state space, under its principal, and says it is not encrypted",
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
 
@@ -205,16 +220,29 @@ defmodule AtMcp.SpacesSessionTest do
 
       assert note.text == "remember"
       assert note.readable_by =~ "not encrypted"
+      assert note.readable_by =~ "its principal"
 
-      asked =
-        calls(ctx.log)
-        |> Enum.map(& &1["method"])
-        |> Enum.filter(&String.starts_with?(&1, "space."))
+      [written] = Enum.filter(calls(ctx.log), &(&1["method"] == "space.records.create"))
 
-      assert asked == ["space.records.create", "space.create", "space.records.create"]
+      assert written["params"]["space"] ==
+               "at:space/did:plc:principal/town.delve.space.agent/did:plc:oauthagent"
+
+      # The agent makes no space of its own: its principal holds it.
+      refute "space.create" in Enum.map(calls(ctx.log), & &1["method"])
 
       # Notes do not spend the write quota.
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
+    end
+
+    test "an account with no principal has no state space, so no notes, and is told why", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      :persistent_term.put({AtMcp.Spaces, :principal_of, "did:plc:oauthagent"}, :none)
+
+      assert {:error, %AtMcp.Effects.Failure{detail: :no_state_space, message: message}} =
+               AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "x"}])
+
+      assert message =~ "names no principal"
+      refute Enum.any?(calls(ctx.log), &String.starts_with?(&1["method"], "space."))
     end
 
     # Each refused before anything is sent, as the note lexicon
@@ -260,7 +288,7 @@ defmodule AtMcp.SpacesSessionTest do
       assert listed.rkey == created.rkey and is_binary(listed.rkey)
 
       assert listed.uri ==
-               "at:space/did:plc:oauthagent/town.delve.space.personal/self/did:plc:oauthagent/town.delve.notes.note/" <>
+               "at:space/did:plc:principal/town.delve.space.agent/did:plc:oauthagent/did:plc:oauthagent/town.delve.notes.note/" <>
                  listed.rkey
     end
 
@@ -274,7 +302,7 @@ defmodule AtMcp.SpacesSessionTest do
                AtMcp.Effects.spaces(ctx.effects, :space_feed, [elsewhere, nil])
 
       assert message =~ "No such space, or not one this account can read or write: #{elsewhere}"
-      assert message =~ "at:space/did:plc:oauthagent/town.delve.space.personal/self"
+      assert message =~ "at:space/did:plc:principal/town.delve.space.agent/did:plc:oauthagent"
       refute message =~ "scope"
     end
 
@@ -478,7 +506,14 @@ defmodule AtMcp.SpacesSessionTest do
     )
 
     get "/xrpc/org.atgrp.internal.getAuthorization" do
-      json(conn, %{
+      case Application.get_env(:at_mcp, :spaces_session_test_authorization) do
+        %{} = asked -> json(conn, asked)
+        nil -> json(conn, default_authorization())
+      end
+    end
+
+    defp default_authorization do
+      %{
         client: %{clientId: "https://app.example/client.json", name: "Example app"},
         requested: [%{scope: "atproto"}, %{scope: "include:org.atgrp.authManageAdmin"}],
         groups: [
@@ -490,7 +525,7 @@ defmodule AtMcp.SpacesSessionTest do
             withheld: [%{scope: "include:org.atgrp.authManageAdmin"}]
           }
         ]
-      })
+      }
     end
 
     post "/xrpc/org.atgrp.internal.approveAuthorization" do
@@ -806,6 +841,94 @@ defmodule AtMcp.SpacesSessionTest do
 
       {_, _state} = InboxTokens.vouch_all(state, accounts)
       assert group_tokens.() == 4
+    end
+
+    test "an inbox grant the AppView asks for is approved with the account's key, then registered again",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_register_status) end)
+
+      Application.put_env(:at_mcp, :spaces_session_test_register_status, [
+        %{
+          status: "grantNeeded",
+          requestUri: "urn:req:inbox",
+          authorizationUrl:
+            "https://pds.invalid/oauth/authorize?client_id=x&request_uri=urn:req:inbox"
+        },
+        %{status: "registered"}
+      ])
+
+      # The account's login key, which approves it.
+      key = AtMcp.Spaces.key_path("did:plc:oauthagent")
+      File.mkdir_p!(Path.dirname(key))
+      File.write!(key, "{}")
+      on_exit(fn -> File.rm(key) end)
+
+      assert {:ok, %{notifications: "registered"}} = AtMcp.Spaces.prepare_inbox(session_of())
+      assert receive_all_registers(0) == 2
+
+      [approve] = Enum.filter(calls(ctx.log), &(&1["method"] == "oauth.approveFor"))
+
+      assert %{
+               "account" => "did:plc:oauthagent",
+               "clientId" => "https://api.delve.town/oauth/client-metadata.json",
+               "scope" => "atproto space:org.atgrp.inbox?authority=self&action=read",
+               "authorizationUrl" =>
+                 "https://pds.invalid/oauth/authorize?client_id=x&request_uri=urn:req:inbox"
+             } = approve["params"]
+    end
+
+    test "a group grant is approved as a member only when it is the AppView asking for read alone",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      on_exit(fn ->
+        Application.delete_env(:at_mcp, :spaces_session_test_register_status)
+        Application.delete_env(:at_mcp, :spaces_session_test_authorization)
+      end)
+
+      appview = AtMcp.Spaces.appview_client_id()
+      need = %{status: "grantNeeded", requestUri: "urn:req:group"}
+      register = fn -> AtMcp.Effects.spaces(ctx.effects, :group_spaces, [[register: true]]) end
+
+      # Another app, or the AppView asking for more than read: nothing approved.
+      for asked <- [
+            %{
+              client: %{clientId: "https://other.example/client.json"},
+              requested: [%{scope: "atproto"}]
+            },
+            %{
+              client: %{clientId: appview},
+              requested: [%{scope: "atproto"}, %{scope: "include:org.atgrp.authManageAdmin"}]
+            }
+          ] do
+        Application.put_env(:at_mcp, :spaces_session_test_register_status, [
+          need,
+          %{status: "registered"}
+        ])
+
+        Application.put_env(:at_mcp, :spaces_session_test_authorization, asked)
+        _ = register.()
+        refute_received {:approved, _}
+      end
+
+      # The AppView, for read alone: approved for the group.
+      Application.put_env(:at_mcp, :spaces_session_test_register_status, [
+        need,
+        %{status: "registered"}
+      ])
+
+      Application.put_env(:at_mcp, :spaces_session_test_authorization, %{
+        client: %{clientId: appview},
+        requested: [
+          %{scope: "atproto"},
+          %{scope: "space:org.atgrp.members?authority=self&action=read"},
+          %{scope: "space:town.delve.space.feed?authority=self&action=read"}
+        ]
+      })
+
+      _ = register.()
+      assert_received {:approved, %{"requestUri" => "urn:req:group", "group" => "did:plc:group"}}
     end
 
     test "a failed attempt to make an inbox is tried again soon, then less often, up to the pass" do
@@ -1258,7 +1381,62 @@ defmodule AtMcp.SpacesSessionTest do
         {:agent_route, :create, conn.body_params}
       )
 
-      json(conn, %{did: "did:plc:newagent", handle: conn.body_params["handle"]})
+      # As the PDS answers now: the agent's password, once, and whether it
+      # wrote the principal's endorsement (only for a principal it hosts).
+      json(conn, %{
+        did: "did:plc:newagent",
+        handle: conn.body_params["handle"],
+        password: "agent-secret-once",
+        endorsed: false
+      })
+    end
+
+    # Signing in as the agent with its password, and its account methods.
+    post "/xrpc/com.atproto.server.createSession" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_session, conn.body_params}
+      )
+
+      if conn.body_params["password"] == "agent-secret-once",
+        do: json(conn, %{accessJwt: "agent-access", did: conn.body_params["identifier"]}),
+        else:
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(
+            401,
+            Jason.encode!(%{
+              error: "AuthenticationRequired",
+              message: "Invalid identifier or password"
+            })
+          )
+    end
+
+    post "/xrpc/com.atproto.server.deactivateAccount" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_account, :deactivate, get_req_header(conn, "authorization")}
+      )
+
+      json(conn, %{})
+    end
+
+    post "/xrpc/com.atproto.server.activateAccount" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_account, :activate, get_req_header(conn, "authorization")}
+      )
+
+      json(conn, %{})
+    end
+
+    post "/xrpc/town.delve.agent.revokeSessions" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_route, :revoke, conn.body_params}
+      )
+
+      json(conn, %{})
     end
 
     post "/xrpc/town.delve.agent.deleteAgent" do
@@ -1315,6 +1493,8 @@ defmodule AtMcp.SpacesSessionTest do
       end
 
       on_exit(fn -> File.rm(AtMcp.AccountConfig.path()) end)
+      # A principal here is a person, not itself an agent.
+      :persistent_term.put({AtMcp.Spaces, :principal_of, "did:plc:oauthagent"}, :none)
       %{write_accounts: write_accounts}
     end
 
@@ -1329,7 +1509,7 @@ defmodule AtMcp.SpacesSessionTest do
       scope = AtMcp.Spaces.scope_for("did:plc:oauthagent", ctx.fake_service)
       aud = URI.encode_www_form("did:web:pds.test#atproto_pds")
 
-      for m <- ~w(createAgent enrollKey revokeSessions setStatus deleteAgent listAgents),
+      for m <- ~w(createAgent enrollKey revokeSessions deleteAgent),
           do: assert(scope =~ "rpc:town.delve.agent.#{m}?aud=#{aud}")
 
       refute scope =~ "aud=*"
@@ -1365,7 +1545,34 @@ defmodule AtMcp.SpacesSessionTest do
       assert created.next =~ "at_mcp-accounts add-agent NAME --did did:plc:newagent"
 
       assert_received {:agent_route, :create, body}
+      assert body["recoveryKey"] == @rotation
       assert body["rotationKey"] == @rotation
+
+      # The password is kept for this principal, and shown nowhere.
+      assert {:ok, "agent-secret-once"} =
+               AtMcp.Spaces.AgentPasswords.get("did:plc:oauthagent", "did:plc:newagent")
+
+      refute inspect(created) =~ "agent-secret-once"
+      assert created.password =~ "kept in at_mcp's state folder"
+
+      # The agent's state space, made on this principal's PDS, with the agent
+      # as a read/write member beside it.
+      [made] = Enum.filter(calls(ctx.log), &(&1["method"] == "space.create"))
+
+      assert %{
+               "type" => "town.delve.space.agent",
+               "skey" => "did:plc:newagent",
+               "policy" => "member"
+             } =
+               made["params"]
+
+      assert %{"did" => "did:plc:newagent", "read" => true, "write" => true} in made["params"][
+               "members"
+             ]
+
+      assert created.agent_space ==
+               "at:space/did:plc:oauthagent/town.delve.space.agent/did:plc:newagent"
+
       assert "proof:" <> bound = body["loginKeyProof"]
 
       assert Jason.decode!(bound) == %{
@@ -1377,6 +1584,58 @@ defmodule AtMcp.SpacesSessionTest do
 
       # Only agents' login keys are in the key folder: no rotation key.
       refute Enum.any?(File.ls!(AtMcp.Spaces.keys_dir()), &String.contains?(&1, "rotation"))
+    end
+
+    test "an agent stops with its kept password: deactivated, and its sessions revoked; started again, active",
+         ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      assert {:ok, _} = AtMcp.Effects.spaces(ctx.effects, :create_agent, ["helper.test", "code"])
+
+      assert {:ok, %{status: "deactivated", revoked: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :set_agent_status, [
+                 "did:plc:newagent",
+                 "deactivated"
+               ])
+
+      assert_received {:agent_session,
+                       %{"identifier" => "did:plc:newagent", "password" => "agent-secret-once"}}
+
+      assert_received {:agent_account, :deactivate, ["Bearer agent-access"]}
+      assert_received {:agent_route, :revoke, %{"did" => "did:plc:newagent"}}
+
+      assert {:ok, %{status: "active"} = started} =
+               AtMcp.Effects.spaces(ctx.effects, :set_agent_status, ["did:plc:newagent", "active"])
+
+      refute Map.has_key?(started, :revoked)
+      assert_received {:agent_account, :activate, ["Bearer agent-access"]}
+
+      # An agent this installation didn't create has no kept password.
+      assert {:error, %AtMcp.Effects.Failure{detail: :no_agent_password, message: message}} =
+               AtMcp.Effects.spaces(ctx.effects, :set_agent_status, [
+                 "did:plc:elsewhere",
+                 "deactivated"
+               ])
+
+      assert message =~ "revoke_agent_sessions still stops"
+    end
+
+    test "an agent can't create agents, and is told before anything is made", ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      :persistent_term.put(
+        {AtMcp.Spaces, :principal_of, "did:plc:oauthagent"},
+        {:ok, "did:plc:principal"}
+      )
+
+      assert {:error,
+              %AtMcp.Effects.Failure{detail: :agent_cannot_create_agents, message: message}} =
+               AtMcp.Effects.spaces(ctx.effects, :create_agent, ["helper.test", "code"])
+
+      assert message =~ "agents can't create agents"
+      refute_received {:agent_route, :create, _}
+      refute "key.generate" in Enum.map(calls(ctx.log), & &1["method"])
     end
 
     test "an account made a principal while its session runs logs in again for the agent routes",
@@ -1465,12 +1724,12 @@ defmodule AtMcp.SpacesSessionTest do
 
     test "a write is not sent again: its outcome is unknown, and the caller is told", ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
-      ctx.die.("space.create")
+      ctx.die.("space.records.create")
 
       assert {:error, {:write_outcome_unknown, _}} =
                AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "once"}])
 
-      creates = Enum.count(calls(ctx.log), &(&1["method"] == "space.create"))
+      creates = Enum.count(calls(ctx.log), &(&1["method"] == "space.records.create"))
       assert creates == 1
     end
   end

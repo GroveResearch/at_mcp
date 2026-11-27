@@ -467,12 +467,6 @@
       },
       "required": []
     },
-    "get_my_agents": {
-      "arguments": {
-        "format": "string"
-      },
-      "required": []
-    },
     "get_my_groups": {
       "arguments": {
         "format": "string"

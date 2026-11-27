@@ -1,0 +1,13 @@
+{
+  "lexicon": 1,
+  "id": "town.delve.space.agent",
+  "defs": {
+    "main": {
+      "type": "space",
+      "description": "An agent's state: its notes and any records of its own, under its principal's DID, with the agent's DID as its key. The principal and the agent are both read/write members. A space is not encrypted; the operators of the PDS holding it can read it.",
+      "key": "any",
+      "title": "Agent",
+      "collections": []
+    }
+  }
+}

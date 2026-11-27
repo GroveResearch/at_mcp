@@ -1638,7 +1638,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defp note_properties do
     %{
-      "uri" => nullable_string("The note's URI in this account's personal space"),
+      "uri" => nullable_string("The note's URI in this agent's state space"),
       "rkey" =>
         nullable_string("The note's key, which get_note, update_note and delete_note take"),
       "cid" => nullable_string("CID of the note as written"),
@@ -1854,8 +1854,6 @@ defmodule AtMcp.MCP.Schemas do
         "next" => nullable_string("How to run the new agent"),
         "status" => nullable_string()
       })
-
-  defp spaces_schema(:agents), do: object(%{"agents" => any_list()})
 
   defp spaces_schema(:endorsement),
     do:
