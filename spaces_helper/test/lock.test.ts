@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, readdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, readdir, readFile, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fork } from 'node:child_process'
@@ -42,6 +42,33 @@ test('a lock left by a process that died is taken over', async () => {
   const file = join(dir, lockFileName(name))
   await writeFile(file, JSON.stringify({ pid: 2 ** 22 + 12345, at: Date.now() }))
   assert.equal(await withFileLock(dir, name, async () => 'taken'), 'taken')
+})
+
+test('a lock file left empty, by a holder killed as it took it, is taken over', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lock-'))
+  const name = 'store:oauth-sessions.json'
+  const file = join(dir, lockFileName(name))
+  await writeFile(file, '')
+  // Fresh, it may still be being written: waited for, not taken.
+  const early = await Promise.race([
+    withFileLock(dir, name, async () => 'taken'),
+    new Promise((r) => setTimeout(() => r('waiting'), 500)),
+  ])
+  assert.equal(early, 'waiting')
+  // Once it has stayed unreadable, it is taken over.
+  const old = new Date(Date.now() - 10_000)
+  await utimes(file, old, old)
+  assert.equal(await withFileLock(dir, name, async () => 'taken'), 'taken')
+})
+
+test("a lock is never seen half written, and a dead holder's draft is cleared", async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lock-'))
+  const name = 'oauth:y'
+  const dead = 2 ** 22 + 54321
+  await writeFile(join(dir, `${lockFileName(name)}.${dead}.0badc0de.draft`), '')
+  const seen = await withFileLock(dir, name, async () => JSON.parse(await readFile(join(dir, lockFileName(name)), 'utf8')))
+  assert.equal(seen.pid, process.pid)
+  assert.deepEqual(await readdir(dir), [])
 })
 
 test('a key proof is the login key signing one call by one caller about one agent', async () => {
