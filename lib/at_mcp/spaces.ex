@@ -154,8 +154,9 @@ defmodule AtMcp.Spaces do
   # --- personal notes ---
 
   @note_fields ~w(text title tags)
-  # The note lexicon's text limits (`town.delve.notes.note`): 10 bytes a
-  # grapheme, as the town's lexicon style has it.
+  # The note lexicon's limits (`town.delve.notes.note`, in
+  # spaces_helper/lexicons): 10 bytes a grapheme, as the town's lexicon style
+  # has it. A title is at most 300, a tag 64, and a note holds 16 tags.
   @note_graphemes 30_000
   @note_bytes 300_000
 
@@ -282,11 +283,19 @@ defmodule AtMcp.Spaces do
           "may be at most #{@note_graphemes} characters (#{@note_bytes} bytes); split a longer note into several"
         )
 
-      record["title"] && String.length(record["title"]) > 300 ->
-        invalid("title", "may be at most 300 characters")
+      record["title"] &&
+          (not is_binary(record["title"]) or String.length(record["title"]) > 300 or
+             byte_size(record["title"]) > 3000) ->
+        invalid("title", "may be at most 300 characters (3000 bytes)")
 
       record["tags"] && (not is_list(record["tags"]) or length(record["tags"]) > 16) ->
         invalid("tags", "may hold at most 16 tags")
+
+      record["tags"] &&
+          Enum.any?(record["tags"], fn tag ->
+            not is_binary(tag) or String.length(tag) > 64 or byte_size(tag) > 640
+          end) ->
+        invalid("tags", "each tag is text of at most 64 characters (640 bytes)")
 
       true ->
         {:ok, record}

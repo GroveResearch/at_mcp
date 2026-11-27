@@ -210,6 +210,37 @@ defmodule AtMcp.SpacesSessionTest do
       assert AtMcp.Effects.quota_status(ctx.effects).used == 0
     end
 
+    # Each refused before anything is sent, as the note lexicon
+    # (town.delve.notes.note) would refuse the record.
+    test "a note's fields are held to the note lexicon's limits", ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      long = fn n -> String.duplicate("a", n) end
+
+      for {fields, field, says} <- [
+            {%{text: long.(30_001)}, "text", "at most 30000 characters"},
+            {%{text: "x", title: long.(301)}, "title", "at most 300 characters"},
+            {%{text: "x", tags: Enum.map(1..17, &"t#{&1}")}, "tags", "at most 16 tags"},
+            {%{text: "x", tags: [long.(65)]}, "tags", "at most 64 characters"},
+            {%{text: "x", tags: [String.duplicate("é", 64) <> String.duplicate("🌱", 1)]}, "tags",
+             "at most 64 characters"},
+            {%{text: "x", tags: [7]}, "tags", "each tag is text"}
+          ] do
+        assert {:error, %AtMcp.Effects.Failure{detail: :invalid_argument, message: message}} =
+                 AtMcp.Effects.spaces(ctx.effects, :create_note, [fields])
+
+        assert message =~ field <> " "
+        assert message =~ says
+      end
+
+      refute "space.records.create" in Enum.map(calls(ctx.log), & &1["method"])
+
+      # At the limits, the note is written.
+      assert {:ok, _} =
+               AtMcp.Effects.spaces(ctx.effects, :create_note, [
+                 %{text: "x", title: long.(300), tags: Enum.map(1..16, fn _ -> long.(64) end)}
+               ])
+    end
+
     test "a listed note has its rkey and its URI, so it can be updated after", ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
 
