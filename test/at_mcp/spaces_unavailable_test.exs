@@ -71,7 +71,7 @@ defmodule AtMcp.SpacesUnavailableTest do
     refute status[:isError]
   end
 
-  test "the town AppView is a listed reader of new inboxes unless the setting turns it off" do
+  test "the town AppView is a listed reader of new inboxes only when the setting turns it on" do
     previous = Application.get_env(:at_mcp, :network)
     Application.put_env(:at_mcp, :network, :delve)
 
@@ -83,23 +83,17 @@ defmodule AtMcp.SpacesUnavailableTest do
         else: Application.delete_env(:at_mcp, :network)
     end)
 
-    # On by default: the town AppView is a listed reader of new inboxes.
+    # Off by default: the AppView reads inboxes through grants.
     Application.delete_env(:at_mcp, :town_inbox_reader)
+    assert AtMcp.Spaces.inbox_readers() == []
+
+    # On, as the fallback: a listed reader of new inboxes.
+    Application.put_env(:at_mcp, :town_inbox_reader, true)
     assert [reader] = AtMcp.Spaces.inbox_readers()
     assert reader =~ "did:"
 
     assert AtMcp.Spaces.scope_for("did:plc:x") =~
              "org.atgrp.inbox?action=read&manage=create&manage=update"
-
-    # Off, an inbox has no members; the AppView reads it by the tokens
-    # AtMcp hands it, as it also does with the reader on.
-    Application.put_env(:at_mcp, :town_inbox_reader, false)
-    assert AtMcp.Spaces.inbox_readers() == []
-
-    refute AtMcp.Spaces.scope_for("did:plc:x") =~
-             "org.atgrp.inbox?action=read&manage=create&manage=update"
-
-    Application.put_env(:at_mcp, :town_inbox_reader, true)
 
     Application.put_env(:at_mcp, :network, :bluesky)
     assert AtMcp.Spaces.inbox_readers() == []

@@ -7,6 +7,8 @@ itself.
 
 ## Unreleased
 
+- `AT_MCP_TOWN_INBOX_READER` is off by default: the town AppView reads inboxes through the grant the account approves.
+
 - at_mcp can serve a hosted agent through a TLS proxy (docs/hosts/hosted.md): grants can expire (`AT_MCP_GRANT_LIFETIME_DAYS`, `connection --expires-in DAYS`), and failed grant presentations are limited per source (`AT_MCP_GRANT_FAILURES_PER_MINUTE`).
 
 - The first `get_notifications` read with `since: "last_read"` of an account that never marked its notifications seen returned nothing. It now returns the newest notification, which the app shows as unread.

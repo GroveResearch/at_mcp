@@ -108,7 +108,7 @@ defmodule AtMcp.Spaces do
   # needs (`vouch_inbox/1`); adding the AppView to its members, only when
   # the installation does (`inbox_readers/0`).
   defp inbox_scope do
-    if Application.get_env(:at_mcp, :town_inbox_reader, true),
+    if Application.get_env(:at_mcp, :town_inbox_reader, false),
       do: "space:org.atgrp.inbox?action=read&manage=create&manage=update",
       else: "space:org.atgrp.inbox?action=read&manage=create"
   end
@@ -155,7 +155,7 @@ defmodule AtMcp.Spaces do
   does either way.
   """
   def inbox_readers do
-    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, true) do
+    if AtMcp.Network.spaces() && Application.get_env(:at_mcp, :town_inbox_reader, false) do
       [AtMcp.Network.appview_service() |> String.split("#") |> hd()]
     else
       []
@@ -1349,7 +1349,7 @@ defmodule AtMcp.Spaces do
          confirmed: match?({:ok, _}, confirmed),
          join_policy: policy,
          notifications_member:
-           "The town AppView, which sends the group's members their notifications, is being added as a bot member: it asks to join, and at_mcp admits it in the next two minutes. An admin can remove it at any time; removed, it isn't added back." <>
+           "The town AppView, which sends the group's members their notifications, reads the group through a read-only grant you approved as its founder; an admin can revoke it in the group's apps. Where the AppView doesn't read through grants, it asks to join instead, and at_mcp admits it as a bot member in the next two minutes." <>
              if(policy != "approval",
                do:
                  " The group takes requests until then, and its join policy becomes #{policy} once the AppView is in.",

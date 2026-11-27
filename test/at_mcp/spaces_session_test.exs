@@ -1220,7 +1220,7 @@ defmodule AtMcp.SpacesSessionTest do
       assert made.feeds == ["at:space/did:plc:newgroup/town.delve.space.feed/general"]
       assert made.confirmed
       assert made.next =~ "invite_to_group (group: did:plc:newgroup)"
-      assert made.notifications_member =~ "bot member"
+      assert made.notifications_member =~ "read-only grant"
 
       # Its feed, made as the group: members read and write, the bot reads.
       acts = Enum.filter(calls(ctx.log), &(&1["method"] == "group.act"))

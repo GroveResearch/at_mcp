@@ -94,7 +94,7 @@ if config_env() != :test do
     # member (AtMcp.Spaces.inbox_readers/0), so invites reach the
     # notifications while AtMcp isn't running. Either way AtMcp also hands
     # the AppView tokens for each inbox while it runs (AtMcp.Spaces.InboxTokens).
-    {"AT_MCP_TOWN_INBOX_READER", flag, true},
+    {"AT_MCP_TOWN_INBOX_READER", flag, false},
     # The town AppView's OAuth client_id, whose read grants on an inbox or a
     # group at_mcp approves (AtMcp.Spaces.appview_client_id/0).
     {"AT_MCP_APPVIEW_CLIENT_ID", url, nil},
