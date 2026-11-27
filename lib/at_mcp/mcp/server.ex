@@ -3180,7 +3180,8 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :get_note, [Map.fetch!(a, :rkey)]),
-        state
+        state,
+        :note
       )
     end)
   end
@@ -3195,7 +3196,8 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :list_notes, [a[:limit], a[:cursor]]),
-        state
+        state,
+        :notes
       )
     end)
   end
@@ -3381,7 +3383,8 @@ defmodule AtMcp.MCP.Server do
           Map.fetch!(a, :request_uri),
           a[:group]
         ]),
-        state
+        state,
+        :group_app
       )
     end)
   end
@@ -3435,7 +3438,11 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.spaces(:groups))
 
     run(fn _a, state ->
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.spaces(state.effects, :get_my_groups, []), state)
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :get_my_groups, []),
+        state,
+        :groups
+      )
     end)
   end
 
@@ -3624,7 +3631,11 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.spaces(:agents))
 
     run(fn _a, state ->
-      AtMcp.MCP.Tools.respond(AtMcp.Effects.spaces(state.effects, :list_my_agents, []), state)
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :list_my_agents, []),
+        state,
+        :agents
+      )
     end)
   end
 
@@ -3664,7 +3675,8 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :get_principals, [Map.fetch!(a, :account)]),
-        state
+        state,
+        :principals
       )
     end)
   end

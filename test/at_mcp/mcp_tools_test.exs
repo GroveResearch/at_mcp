@@ -354,7 +354,13 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_post_images" => :post_images,
     "get_preferences" => :preferences,
     "get_notification_settings" => :notification_settings,
-    "get_activity_subscriptions" => :profiles
+    "get_activity_subscriptions" => :profiles,
+    "get_note" => :note,
+    "get_notes" => :notes,
+    "get_my_groups" => :groups,
+    "preview_group_app" => :group_app,
+    "get_my_agents" => :agents,
+    "get_principals" => :principals
   }
 
   test "a read returns text alone, and its summary when asked; a write returns its summary" do

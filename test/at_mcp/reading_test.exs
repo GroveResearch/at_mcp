@@ -1076,6 +1076,92 @@ defmodule AtMcp.ReadingTest do
     refute text =~ "handle.invalid"
   end
 
+  # The Spaces reads read as the other reads do, not as their JSON.
+  test "notes, groups, an app's request, agents and principals read as text" do
+    readable = "This account, and the apps it has granted access."
+
+    notes =
+      AtMcp.Reading.notes(%{
+        "notes" => [
+          %{
+            "rkey" => "3kn1",
+            "title" => "Plan",
+            "tags" => ["town"],
+            "text" => "line one\nline two",
+            "updated_at" => "2026-11-27T01:00:00Z"
+          }
+        ],
+        "cursor" => "c2",
+        "readable_by" => readable
+      })
+
+    assert notes =~ "1 note in this account's personal space."
+    assert notes =~ "[1] rkey 3kn1"
+    assert notes =~ ~s|"Plan"|
+    assert notes =~ "> line one\n> line two"
+    assert notes =~ "More: pass cursor c2 to get_notes."
+    refute notes =~ "{"
+
+    assert AtMcp.Reading.note(%{"rkey" => "3kn1", "text" => "hi", "readable_by" => readable}) =~
+             "Note rkey 3kn1"
+
+    group = %{
+      "did" => "did:plc:g",
+      "handle" => "g.groups.test",
+      "display_name" => "Garden",
+      "description" => "We grow",
+      "feeds" => ["at:space/did:plc:g/town.delve.space.feed/general"]
+    }
+
+    groups = AtMcp.Reading.groups(%{"groups" => [group]})
+    assert groups =~ "This account is in 1 group."
+    assert groups =~ ~s|[1] "Garden" (@g.groups.test) did:plc:g|
+
+    assert groups =~
+             "Feeds (post there with post's space; read with get_space_feed): at:space/did:plc:g/town.delve.space.feed/general"
+
+    assert AtMcp.Reading.groups(%{"groups" => []}) =~ "This account is in no groups."
+
+    app =
+      AtMcp.Reading.group_app(%{
+        "app" => %{"name" => "Example app", "client_id" => "https://app.example/client.json"},
+        "group" => "did:plc:g",
+        "granted" => ["atproto"],
+        "withheld" => ["include:org.atgrp.authManageAdmin"],
+        "approved" => false
+      })
+
+    assert app =~
+             ~s|The app "Example app" (https://app.example/client.json) asks to sign in as the group did:plc:g.|
+
+    assert app =~ "It gets: atproto"
+    assert app =~ "Withheld (asked for, not given): include:org.atgrp.authManageAdmin"
+
+    agents =
+      AtMcp.Reading.agents(%{
+        "agents" => [
+          %{
+            "did" => "did:plc:a",
+            "handle" => "a.test",
+            "loginKeys" => [%{}],
+            "linkedAt" => "2026-11-27T01:00:00Z"
+          }
+        ]
+      })
+
+    assert agents =~ "This account is the principal of 1 agent."
+    assert agents =~ "[1] @a.test did:plc:a · 1 login key"
+
+    principals =
+      AtMcp.Reading.principals(%{
+        "did" => "did:plc:a",
+        "principals" => [%{"did" => "did:plc:p", "confirmed" => true}]
+      })
+
+    assert principals =~ "did:plc:a is an agent of:"
+    assert principals =~ "did:plc:p (confirmed: its endorsement completes the pair)"
+  end
+
   test "get_post_images lists each image with its alt text and what became of it" do
     text =
       AtMcp.Reading.post_images(%{
