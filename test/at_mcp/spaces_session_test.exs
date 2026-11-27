@@ -497,6 +497,15 @@ defmodule AtMcp.SpacesSessionTest do
         })
     )
 
+    # The group's members matching q: the AppView among them unless a test
+    # says it isn't a member.
+    get "/xrpc/org.atgrp.internal.listMembers" do
+      conn = Plug.Conn.fetch_query_params(conn)
+      member? = Application.get_env(:at_mcp, :spaces_session_test_appview_member, true)
+      found = if member?, do: [%{actor: %{did: conn.query_params["q"]}, roles: []}], else: []
+      json(conn, %{members: found})
+    end
+
     get("/xrpc/org.atgrp.internal.getActorGroups",
       do:
         json(conn, %{groups: [%{did: "did:plc:group", handle: "g.groups.test", displayName: "G"}]})
@@ -616,10 +625,11 @@ defmodule AtMcp.SpacesSessionTest do
       tokens = fn -> Enum.count(calls(ctx.log), &(&1["method"] == "space.delegationToken")) end
       drain = fn -> receive_all_registers(0) end
 
-      # The first pass makes the inbox with its reader and registers it.
+      # The first pass makes the inbox with its reader and registers it (and
+      # the account's group's members space: the stand-in group host has one).
       {last, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
       assert last == %{agent: :reader}
-      assert drain.() == 1
+      assert drain.() == 2
       assert tokens.() == 0
 
       # Passes within the keep-alive send nothing.
@@ -631,7 +641,7 @@ defmodule AtMcp.SpacesSessionTest do
       state = %{state | renewed: MapSet.put(state.renewed, "did:plc:oauthagent")}
       {last, state} = InboxTokens.vouch_all(state, accounts)
       assert last == %{agent: "registered"}
-      assert drain.() == 1
+      assert drain.() == 2
 
       # So does the keep-alive, 30 minutes on.
       state = put_in(state.modes.agent.at, state.modes.agent.at - InboxTokens.keepalive_ms())
@@ -682,6 +692,52 @@ defmodule AtMcp.SpacesSessionTest do
         )
 
       assert {:ok, _space, "off", nil} = AtMcp.Spaces.ensure_inbox(session)
+    end
+
+    test "a group with the AppView as a member is registered once, with no tokens; one without gets tokens at most every 8 minutes",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      alias AtMcp.Spaces.InboxTokens
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_appview_member) end)
+      accounts = [{:agent, ctx.effects}]
+
+      group_tokens = fn ->
+        Enum.count(
+          calls(ctx.log),
+          &(&1["method"] == "space.delegationToken" and &1["params"]["space"] =~ "did:plc:group")
+        )
+      end
+
+      # The AppView is a member: the members space is registered at the
+      # first pass (beside the inbox), then nothing.
+      {_, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
+      assert receive_all_registers(0) == 2
+      assert group_tokens.() == 0
+      {_, state} = InboxTokens.vouch_all(state, accounts)
+      assert receive_all_registers(0) == 0
+
+      # A new session registers it again.
+      state = %{state | renewed: MapSet.put(state.renewed, "did:plc:oauthagent")}
+      {_, _state} = InboxTokens.vouch_all(state, accounts)
+      assert receive_all_registers(0) == 2
+      assert group_tokens.() == 0
+
+      # A group without the AppView: a token for its members space and its
+      # feed at once, then none within 8 minutes, then the next.
+      Application.put_env(:at_mcp, :spaces_session_test_appview_member, false)
+      {_, state} = InboxTokens.vouch_all(InboxTokens.initial(), accounts)
+      assert group_tokens.() == 2
+      {_, state} = InboxTokens.vouch_all(state, accounts)
+      assert group_tokens.() == 2
+
+      state =
+        update_in(
+          state.groups.agent.groups["did:plc:group"].token_at,
+          &(&1 - InboxTokens.token_ms())
+        )
+
+      {_, _state} = InboxTokens.vouch_all(state, accounts)
+      assert group_tokens.() == 4
     end
 
     test "a failed attempt to make an inbox is tried again soon, then less often, up to the pass" do

@@ -75,6 +75,9 @@ defmodule AtMcp.Spaces do
           "transition:generic",
           "space:#{personal}?collection=*&manage=create",
           "space:#{feed}?authority=*",
+          # A group's members space, read for its delegation token where the
+          # AppView isn't a member of the group (`vouch_space/2`).
+          "space:org.atgrp.members?authority=*&action=read",
           inbox_scope()
         ]
 
@@ -495,6 +498,86 @@ defmodule AtMcp.Spaces do
         {:ok, _} -> {:ok, %{space: space, status: "registered"}}
         {:error, reason} -> {:error, to_failure(reason)}
       end
+    end
+  end
+
+  @doc """
+  The groups this account belongs to, for keeping the town AppView reading
+  them as it reads the inbox: each group's members space and feeds, and
+  whether the AppView is a member of the group (the group host's
+  `listMembers`, asked for the AppView's DID), so it reads them without
+  client tokens. With `register: true`, each group's members space is
+  registered with the AppView first (`registerSpace` without a token), or
+  with `register: {:except, known}` each group's not among `known`: the
+  AppView accepts that whether or not it may read the space, so its answer
+  doesn't say whether it is a member; the group host's list does.
+  """
+  def group_spaces(session, opts \\ []) do
+    reader = AtMcp.Network.appview_service() |> String.split("#") |> hd()
+
+    with {:ok, %{groups: groups}} <- get_my_groups(session) do
+      {:ok,
+       for %{did: did} = g <- groups, is_binary(did) do
+         members =
+           Enum.find_value(g.spaces, "at:space/#{did}/org.atgrp.members/self", fn
+             %{type: "org.atgrp.members", uri: uri} -> uri
+             _ -> nil
+           end)
+
+         register? =
+           case Keyword.get(opts, :register, false) do
+             {:except, known} -> did not in known
+             register -> register == true
+           end
+
+         if register?, do: AtMcp.ATProto.register_space(session, %{space: members})
+
+         member? =
+           case group_host_get(session, "org.atgrp.internal.listMembers", %{
+                  "group" => did,
+                  "q" => reader,
+                  "limit" => 1
+                }) do
+             {:ok, %{"members" => found}} when is_list(found) ->
+               Enum.any?(found, &(get_in(&1, ["actor", "did"]) == reader))
+
+             # Can't tell: tokens, so nothing is missed.
+             _ ->
+               false
+           end
+
+         %{group: did, member?: member?, spaces: [members | g.feeds]}
+       end}
+    end
+  end
+
+  @doc """
+  Hands the town AppView a fresh delegation token for `space` (a group's
+  members space or feed this account reads), as `vouch_inbox/1` does for
+  the inbox: for a group the AppView isn't a member of. A session from
+  before the members-space scope was asked for logs in again once.
+  """
+  def vouch_space(session, space) when is_binary(space) do
+    with {:ok, %{"token" => token}} <- space_token(session, space) do
+      case AtMcp.ATProto.register_space(session, %{space: space, delegationToken: token}) do
+        {:ok, %{status: status}} -> {:ok, %{space: space, status: status}}
+        {:ok, %{"status" => status}} -> {:ok, %{space: space, status: status}}
+        {:ok, _} -> {:ok, %{space: space, status: "registered"}}
+        {:error, reason} -> {:error, to_failure(reason)}
+      end
+    end
+  end
+
+  defp space_token(session, space) do
+    case helper(session, "space.delegationToken", %{space: space}) do
+      {:error, %Failure{detail: detail}} when detail in ["ScopeMissing", "InsufficientScope"] ->
+        did = Session.did(session)
+
+        with {:ok, _creds} <- AtMcp.Spaces.Login.fresh(did),
+             do: helper(session, "space.delegationToken", %{space: space})
+
+      other ->
+        other
     end
   end
 

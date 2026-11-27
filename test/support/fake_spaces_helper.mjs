@@ -51,7 +51,11 @@ const methods = {
     throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
   },
   'space.delegationToken': (p) => {
-    if (!spaces.has(p.space)) throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
+    // This account's own spaces exist once made; another authority's (a
+    // group's) are taken to exist.
+    if (p.space.startsWith(`at:space/${did}/`) && !spaces.has(p.space)) {
+      throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
+    }
     return { space: p.space, token: `dtok-${Date.now()}` }
   },
   // A personal space that does not exist until space.create makes it.

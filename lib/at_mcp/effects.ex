@@ -960,6 +960,8 @@ defmodule AtMcp.Effects do
 
   # The `AtMcp.Spaces` operations that change nothing.
   @spaces_reads [
+    :group_spaces,
+    :vouch_space,
     :register_inbox_now,
     :invite_groups,
     :get_note,

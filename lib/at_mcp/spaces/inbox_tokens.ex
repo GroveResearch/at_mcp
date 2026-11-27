@@ -27,7 +27,16 @@ defmodule AtMcp.Spaces.InboxTokens do
       invites read this way can reach the notifications up to about 8
       minutes late: the cost of opting out of the reader.
 
-  Whatever the AppView answers, no inbox gets a token more often than every
+  The account's groups follow the same rule: a group the AppView is a member
+  of (the default on groups.delve.town) has its members space registered
+  once, at start and on a new session, with no tokens; a group without the
+  AppView gets a token for its members space and each feed at most every 8
+  minutes, so an agent hears from it as a person in it does through the web
+  app. Whether the AppView is a member comes from the group host's member
+  list, looked at again every 30 minutes, which also finds groups joined
+  since.
+
+  Whatever the AppView answers, no space gets a token more often than every
   8 minutes, except one at once after the account's session is established
   anew. The pass runs every 100 seconds and checks each account; most passes
   send nothing.
@@ -89,6 +98,8 @@ defmodule AtMcp.Spaces.InboxTokens do
        # account id => %{mode: :reader | :tokens, at: when last registered}
        modes: %{},
        renewed: MapSet.new(),
+       # account id => %{checked_at, groups: %{group DID => %{member?, spaces, token_at}}}
+       groups: %{},
        retry_first: Keyword.get(opts, :retry_first_ms, @retry_first_ms),
        retries: %{}
      }}
@@ -142,7 +153,85 @@ defmodule AtMcp.Spaces.InboxTokens do
   defp pass(state, id, effects, now) do
     renewed? = MapSet.member?(state.renewed, did_of(effects))
     state = %{state | renewed: MapSet.delete(state.renewed, did_of(effects))}
+    {status, state} = inbox_pass(state, id, effects, now, renewed?)
+    {status, groups_pass(state, id, effects, now, renewed?)}
+  end
 
+  # The account's groups, as its inbox: the AppView reads a group it is a
+  # member of (the default on groups.delve.town) without tokens, so each
+  # group's members space is registered once, at start and on a new session;
+  # a group without the AppView gets a token for its members space and feeds
+  # at most every 8 minutes. Membership is looked at again every 30 minutes,
+  # which also finds groups joined since.
+  defp groups_pass(state, id, effects, now, renewed?) do
+    entry = state.groups[id]
+
+    entry =
+      cond do
+        is_nil(entry) or renewed? -> check_groups(effects, true, entry, now)
+        now - entry.checked_at >= state.keepalive -> check_groups(effects, :new, entry, now)
+        true -> entry
+      end
+
+    case entry do
+      nil ->
+        state
+
+      entry ->
+        groups =
+          Map.new(entry.groups, fn
+            {g, %{member?: true} = info} ->
+              {g, info}
+
+            {g, info} ->
+              if renewed? or is_nil(info.token_at) or now - info.token_at >= state.token_every do
+                Enum.each(info.spaces, &vouch_space(effects, &1))
+                {g, %{info | token_at: now}}
+              else
+                {g, info}
+              end
+          end)
+
+        %{state | groups: Map.put(state.groups, id, %{entry | groups: groups})}
+    end
+  end
+
+  defp check_groups(effects, register, previous, now) do
+    known = if previous, do: previous.groups, else: %{}
+
+    register =
+      if register == :new, do: {:except, Map.keys(known)}, else: register
+
+    case AtMcp.Effects.spaces(effects, :group_spaces, [[register: register]]) do
+      {:ok, found} ->
+        groups =
+          Map.new(found, fn %{group: g} = info ->
+            {g,
+             %{
+               member?: info.member?,
+               spaces: info.spaces,
+               token_at: get_in(known, [g, :token_at])
+             }}
+          end)
+
+        %{checked_at: now, groups: groups}
+
+      {:error, reason} ->
+        Logger.info("reading the account's groups failed: #{inspect(reason, limit: 5)}")
+        # Tried again at the next pass when nothing was known yet.
+        previous && %{previous | checked_at: now}
+    end
+  catch
+    :exit, _ -> previous
+  end
+
+  defp vouch_space(effects, space) do
+    AtMcp.Effects.spaces(effects, :vouch_space, [space])
+  catch
+    :exit, _ -> :failed
+  end
+
+  defp inbox_pass(state, id, effects, now, renewed?) do
     case state.modes[id] do
       nil ->
         if pending_retry?(state, id) do
@@ -181,7 +270,7 @@ defmodule AtMcp.Spaces.InboxTokens do
         {"registered", put_mode(state, id, :reader, now, token_at, true)}
 
       _other ->
-        state |> put_mode(id, :tokens, now, token_at) |> token(id, effects, now, renewed?)
+        state |> put_mode(id, :tokens, now, token_at, true) |> token(id, effects, now, renewed?)
     end
   end
 
@@ -198,7 +287,7 @@ defmodule AtMcp.Spaces.InboxTokens do
     end
   end
 
-  defp put_mode(state, id, mode, now, token_at \\ nil, listed \\ true),
+  defp put_mode(state, id, mode, now, token_at, listed),
     do: %{
       state
       | modes:
