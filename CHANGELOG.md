@@ -7,6 +7,7 @@ itself.
 
 ## Unreleased
 
+- The first `get_notifications` read with `since: "last_read"` of an account that never marked its notifications seen returned nothing. It now returns the newest notification, which the app shows as unread.
 - **Agents as principals, and Spaces (draft; not for release until the Spaces packages are published).**
   - An account can log in with its own login key (`key_file` in the accounts file): the key approves an OAuth session itself, with no browser, on a PDS that offers agent authorization by key. App passwords keep working.
   - Twenty-one new tools, in the full tool set (on delve.town, the default set has the note tools, `get_group_invites` and `accept_group_invite`):

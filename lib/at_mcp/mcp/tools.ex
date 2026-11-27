@@ -1040,13 +1040,15 @@ defmodule AtMcp.MCP.Tools do
     asked = Map.get(args, :since)
 
     case did && AtMcp.ReadPositions.get(did, feed) do
-      {:ok, %{at: held}} ->
-        held = held || seen(page, feed)
+      {:ok, %{at: saved}} ->
+        held = saved || seen(page, feed)
         since = if asked == "last_read", do: held, else: asked
         reached? = reached?(page, held, feed)
+        # From the app's seen marker, new is what the app counts unread.
+        from_seen? = is_nil(saved) and is_binary(held) and asked == "last_read"
 
         page
-        |> newer(since, asked, fetch, started, feed)
+        |> newer(since, asked, fetch, started, feed, from_seen?)
         |> mark(marks?(args) && reached?, marks?(args), did, feed)
 
       nil ->
@@ -1077,8 +1079,13 @@ defmodule AtMcp.MCP.Tools do
 
   # Where a feed with no position held starts. Notifications start where the
   # account last marked them seen, as the AppView's `seenAt` gives it, so the
-  # first read with last_read returns what the app shows as unread. A feed
-  # has no such marker, and starts from its newest item.
+  # first read with last_read returns what the app shows as unread. An
+  # account that never marked them seen gets the newest notification's time
+  # as its `seenAt`, with that notification unread (the AppView's
+  # listNotifications, "if there's no last-seen time, consider top
+  # notification unread"), so from there the notification at the marker
+  # that the app counts unread is new too. A feed has no such marker, and
+  # starts from its newest item.
   defp seen(page, "notifications"), do: if(is_binary(page[:seen_at]), do: page[:seen_at])
   defp seen(_page, _feed), do: nil
 
@@ -1112,16 +1119,23 @@ defmodule AtMcp.MCP.Tools do
   # newer/6 keeps the page's items newer than since. If every item is newer
   # and there is a cursor, it fetches up to four more pages to count the new
   # items and keeps the cursor for the caller.
-  defp newer(page, since, asked, fetch, started, feed) when is_binary(since) do
-    new = Enum.filter(page.items, &later?(&1, since, feed))
+  defp newer(page, since, asked, fetch, started, feed, from_seen? \\ false)
+
+  defp newer(page, since, asked, fetch, started, feed, from_seen?) when is_binary(since) do
+    new? = fn item ->
+      later?(item, since, feed) or (from_seen? and unread_at?(item, since, feed))
+    end
+
+    new = Enum.filter(page.items, new?)
     rest? = length(new) == length(page.items) and is_binary(page[:cursor])
 
     {more, exact?} =
       if rest?,
-        do: count_newer(fetch, page[:cursor], since, @count_pages, started, feed),
+        do: count_newer(fetch, page[:cursor], new?, @count_pages, started),
         else: {0, true}
 
-    Map.merge(page, %{
+    page
+    |> Map.merge(%{
       items: new,
       count: length(new),
       cursor: if(rest?, do: page[:cursor]),
@@ -1130,27 +1144,40 @@ defmodule AtMcp.MCP.Tools do
       new_total: length(new) + more,
       new_total_exact: exact?
     })
+    # The first read from the seen marker left older notifications out,
+    # which the app counts read but this account never read here.
+    |> then(fn result ->
+      if from_seen? and (length(new) < length(page.items) or is_binary(page[:cursor])),
+        do: Map.put(result, :first_read, true),
+        else: result
+    end)
   end
 
   # `last_read` with no position held: everything is new, and this is the
   # newest page.
-  defp newer(page, nil, "last_read", _fetch, _started, _feed),
+  defp newer(page, nil, "last_read", _fetch, _started, _feed, _from_seen?),
     do: Map.merge(page, %{since: nil, since_asked: "last_read"})
 
-  defp newer(page, _since, _asked, _fetch, _started, _feed), do: page
+  defp newer(page, _since, _asked, _fetch, _started, _feed, _from_seen?), do: page
 
-  defp count_newer(_fetch, _cursor, _at, 0, _started, _feed), do: {0, false}
+  # The notification the AppView put the seen marker on and counts unread.
+  defp unread_at?(item, at, feed) do
+    Map.get(item, :is_read) == false and is_binary(when_listed(item, feed)) and
+      not later?(item, at, feed) and not AtMcp.ReadPositions.later?(at, when_listed(item, feed))
+  end
 
-  defp count_newer(fetch, cursor, at, pages, started, feed) do
+  defp count_newer(_fetch, _cursor, _new?, 0, _started), do: {0, false}
+
+  defp count_newer(fetch, cursor, new?, pages, started) do
     with true <- time_left?(started),
          {:ok, %{items: items} = page} when is_list(items) <-
            fetch.(AtMcp.Effects.page_limits().max, cursor) do
-      new = Enum.count(items, &later?(&1, at, feed))
+      new = Enum.count(items, new?)
 
       if new < length(items) or not is_binary(page[:cursor]) do
         {new, true}
       else
-        {more, exact?} = count_newer(fetch, page[:cursor], at, pages - 1, started, feed)
+        {more, exact?} = count_newer(fetch, page[:cursor], new?, pages - 1, started)
         {new + more, exact?}
       end
     else

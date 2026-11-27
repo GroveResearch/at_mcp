@@ -311,9 +311,9 @@ defmodule AtMcp.ReadPositionTest do
     end
 
     # Five replies, indexed 10:01 to 10:05, newest first; the app marked them
-    # seen up to 10:02, so it shows three as unread.
+    # seen at 10:02:30, so it shows three as unread.
     at = &"2026-10-29T10:0#{&1}:00.000Z"
-    Application.put_env(:at_mcp, :read_position_test_seen_at, at.(2))
+    Application.put_env(:at_mcp, :read_position_test_seen_at, "2026-10-29T10:02:30.000Z")
 
     Application.put_env(
       :at_mcp,
@@ -335,6 +335,46 @@ defmodule AtMcp.ReadPositionTest do
     # The app is seen up to 10:02 and this account read here to 10:05, so the
     # app still counts three unread: the page says where they are.
     assert second =~ "read without since to see them again, and update_seen marks them seen"
+  end
+
+  # An account that never marked its notifications seen: the AppView gives the
+  # newest notification's time as seenAt, and counts that one unread.
+  test "the first notifications read of a never-seen account returns the newest, which the app counts unread",
+       ctx do
+    at = &"2026-10-29T10:0#{&1}:00.000Z"
+    Application.put_env(:at_mcp, :read_position_test_seen_at, at.(3))
+
+    Application.put_env(
+      :at_mcp,
+      :read_position_test_notifications,
+      Enum.map(3..1//-1, &Map.put(reply(&1, at.(&1), at.(&1)), "isRead", &1 != 3))
+    )
+
+    {:ok, result, _} =
+      AtMcp.MCP.Server.handle_call_tool(
+        "get_notifications",
+        %{"since" => "last_read"},
+        Map.delete(ctx.state, :format)
+      )
+
+    text = hd(result.content).text
+    assert text =~ "1 notification. Seen in the app up to "
+    assert text =~ " 1 new since this account last read here at "
+    assert Enum.filter([1, 2, 3], &(text =~ uri(&1))) == [3]
+    # The older two are left out: say where they are.
+    assert text =~ "First read on this account; older notifications: read without since."
+    assert {:ok, %{at: "2026-10-29T10:03:00.000Z"}} = ReadPositions.get(ctx.did, "notifications")
+
+    # Once read here, it is not new again, though the app still counts it unread.
+    {:ok, result, _} =
+      AtMcp.MCP.Server.handle_call_tool(
+        "get_notifications",
+        %{"since" => "last_read"},
+        Map.delete(ctx.state, :format)
+      )
+
+    assert hd(result.content).text =~ "0 notifications."
+    refute hd(result.content).text =~ "First read"
   end
 
   test "a feed with no position held starts from its newest item, as it has no seen marker",

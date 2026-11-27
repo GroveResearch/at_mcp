@@ -2477,7 +2477,10 @@ defmodule AtMcp.Reading do
       if(page["new_total_exact"] == false, do: cat([~L"At least ", int(n)]), else: int(n)),
       ~L" new since this account last read here at ",
       time(at),
-      ~L"."
+      ~L".",
+      if(page["first_read"] == true,
+        do: ~L" First read on this account; older notifications: read without since."
+      )
     ])
   end
 

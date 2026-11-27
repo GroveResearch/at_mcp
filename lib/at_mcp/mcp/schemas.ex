@@ -1598,7 +1598,12 @@ defmodule AtMcp.MCP.Schemas do
         "read_position_unsaved" =>
           nullable_string("The error that stopped at_mcp from saving the read position."),
         "since_unread" =>
-          nullable_string("The error at_mcp got loading the read position for since: last_read.")
+          nullable_string("The error at_mcp got loading the read position for since: last_read."),
+        "first_read" => %{
+          "type" => "boolean",
+          "description" =>
+            "True on this account's first notifications read with last_read, which starts from seen_at, when older notifications were left out: the app counts them read, but this account never read them here. Read without since to see them."
+        }
       })
     end)
   end
