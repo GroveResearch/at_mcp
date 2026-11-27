@@ -29,6 +29,16 @@
         "request_uri"
       ]
     },
+    "approve_join_request": {
+      "arguments": {
+        "group": "string",
+        "member": "string"
+      },
+      "required": [
+        "group",
+        "member"
+      ]
+    },
     "block": {
       "arguments": {
         "actor": "string"
@@ -69,6 +79,18 @@
       "required": [
         "handle",
         "invite_code"
+      ]
+    },
+    "create_group": {
+      "arguments": {
+        "description": "string",
+        "display_name": "string",
+        "join_policy": "string",
+        "name": "string"
+      },
+      "required": [
+        "display_name",
+        "name"
       ]
     },
     "create_list": {
@@ -163,6 +185,16 @@
       },
       "required": [
         "uri"
+      ]
+    },
+    "deny_join_request": {
+      "arguments": {
+        "group": "string",
+        "member": "string"
+      },
+      "required": [
+        "group",
+        "member"
       ]
     },
     "detach_quote": {
@@ -335,6 +367,15 @@
         "format": "string"
       },
       "required": []
+    },
+    "get_join_requests": {
+      "arguments": {
+        "format": "string",
+        "group": "string"
+      },
+      "required": [
+        "group"
+      ]
     },
     "get_known_followers": {
       "arguments": {
@@ -695,6 +736,17 @@
         "format": "string"
       },
       "required": []
+    },
+    "invite_to_group": {
+      "arguments": {
+        "group": "string",
+        "message": "string",
+        "who": "string"
+      },
+      "required": [
+        "group",
+        "who"
+      ]
     },
     "join_group": {
       "arguments": {

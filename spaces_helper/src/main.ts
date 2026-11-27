@@ -11,6 +11,7 @@ import { generateKey, keyProof, loadKey, publicKey } from './keys.ts'
 import type { Log } from './log.ts'
 import { OAuthSessions } from './oauth.ts'
 import { Spaces } from './spaces.ts'
+import { asGroup } from './group.ts'
 
 export const PROTOCOL = 1
 export const HELPER_VERSION = '0.1.0'
@@ -30,6 +31,7 @@ type Handler = (params: Record<string, any>) => Promise<unknown>
 export class Helper {
   oauth?: OAuthSessions
   spaces?: Spaces
+  fetch?: typeof globalThis.fetch
   constructor(
     readonly log: Log,
     readonly baseFetch: typeof globalThis.fetch = globalThis.fetch,
@@ -46,6 +48,7 @@ export class Helper {
       }
       return this.baseFetch(req, init?.redirect ? { redirect: init.redirect } : undefined)
     }
+    this.fetch = fetch
     this.oauth = new OAuthSessions({
       stateDir: config.stateDir,
       fetch,
@@ -82,6 +85,12 @@ export class Helper {
   methods: Record<string, Handler> = {
     init: async (p) => this.init(p as Init),
     'key.generate': async (p) => strip(await generateKey(p.keyFile)),
+    // Calls as a group (its host's group token): a founder's first space,
+    // an invite, an admission.
+    'group.act': async (p) => {
+      if (!this.fetch) throw new Error('not initialized')
+      return asGroup(this.fetch, p as never)
+    },
     'key.public': async (p) => strip(await publicKey(p.keyFile)),
     'key.prove': async (p) => ({
       proof: await keyProof(await loadKey(p.keyFile), { iss: p.iss, sub: p.sub, aud: p.aud, lxm: p.lxm }),

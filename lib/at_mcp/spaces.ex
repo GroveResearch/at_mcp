@@ -777,6 +777,347 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  # --- founding a group, and running it ---
+  #
+  # The same calls as the web app's "Start a group" and group-host's own
+  # client (atgrp): createGroup with the founder's service auth, then, as the
+  # group (getGroupAuth tokens), its discussion space; the founder's own
+  # confirmation; and the town AppView as a bot member, admitted once it asks.
+
+  @feed_skey "general"
+  @bot_role %{"$type" => "org.atgrp.role", "displayName" => "Bot", "bot" => true}
+  @handle_label ~r/\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/
+
+  @doc """
+  Founds a group with this account as its admin: `name` (one label, made
+  `<name>.<the host's handle domain>`), `display_name`, and optionally
+  `description` and `join_policy` (`open`, `approval`, the default, or
+  `invite`). Makes its discussion feed (`town.delve.space.feed`, key
+  `general`), which members read and write; confirms the founder's
+  membership; and asks the town AppView in as the group's notifications
+  member (`add_notifications_member/2`, which runs on its own once the
+  group is made).
+  """
+  def create_group(session, %{} = args) do
+    # Founded taking requests, so the town AppView can ask in (an invite-only
+    # group turns its request away for good); the policy asked for is set
+    # once it is in (`add_notifications_member_later/5`).
+    policy = args[:join_policy] || "approval"
+
+    with {:ok, handle} <- group_handle(args[:name]),
+         {:ok, made} <-
+           group_host_post(
+             session,
+             "org.atgrp.internal.createGroup",
+             %{
+               "handle" => handle,
+               "displayName" => args[:display_name],
+               "joinPolicy" => "approval"
+             }
+             |> put_present("description", args[:description])
+           )
+           |> founding_failure(handle) do
+      group = made["did"]
+      members = made["members"] || members_space(group)
+      feed = "at:space/#{group}/#{names_feed()}/#{@feed_skey}"
+
+      # The `bot` role first (no permissions): the feed's policy names it,
+      # and the group host refuses a policy naming a role it hasn't got.
+      _ =
+        as_group(session, group, members, [
+          {"com.atproto.space.putRecord",
+           %{
+             "repo" => group,
+             "space" => members,
+             "collection" => "org.atgrp.role",
+             "rkey" => "bot",
+             "record" => @bot_role
+           }}
+        ])
+
+      feed_made =
+        as_group(session, group, feed, [
+          {"com.atproto.space.createSpace",
+           %{
+             "spaceType" => names_feed(),
+             "skey" => @feed_skey,
+             "policy" => %{
+               "$type" => "org.atgrp.policy",
+               "grants" => [
+                 %{"role" => "member", "read" => true, "write" => true},
+                 %{"role" => "bot", "read" => true}
+               ]
+             }
+           }}
+        ])
+
+      confirmed = confirm_membership(session, group)
+      _ = AtMcp.ATProto.register_space(session, %{space: members})
+      add_notifications_member_later(session, group, members, made["meta"], policy)
+
+      {:ok,
+       %{
+         group: %{did: group, handle: handle, display_name: args[:display_name]},
+         role: "admin",
+         members_space: members,
+         feeds: if(match?({:ok, _}, feed_made), do: [feed], else: []),
+         feed_note:
+           case feed_made do
+             {:ok, _} -> nil
+             {:error, f} -> "The group was made, but its feed wasn't: #{to_failure(f).message}"
+           end,
+         confirmed: match?({:ok, _}, confirmed),
+         join_policy: policy,
+         notifications_member:
+           "The town AppView, which sends the group's members their notifications, is being added as a bot member: it asks to join, and at_mcp admits it in the next two minutes. An admin can remove it at any time; removed, it isn't added back." <>
+             if(policy != "approval",
+               do:
+                 " The group takes requests until then, and its join policy becomes #{policy} once the AppView is in.",
+               else: ""
+             ),
+         next:
+           "Invite people with invite_to_group (group: #{group}); see who asks to join with get_join_requests."
+       }}
+    end
+  end
+
+  defp group_handle(name) when is_binary(name) do
+    name = name |> String.trim() |> String.trim_leading("@") |> String.downcase()
+
+    with {:ok, domain} <- group_domain() do
+      cond do
+        String.ends_with?(name, domain) and
+            Regex.match?(@handle_label, String.replace_suffix(name, domain, "")) ->
+          {:ok, name}
+
+        Regex.match?(@handle_label, name) ->
+          {:ok, name <> domain}
+
+        true ->
+          invalid(
+            "name",
+            "must be one label of letters, numbers and hyphens (it becomes <name>#{domain})"
+          )
+      end
+    end
+  end
+
+  defp group_handle(_name), do: invalid("name", "is required")
+
+  # createGroup's refusals, said as they are, with what to do.
+  defp founding_failure({:ok, _} = ok, _handle), do: ok
+
+  defp founding_failure({:error, %Failure{detail: detail} = f}, handle) do
+    message =
+      case detail do
+        "HandleTaken" ->
+          "#{handle} is taken: choose another name."
+
+        "InvalidHandle" ->
+          "#{handle} isn't a handle this group host gives: use letters, numbers and hyphens."
+
+        "NotAllowed" ->
+          "The group host refused (#{f.message}). No group was made."
+
+        "FounderCheckUnavailable" ->
+          "The group host couldn't check that you may start groups (#{f.message}). No group was made; try again in a minute."
+
+        "AccountCreationFailed" ->
+          "The group host couldn't register the group's identity (#{f.message}). No group was made; try again."
+
+        :transport ->
+          "The group host isn't answering (#{f.message}). Try again in a minute."
+
+        _ ->
+          nil
+      end
+
+    # The host's founder check comes before createGroup: a group was surely
+    # not made, so it isn't an unknown outcome.
+    kind = if detail == "FounderCheckUnavailable", do: :refused, else: f.kind
+    {:error, if(message, do: %{f | message: message, kind: kind}, else: f)}
+  end
+
+  defp founding_failure(other, _handle), do: other
+
+  # The town AppView asks to join once its members space is registered; it
+  # is admitted as a bot member when its request is there. Runs on its own,
+  # for up to two minutes, so founding answers at once.
+  defp add_notifications_member_later(session, group, members, meta, policy) do
+    Task.Supervisor.start_child(AtMcp.Accounts.TaskSupervisor, fn ->
+      Enum.reduce_while(1..40, nil, fn _, _ ->
+        case add_notifications_member(session, group, members) do
+          {:ok, _} -> {:halt, :ok}
+          {:error, _} -> Process.sleep(3_000) && {:cont, nil}
+        end
+      end)
+
+      # Then the join policy the founder asked for, whether or not the
+      # AppView came in.
+      if policy != "approval", do: set_join_policy(session, group, meta, policy)
+    end)
+  end
+
+  defp set_join_policy(session, group, meta, policy) do
+    meta = meta || "at:space/#{group}/org.atgrp.meta/self"
+
+    as_group(session, group, meta, [
+      {"com.atproto.space.putRecord",
+       %{
+         "repo" => group,
+         "space" => meta,
+         "collection" => "org.atgrp.config",
+         "rkey" => "self",
+         "record" => %{"$type" => "org.atgrp.config", "joinPolicy" => policy}
+       }}
+    ])
+  end
+
+  @doc false
+  # Admits the town AppView as a bot member of `group` if it has asked to
+  # join: a `bot` role (no permissions), then its membership, written as the
+  # group in its members space.
+  def add_notifications_member(session, group, members \\ nil) do
+    reader = AtMcp.Network.appview_service() |> String.split("#") |> hd()
+    members = members || members_space(group)
+
+    with {:ok, %{"requests" => requests}} <-
+           group_host_get(session, "org.atgrp.listJoinRequests", %{"group" => group}),
+         true <-
+           Enum.any?(requests, &((&1["member"] || get_in(&1, ["actor", "did"])) == reader)) ||
+             {:error, :not_asked} do
+      now = DateTime.utc_now() |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
+
+      as_group(session, group, members, [
+        {"com.atproto.space.putRecord",
+         %{
+           "repo" => group,
+           "space" => members,
+           "collection" => "org.atgrp.role",
+           "rkey" => "bot",
+           "record" => @bot_role
+         }},
+        {"com.atproto.space.putRecord",
+         %{
+           "repo" => group,
+           "space" => members,
+           "collection" => "org.atgrp.membership",
+           "rkey" => reader,
+           "record" => %{
+             "$type" => "org.atgrp.membership",
+             "roles" => ["member", "bot"],
+             "createdAt" => now
+           }
+         }}
+      ])
+    end
+  end
+
+  @doc """
+  Invites `who` (a handle or DID) to `group`: an `org.atgrp.invite` written
+  as the group into their invite inbox, with `message` if given. Needs a role
+  in the group that may invite (an admin's does).
+  """
+  def invite_to_group(session, group, who, message \\ nil) do
+    with {:ok, group} <- group_arg(session, group),
+         {:ok, person} <- account_arg(session, who) do
+      inbox = "at:space/#{person}/org.atgrp.inbox/self"
+      now = DateTime.utc_now() |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
+
+      record =
+        %{"$type" => "org.atgrp.invite", "createdAt" => now} |> put_present("message", message)
+
+      case as_group(session, group, inbox, [
+             {"com.atproto.space.createRecord",
+              %{
+                "repo" => group,
+                "space" => inbox,
+                "collection" => "org.atgrp.invite",
+                "record" => record
+              }}
+           ]) do
+        {:ok, %{"results" => [written | _]}} ->
+          {:ok, %{group: group, invited: person, invite: written["uri"]}}
+
+        {:ok, _} ->
+          {:ok, %{group: group, invited: person}}
+
+        {:error, %Failure{detail: detail} = f}
+        when detail in ["SpaceNotFound", "InboxNotFound"] ->
+          {:error,
+           %{
+             f
+             | message:
+                 "#{who} has no invite inbox yet, so no group can invite them: it's made when they first open groups in their app, or when at_mcp runs for them. Nothing was sent."
+           }}
+
+        error ->
+          error
+      end
+    end
+  end
+
+  @doc "The requests to join `group` waiting for an admin."
+  def get_join_requests(session, group) do
+    with {:ok, group} <- group_arg(session, group),
+         {:ok, body} <- group_host_get(session, "org.atgrp.listJoinRequests", %{"group" => group}) do
+      {:ok, %{group: group, requests: body["requests"] || [], cursor: body["cursor"]}}
+    end
+  end
+
+  @doc "Admits `member`, who asked to join `group`, as a member."
+  def approve_join_request(session, group, member) do
+    with {:ok, group} <- group_arg(session, group),
+         {:ok, member} <- account_arg(session, member) do
+      members = members_space(group)
+      now = DateTime.utc_now() |> DateTime.truncate(:millisecond) |> DateTime.to_iso8601()
+
+      with {:ok, _} <-
+             as_group(session, group, members, [
+               {"com.atproto.space.putRecord",
+                %{
+                  "repo" => group,
+                  "space" => members,
+                  "collection" => "org.atgrp.membership",
+                  "rkey" => member,
+                  "record" => %{
+                    "$type" => "org.atgrp.membership",
+                    "roles" => ["member"],
+                    "createdAt" => now
+                  }
+                }}
+             ]),
+           do: {:ok, %{group: group, member: member, admitted: true}}
+    end
+  end
+
+  @doc "Turns down `member`'s request to join `group`."
+  def deny_join_request(session, group, member) do
+    with {:ok, group} <- group_arg(session, group),
+         {:ok, member} <- account_arg(session, member),
+         {:ok, _} <-
+           group_host_post(session, "org.atgrp.denyJoinRequest", %{
+             "group" => group,
+             "member" => member
+           }),
+         do: {:ok, %{group: group, member: member, denied: true}}
+  end
+
+  # An account named by its DID or handle, as the PDS resolves it.
+  defp account_arg(_session, "did:" <> _ = did), do: {:ok, did}
+
+  defp account_arg(session, handle) when is_binary(handle) and handle != "" do
+    handle = String.trim_leading(handle, "@")
+
+    case AtMcp.ATProto.pds_get(session, "com.atproto.identity.resolveHandle", %{handle: handle}) do
+      {:ok, %{did: did}} -> {:ok, did}
+      {:ok, %{"did" => did}} -> {:ok, did}
+      _ -> invalid("who", "must be an account's DID or handle; #{handle} does not resolve")
+    end
+  end
+
+  defp account_arg(_session, _), do: invalid("who", "must be an account's DID or handle")
+
   # --- a member's confirmation ---
   #
   # Membership is two-sided (Atmosphere Groups, "Roles & Access"): the group
@@ -1493,9 +1834,15 @@ defmodule AtMcp.Spaces do
 
         case :persistent_term.get({__MODULE__, :group_host, url}, nil) do
           nil ->
-            with {:ok, %{"did" => did}} <-
+            with {:ok, %{"did" => did} = described} <-
                    http(:get, url <> "/xrpc/com.atproto.server.describeServer", nil, %{}) do
               :persistent_term.put({__MODULE__, :group_host, url}, {url, did})
+
+              :persistent_term.put(
+                {__MODULE__, :group_domains, url},
+                described["availableUserDomains"]
+              )
+
               {:ok, {url, did}}
             end
 
@@ -1509,6 +1856,41 @@ defmodule AtMcp.Spaces do
     with {:ok, {url, did}} <- group_host(),
          {:ok, token} <- AtMcp.ATProto.ServiceAuth.issue_for(session, did, method) do
       http(:get, "#{url}/xrpc/#{method}", token, params)
+    end
+  end
+
+  # The handle domain the group host gives new groups (its describeServer's
+  # first `availableUserDomains`), as ".groups.example".
+  defp group_domain do
+    with {:ok, {url, _did}} <- group_host() do
+      case :persistent_term.get({__MODULE__, :group_domains, url}, nil) do
+        [domain | _] when is_binary(domain) ->
+          {:ok, if(String.starts_with?(domain, "."), do: domain, else: "." <> domain)}
+
+        _ ->
+          {:error,
+           Failure.new(:refused,
+             detail: :no_group_domain,
+             message: "The group host names no handle domain for new groups."
+           )}
+      end
+    end
+  end
+
+  # Calls as `group` with a group token for `space` (its host's
+  # getGroupAuth, bound to a DPoP key of its own, in the helper): what this
+  # account's roles let it write there, as the group.
+  defp as_group(session, group, space, calls) do
+    with {:ok, {url, did}} <- group_host(),
+         {:ok, service} <-
+           AtMcp.ATProto.ServiceAuth.issue_for(session, did, "org.atgrp.internal.getGroupAuth") do
+      Helper.call("group.act", %{
+        hostUrl: url,
+        serviceToken: service,
+        group: group,
+        space: space,
+        calls: for({method, body} <- calls, do: %{method: method, body: body})
+      })
     end
   end
 

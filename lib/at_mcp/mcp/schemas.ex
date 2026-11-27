@@ -1739,6 +1739,65 @@ defmodule AtMcp.MCP.Schemas do
         "group" => group_schema()
       })
 
+  defp spaces_schema(:group_made),
+    do:
+      object(%{
+        "group" => group_schema(),
+        "role" => nullable_string("This account's role in the new group: admin"),
+        "members_space" => nullable_string("The group's members space"),
+        "feeds" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "The group's feed, an at:space/ URI: post there with post's space"
+        },
+        "feed_note" => nullable_string("Why the feed wasn't made, when it wasn't"),
+        "confirmed" =>
+          nullable_boolean("Whether the founder's confirmation of its membership is written"),
+        "notifications_member" =>
+          nullable_string(
+            "The town AppView as the group's bot member, which sends its members their notifications: how it is added, and that an admin can remove it"
+          ),
+        "join_policy" =>
+          nullable_string("The join policy the group takes once its notifications member is in"),
+        "next" => nullable_string("What to do next: invite people")
+      })
+
+  defp spaces_schema(:invited),
+    do:
+      object(%{
+        "group" => nullable_string(),
+        "invited" => nullable_string("The DID of the account invited"),
+        "invite" => nullable_string("The invite's at:space/ URI, in their invite inbox")
+      })
+
+  defp spaces_schema(:join_requests),
+    do:
+      object(%{
+        "group" => nullable_string(),
+        "requests" => %{
+          "type" => ["array", "null"],
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "member" => %{"type" => "string", "description" => "Who asks: their DID"},
+              "createdAt" => nullable_string(),
+              "message" => nullable_string(),
+              "actor" => any_object()
+            }
+          }
+        },
+        "cursor" => nullable_string()
+      })
+
+  defp spaces_schema(:join_decided),
+    do:
+      object(%{
+        "group" => nullable_string(),
+        "member" => nullable_string(),
+        "admitted" => nullable_boolean(),
+        "denied" => nullable_boolean()
+      })
+
   defp spaces_schema(:membership_confirmed),
     do: object(%{"group" => nullable_string(), "confirmed" => nullable_boolean()})
 

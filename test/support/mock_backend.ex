@@ -341,6 +341,36 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:leave_group, [group]), do: %{left: true, group: group}
   defp spaces_summary(:confirm_group, [group]), do: %{group: group, confirmed: true}
 
+  defp spaces_summary(:create_group, _),
+    do: %{
+      group: %{did: "did:plc:newgroup", handle: "garden.groups.test", display_name: "Garden"},
+      role: "admin",
+      members_space: "at:space/did:plc:newgroup/org.atgrp.members/self",
+      feeds: ["at:space/did:plc:newgroup/town.delve.space.feed/general"],
+      confirmed: true,
+      notifications_member: "being added",
+      next: "Invite people with invite_to_group"
+    }
+
+  defp spaces_summary(:invite_to_group, [group, who, _]),
+    do: %{
+      group: group,
+      invited: who,
+      invite: "at:space/#{who}/org.atgrp.inbox/self/#{group}/org.atgrp.invite/3k"
+    }
+
+  defp spaces_summary(:get_join_requests, [group]),
+    do: %{
+      group: group,
+      requests: [%{"member" => "did:plc:friend", "createdAt" => "2026-11-27T00:00:00Z"}]
+    }
+
+  defp spaces_summary(:approve_join_request, [group, member]),
+    do: %{group: group, member: member, admitted: true}
+
+  defp spaces_summary(:deny_join_request, [group, member]),
+    do: %{group: group, member: member, denied: true}
+
   defp spaces_summary(:get_my_groups, _),
     do: %{
       groups: [

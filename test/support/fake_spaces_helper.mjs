@@ -98,6 +98,17 @@ const methods = {
     keyed.delete(`${p.space} ${p.collection} ${p.rkey}`)
     return {}
   },
+  // Calls as a group: each answered as written. FAKE_GROUP_REFUSE names an
+  // error the host gives instead.
+  'group.act': (p) => {
+    if (process.env.FAKE_GROUP_REFUSE) throw { class: 'refused', code: process.env.FAKE_GROUP_REFUSE, status: 400, message: 'refused' }
+    return {
+      results: p.calls.map((c) => ({
+        uri: `${c.body.space ?? 'at:space/x'}/${c.body.repo ?? 'x'}/${c.body.collection ?? 'x'}/${c.body.rkey ?? '3kgroupfake'}`,
+        cid: 'bafygroup',
+      })),
+    }
+  },
   'space.all': (p) => {
     if (!p.space.startsWith(`at:space/${did}/`)) {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${p.space}"` }
