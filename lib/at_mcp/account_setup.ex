@@ -15,6 +15,8 @@ defmodule AtMcp.AccountSetup do
     did: :string,
     key_file: :string,
     did_key: :string,
+    principal: :string,
+    wait_minutes: :integer,
     transport: :string,
     url: :string,
     token_file: :string,
@@ -214,6 +216,108 @@ defmodule AtMcp.AccountSetup do
        %{account: public(saved), file: path(opts), key_file: key_file, next: reload_message()}}
     else
       true -> {:error, :duplicate_id}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :usage}
+    end
+  end
+
+  # An agent paired with its principal on the web: a new login key here, a
+  # link for the principal to create the account with, and the account saved
+  # once the key signs in to it (`AtMcp.Pairing`). The handle is NAME under
+  # the PDS's first handle domain, or --handle.
+  defp dispatch(["setup", id], opts, dependencies) do
+    with principal when is_binary(principal) <- opts[:principal] || :usage,
+         :ok <- wait_valid(opts),
+         {:ok, accounts} <- AccountConfig.load(path(opts)),
+         false <- Enum.any?(accounts, &(&1["id"] == id)),
+         :ok <- name_valid(id, opts[:handle]),
+         service = opts[:service] || AtMcp.Network.default_service(),
+         pending = pending_key_path(),
+         {:ok, paired} <-
+           pairing(dependencies, fn deps ->
+             AtMcp.Pairing.setup(
+               %{
+                 principal: principal,
+                 name: id,
+                 handle: opts[:handle],
+                 service: service,
+                 key_file: pending,
+                 scope: AtMcp.Spaces.scope_for(nil, service),
+                 web_origin: AtMcp.Network.web_origin(),
+                 wait_ms: wait_ms(opts)
+               },
+               deps
+             )
+           end)
+           |> discard_on_error(pending),
+         key_file = AtMcp.Spaces.key_path(paired.did),
+         :ok <- move_key(pending, key_file),
+         account = %{
+           "id" => id,
+           "handle" => paired.handle,
+           "did" => paired.did,
+           "service" => service,
+           "key_file" => key_file
+         },
+         :ok <- AccountConfig.validate(account),
+         {:ok, saved} <- AccountConfig.add(path(opts), account) do
+      {:ok,
+       %{
+         account: public(saved),
+         principal: paired.principal,
+         principal_confirmed: paired.confirmed,
+         file: path(opts),
+         key_file: key_file,
+         next:
+           reload_message() <>
+             " Then connect your MCP client: at_mcp-accounts connection #{id}." <>
+             if(paired.confirmed,
+               do: "",
+               else:
+                 " ident.link does not confirm the principal yet: its endorsement of the agent is missing. The principal can write it (endorse_agent), or the agents page will offer to."
+             )
+       }}
+    else
+      true -> {:error, :duplicate_id}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :usage}
+    end
+  end
+
+  # A stopped agent's way back: a new login key here, a link for its
+  # principal to enroll it with, and the account's key file replaced once
+  # the new key signs in.
+  defp dispatch(["repair", id], opts, dependencies) do
+    with :ok <- wait_valid(opts),
+         {:ok, accounts} <- AccountConfig.load(path(opts)),
+         {:ok, current} <- find(accounts, id),
+         key_file when is_binary(key_file) <- current["key_file"] || {:error, :no_login_key},
+         service = current["service"] || AtMcp.Network.default_service(),
+         pending = pending_key_path(),
+         {:ok, _paired} <-
+           pairing(dependencies, fn deps ->
+             AtMcp.Pairing.repair(
+               %{
+                 did: current["did"],
+                 principal: opts[:principal],
+                 service: service,
+                 key_file: pending,
+                 scope: AtMcp.Spaces.scope_for(current["did"], service),
+                 web_origin: AtMcp.Network.web_origin(),
+                 wait_ms: wait_ms(opts)
+               },
+               deps
+             )
+           end)
+           |> discard_on_error(pending),
+         :ok <- move_key(pending, key_file) do
+      {:ok,
+       %{
+         account: public(current),
+         key_file: key_file,
+         next: reload_message() <> " The agent signs in with its new key from then on."
+       }}
+    else
       {:error, reason} -> {:error, reason}
       _ -> {:error, :usage}
     end
@@ -481,6 +585,79 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  # Pairing runs on a helper of its own, with a state folder of its own, as
+  # the key check does, so it never touches the running service's sessions.
+  defp pairing(dependencies, fun) do
+    case Keyword.fetch(dependencies, :pairing) do
+      {:ok, deps} ->
+        fun.(deps)
+
+      :error ->
+        dir =
+          Path.join(
+            System.tmp_dir!(),
+            "at_mcp-pairing-" <> Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+          )
+
+        {:ok, helper} = AtMcp.Spaces.Helper.start_link(name: nil, state_dir: dir)
+
+        try do
+          fun.(%{
+            helper: &AtMcp.Spaces.Helper.call(&1, &2, server: helper),
+            get_json: &AtMcp.Pairing.get_json/1
+          })
+        after
+          GenServer.stop(helper)
+          File.rm_rf(dir)
+        end
+    end
+  end
+
+  defp pending_key_path do
+    Path.join(
+      AtMcp.Spaces.keys_dir(),
+      "login-pending-" <>
+        Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false) <> ".json"
+    )
+  end
+
+  # A key that paired nothing is no one's: it goes.
+  defp discard_on_error({:ok, _} = ok, _pending), do: ok
+
+  defp discard_on_error(error, pending) do
+    File.rm(pending)
+    error
+  end
+
+  defp move_key(from, to) do
+    with :ok <- File.rename(from, to), :ok <- File.chmod(to, 0o600), do: :ok
+  end
+
+  defp wait_valid(opts) do
+    case opts[:wait_minutes] do
+      nil -> :ok
+      n when is_integer(n) and n > 0 and n <= 24 * 60 -> :ok
+      _ -> {:error, :invalid_wait}
+    end
+  end
+
+  defp wait_ms(opts), do: (opts[:wait_minutes] || 30) * 60_000
+
+  # NAME is the account's name here, and, without --handle, the first label
+  # of the agent's handle, so it must be both.
+  defp name_valid(id, handle) do
+    cond do
+      not Regex.match?(~r/\A[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\z/, id) ->
+        {:error, :invalid_account}
+
+      is_nil(handle) and not Regex.match?(~r/\A[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/, id) ->
+        {:error, :invalid_agent_name}
+
+      true ->
+        :ok
+    end
+  end
+
   # The handle the DID document names, if the directory answers.
   defp handle_of("did:plc:" <> _ = did) do
     plc = Application.get_env(:at_mcp, :plc_url) || "https://plc.directory"
@@ -589,6 +766,9 @@ defmodule AtMcp.AccountSetup do
       add-agent NAME --did DID [--key-file ABSOLUTE_PATH] [--handle HANDLE]
                      [--service URL]
       key NAME --key-file ABSOLUTE_PATH
+      setup NAME --principal HANDLE [--handle HANDLE] [--service URL]
+                 [--wait-minutes N]
+      repair NAME [--principal HANDLE] [--wait-minutes N]
       rotation-key NAME --did-key did:key:...
       remove NAME
       delivery NAME --url URL --token-file ABSOLUTE_PATH
@@ -604,6 +784,34 @@ defmodule AtMcp.AccountSetup do
 
     Running service: status | reload | disconnect NAME | reconnect NAME
     """
+
+  defp message(:pairing_timeout),
+    do:
+      "No account was created with this key in time. Nothing was saved; run the command again for a new link."
+
+  defp message(:principal_not_found),
+    do: "That principal's handle does not resolve. Check it, or give its DID."
+
+  defp message(:unreadable_server),
+    do: "The PDS did not say its DID (describeServer). Check --service."
+
+  defp message(:no_handle_domain),
+    do: "The PDS lists no handle domain. Give the agent's full handle with --handle."
+
+  defp message(:no_confirmed_principal),
+    do: "ident.link confirms no principal for this agent. Give the principal with --principal."
+
+  defp message(:no_login_key),
+    do:
+      "This account has no login key, so it has nothing to repair. Use key NAME --key-file to give it one."
+
+  defp message(:invalid_agent_name),
+    do:
+      "Without --handle, NAME is the start of the agent's handle: letters, digits and inner hyphens, at most 63."
+
+  defp message(:invalid_wait), do: "--wait-minutes is a whole number from 1 to 1440."
+
+  defp message(%AtMcp.Effects.Failure{message: m}) when is_binary(m), do: m
 
   defp message(:authentication_failed),
     do: "Login failed. Check the handle, app password and PDS URL. No account was saved."

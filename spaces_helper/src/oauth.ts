@@ -195,7 +195,12 @@ export class OAuthSessions {
       if (origin !== expected.redirectOrigin) mismatches.push('redirect_uri')
     }
     if (typeof req.scope !== 'string' || !sameScopes(req.scope, expected.scope)) mismatches.push('scope')
-    if (req.login_hint != null && req.login_hint !== expected.account) mismatches.push('login_hint')
+    // Signing in by key alone (`account` is the PDS's URL, as pairing does
+    // before the account's DID is known): the PDS finds the account from the
+    // key, so the request must name no account at all.
+    if (isServiceUrl(expected.account)) {
+      if (req.login_hint != null) mismatches.push('login_hint')
+    } else if (req.login_hint != null && req.login_hint !== expected.account) mismatches.push('login_hint')
     if (mismatches.length) {
       throw refused(
         'preview_mismatch',
@@ -397,4 +402,9 @@ export class OAuthSessions {
   session(did: string): Promise<OAuthSession> {
     return this.#restore(did, 'auto')
   }
+}
+
+/** An https (or, for a local stack, http) URL: a PDS, not a handle or DID. */
+export function isServiceUrl(account: string): boolean {
+  return /^https?:\/\//.test(account)
 }
