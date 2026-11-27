@@ -194,16 +194,31 @@ defmodule AtMcp.Pairing do
 
   defp resolve("did:" <> _ = did, _service, _deps), do: {:ok, did}
 
+  # The PDS first, then the network's AppView: a PDS may not resolve a
+  # handle hosted elsewhere that the AppView knows.
   defp resolve(handle, service, deps) do
-    url =
-      String.trim_trailing(service, "/") <>
-        "/xrpc/com.atproto.identity.resolveHandle?" <>
-        URI.encode_query(handle: String.trim_leading(handle, "@"))
+    handle = String.trim_leading(handle, "@")
 
-    case deps.get_json.(url) do
-      {:ok, %{"did" => "did:" <> _ = did}} -> {:ok, did}
-      _ -> {:error, :principal_not_found}
+    [String.trim_trailing(service, "/"), appview_base()]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find_value({:error, :principal_not_found}, fn base ->
+      url =
+        base <> "/xrpc/com.atproto.identity.resolveHandle?" <> URI.encode_query(handle: handle)
+
+      case deps.get_json.(url) do
+        {:ok, %{"did" => "did:" <> _ = did}} -> {:ok, did}
+        _ -> nil
+      end
+    end)
+  end
+
+  defp appview_base do
+    case AtMcp.Network.appview_url() do
+      url when is_binary(url) -> url |> String.trim_trailing("/") |> String.trim_trailing("/xrpc")
+      _ -> nil
     end
+  rescue
+    _ -> nil
   end
 
   defp repair_principal(%{principal: p} = opts, deps) when is_binary(p),

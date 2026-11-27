@@ -268,6 +268,33 @@ defmodule AtMcp.PairingTest do
     refute File.read!(key_file) == "old"
   end
 
+  test "a principal's handle the PDS can't resolve is looked up at the AppView" do
+    base = fakes()
+    appview = AtMcp.Network.appview_url() |> String.trim_trailing("/xrpc")
+
+    get_json = fn
+      ^appview <> "/xrpc/com.atproto.identity.resolveHandle?handle=far.elsewhere" ->
+        {:ok, %{"did" => @principal}}
+
+      url ->
+        base.get_json.(url)
+    end
+
+    assert {:ok, %{principal: @principal}} =
+             AtMcp.Pairing.setup(
+               %{
+                 principal: "far.elsewhere",
+                 name: "scout",
+                 handle: nil,
+                 service: @service,
+                 key_file: Path.join(AtMcp.Spaces.keys_dir(), "k3.json"),
+                 scope: "atproto",
+                 web_origin: "https://web.example"
+               },
+               %{base | get_json: get_json}
+             )
+  end
+
   defp drain(acc \\ []) do
     receive do
       msg -> drain([msg | acc])
