@@ -108,7 +108,11 @@ defmodule AtMcp.Grants do
     tools = Keyword.get(opts, :tools)
     file = Keyword.get(opts, :path) || path()
 
+    days =
+      Keyword.get(opts, :expires_in_days) || Application.get_env(:at_mcp, :grant_lifetime_days)
+
     with :ok <- valid_account(account),
+         :ok <- valid_lifetime(days),
          :ok <- valid_scope(scope),
          :ok <- valid_format(format),
          :ok <- valid_tools(tools) do
@@ -123,6 +127,21 @@ defmodule AtMcp.Grants do
         "digest" => digest(token),
         "issued_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
       }
+
+      # A lifetime, when one is given or the installation sets one
+      # (`AT_MCP_GRANT_LIFETIME_DAYS`): past it the grant names nothing.
+      row =
+        if is_integer(days),
+          do:
+            Map.put(
+              row,
+              "expires_at",
+              DateTime.utc_now()
+              |> DateTime.add(days * 86_400, :second)
+              |> DateTime.truncate(:second)
+              |> DateTime.to_iso8601()
+            ),
+          else: row
 
       row = if format, do: Map.put(row, "format", format), else: row
       row = if tools, do: Map.put(row, "tools", tools), else: row
@@ -176,7 +195,7 @@ defmodule AtMcp.Grants do
   @spec request(binary(), keyword()) ::
           {:ok,
            %{account: binary(), scope: scope(), format: binary() | nil, tools: binary() | nil}}
-          | {:error, :unknown_grant | :grants_unreadable}
+          | {:error, :unknown_grant | :expired_grant | :grants_unreadable}
   def request(token, opts \\ []) do
     case find(token, Keyword.get(opts, :path) || path()) do
       {:ok, row} ->
@@ -291,7 +310,7 @@ defmodule AtMcp.Grants do
       {:ok, grants} ->
         case Enum.find(grants, &Plug.Crypto.secure_compare(&1["digest"], wanted)) do
           nil -> {:error, :unknown_grant}
-          row -> {:ok, row}
+          row -> if expired?(row), do: {:error, :expired_grant}, else: {:ok, row}
         end
 
       {:error, :config_missing} ->
@@ -303,6 +322,19 @@ defmodule AtMcp.Grants do
   end
 
   defp find(_, _), do: {:error, :unknown_grant}
+
+  defp expired?(%{"expires_at" => at}) when is_binary(at) do
+    case DateTime.from_iso8601(at) do
+      {:ok, at, _} -> DateTime.compare(DateTime.utc_now(), at) != :lt
+      _ -> true
+    end
+  end
+
+  defp expired?(_row), do: false
+
+  defp valid_lifetime(nil), do: :ok
+  defp valid_lifetime(days) when is_integer(days) and days > 0, do: :ok
+  defp valid_lifetime(_), do: {:error, :invalid_grant_lifetime}
 
   defp load(file) do
     with {:ok, contents} <- AtMcp.PrivateFile.read(file) do
@@ -348,7 +380,8 @@ defmodule AtMcp.Grants do
       scope: String.to_existing_atom(row["scope"]),
       format: row["format"],
       tools: row["tools"],
-      issued_at: row["issued_at"]
+      issued_at: row["issued_at"],
+      expires_at: row["expires_at"]
     }
   end
 

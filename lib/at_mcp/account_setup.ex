@@ -10,6 +10,7 @@ defmodule AtMcp.AccountSetup do
     scope: :string,
     format: :string,
     tools: :string,
+    expires_in: :integer,
     password_stdin: :boolean,
     did: :string,
     key_file: :string,
@@ -70,7 +71,13 @@ defmodule AtMcp.AccountSetup do
            descriptor(
              account,
              opts[:transport] || "http",
-             [scope: scope, format: format, tools: tools, path: grants_path(opts)] ++
+             [
+               scope: scope,
+               format: format,
+               tools: tools,
+               path: grants_path(opts),
+               expires_in_days: opts[:expires_in]
+             ] ++
                dependencies
            ) do
       {:ok,
@@ -591,7 +598,7 @@ defmodule AtMcp.AccountSetup do
       list
       connection NAME [--transport http|stdio]
                       [--scope read|write|manage] [--format text|json]
-                      [--tools default|full]
+                      [--tools default|full] [--expires-in DAYS]
       grants
       revoke GRANT_ID
 

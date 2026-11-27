@@ -87,6 +87,7 @@ defmodule AtMcp.Application do
         AtMcp.AcceptLabelers,
         # Each account's saved settings for a new post's gates, kept briefly.
         AtMcp.PostDefaults,
+        AtMcp.MCP.GrantAttempts,
         # Shared Jetstream inbound ears — N identities track DIDs onto this one WS.
         {AtMcp.Inbound, name: AtMcp.Inbound},
         # N identities (Effects + Listen + optional MCP) — never communal login.

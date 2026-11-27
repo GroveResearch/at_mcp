@@ -112,4 +112,40 @@ defmodule AtMcp.GrantsTest do
     # The stored digest is not the token, so a reader of the file cannot present it.
     refute File.read!(ctx.opts[:path]) =~ grant.token
   end
+
+  # For an endpoint a proxy exposes to a hosted agent: a grant can end.
+  test "a grant issued with a lifetime names nothing once it is past", ctx do
+    {:ok, lasting} = Grants.issue("alice", [expires_in_days: 30] ++ ctx.opts)
+    {:ok, forever} = Grants.issue("alice", ctx.opts)
+
+    assert {:ok, at, _} = DateTime.from_iso8601(lasting.expires_at)
+    assert DateTime.diff(at, DateTime.utc_now(), :day) in 29..30
+    assert forever.expires_at == nil
+    assert {:ok, "alice", _} = Grants.authorize(lasting.token, ctx.opts)
+
+    # Past its time (the file edited as a clock passing would leave it).
+    path = Keyword.fetch!(ctx.opts, :path)
+    past = DateTime.utc_now() |> DateTime.add(-60) |> DateTime.to_iso8601()
+    data = path |> File.read!() |> Jason.decode!()
+
+    data =
+      update_in(data["grants"], fn rows ->
+        Enum.map(rows, &if(&1["expires_at"], do: Map.put(&1, "expires_at", past), else: &1))
+      end)
+
+    File.write!(path, Jason.encode!(data))
+    assert Grants.authorize(lasting.token, ctx.opts) == {:error, :expired_grant}
+    assert {:ok, "alice", _} = Grants.authorize(forever.token, ctx.opts)
+
+    assert Grants.issue("alice", [expires_in_days: 0] ++ ctx.opts) ==
+             {:error, :invalid_grant_lifetime}
+  end
+
+  test "the installation's lifetime applies to every new grant", ctx do
+    Application.put_env(:at_mcp, :grant_lifetime_days, 7)
+    on_exit(fn -> Application.delete_env(:at_mcp, :grant_lifetime_days) end)
+    {:ok, grant} = Grants.issue("alice", ctx.opts)
+    assert {:ok, at, _} = DateTime.from_iso8601(grant.expires_at)
+    assert DateTime.diff(at, DateTime.utc_now(), :day) in 6..7
+  end
 end

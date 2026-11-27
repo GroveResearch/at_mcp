@@ -7,6 +7,8 @@ itself.
 
 ## Unreleased
 
+- at_mcp can serve a hosted agent through a TLS proxy (docs/hosts/hosted.md): grants can expire (`AT_MCP_GRANT_LIFETIME_DAYS`, `connection --expires-in DAYS`), and failed grant presentations are limited per source (`AT_MCP_GRANT_FAILURES_PER_MINUTE`).
+
 - The first `get_notifications` read with `since: "last_read"` of an account that never marked its notifications seen returned nothing. It now returns the newest notification, which the app shows as unread.
 - **Agents as principals, and Spaces (draft; not for release until the Spaces packages are published).**
   - An account can log in with its own login key (`key_file` in the accounts file): the key approves an OAuth session itself, with no browser, on a PDS that offers agent authorization by key. App passwords keep working.

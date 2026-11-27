@@ -141,20 +141,37 @@ defmodule AtMcp.MCP.HTTP do
     end
   end
 
-  # The credential, and nothing else, says which identity this is.
+  # The credential, and nothing else, says which identity this is. Failed
+  # presentations are limited per source (`AtMcp.MCP.GrantAttempts`).
   defp grant(conn) do
-    case get_req_header(conn, "authorization") do
-      ["Bearer " <> token] when token != "" ->
+    source = AtMcp.MCP.GrantAttempts.source(conn)
+
+    case {get_req_header(conn, "authorization"), AtMcp.MCP.GrantAttempts.check(source)} do
+      {[_ | _], {:wait, seconds}} ->
+        {:error, 429, %{error: "too_many_failed_grants", retry_after: seconds}}
+
+      {["Bearer " <> token], :ok} when token != "" ->
         case AtMcp.Grants.request(token) do
-          {:ok, grant} -> {:ok, grant}
-          {:error, :grants_unreadable} -> {:error, 503, %{error: "grants_unreadable"}}
-          {:error, _} -> {:error, 401, %{error: "unknown_grant"}}
+          {:ok, grant} ->
+            {:ok, grant}
+
+          {:error, :grants_unreadable} ->
+            {:error, 503, %{error: "grants_unreadable"}}
+
+          {:error, :expired_grant} ->
+            AtMcp.MCP.GrantAttempts.failed(source)
+            {:error, 401, %{error: "grant_expired"}}
+
+          {:error, _} ->
+            AtMcp.MCP.GrantAttempts.failed(source)
+            {:error, 401, %{error: "unknown_grant"}}
         end
 
-      [] ->
+      {[], _} ->
         {:error, 401, %{error: "grant_required"}}
 
       _ ->
+        AtMcp.MCP.GrantAttempts.failed(source)
         {:error, 401, %{error: "invalid_credential"}}
     end
   end
