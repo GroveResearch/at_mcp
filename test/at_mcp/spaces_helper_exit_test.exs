@@ -31,7 +31,16 @@ defmodule AtMcp.SpacesHelperExitTest do
     end)
 
     {:ok, pid} = Helper.start_link(enabled: true, script: @fake)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    on_exit(fn ->
+      try do
+        GenServer.stop(pid)
+      catch
+        # Stopped already, as a test may do.
+        :exit, _ -> :ok
+      end
+    end)
+
     %{pid: pid, log: log}
   end
 
@@ -47,9 +56,16 @@ defmodule AtMcp.SpacesHelperExitTest do
     end
   end
 
-  defp queued(pid, n) do
-    Enum.find_value(1..200, fn _ ->
-      if elem(Process.info(pid, :message_queue_len), 1) >= n, do: true, else: Process.sleep(5)
+  # Waits until each task is blocked in its call to the GenServer: its
+  # message is in the mailbox, not merely on its way.
+  defp calling(tasks) do
+    Enum.find_value(1..400, fn _ ->
+      if Enum.all?(
+           tasks,
+           &(Process.info(&1.pid, :current_function) == {:current_function, {:gen, :do_call, 4}})
+         ),
+         do: true,
+         else: Process.sleep(5)
     end)
   end
 
@@ -62,7 +78,7 @@ defmodule AtMcp.SpacesHelperExitTest do
     :sys.suspend(ctx.pid)
     read = Task.async(fn -> Helper.call("oauth.status", %{did: "did:plc:x"}) end)
     write = Task.async(fn -> Helper.call("space.create", %{type: "t.e.s.t", skey: "once"}) end)
-    assert queued(ctx.pid, 2)
+    assert calling([read, write])
     {_, 0} = System.cmd("kill", ["-9", to_string(os_pid)])
     Process.sleep(300)
     :sys.resume(ctx.pid)
@@ -92,7 +108,7 @@ defmodule AtMcp.SpacesHelperExitTest do
     Process.unlink(ctx.pid)
     :sys.suspend(ctx.pid)
     task = Task.async(fn -> Helper.call("oauth.status", %{did: "did:plc:x"}, timeout: 5_000) end)
-    assert queued(ctx.pid, 1)
+    assert calling([task])
     Process.exit(ctx.pid, :kill)
 
     assert {:error, %Failure{kind: :indeterminate, detail: :spaces_helper_exited}} =
