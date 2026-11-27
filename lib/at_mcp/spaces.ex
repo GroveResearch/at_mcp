@@ -2171,7 +2171,7 @@ defmodule AtMcp.Spaces do
   """
   def create_agent(session, handle, invite_code) do
     with {:ok, names} <- names(),
-         :ok <- handle_arg(handle),
+         :ok <- if(is_nil(handle), do: :ok, else: handle_arg(handle)),
          :ok <- text_arg(invite_code, "invite_code"),
          {:ok, rotation_key} <- principal_rotation_key(Session.did(session)),
          {:ok, pds_did} <- pds_did(session),
@@ -2185,19 +2185,26 @@ defmodule AtMcp.Spaces do
            Helper.call("key.prove", %{
              keyFile: pending,
              iss: Session.did(session),
-             sub: String.downcase(handle),
+             # The handle asked for, or, when the PDS is to pick one, the
+             # login key itself.
+             sub: if(handle, do: String.downcase(handle), else: login["didKey"]),
              aud: pds_did,
              lxm: "#{names.agent}.createAgent"
            }) do
-      case agent_call(session, names, "createAgent", %{
-             "handle" => handle,
-             "inviteCode" => invite_code,
-             "loginKey" => login["didKey"],
-             "loginKeyProof" => proof,
-             # recoveryKey, as the PDS names it now; rotationKey, as it did.
-             "recoveryKey" => rotation_key,
-             "rotationKey" => rotation_key
-           }) do
+      case agent_call(
+             session,
+             names,
+             "createAgent",
+             %{
+               "inviteCode" => invite_code,
+               "loginKey" => login["didKey"],
+               "loginKeyProof" => proof,
+               # recoveryKey, as the PDS names it now; rotationKey, as it did.
+               "recoveryKey" => rotation_key,
+               "rotationKey" => rotation_key
+             }
+             |> put_present("handle", handle)
+           ) do
         {:ok, %{"did" => did} = created} ->
           File.rename!(pending, key_path(did))
 

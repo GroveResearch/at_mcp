@@ -3657,9 +3657,8 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.spaces(:agent))
 
     param(:handle, :string,
-      required: true,
       description:
-        "The new agent's full handle: a name under the town's handle domain, such as helper.delve.town (letters, digits and hyphens before the domain)"
+        "The new agent's full handle: a name under the town's handle domain, such as helper.delve.town (letters, digits and hyphens before the domain). Leave it out and the PDS picks one (a-<random>)"
     )
 
     param(:invite_code, :string,
@@ -3670,7 +3669,7 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :create_agent, [
-          Map.fetch!(a, :handle),
+          a[:handle],
           Map.fetch!(a, :invite_code)
         ]),
         state

@@ -1641,6 +1641,20 @@ defmodule AtMcp.SpacesSessionTest do
       assert message =~ "revoke_agent_sessions still stops"
     end
 
+    test "an agent created with no handle gets one from the PDS; its key's proof names the key itself",
+         ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, %{did: "did:plc:newagent", login_key: login_key}} =
+               AtMcp.Effects.spaces(ctx.effects, :create_agent, [nil, "code"])
+
+      assert_received {:agent_route, :create, body}
+      refute Map.has_key?(body, "handle")
+      assert "proof:" <> bound = body["loginKeyProof"]
+      assert Jason.decode!(bound)["sub"] == login_key
+    end
+
     test "an agent creates agents too, and makes their state spaces as their principal", ctx do
       ctx.write_accounts.(@rotation)
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)

@@ -77,7 +77,6 @@
         "invite_code": "string"
       },
       "required": [
-        "handle",
         "invite_code"
       ]
     },
