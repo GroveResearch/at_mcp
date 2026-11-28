@@ -1883,6 +1883,13 @@ defmodule AtMcp.MCP.Schemas do
         "endorsement" => any_object(),
         "enrolled" => nullable_boolean(),
         "revoked" => nullable_boolean(),
+        "outstanding" => %{
+          "description" => "What the PDS says may outlive the revoke, as it gives it",
+          "type" => ["array", "object", "string", "null"]
+        },
+        "revocation_complete_at" =>
+          nullable_string("When the PDS says nothing it issued works any more"),
+        "elsewhere" => nullable_string("What other services hold, which no PDS ends"),
         "deleted" => nullable_boolean(),
         "next" => nullable_string("How to run the new agent"),
         "status" => nullable_string()

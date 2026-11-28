@@ -2824,10 +2824,23 @@ defmodule AtMcp.Spaces do
   def revoke_agent_sessions(session, agent) do
     with {:ok, names} <- names(),
          {:ok, agent} <- did_arg(agent, "agent"),
-         {:ok, _} <- agent_call(session, names, "revokeSessions", %{"did" => agent}) do
+         {:ok, answer} <- agent_call(session, names, "revokeSessions", %{"did" => agent}) do
       # The PDS sets its password to one nobody knows: the kept one is stale.
       AtMcp.Spaces.AgentPasswords.mark_stale(Session.did(session), agent)
-      {:ok, %{did: agent, revoked: true}}
+      answer = if is_map(answer), do: answer, else: %{}
+
+      # What may outlive the revoke, as the PDS says it (stateless tokens,
+      # for up to their lifetime), and what no PDS can end: a group host's
+      # acting credential lasts its own 15 minutes.
+      {:ok,
+       %{
+         did: agent,
+         revoked: true,
+         outstanding: answer["outstanding"],
+         revocation_complete_at: answer["revocationCompleteAt"],
+         elsewhere:
+           "A group host's credential already issued to the agent lasts up to its own lifetime (15 minutes on group-host 0.6.0); removing the agent from a group ends it there at once."
+       }}
     end
   end
 

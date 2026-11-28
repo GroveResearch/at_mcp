@@ -1558,7 +1558,11 @@ defmodule AtMcp.SpacesSessionTest do
         {:agent_route, :revoke, conn.body_params}
       )
 
-      json(conn, %{})
+      # As the PDS answers: what may outlive the revoke.
+      json(conn, %{
+        revocationCompleteAt: "2026-11-28T16:05:00.000Z",
+        outstanding: [%{kind: "serviceAuth", expiresAt: "2026-11-28T16:05:00.000Z"}]
+      })
     end
 
     post "/xrpc/town.delve.agent.deleteAgent" do
@@ -1706,6 +1710,20 @@ defmodule AtMcp.SpacesSessionTest do
 
       # Only agents' login keys are in the key folder: no rotation key.
       refute Enum.any?(File.ls!(AtMcp.Spaces.keys_dir()), &String.contains?(&1, "rotation"))
+    end
+
+    test "revoking an agent's sessions says what the PDS says may outlive it, and what other services hold",
+         ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, revoked} =
+               AtMcp.Effects.spaces(ctx.effects, :revoke_agent_sessions, ["did:plc:mine"])
+
+      assert revoked.revoked == true
+      assert revoked.revocation_complete_at == "2026-11-28T16:05:00.000Z"
+      assert [%{"kind" => "serviceAuth"}] = revoked.outstanding
+      assert revoked.elsewhere =~ "15 minutes"
     end
 
     test "an agent stops with its kept password: deactivated, and its sessions revoked; started again, active",
