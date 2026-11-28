@@ -79,8 +79,8 @@ replace that header, not append to what a client sent.
 
 **No CDN or second proxy in front.** at_mcp counts failed grants by the
 address the proxy forwards. Behind a CDN, that address is the CDN's, so every
-client shares one count, and one client's failures hold all of them up for
-the rest of the minute. If you must have one, have the proxy take the
+client shares one count: valid grants are still served, but the count no
+longer tells one client's failures from another's. If you must have one, have the proxy take the
 client's address from the CDN's own header (Caddy's `trusted_proxies` with
 `client_ip_headers`, forwarding `{client_ip}` in place of `{remote_host}`; nginx's `real_ip_header`), limited to the CDN's ranges.
 
