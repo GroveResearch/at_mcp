@@ -263,3 +263,37 @@ test('an outside app signs in as the account: previewed, then approved with the 
   const { session } = await app.callback(callback.searchParams)
   assert.equal(session.did, pds.did)
 })
+
+test('a key alone signs in at the PDS URL, with no account named, and the DID comes back', async () => {
+  const keyFile = join(dir, 'paired.json')
+  const { result: key } = await call('key.generate', { keyFile })
+  // Before the principal has created the account, the key is unknown: refused, nothing saved.
+  const early = await call('oauth.login', { account: pds.url, keyFile, scope: SCOPE })
+  assert.equal(early.error.data.code, 'key_refused')
+  pds.enroll(key.jkt)
+  const out = await call('oauth.login', { account: pds.url, keyFile, scope: SCOPE })
+  assert.ifError(out.error)
+  assert.equal(out.result.did, pds.did)
+})
+
+test('signing in by key alone refuses a preview that names any account', async () => {
+  const keyFile = join(dir, 'paired.json')
+  const consents = pds.consents
+  for (const hint of [pds.handle, pds.did, 'someone.else']) {
+    pds.previewOverride = (p: Record<string, unknown>) => ({ ...p, login_hint: hint })
+    const out = await call('oauth.login', { account: pds.url, keyFile, scope: SCOPE })
+    assert.equal(out.error.data.code, 'preview_mismatch', hint)
+  }
+  pds.previewOverride = undefined
+  assert.equal(pds.consents, consents)
+})
+
+test('a sign-in the PDS limits is rate_limited, with how long to wait, never a missing extension', async () => {
+  const keyFile = join(dir, 'paired.json')
+  pds.limitAuthorize = 1
+  const out = await call('oauth.login', { account: pds.url, keyFile, scope: SCOPE })
+  assert.equal(out.error.data.code, 'rate_limited')
+  assert.equal(out.error.data.retryAfter, 42)
+  pds.limitAuthorize = 0
+})
+

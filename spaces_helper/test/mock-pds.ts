@@ -21,6 +21,8 @@ export type MockPds = {
   tokensIssued: number
   refreshes: number
   noExtension?: boolean
+  /** Answer this many authorize fetches 429, as the PDS's per-address limit does. */
+  limitAuthorize?: number
   previewOverride?: (preview: Record<string, unknown>) => Record<string, unknown>
   accessTokenTtl: number
   userAgents: string[]
@@ -119,6 +121,10 @@ export async function startMockPds(): Promise<MockPds> {
     const pending = requests.get(requestUri)
     if (!pending || pending.used) return send(400, { error: 'invalid_request', error_description: 'unknown or used request_uri' })
     const p = pending.params
+    if (state.limitAuthorize) {
+      state.limitAuthorize--
+      return send(429, { error: 'RateLimitExceeded' }, { 'retry-after': '42' })
+    }
     const auth = String(req.headers.authorization ?? '')
     if (!auth) {
       const accept = String(req.headers.accept ?? '')
