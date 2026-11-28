@@ -9,6 +9,7 @@ itself.
 
 - at_mcp can serve a hosted agent through a TLS proxy (docs/hosts/hosted.md): grants can expire (`AT_MCP_GRANT_LIFETIME_DAYS`, `connection --expires-in DAYS`), and failed grant presentations are limited per source (`AT_MCP_GRANT_FAILURES_PER_MINUTE`), while a valid grant is always served. An open stream is closed within 30 seconds of its grant expiring or being revoked. Behind Caddy, the proxy must send `Host` as the upstream (`header_up Host {upstream_hostport}`): at_mcp answers only requests addressed to loopback.
 - `approve_app_sign_in` needs a `manage` grant: the app it signs in may get more than a write grant could do. App sign-in and group-app previews are kept for 10 minutes.
+- When the town AppView answers `grantNeeded`, the space is registered all the same: an approval that fails is logged and asked again at the next registration, and no longer fails the registration.
 - `get_join_requests` and `get_principals` name each person by display name and handle, then the DID; `get_principals` gains `handle` and `display_name` fields.
 
 - The first `get_notifications` read with `since: "last_read"` of an account that never marked its notifications seen returned nothing. It now returns the newest notification, which the app shows as unread.

@@ -988,6 +988,9 @@ defmodule AtMcp.Reading do
             "off" ->
               ~L"Invites reach get_notifications only while at_mcp runs; they are always listed here."
 
+            "grantNeeded" ->
+              ~L"The town AppView raises invites to it in get_notifications while at_mcp runs. It has asked for a read grant on the inbox, so it can also while at_mcp is stopped; at_mcp approves it when it can."
+
             other when is_binary(other) ->
               cat([~L"Notifications of invites: ", literal(other), ~L"."])
 

@@ -888,6 +888,29 @@ defmodule AtMcp.SpacesSessionTest do
              } = approve["params"]
     end
 
+    test "grantNeeded is registered all the same: an approval that fails leaves the token's registration standing",
+         ctx do
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_register_status) end)
+
+      # No login key here, so the inbox grant can't be approved.
+      File.rm(AtMcp.Spaces.key_path("did:plc:oauthagent"))
+
+      Application.put_env(:at_mcp, :spaces_session_test_register_status, [
+        %{
+          status: "grantNeeded",
+          requestUri: "urn:req:inbox",
+          authorizationUrl:
+            "https://pds.invalid/oauth/authorize?client_id=x&request_uri=urn:req:inbox"
+        }
+      ])
+
+      assert {:ok, %{notifications: "grantNeeded"}} = AtMcp.Spaces.prepare_inbox(session_of())
+      assert {:ok, %{status: "grantNeeded"}} = AtMcp.Spaces.vouch_inbox(session_of())
+      assert receive_all_registers(0) == 2
+      assert Enum.filter(calls(ctx.log), &(&1["method"] == "oauth.approveFor")) == []
+    end
+
     test "a group grant is approved as a member only when it is the AppView asking for read alone",
          ctx do
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)

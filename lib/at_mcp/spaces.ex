@@ -894,9 +894,27 @@ defmodule AtMcp.Spaces do
             {:ok, answer}
 
           request ->
-            with {:ok, _} <- approve_grant(session, space, request) do
-              # Registered again, now that the grant is held.
-              AtMcp.ATProto.register_space(session, Map.delete(params, :delegationToken))
+            # `grantNeeded` is registered all the same: the AppView reads
+            # the space with a client's token, or as a member, while the
+            # grant is pending. So an approval that fails leaves the
+            # registration as it was, and the next one asks again.
+            case approve_grant(session, space, request) do
+              {:ok, _} ->
+                # Registered again, now that the grant is held.
+                case AtMcp.ATProto.register_space(
+                       session,
+                       Map.delete(params, :delegationToken)
+                     ) do
+                  {:ok, again} -> {:ok, again}
+                  {:error, _} -> {:ok, answer}
+                end
+
+              {:error, reason} ->
+                Logger.info(
+                  "approving the town AppView's read grant for #{space} failed; it stays registered meanwhile: #{inspect(reason, limit: 5)}"
+                )
+
+                {:ok, answer}
             end
         end
 
