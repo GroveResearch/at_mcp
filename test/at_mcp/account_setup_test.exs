@@ -91,7 +91,7 @@ defmodule AtMcp.AccountSetupTest do
                "json"
              ])
 
-    assert json.grant == %{scope: :manage, format: "json"}
+    assert json.grant == %{scope: :write, format: "json", expires_in_days: 90}
     [%{value: "Bearer " <> json_token} | _] = json.mcp.headers
     assert {:ok, %{format: "json"}} = AtMcp.Grants.request(json_token, path: grants)
 
@@ -105,6 +105,28 @@ defmodule AtMcp.AccountSetupTest do
                "xml"
              ])
 
+    # A connection's grant is write and ends in 90 days unless asked
+    # otherwise; manage only on request.
+    assert {:ok, plain} = AtMcp.AccountSetup.execute(["--file", path, "connection", "reader"])
+    [%{value: "Bearer " <> plain_token} | _] = plain.mcp.headers
+    assert {:ok, %{scope: :write}} = AtMcp.Grants.request(plain_token, path: grants)
+    {:ok, listed} = AtMcp.Grants.list(path: grants)
+
+    {:ok, ends, _} =
+      DateTime.from_iso8601(List.last(listed)["expires_at"] || List.last(listed).expires_at)
+
+    assert DateTime.diff(ends, DateTime.utc_now(), :day) in 89..90
+
+    assert {:ok, %{grant: %{scope: :manage}}} =
+             AtMcp.AccountSetup.execute([
+               "--file",
+               path,
+               "connection",
+               "reader",
+               "--scope",
+               "manage"
+             ])
+
     # A client that wants every tool listed asks for the full set.
     assert {:ok, full} =
              AtMcp.AccountSetup.execute([
@@ -116,7 +138,7 @@ defmodule AtMcp.AccountSetupTest do
                "full"
              ])
 
-    assert full.grant == %{scope: :manage, tools: "full"}
+    assert full.grant == %{scope: :write, tools: "full", expires_in_days: 90}
     [%{value: "Bearer " <> full_token} | _] = full.mcp.headers
     assert {:ok, %{tools: "full"}} = AtMcp.Grants.request(full_token, path: grants)
 

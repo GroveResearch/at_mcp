@@ -76,7 +76,7 @@ defmodule AtMcp.AccountSetup do
                format: format,
                tools: tools,
                path: grants_path(opts),
-               expires_in_days: opts[:expires_in]
+               expires_in_days: lifetime(opts)
              ] ++
                dependencies
            ) do
@@ -85,7 +85,10 @@ defmodule AtMcp.AccountSetup do
          account: public(account),
          mcp: descriptor,
          grant:
-           Map.reject(%{scope: scope, format: format, tools: tools}, fn {_, v} -> is_nil(v) end),
+           Map.reject(
+             %{scope: scope, format: format, tools: tools, expires_in_days: lifetime(opts)},
+             fn {_, v} -> is_nil(v) end
+           ),
          service_configuration: %{AT_MCP_ACCOUNTS_FILE: path(opts)}
        }}
     end
@@ -522,9 +525,21 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
+  # A connection's grant ends after 90 days unless the command or the
+  # installation (`AT_MCP_GRANT_LIFETIME_DAYS`) says otherwise: a grant that
+  # leaks, or outlives the client it was for, stops working by itself.
+  @connection_days 90
+
+  defp lifetime(opts),
+    do:
+      opts[:expires_in] || Application.get_env(:at_mcp, :grant_lifetime_days) ||
+        @connection_days
+
+  # `write` unless asked: `manage` reaches agent control, app sign-ins and
+  # deletions, which a client gets only when its operator chooses it.
   defp scope(opts) do
     case opts[:scope] do
-      nil -> {:ok, :manage}
+      nil -> {:ok, :write}
       "read" -> {:ok, :read}
       "write" -> {:ok, :write}
       "manage" -> {:ok, :manage}
@@ -599,6 +614,7 @@ defmodule AtMcp.AccountSetup do
       connection NAME [--transport http|stdio]
                       [--scope read|write|manage] [--format text|json]
                       [--tools default|full] [--expires-in DAYS]
+                      (write and 90 days unless given)
       grants
       revoke GRANT_ID
 

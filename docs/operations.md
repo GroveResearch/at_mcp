@@ -240,8 +240,13 @@ Every grant has a scope, set with `--scope` when you issue it:
 | Scope | Tools allowed |
 | --- | --- |
 | `read` | reads only |
-| `write` | reads, plus writes adding to the account, such as posting, following or editing the profile |
-| `manage` | every tool, including deleting, unfollowing, blocking, muting and changing settings. This is the default. |
+| `write` | reads, plus writes adding to the account, such as posting, following or editing the profile. This is the default. |
+| `manage` | every tool, including deleting, unfollowing, blocking, muting, changing settings, signing apps in as the account and controlling its agents |
+
+A grant ends after 90 days unless you give `--expires-in DAYS` (or set
+`AT_MCP_GRANT_LIFETIME_DAYS` for the installation); then run `connection`
+again for a new one. Give `--scope manage` only to a client that needs
+blocking, muting, deletions or agent control.
 
 ```sh
 at_mcp-accounts connection alice --scope read
