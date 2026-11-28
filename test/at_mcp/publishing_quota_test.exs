@@ -86,6 +86,8 @@ defmodule AtMcp.PublishingQuotaTest do
     "delete_agent" => %{"agent" => "did:plc:agent", "confirm" => true},
     "revoke_agent_sessions" => %{"agent" => "did:plc:agent"},
     "endorse_agent" => %{"agent" => "did:plc:agent"},
+    "offer_agent_handoff" => %{"agent" => "did:plc:agent", "to" => "did:plc:next"},
+    "accept_agent_handoff" => %{"agent" => "did:plc:agent"},
     "post" => %{"text" => "t"},
     "reply" => %{"uri" => "at://did:plc:x/app.bsky.feed.post/3k22222222222", "text" => "t"},
     "like" => %{"uri" => "at://u", "cid" => "c"},

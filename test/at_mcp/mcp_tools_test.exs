@@ -190,6 +190,9 @@ defmodule AtMcp.MCP.ToolsTest do
     {"delete_agent", %{"agent" => "did:plc:agent", "confirm" => true}},
     {"revoke_agent_sessions", %{"agent" => "did:plc:agent"}},
     {"endorse_agent", %{"agent" => "did:plc:agent"}},
+    {"offer_agent_handoff", %{"agent" => "did:plc:agent", "to" => "did:plc:next"}},
+    {"get_agent_handoff_offers", %{}},
+    {"accept_agent_handoff", %{"agent" => "did:plc:agent"}},
     {"get_principals", %{"account" => "did:plc:agent"}},
     {"get_notifications", %{}},
     {"get_unread_count", %{}},
@@ -370,7 +373,8 @@ defmodule AtMcp.MCP.ToolsTest do
     "get_notes" => :notes,
     "get_my_groups" => :groups,
     "preview_group_app" => :group_app,
-    "get_principals" => :principals
+    "get_principals" => :principals,
+    "get_agent_handoff_offers" => :agent_handoff_offers
   }
 
   test "a read returns text alone, and its summary when asked; a write returns its summary" do

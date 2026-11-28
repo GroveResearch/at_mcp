@@ -3879,6 +3879,80 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "offer_agent_handoff",
+       write_description(
+         :offer_agent_handoff,
+         "Offer one of this account's agents to another account, which becomes its principal if it accepts within 7 days (accept_agent_handoff); or withdraw the offer with cancel true. A new offer replaces the old. Until it's accepted, this account still answers for the agent. Accepting stops the agent until its new principal pairs it again; keep this account until the agent has carried its notes over. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:offer_agent_handoff, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent_handoff))
+    param(:agent, :string, required: true, description: "The agent's DID")
+
+    param(:to, :string,
+      description: "The DID of the account to offer it to, a did:plc; not needed with cancel"
+    )
+
+    param(:cancel, :boolean, description: "true withdraws this agent's offer")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :offer_agent_handoff, [
+          Map.fetch!(a, :agent),
+          a[:to],
+          a[:cancel]
+        ]),
+        state
+      )
+    end)
+  end
+
+  tool "get_agent_handoff_offers",
+       "Read the agents other accounts have offered to this account, to become their principal: each agent, who offers it and until when. Accept one with accept_agent_handoff. Only on delve.town." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent_handoff_offers))
+
+    run(fn _a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :get_agent_handoff_offers, []),
+        state,
+        :agent_handoff_offers
+      )
+    end)
+  end
+
+  tool "accept_agent_handoff",
+       write_description(
+         :accept_agent_handoff,
+         "Become the principal of an agent another account offered to this one (get_agent_handoff_offers). This account's rotation key goes on the agent's identity, which then names this account as its principal. at_mcp writes this account's endorsement and makes the agent's state space here, which the agent fills from the old one once it runs again. Accepting stops the agent until it is paired again with a key this account enrolls: the answer says how. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:accept_agent_handoff, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:agent))
+    param(:agent, :string, required: true, description: "The offered agent's DID")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :accept_agent_handoff, [Map.fetch!(a, :agent)]),
+        state
+      )
+    end)
+  end
+
   tool "endorse_agent",
        write_description(
          :endorse_agent,

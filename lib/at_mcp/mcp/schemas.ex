@@ -1914,7 +1914,38 @@ defmodule AtMcp.MCP.Schemas do
         "elsewhere" => nullable_string("What other services hold, which no PDS ends"),
         "deleted" => nullable_boolean(),
         "next" => nullable_string("How to run the new agent"),
-        "status" => nullable_string()
+        "status" => nullable_string(),
+        "principal" => nullable_string("The agent's principal, after a hand-off"),
+        "previous_principal" => nullable_string("Its principal before the hand-off"),
+        "agent_space" => %{"type" => ["string", "object", "null"]},
+        "password" => nullable_string()
+      })
+
+  defp spaces_schema(:agent_handoff),
+    do:
+      object(%{
+        "did" => nullable_string(),
+        "to" => nullable_string(),
+        "expires_at" => nullable_string(),
+        "cancelled" => nullable_boolean(),
+        "next" => nullable_string()
+      })
+
+  defp spaces_schema(:agent_handoff_offers),
+    do:
+      object(%{
+        "offers" => %{
+          "type" => ["array", "null"],
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "did" => %{"type" => "string", "description" => "The offered agent"},
+              "handle" => nullable_string(),
+              "from" => nullable_string("Its principal, who offers it"),
+              "expires_at" => nullable_string()
+            }
+          }
+        }
       })
 
   defp spaces_schema(:endorsement),
