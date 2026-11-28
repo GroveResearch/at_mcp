@@ -13,7 +13,9 @@ defmodule AtMcp.ToolSetTest do
   # get_policy. 0.2.18 listed every tool with its output schema in 994,426.
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
-  @default_bound 51_000
+  # 2026-11-28: +100 for get_notifications' include_group_posts, which an
+  # agent needs to see the group posts the list now leaves out.
+  @default_bound 51_100
   # With the five note tools, get_group_invites and accept_group_invite,
   # where Spaces work (delve.town with the Spaces helper running): 54,632. Models given no
   # private place refused to write a private note publicly and had nowhere

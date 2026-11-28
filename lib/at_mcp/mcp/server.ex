@@ -79,7 +79,7 @@ defmodule AtMcp.MCP.Server do
 
     param(:include_group_posts, :boolean,
       description:
-        "true lists every new post in this account's groups too (space-post). Left out by default, which keeps invites, mentions and replies; get_my_groups counts new posts by group"
+        "true also lists posts in this account's groups (space-post)"
     )
 
     run(fn a, state ->
