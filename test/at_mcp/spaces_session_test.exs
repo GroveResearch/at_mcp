@@ -63,6 +63,13 @@ defmodule AtMcp.SpacesSessionTest do
               String.contains?(url, "notification.listNotifications") ->
                 %{notifications: []}
 
+              String.contains?(url, "actor.getProfiles") ->
+                %{
+                  profiles: [
+                    %{did: "did:plc:friend", handle: "friend.test", displayName: "A Friend"}
+                  ]
+                }
+
               true ->
                 %{count: 3}
             end
@@ -1322,8 +1329,11 @@ defmodule AtMcp.SpacesSessionTest do
       [%{"method" => "com.atproto.space.createRecord", "body" => body}] = act["params"]["calls"]
       assert body["collection"] == "org.atgrp.invite" and body["record"]["message"] == "join us"
 
-      assert {:ok, %{requests: [%{"member" => "did:plc:friend"} | _]}} =
+      # The group host names the asker by DID alone; their profile names them.
+      assert {:ok, %{requests: [%{"member" => "did:plc:friend", "actor" => actor} | _]}} =
                AtMcp.Effects.spaces(ctx.effects, :get_join_requests, ["did:plc:group"])
+
+      assert actor["handle"] == "friend.test" and actor["displayName"] == "A Friend"
 
       assert {:ok, %{admitted: true}} =
                AtMcp.Effects.spaces(ctx.effects, :approve_join_request, [

@@ -1048,18 +1048,13 @@ defmodule AtMcp.Spaces do
   # same URL in this session is refused; a preview lasts ten minutes and is
   # spent by its approval or denial.
 
-  @app_preview_ms 600_000
-
   def preview_app_sign_in(session, url) do
     did = Session.did(session)
 
     with {:ok, url} <- app_url(session, url),
          {:ok, asked} <- Helper.call("oauth.previewApp", %{authorizationUrl: url}),
          :ok <- for_this_account(session, asked["loginHint"]) do
-      :persistent_term.put(
-        {__MODULE__, :app_preview, did, url},
-        {asked, System.monotonic_time(:millisecond)}
-      )
+      AtMcp.Spaces.Previews.put({:app_sign_in, did, url}, asked)
 
       {:ok, app_view(asked) |> Map.put(:approved, false) |> Map.put(:previewed, true)}
     end
@@ -1153,18 +1148,9 @@ defmodule AtMcp.Spaces do
   end
 
   defp take_app_preview(did, url) do
-    key = {__MODULE__, :app_preview, did, url}
-
-    case :persistent_term.get(key, nil) do
-      {asked, at} ->
-        :persistent_term.erase(key)
-
-        if System.monotonic_time(:millisecond) - at <= @app_preview_ms,
-          do: {:ok, asked},
-          else: not_previewed()
-
-      nil ->
-        not_previewed()
+    case AtMcp.Spaces.Previews.take({:app_sign_in, did, url}) do
+      {:ok, asked} -> {:ok, asked}
+      _ -> not_previewed()
     end
   end
 
@@ -1541,8 +1527,35 @@ defmodule AtMcp.Spaces do
   def get_join_requests(session, group) do
     with {:ok, group} <- group_arg(session, group),
          {:ok, body} <- group_host_get(session, "org.atgrp.listJoinRequests", %{"group" => group}) do
-      {:ok, %{group: group, requests: body["requests"] || [], cursor: body["cursor"]}}
+      {:ok,
+       %{group: group, requests: named(session, body["requests"] || []), cursor: body["cursor"]}}
     end
+  end
+
+  # Who asks, by handle and display name: the group host may send the
+  # member's DID alone, so a request without a handle takes the asker's
+  # public profile (one read for them all).
+  defp named(session, requests) do
+    missing =
+      for %{"member" => did} = q <- requests,
+          is_binary(did),
+          not (is_map(q["actor"]) and is_binary(q["actor"]["handle"])),
+          uniq: true,
+          do: did
+
+    profiles = author_profiles(session, missing)
+
+    Enum.map(requests, fn q ->
+      case profiles[q["member"]] do
+        %{} = p ->
+          actor = if is_map(q["actor"]), do: q["actor"], else: %{}
+          given = Map.reject(actor, fn {_, v} -> is_nil(v) end)
+          Map.put(q, "actor", Map.merge(Map.take(p, ["did", "handle", "displayName"]), given))
+
+        nil ->
+          q
+      end
+    end)
   end
 
   @doc "Admits `member`, who asked to join `group`, as a member."
@@ -2135,10 +2148,7 @@ defmodule AtMcp.Spaces do
   def preview_group_app(session, request_uri, group) do
     with :ok <- text_arg(request_uri, "request_uri"),
          {:ok, facts} <- app_request(session, request_uri, group) do
-      :persistent_term.put(
-        {__MODULE__, :previewed, Session.did(session), request_uri},
-        {facts.group, System.monotonic_time(:second)}
-      )
+      AtMcp.Spaces.Previews.put({:group_app, Session.did(session), request_uri}, facts.group)
 
       {:ok, Map.merge(facts, %{approved: false, previewed: true})}
     end
@@ -2166,16 +2176,16 @@ defmodule AtMcp.Spaces do
   # Approving takes a preview of the same request first, for the same group,
   # in the last ten minutes, and spends it: an approval can't be taken back
   # from here, only by the group's admins.
-  @preview_seconds 600
 
   defp previewed(session, request_uri) do
-    case :persistent_term.get({__MODULE__, :previewed, Session.did(session), request_uri}, nil) do
-      {shown, at} ->
-        if System.monotonic_time(:second) - at <= @preview_seconds,
-          do: {:ok, shown},
-          else: not_previewed("The preview is too old: preview the request again first.")
+    case AtMcp.Spaces.Previews.peek({:group_app, Session.did(session), request_uri}) do
+      {:ok, shown} ->
+        {:ok, shown}
 
-      _ ->
+      :expired ->
+        not_previewed("The preview is too old: preview the request again first.")
+
+      :none ->
         not_previewed(
           "Look at the request first with preview_group_app (which app, and what it would get)."
         )
@@ -2217,7 +2227,7 @@ defmodule AtMcp.Spaces do
            }),
          {:ok, offered} <- offered_group(preview, group || shown),
          :ok <- same_as_previewed(offered, shown) do
-      :persistent_term.erase({__MODULE__, :previewed, Session.did(session), request_uri})
+      AtMcp.Spaces.Previews.take({:group_app, Session.did(session), request_uri})
       group = offered["did"]
       client = preview["client"] || %{}
 
@@ -2976,7 +2986,15 @@ defmodule AtMcp.Spaces do
           %{did: principal, confirmed: confirmed}
         end
 
-      {:ok, %{did: did, principals: principals}}
+      # Named as people are elsewhere: handle and display name, then the DID.
+      profiles = author_profiles(session, Enum.uniq([did | claimed]))
+
+      named = fn m, d ->
+        p = profiles[d] || %{}
+        Map.merge(m, %{handle: p["handle"], display_name: p["displayName"]})
+      end
+
+      {:ok, named.(%{did: did, principals: Enum.map(principals, &named.(&1, &1.did))}, did)}
     end
   end
 

@@ -3,14 +3,16 @@ defmodule AtMcp.MCP.GrantAttempts do
   A limit on failed grant presentations at the MCP endpoint, for an endpoint
   a TLS proxy exposes to a hosted agent's servers: after
   `AT_MCP_GRANT_FAILURES_PER_MINUTE` failures (10 by default) from one
-  source within a minute, that source is refused (429) until the minute
-  is out, so a grant can't be guessed by trying. A request that presents no
-  credential at all doesn't count.
+  source within a minute, that source's failed presentations are answered
+  429 until the minute is out. A request that presents no credential at all
+  doesn't count.
 
   The source is the connecting address; for a request that arrives on
   loopback with `X-Forwarded-For` (the proxy on the same machine), the
   first address it names. The proxy must set that header itself, replacing
-  what a client sent.
+  what a client sent. An IPv6 source counts by its /64. A valid grant is
+  always served: only failures are counted and refused. Sources whose
+  minute is out are dropped as failures are counted.
   """
   use GenServer
 
@@ -38,10 +40,13 @@ defmodule AtMcp.MCP.GrantAttempts do
     end
   end
 
-  @doc "Counts one failed presentation from `source`."
+  @doc "Counts one failed presentation from `source`, and drops windows past."
   def failed(source) do
     if table?() do
       now = now()
+      # Sources whose minute is out are forgotten, so the table holds only
+      # the sources failing now.
+      :ets.select_delete(@table, [{{:_, :_, :"$1"}, [{:<, :"$1", now - @window_ms}], [true]}])
 
       case :ets.lookup(@table, source) do
         [{^source, count, since}] when now - since < @window_ms ->
@@ -59,9 +64,24 @@ defmodule AtMcp.MCP.GrantAttempts do
   def source(%Plug.Conn{remote_ip: ip} = conn) do
     forwarded = Plug.Conn.get_req_header(conn, "x-forwarded-for")
 
-    case {loopback?(ip), forwarded} do
-      {true, [value | _]} -> value |> String.split(",") |> hd() |> String.trim()
-      _ -> ip |> :inet.ntoa() |> to_string()
+    address =
+      case {loopback?(ip), forwarded} do
+        {true, [value | _]} -> value |> String.split(",") |> hd() |> String.trim()
+        _ -> ip |> :inet.ntoa() |> to_string()
+      end
+
+    prefix(address)
+  end
+
+  # An IPv6 client usually holds a whole /64, and could rotate within it:
+  # counted by its /64.
+  defp prefix(address) do
+    case :inet.parse_address(String.to_charlist(address)) do
+      {:ok, {a, b, c, d, _, _, _, _}} ->
+        ({a, b, c, d, 0, 0, 0, 0} |> :inet.ntoa() |> to_string()) <> "/64"
+
+      _ ->
+        address
     end
   end
 

@@ -30,7 +30,9 @@ which suits one person's machine but not an endpoint on the network.
 
 `AT_MCP_GRANT_FAILURES_PER_MINUTE` (10 by default) limits failed grant
 presentations from one source: past it, the source is refused for the rest of
-the minute, a valid grant included.
+the minute. A valid grant is always served, so a stranger guessing
+grants can't lock the agent out. An open stream is closed within 30 seconds
+of its grant expiring or being revoked.
 
 ## 2. Put a TLS proxy in front of it
 
@@ -39,6 +41,9 @@ Caddy, with a certificate it gets itself:
 ```
 mcp.example.org {
 	reverse_proxy 127.0.0.1:4400 {
+		# at_mcp answers only requests addressed to loopback (421
+		# otherwise), so name the upstream, not mcp.example.org.
+		header_up Host {upstream_hostport}
 		# The client's address, replacing any the client sent: at_mcp
 		# counts failed grants against it.
 		header_up X-Forwarded-For {remote_host}
@@ -57,6 +62,8 @@ server {
     # ssl_certificate and ssl_certificate_key as your setup has them
 
     location / {
+        # nginx sends Host as the upstream (127.0.0.1:4400) by default,
+        # which is what at_mcp needs; don't set it to $host.
         proxy_pass http://127.0.0.1:4400;
         proxy_http_version 1.1;
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -69,6 +76,13 @@ server {
 Keep the proxy and at_mcp on the same machine: at_mcp takes
 `X-Forwarded-For` only from a connection on loopback, and the proxy must
 replace that header, not append to what a client sent.
+
+**No CDN or second proxy in front.** at_mcp counts failed grants by the
+address the proxy forwards. Behind a CDN, that address is the CDN's, so every
+client shares one count, and one client's failures hold all of them up for
+the rest of the minute. If you must have one, have the proxy take the
+client's address from the CDN's own header (Caddy's `trusted_proxies` with
+`client_ip_headers`, forwarding `{client_ip}` in place of `{remote_host}`; nginx's `real_ip_header`), limited to the CDN's ranges.
 
 **Origin:** at_mcp refuses a request whose `Origin` header names anything
 but its own loopback address, which is what keeps a web page in a browser on

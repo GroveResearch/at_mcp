@@ -3583,9 +3583,11 @@ defmodule AtMcp.MCP.Server do
          "Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. Refused unless that url was previewed in this session. Approved, it answers the callback URL to hand back to the app."
        ) do
     annotations(
+      # A manage grant's alone: the app it signs in may get more than a
+      # write grant could do (transition:generic, agent control).
       write_annotations(:approve_app_sign_in, %{
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: true
       })

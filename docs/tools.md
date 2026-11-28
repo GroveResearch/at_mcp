@@ -91,7 +91,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | --- | --- | --- | --- | --- |
 | `accept_group_invite` | default with Spaces |  | write | Accept a group's invite and join it. |
 | `add_to_list` | full |  | write | Put an account on a list or starter pack this account made. |
-| `approve_app_sign_in` | full |  | write | Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. |
+| `approve_app_sign_in` | full |  | manage | Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. |
 | `approve_group_app` | full |  | write | Let an app sign in as a group you are in, with what your roles there allow, or with deny true turn it away. |
 | `approve_join_request` | full |  | write | Admit someone who asked to join a group you run, as a member. |
 | `block` | default |  | manage | Block an actor by handle or DID. |

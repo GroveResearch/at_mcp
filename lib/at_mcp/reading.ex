@@ -1185,21 +1185,21 @@ defmodule AtMcp.Reading do
   def group_app(_other), do: nil
 
   @doc "An account's principals, and whether each one's endorsement confirms it."
-  def principals(%{"did" => did, "principals" => principals}) when is_list(principals) do
+  def principals(%{"did" => _, "principals" => principals} = r) when is_list(principals) do
     header =
       if principals == [],
         do:
           cat([
-            ident(did),
+            person(r),
             ~L" names no principal: it is not an agent, or not one of a known account."
           ]),
-        else: cat([ident(did), ~L" is an agent of:"])
+        else: cat([person(r), ~L" is an agent of:"])
 
     lines =
       for p <- principals do
         cat([
           ~L"  ",
-          ident(p["did"]),
+          person(p),
           if(p["confirmed"] == true,
             do: ~L" (confirmed: its endorsement completes the pair)",
             else: ~L" (not confirmed: no endorsement from it)"
@@ -1211,6 +1211,20 @@ defmodule AtMcp.Reading do
   end
 
   def principals(_other), do: nil
+
+  # Someone, as the reads name people: display name, @handle, then the DID.
+  defp person(p) do
+    join(
+      [
+        if(is_binary(p["display_name"]) and p["display_name"] != "",
+          do: shown(p["display_name"])
+        ),
+        if(is_binary(p["handle"]), do: cat([~L"@", ident(p["handle"])])),
+        ident(p["did"])
+      ],
+      :space
+    )
+  end
 
   @doc """
   One of the network's policy pages: its title and address, then its text,

@@ -1900,12 +1900,16 @@ defmodule AtMcp.MCP.Schemas do
     do:
       object(%{
         "did" => nullable_string(),
+        "handle" => nullable_string("The account's handle, from its public profile"),
+        "display_name" => nullable_string(),
         "principals" => %{
           "type" => ["array", "null"],
           "items" => %{
             "type" => "object",
             "properties" => %{
               "did" => %{"type" => "string"},
+              "handle" => nullable_string(),
+              "display_name" => nullable_string(),
               "confirmed" => %{
                 "type" => "boolean",
                 "description" => "true when the principal's endorsement completes the pair"

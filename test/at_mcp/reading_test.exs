@@ -1148,11 +1148,21 @@ defmodule AtMcp.ReadingTest do
     principals =
       AtMcp.Reading.principals(%{
         "did" => "did:plc:a",
-        "principals" => [%{"did" => "did:plc:p", "confirmed" => true}]
+        "handle" => "a.test",
+        "principals" => [
+          %{
+            "did" => "did:plc:p",
+            "handle" => "p.test",
+            "display_name" => "Pat",
+            "confirmed" => true
+          }
+        ]
       })
 
-    assert principals =~ "did:plc:a is an agent of:"
-    assert principals =~ "did:plc:p (confirmed: its endorsement completes the pair)"
+    assert principals =~ "@a.test did:plc:a is an agent of:"
+
+    assert principals =~
+             "\"Pat\" @p.test did:plc:p (confirmed: its endorsement completes the pair)"
   end
 
   test "the town AppView's own request to join a group is said for what it is" do
@@ -1162,11 +1172,16 @@ defmodule AtMcp.ReadingTest do
       AtMcp.Reading.join_requests(%{
         "group" => "did:plc:g",
         "requests" => [
-          %{"member" => "did:plc:reader", "message" => "May I join?"},
+          %{
+            "member" => "did:plc:reader",
+            "message" => "May I join?",
+            "actor" => %{"handle" => "reader.test", "displayName" => "Robin"}
+          },
           %{"member" => appview, "message" => "Delvetown's notification service."}
         ]
       })
 
+    assert text =~ ~s("Robin" @reader.test did:plc:reader)
     assert text =~ "Admit with approve_join_request (member: did:plc:reader)"
     assert text =~ "This is the town AppView, asking to be the group's notifications member"
     refute text =~ "approve_join_request (member: #{appview})"
