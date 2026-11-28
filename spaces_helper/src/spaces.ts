@@ -223,6 +223,13 @@ export class Spaces {
     return json(res.body)
   }
 
+  /** Deletes every record this account has in `space` (`clearRecords`). */
+  async clearRecords(did: string, space: SpaceArg) {
+    const s = await this.open(did, space)
+    const res = await s.clearRecords()
+    return json(res.body ?? {})
+  }
+
   async deleteRecord(did: string, space: SpaceArg, collection: string, rkey: string) {
     const s = await this.open(did, space)
     const res = await s.deleteRecord(collection as never, rkey)

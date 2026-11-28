@@ -36,6 +36,9 @@ defmodule AtMcp.Spaces.InboxTokens do
   list, looked at again every 30 minutes, which also finds groups joined
   since.
 
+  Each pass also carries an agent's records into its new state space after
+  it was handed to another principal (`AtMcp.Spaces.carry_agent_state/2`).
+
   Whatever the AppView answers, no space gets a token more often than every
   8 minutes, except one at once after the account's session is established
   anew. The pass runs every 100 seconds and checks each account; most passes
@@ -154,7 +157,23 @@ defmodule AtMcp.Spaces.InboxTokens do
     renewed? = MapSet.member?(state.renewed, did_of(effects))
     state = %{state | renewed: MapSet.delete(state.renewed, did_of(effects))}
     {status, state} = inbox_pass(state, id, effects, now, renewed?)
-    {status, groups_pass(state, id, effects, now, renewed?)}
+    state = groups_pass(state, id, effects, now, renewed?)
+    carry(effects)
+    {status, state}
+  end
+
+  # An agent handed to another principal carries its records into its new
+  # state space (`AtMcp.Spaces.carry_agent_state/2`), so its notes move
+  # while it runs, not only at its next note: the old space goes with the
+  # old principal's account. Nothing is sent unless its principal changed,
+  # which is looked at every 5 minutes.
+  defp carry(effects) do
+    case AtMcp.Effects.spaces(effects, :carry_agent_state, []) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Logger.info("carrying the agent's state: #{inspect(reason, limit: 5)}")
+    end
+  catch
+    :exit, _ -> :ok
   end
 
   # The account's groups, as its inbox: the AppView reads a group it is a

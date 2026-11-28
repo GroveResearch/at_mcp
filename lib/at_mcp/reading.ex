@@ -1224,6 +1224,44 @@ defmodule AtMcp.Reading do
 
   def principals(_other), do: nil
 
+  @doc "The agents offered to this account, to become their principal."
+  def agent_handoff_offers(%{"offers" => offers}) when is_list(offers) do
+    header =
+      if offers == [],
+        do: ~L"No agents are offered to this account.",
+        else:
+          cat([
+            count(length(offers), ~L"agent", ~L"agents"),
+            ~L" offered to this account, to become their principal:"
+          ])
+
+    blocks =
+      for {o, n} <- Enum.with_index(offers, 1) do
+        join(
+          [
+            cat([
+              numbered(n),
+              ~L" ",
+              join(
+                [
+                  person(o),
+                  cat([~L"offered by ", ident(o["from"])]),
+                  if(is_binary(o["expires_at"]), do: cat([~L"until ", time(o["expires_at"])]))
+                ],
+                :dot
+              )
+            ]),
+            cat([~L"Accept with accept_agent_handoff (agent: ", ident(o["did"]), ~L")."])
+          ],
+          :line
+        )
+      end
+
+    to_text(join([header | blocks], :blank))
+  end
+
+  def agent_handoff_offers(_other), do: nil
+
   # Someone, as the reads name people: display name, @handle, then the DID.
   defp person(p) do
     join(

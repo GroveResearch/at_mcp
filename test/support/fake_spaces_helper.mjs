@@ -72,7 +72,7 @@ const methods = {
   },
   'oauth.approveApp': (p) => ({ callbackUrl: `${p.redirectUri}?code=fake-code&iss=x` }),
   'space.get': (p) => {
-    if (spaces.has(p.space)) return { space: p.space, policy: {} }
+    if (spaces.has(p.space) || (fixture().existing ?? []).includes(p.space)) return { space: p.space, policy: {} }
     throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
   },
   'space.delegationToken': (p) => {
@@ -135,7 +135,10 @@ const methods = {
       })),
     }
   },
+  'space.records.clear': (p) => ({}),
   'space.all': (p) => {
+    const given = (fixture().all ?? {})[p.space]
+    if (given) return { records: given, more: false }
     if (!p.space.startsWith(`at:space/${did}/`)) {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${p.space}"` }
     }
