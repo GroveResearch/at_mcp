@@ -3053,17 +3053,8 @@ defmodule AtMcp.Spaces do
 
       principals =
         for principal <- claimed do
-          confirmed =
-            case AtMcp.ATProto.get_record_as_stored(session, %{
-                   repo: principal,
-                   collection: "link.ident.endorsement",
-                   rkey: did
-                 }) do
-              {:ok, %{"value" => %{"agent" => ^did}}} -> true
-              _ -> false
-            end
-
-          %{did: principal, confirmed: confirmed}
+          status = endorsement(session, principal, did)
+          %{did: principal, confirmed: status == "confirmed", confirmation: status}
         end
 
       # Named as people are elsewhere: handle and display name, then the DID.
@@ -3076,6 +3067,55 @@ defmodule AtMcp.Spaces do
 
       {:ok, named.(%{did: did, principals: Enum.map(principals, &named.(&1, &1.did))}, did)}
     end
+  end
+
+  @doc """
+  Whether `principal` endorses `agent`, as ident.link has a consumer check
+  it: the endorsement (`link.ident.endorsement`, key the agent's DID) as
+  the principal's repository proves it (`com.atproto.sync.getRecord`,
+  verified against the signing key in the principal's DID document), naming
+  the agent. Answers `"confirmed"`; `"not_endorsed"` (no such record, or one
+  naming another agent); `"proof_invalid"` (a record whose proof doesn't
+  hold: never taken for an endorsement); or `"unavailable"` (the principal's
+  DID document or repository couldn't be read now: not a no).
+  """
+  def endorsement(session, principal, agent) do
+    with {:ok, doc} <- resolve_did_doc(session, principal),
+         {:ok, pds, key} <- repo_service(doc) do
+      case Helper.call("record.verify", %{
+             pds: pds,
+             did: principal,
+             collection: "link.ident.endorsement",
+             rkey: agent,
+             signingKey: key
+           }) do
+        {:ok, %{"found" => true, "record" => %{"agent" => ^agent}}} -> "confirmed"
+        {:ok, %{"found" => _}} -> "not_endorsed"
+        {:error, %Failure{detail: "ProofInvalid"}} -> "proof_invalid"
+        _ -> "unavailable"
+      end
+    else
+      _ -> "unavailable"
+    end
+  end
+
+  # The account's PDS and its repository's signing key (a did:key), from its
+  # DID document.
+  defp repo_service(doc) do
+    pds =
+      Enum.find_value(doc["service"] || [], fn s ->
+        if is_binary(s["id"]) and String.ends_with?(s["id"], "#atproto_pds"),
+          do: s["serviceEndpoint"]
+      end)
+
+    key =
+      Enum.find_value(doc["verificationMethod"] || [], fn m ->
+        if is_binary(m["id"]) and String.ends_with?(m["id"], "#atproto") and
+             is_binary(m["publicKeyMultibase"]),
+           do: "did:key:" <> m["publicKeyMultibase"]
+      end)
+
+    if is_binary(pds) and is_binary(key), do: {:ok, pds, key}, else: {:error, :no_repo_service}
   end
 
   # The DID document, from the PLC directory (`AT_MCP_PLC_URL`) or a

@@ -1203,10 +1203,19 @@ defmodule AtMcp.Reading do
         cat([
           ~L"  ",
           person(p),
-          if(p["confirmed"] == true,
-            do: ~L" (confirmed: its endorsement completes the pair)",
-            else: ~L" (not confirmed: no endorsement from it)"
-          )
+          case p["confirmation"] || if(p["confirmed"] == true, do: "confirmed") do
+            "confirmed" ->
+              ~L" (confirmed: its endorsement, as its repository proves it, completes the pair)"
+
+            "proof_invalid" ->
+              ~L" (not confirmed: its repository's proof of the endorsement doesn't hold)"
+
+            "unavailable" ->
+              ~L" (unknown: its identity or repository couldn't be read now; ask again later)"
+
+            _ ->
+              ~L" (not confirmed: no endorsement from it)"
+          end
         ])
       end
 

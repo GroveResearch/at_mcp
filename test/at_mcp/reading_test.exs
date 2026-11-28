@@ -1162,7 +1162,7 @@ defmodule AtMcp.ReadingTest do
     assert principals =~ "@a.test did:plc:a is an agent of:"
 
     assert principals =~
-             "\"Pat\" @p.test did:plc:p (confirmed: its endorsement completes the pair)"
+             "\"Pat\" @p.test did:plc:p (confirmed: its endorsement, as its repository proves it, completes the pair)"
   end
 
   test "the town AppView's own request to join a group is said for what it is" do

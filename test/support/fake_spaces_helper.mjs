@@ -58,6 +58,13 @@ const methods = {
     redirectUri: 'https://app.example/callback',
     loginHint: new URL(p.authorizationUrl).searchParams.get('hint'),
   }),
+  // getRecord's proof, as FAKE_FIXTURE's `verify` says for each principal.
+  'record.verify': (p) => {
+    const v = (fixture().verify ?? {})[p.did]
+    if (v === 'ProofInvalid') throw { class: 'refused', code: 'ProofInvalid', message: 'proof does not hold' }
+    if (!v) throw { class: 'indeterminate', code: 'transport', message: 'no answer' }
+    return v
+  },
   // The helper's own check, with the protocol's scope parser.
   'scope.readOnlySpaces': async (p) => {
     const { readOnlySpaces } = await import(new URL('../../spaces_helper/src/scopes.ts', import.meta.url))
@@ -158,6 +165,13 @@ const methods = {
     inboxReaders = p.inboxReaders ?? []
     return { protocol: 1, version: 'fake' }
   },
+}
+
+// The file FAKE_FIXTURE names, read at each call: what a test says a
+// method answers.
+function fixture() {
+  const file = process.env.FAKE_FIXTURE
+  return file && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
 }
 
 const rl = createInterface({ input: process.stdin })

@@ -95,6 +95,14 @@ defmodule AtMcp.SpacesSessionTest do
     on_exit(fn -> :persistent_term.erase({AtMcp.Spaces, :principal_of, "did:plc:oauthagent"}) end)
     die = Path.join(System.tmp_dir!(), "fake-die-#{System.unique_integer([:positive])}")
     System.put_env("FAKE_DIE", die)
+    fixture = Path.join(System.tmp_dir!(), "fake-fixture-#{System.unique_integer([:positive])}")
+    System.put_env("FAKE_FIXTURE", fixture)
+
+    on_exit(fn ->
+      File.rm(fixture)
+      System.delete_env("FAKE_FIXTURE")
+    end)
+
     if service = Map.get(ctx, :fake_service), do: System.put_env("FAKE_SERVICE", service)
 
     previous_http = Application.get_env(:proto_rune, :http_client)
@@ -143,7 +151,7 @@ defmodule AtMcp.SpacesSessionTest do
         expected_did: "did:plc:oauthagent"
       )
 
-    %{effects: effects, log: log}
+    %{effects: effects, log: log, fixture: fixture}
   end
 
   defp calls(log) do
@@ -501,6 +509,44 @@ defmodule AtMcp.SpacesSessionTest do
     after
       200 -> n
     end
+  end
+
+  test "an endorsement is confirmed only as the principal's repository proves it, and a lookup that fails isn't a no",
+       ctx do
+    Application.put_env(:at_mcp, :plc_url, ctx.fake_service <> "/plc")
+    on_exit(fn -> Application.delete_env(:at_mcp, :plc_url) end)
+    assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+    # What the helper's check of getRecord's proof answers, by principal.
+    File.write!(
+      ctx.fixture,
+      Jason.encode!(%{
+        verify: %{
+          "did:plc:good" => %{found: true, record: %{agent: "did:plc:agent"}},
+          "did:plc:other" => %{found: true, record: %{agent: "did:plc:someone"}},
+          "did:plc:none" => %{found: false},
+          "did:plc:forged" => "ProofInvalid"
+        }
+      })
+    )
+
+    s = session_of()
+    assert AtMcp.Spaces.endorsement(s, "did:plc:good", "did:plc:agent") == "confirmed"
+    assert AtMcp.Spaces.endorsement(s, "did:plc:other", "did:plc:agent") == "not_endorsed"
+    assert AtMcp.Spaces.endorsement(s, "did:plc:none", "did:plc:agent") == "not_endorsed"
+    assert AtMcp.Spaces.endorsement(s, "did:plc:forged", "did:plc:agent") == "proof_invalid"
+    assert AtMcp.Spaces.endorsement(s, "did:plc:gone", "did:plc:agent") == "unavailable"
+
+    # Checked at the principal's PDS, against the key its DID document names.
+    [check | _] = Enum.filter(calls(ctx.log), &(&1["method"] == "record.verify"))
+
+    assert check["params"] == %{
+             "pds" => "https://pds.test",
+             "did" => "did:plc:good",
+             "collection" => "link.ident.endorsement",
+             "rkey" => "did:plc:agent",
+             "signingKey" => "did:key:zQ3shKey"
+           }
   end
 
   defmodule GroupHost do
@@ -1566,6 +1612,29 @@ defmodule AtMcp.SpacesSessionTest do
     plug(:dispatch)
 
     get("/xrpc/com.atproto.server.describeServer", do: json(conn, %{did: "did:web:pds.test"}))
+
+    # A stand-in PLC directory: each DID's document names this PDS and a
+    # signing key; did:plc:gone has none.
+    get "/plc/:did" do
+      if did == "did:plc:gone" do
+        send_resp(conn, 404, "not found")
+      else
+        json(conn, %{
+          id: did,
+          alsoKnownAs: ["at://#{did}.test"],
+          verificationMethod: [
+            %{id: "#{did}#atproto", type: "Multikey", publicKeyMultibase: "zQ3shKey"}
+          ],
+          service: [
+            %{
+              id: "#atproto_pds",
+              type: "AtprotoPersonalDataServer",
+              serviceEndpoint: "https://pds.test"
+            }
+          ]
+        })
+      end
+    end
 
     post "/xrpc/town.delve.agent.createAgent" do
       send(

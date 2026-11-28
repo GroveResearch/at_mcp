@@ -1921,8 +1921,13 @@ defmodule AtMcp.MCP.Schemas do
               "display_name" => nullable_string(),
               "confirmed" => %{
                 "type" => "boolean",
-                "description" => "true when the principal's endorsement completes the pair"
-              }
+                "description" =>
+                  "true when the principal's endorsement, as its repository proves it, completes the pair"
+              },
+              "confirmation" =>
+                nullable_string(
+                  "confirmed, not_endorsed, proof_invalid (a record whose repository proof doesn't hold) or unavailable (couldn't be read now)"
+                )
             }
           }
         }

@@ -13,6 +13,7 @@ import { OAuthSessions } from './oauth.ts'
 import { Spaces } from './spaces.ts'
 import { asGroup } from './group.ts'
 import { readOnlySpaces } from './scopes.ts'
+import { verifiedRecord } from './records.ts'
 
 export const PROTOCOL = 1
 export const HELPER_VERSION = '0.1.0'
@@ -33,6 +34,7 @@ export class Helper {
   oauth?: OAuthSessions
   spaces?: Spaces
   fetch?: typeof globalThis.fetch
+  allowHttp = false
   constructor(
     readonly log: Log,
     readonly baseFetch: typeof globalThis.fetch = globalThis.fetch,
@@ -50,6 +52,7 @@ export class Helper {
       return this.baseFetch(req, init?.redirect ? { redirect: init.redirect } : undefined)
     }
     this.fetch = fetch
+    this.allowHttp = !!config.allowHttp
     this.oauth = new OAuthSessions({
       stateDir: config.stateDir,
       fetch,
@@ -101,6 +104,7 @@ export class Helper {
     // with the account's key.
     'oauth.approveFor': async (p) => this.#o.approveFor(p as never),
     // An outside app's sign-in as the account: what it asks, then approving it.
+    'record.verify': async (p) => verifiedRecord(p as never, this.allowHttp, this.fetch),
     'scope.readOnlySpaces': async (p) =>
       readOnlySpaces(String(p.scope ?? ''), (p.types as string[]) ?? [], p.authority as string | undefined),
     'oauth.previewApp': async (p) => this.#o.previewApp(p as never),
