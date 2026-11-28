@@ -287,3 +287,13 @@ test('signing in by key alone refuses a preview that names any account', async (
   pds.previewOverride = undefined
   assert.equal(pds.consents, consents)
 })
+
+test('a sign-in the PDS limits is rate_limited, with how long to wait, never a missing extension', async () => {
+  const keyFile = join(dir, 'paired.json')
+  pds.limitAuthorize = 1
+  const out = await call('oauth.login', { account: pds.url, keyFile, scope: SCOPE })
+  assert.equal(out.error.data.code, 'rate_limited')
+  assert.equal(out.error.data.retryAfter, 42)
+  pds.limitAuthorize = 0
+})
+

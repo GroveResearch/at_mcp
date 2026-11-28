@@ -16,6 +16,7 @@ defmodule AtMcp.AccountSetup do
     key_file: :string,
     did_key: :string,
     principal: :string,
+    name: :string,
     wait_minutes: :integer,
     transport: :string,
     url: :string,
@@ -225,6 +226,14 @@ defmodule AtMcp.AccountSetup do
   # link for the principal to create the account with, and the account saved
   # once the key signs in to it (`AtMcp.Pairing`). The handle is NAME under
   # the PDS's first handle domain, or --handle.
+  # `setup --name NAME` is the same as `setup NAME`.
+  defp dispatch(["setup"], opts, dependencies) do
+    case opts[:name] do
+      name when is_binary(name) -> dispatch(["setup", name], opts, dependencies)
+      _ -> {:error, :usage}
+    end
+  end
+
   defp dispatch(["setup", id], opts, dependencies) do
     with principal when is_binary(principal) <- opts[:principal] || :usage,
          :ok <- wait_valid(opts),
@@ -766,7 +775,7 @@ defmodule AtMcp.AccountSetup do
       add-agent NAME --did DID [--key-file ABSOLUTE_PATH] [--handle HANDLE]
                      [--service URL]
       key NAME --key-file ABSOLUTE_PATH
-      setup NAME --principal HANDLE [--handle HANDLE] [--service URL]
+      setup NAME | --name NAME --principal HANDLE [--handle HANDLE] [--service URL]
                  [--wait-minutes N]
       repair NAME [--principal HANDLE] [--wait-minutes N]
       rotation-key NAME --did-key did:key:...

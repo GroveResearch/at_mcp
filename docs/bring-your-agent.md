@@ -87,7 +87,7 @@ browser, and whether it shows the agent's password. -->
 
 ## 3. at_mcp signs in
 
-Within a few seconds the command sees the account. It signs in with the key
+Within about 20 seconds the command sees the account. It signs in with the key
 alone, so it learns the new account's DID from the sign-in, and nothing has
 to be pasted back. It then checks ident.link and saves the account:
 

@@ -127,6 +127,9 @@ export class OAuthSessions {
     try {
       url = await client.authorize(account, { scope })
     } catch (err) {
+      if (/\b429\b|rate.?limit/i.test(String((err as Error).message))) {
+        throw refused('rate_limited', `the PDS is limiting sign-ins from this address: ${(err as Error).message}`, { retryAfter: null })
+      }
       const cause = (err as { cause?: Error }).cause
       throw refused('authorize_failed', `could not start an authorization for ${account}: ${(err as Error).message}${cause ? ` (${cause.message})` : ''}`)
     }
@@ -175,6 +178,7 @@ export class OAuthSessions {
       headers: { accept: 'application/json' },
       redirect: 'manual',
     })
+    if (preview.status === 429) throw rateLimited(preview)
     const type = preview.headers.get('content-type') ?? ''
     if (!preview.ok || !type.includes('application/json')) {
       throw refused(
@@ -226,6 +230,7 @@ export class OAuthSessions {
         }
         return new URL(location)
       }
+      if (res.status === 429) throw rateLimited(res)
       const err = (await res.json().catch(() => ({}))) as { error?: string; error_description?: string }
       if (res.status === 401 && err.error === 'use_dpop_nonce' && attempt === 0) {
         nonce = res.headers.get('dpop-nonce') ?? nonce
@@ -407,4 +412,12 @@ export class OAuthSessions {
 /** An https (or, for a local stack, http) URL: a PDS, not a handle or DID. */
 export function isServiceUrl(account: string): boolean {
   return /^https?:\/\//.test(account)
+}
+
+/** A 429: the PDS limits signed authorizes per address. Says how long to wait, when it says. */
+function rateLimited(res: Response) {
+  const after = Number(res.headers.get('retry-after'))
+  const reset = Number(res.headers.get('ratelimit-reset'))
+  const retryAfter = Number.isFinite(after) && after > 0 ? after : Number.isFinite(reset) && reset > 0 ? reset : null
+  return refused('rate_limited', `the PDS is limiting sign-ins from this address (HTTP 429)${retryAfter ? `; retry after ${retryAfter} s` : ''}`, { retryAfter })
 }
