@@ -707,7 +707,11 @@ defmodule AtMcp.SpacesSessionTest do
     get "/xrpc/org.atgrp.internal.listMembers" do
       conn = Plug.Conn.fetch_query_params(conn)
       member? = Application.get_env(:at_mcp, :spaces_session_test_appview_member, true)
-      roles = Application.get_env(:at_mcp, :spaces_session_test_roles, ["member", "admin"])
+      # As group-host 0.6 lists them: objects.
+      roles =
+        Application.get_env(:at_mcp, :spaces_session_test_roles, ["member", "admin"])
+        |> Enum.map(&%{role: &1})
+
       found = if member?, do: [%{actor: %{did: conn.query_params["q"]}, roles: roles}], else: []
       json(conn, %{members: found})
     end

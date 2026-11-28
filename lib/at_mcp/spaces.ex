@@ -1165,6 +1165,20 @@ defmodule AtMcp.Spaces do
     end
   end
 
+  # A member's roles as the group host lists them: objects (`[{role:
+  # "admin"}]`, group-host 0.6) or, as the Atmosphere Groups proposal lists
+  # them, names (`["member", "admin"]`).
+  defp role_names(roles) when is_list(roles),
+    do:
+      for(
+        r <- roles,
+        name = if(is_map(r), do: r["role"], else: r),
+        is_binary(name),
+        do: name
+      )
+
+  defp role_names(_roles), do: []
+
   # Whether this account is an admin of `group`, from the group host's list.
   defp group_admin(session, group) do
     me = Session.did(session)
@@ -1177,7 +1191,7 @@ defmodule AtMcp.Spaces do
       {:ok, %{"members" => found}} when is_list(found) ->
         roles =
           Enum.find_value(found, [], fn m ->
-            if get_in(m, ["actor", "did"]) == me, do: m["roles"] || []
+            if get_in(m, ["actor", "did"]) == me, do: role_names(m["roles"])
           end)
 
         if "admin" in roles,
