@@ -26,11 +26,25 @@ defmodule AtMcp.ReadPositionTest do
             %{"preferences" => []}
 
           String.ends_with?(uri.path, ".notification.listNotifications") ->
-            %{
-              "notifications" =>
-                Application.get_env(:at_mcp, :read_position_test_notifications, []),
-              "seenAt" => Application.get_env(:at_mcp, :read_position_test_seen_at)
-            }
+            all = Application.get_env(:at_mcp, :read_position_test_notifications, [])
+            seen = Application.get_env(:at_mcp, :read_position_test_seen_at)
+            from = String.to_integer(query["cursor"] || "0")
+            limit = String.to_integer(query["limit"] || "50")
+
+            # As the AppView: read is at or before the marker, where a test
+            # asks it to work that out.
+            all =
+              if Application.get_env(:at_mcp, :read_position_test_compute_read) && seen,
+                do: Enum.map(all, &Map.put(&1, "isRead", &1["indexedAt"] <= seen)),
+                else: all
+
+            Map.merge(
+              %{"notifications" => all |> Enum.drop(from) |> Enum.take(limit), "seenAt" => seen},
+              if(from + limit < length(all),
+                do: %{"cursor" => Integer.to_string(from + limit)},
+                else: %{}
+              )
+            )
 
           true ->
             send(Application.fetch_env!(:at_mcp, :read_position_test_owner), {:read, query})
@@ -38,6 +52,23 @@ defmodule AtMcp.ReadPositionTest do
         end
 
       {:ok, %{status: 200, headers: [], body: Jason.encode!(body)}}
+    end
+
+    # updateSeen: the stand-in AppView's marker moves.
+    def request(:post, url, opts) do
+      if String.ends_with?(URI.parse(url).path, ".notification.updateSeen") do
+        body =
+          case Keyword.get(opts, :body) || Keyword.get(opts, :json) do
+            %{} = map -> map
+            raw when is_binary(raw) or is_list(raw) -> Jason.decode!(IO.iodata_to_binary(raw))
+          end
+
+        body = Map.new(body, fn {k, v} -> {to_string(k), v} end)
+        send(Application.fetch_env!(:at_mcp, :read_position_test_owner), {:seen, body["seenAt"]})
+        Application.put_env(:at_mcp, :read_position_test_seen_at, body["seenAt"])
+      end
+
+      {:ok, %{status: 200, headers: [], body: "{}"}}
     end
   end
 
@@ -265,6 +296,11 @@ defmodule AtMcp.ReadPositionTest do
   end
 
   test "a reply indexed after the position is new, though its author dated it earlier", ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     notifications = fn args ->
       {:ok, result, _} =
         AtMcp.MCP.Server.handle_call_tool(
@@ -298,6 +334,11 @@ defmodule AtMcp.ReadPositionTest do
 
   test "the first notifications read with last_read starts where the account last marked them seen",
        ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     notifications = fn ->
       {:ok, result, _} =
         AtMcp.MCP.Server.handle_call_tool(
@@ -337,10 +378,160 @@ defmodule AtMcp.ReadPositionTest do
     assert second =~ "read without since to see them again, and update_seen marks them seen"
   end
 
+  describe "with the network's seen marker as the only read position" do
+    setup do
+      Application.put_env(:at_mcp, :notifications_seen_marker, true)
+      Application.put_env(:at_mcp, :read_position_test_compute_read, true)
+
+      on_exit(fn ->
+        Application.delete_env(:at_mcp, :notifications_seen_marker)
+        Application.delete_env(:at_mcp, :read_position_test_compute_read)
+      end)
+
+      at = &"2026-10-29T10:0#{&1}:00.000Z"
+      Application.put_env(:at_mcp, :read_position_test_seen_at, "2026-10-29T10:02:30.000Z")
+
+      Application.put_env(
+        :at_mcp,
+        :read_position_test_notifications,
+        Enum.map(5..1//-1, &reply(&1, at.(&1), at.(&1)))
+      )
+
+      :ok
+    end
+
+    defp notifications(state, args) do
+      {:ok, result, _} =
+        AtMcp.MCP.Server.handle_call_tool("get_notifications", args, Map.delete(state, :format))
+
+      result
+    end
+
+    test "a last_read read that reaches the marker moves it, and keeps no notifications position of its own",
+         ctx do
+      first = hd(notifications(ctx.state, %{"since" => "last_read"}).content).text
+      assert first =~ " 3 new since "
+      assert Enum.filter([1, 2, 3, 4, 5], &(first =~ uri(&1))) == [3, 4, 5]
+      assert_received {:seen, "2026-10-29T10:05:00.000Z"}
+      assert first =~ "Marked seen in the app up to "
+
+      {:ok, contents} = AtMcp.PrivateFile.read(ReadPositions.path())
+      refute Map.has_key?(Jason.decode!(contents)["accounts"][ctx.did] || %{}, "notifications")
+
+      second = hd(notifications(ctx.state, %{"since" => "last_read"}).content).text
+      assert second =~ " 0 new since "
+      refute_received {:seen, _}
+    end
+
+    test "a filtered read never moves the marker, and mark_read true with it is refused before anything is sent",
+         ctx do
+      _ = notifications(ctx.state, %{"since" => "last_read", "reasons" => ["reply"]})
+      refute_received {:seen, _}
+
+      refused =
+        notifications(ctx.state, %{
+          "since" => "last_read",
+          "reasons" => ["reply"],
+          "mark_read" => true
+        })
+
+      assert refused[:isError]
+      assert hd(refused.content).text =~ "seen marker covers every notification"
+      refute_received {:seen, _}
+    end
+
+    test "a page that stops short of the marker leaves it until the read that reaches it",
+         ctx do
+      # Two of the three new: the marker stays.
+      short = notifications(ctx.state, %{"since" => "last_read", "limit" => 2})
+      refute short[:isError]
+      refute_received {:seen, _}
+
+      [_, cursor] =
+        Regex.run(~r/pass cursor: (\S+) with since: last_read/, hd(short.content).text)
+
+      # The rest, reaching the marker: it moves to the newest the first read
+      # returned.
+      _ = notifications(ctx.state, %{"since" => "last_read", "cursor" => cursor})
+      assert_received {:seen, "2026-10-29T10:05:00.000Z"}
+    end
+
+    test "an earlier file's notifications positions go at the next write; feeds keep theirs",
+         ctx do
+      {:ok, _} =
+        AtMcp.PrivateFile.mutate(ReadPositions.path(), fn _ ->
+          {:ok,
+           Jason.encode!(%{
+             "version" => 1,
+             "accounts" => %{
+               ctx.did => %{
+                 "notifications" => %{"at" => "2026-10-29T09:00:00.000Z"},
+                 "timeline" => %{"at" => "2026-10-29T08:00:00.000Z"}
+               }
+             }
+           }), :ok}
+        end)
+
+      _ = notifications(ctx.state, %{"since" => "last_read"})
+      {:ok, contents} = AtMcp.PrivateFile.read(ReadPositions.path())
+      feeds = Jason.decode!(contents)["accounts"][ctx.did]
+      refute Map.has_key?(feeds, "notifications")
+      assert feeds["timeline"]["at"] == "2026-10-29T08:00:00.000Z"
+    end
+  end
+
+  test "posts in the account's groups aren't listed unless asked for; invites, mentions and replies are",
+       ctx do
+    at = &"2026-10-29T10:0#{&1}:00.000Z"
+    Application.put_env(:at_mcp, :read_position_test_seen_at, "2026-10-29T09:00:00.000Z")
+    group_post = Map.put(reply(9, at.(4), at.(4)), "reason", "space-post")
+
+    Application.put_env(:at_mcp, :read_position_test_notifications, [
+      reply(5, at.(5), at.(5)),
+      group_post,
+      reply(3, at.(3), at.(3))
+    ])
+
+    read = fn args ->
+      {:ok, result, _} = AtMcp.MCP.Server.handle_call_tool("get_notifications", args, ctx.state)
+      refute result[:isError], inspect(result)
+      Jason.decode!(hd(result.content).text)
+    end
+
+    plain = read.(%{"mark_read" => false})
+    assert Enum.map(plain["items"], & &1["reason"]) == ["reply", "reply"]
+    assert plain["group_posts_hidden"] == 1
+
+    text =
+      AtMcp.MCP.Server.handle_call_tool(
+        "get_notifications",
+        %{"mark_read" => false},
+        Map.delete(ctx.state, :format)
+      )
+      |> elem(1)
+      |> Map.get(:content)
+      |> hd()
+      |> Map.get(:text)
+
+    assert text =~ "1 new post in your groups not listed: get_my_groups counts them by group"
+
+    all = read.(%{"include_group_posts" => true, "mark_read" => false})
+    assert Enum.map(all["items"], & &1["reason"]) == ["reply", "space-post", "reply"]
+
+    asked = read.(%{"reasons" => ["space-post"], "mark_read" => false})
+    assert "space-post" in Enum.map(asked["items"], & &1["reason"]) or asked["items"] == []
+    refute asked["group_posts_hidden"]
+  end
+
   # An account that never marked its notifications seen: the AppView gives the
   # newest notification's time as seenAt, and counts that one unread.
   test "the first notifications read of a never-seen account returns the newest, which the app counts unread",
        ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     at = &"2026-10-29T10:0#{&1}:00.000Z"
     Application.put_env(:at_mcp, :read_position_test_seen_at, at.(3))
 
@@ -496,6 +687,11 @@ defmodule AtMcp.ReadPositionTest do
 
   test "nothing new since the last read, though the app still counts some unread, says where they are",
        ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     read = fn ->
       {:ok, result, _} =
         AtMcp.MCP.Server.handle_call_tool(

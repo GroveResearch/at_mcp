@@ -960,6 +960,8 @@ defmodule AtMcp.Effects do
 
   # The `AtMcp.Spaces` operations that change nothing.
   @spaces_reads [
+    :preview_app_sign_in,
+    :registration,
     :get_join_requests,
     :ensure_confirmed,
     :group_spaces,
@@ -972,7 +974,6 @@ defmodule AtMcp.Effects do
     :get_my_groups,
     :preview_group_app,
     :space_feed,
-    :list_my_agents,
     :get_principals
   ]
 

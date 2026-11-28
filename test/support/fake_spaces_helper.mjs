@@ -20,6 +20,13 @@ let inboxReaders = []
 const inboxMembers = new Set()
 // The scope the session was last logged in with.
 let currentScope = 'atproto transition:generic'
+
+// As the PDS grants it: the agent routes' permission set expanded into one
+// rpc permission naming every method.
+const agentMethods = ['acceptTransfer', 'createAgent', 'deleteAgent', 'enrollKey', 'listAgents', 'offerTransfer', 'revokeSessions', 'rotatePassword']
+const expandSets = (scope) =>
+  scope.replace(/include:town\.delve\.authManageAgents\?aud=(\S+)/g, (_, aud) =>
+    `rpc?${agentMethods.map((m) => `lxm=town.delve.agent.${m}`).join('&')}&aud=${aud}`)
 const written = []
 const keyed = new Map()
 
@@ -43,10 +50,34 @@ const methods = {
     return creds()
   },
   'oauth.login': (p) => {
-    currentScope = p.scope ?? currentScope
+    currentScope = expandSets(p.scope ?? currentScope)
     return { did, scope: currentScope, expiresAt: null }
   },
   'oauth.status': () => ({ did, held: true }),
+  'oauth.approveFor': (p) => ({ approved: true, delivered: true, status: 200 }),
+  // An outside app's request, as the authorization server previews it; the
+  // login hint from the URL's own hint= parameter, for tests.
+  'oauth.previewApp': (p) => ({
+    clientId: 'https://app.example/client-metadata.json',
+    clientName: 'Example app',
+    clientUri: 'https://app.example',
+    scope: 'atproto transition:generic space:town.delve.space.feed?authority=*&action=read',
+    redirectUri: 'https://app.example/callback',
+    loginHint: new URL(p.authorizationUrl).searchParams.get('hint'),
+  }),
+  // getRecord's proof, as FAKE_FIXTURE's `verify` says for each principal.
+  'record.verify': (p) => {
+    const v = (fixture().verify ?? {})[p.did]
+    if (v === 'ProofInvalid') throw { class: 'refused', code: 'ProofInvalid', message: 'proof does not hold' }
+    if (!v) throw { class: 'indeterminate', code: 'transport', message: 'no answer' }
+    return v
+  },
+  // The helper's own check, with the protocol's scope parser.
+  'scope.readOnlySpaces': async (p) => {
+    const { readOnlySpaces } = await import(new URL('../../spaces_helper/src/scopes.ts', import.meta.url))
+    return readOnlySpaces(p.scope ?? '', p.types ?? [], p.authority)
+  },
+  'oauth.approveApp': (p) => ({ callbackUrl: `${p.redirectUri}?code=fake-code&iss=x` }),
   'space.get': (p) => {
     if (spaces.has(p.space)) return { space: p.space, policy: {} }
     throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
@@ -66,7 +97,8 @@ const methods = {
   },
   'space.records.create': (p) => {
     const space = typeof p.space === 'string' ? p.space : `at:space/${did}/${p.space.type}/${p.space.skey ?? 'self'}`
-    if (space.includes('town.delve.space.personal') && !spaces.has(space)) {
+    // A space of its own (its own state space) exists once made.
+    if (space.startsWith(`at:space/${did}/town.delve.space.agent/`) && !spaces.has(space)) {
       throw { class: 'refused', code: 'SpaceNotFound', message: 'no such space' }
     }
     const rkey = `3kfake${written.length}`
@@ -77,7 +109,8 @@ const methods = {
   // that isn't the account's is refused for a missing scope.
   'space.records.list': (p) => {
     const space = typeof p.space === 'string' ? p.space : `at:space/${did}/${p.space.type}/${p.space.skey ?? 'self'}`
-    if (!space.startsWith(`at:space/${did}/`)) {
+    // Its own spaces, and its state space under its principal.
+    if (!space.startsWith(`at:space/${did}/`) && !space.endsWith(`/town.delve.space.agent/${did}`)) {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${space}"` }
     }
     return { records: written.map(({ rkey, record }) => ({ collection: p.collection, rkey, cid: 'bafyfake', value: record })) }
@@ -110,6 +143,8 @@ const methods = {
     }
   },
   'space.all': (p) => {
+    const given = (fixture().all ?? {})[p.space]
+    if (given) return { records: given, more: false }
     if (!p.space.startsWith(`at:space/${did}/`)) {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${p.space}"` }
     }
@@ -141,8 +176,15 @@ const methods = {
   },
 }
 
+// The file FAKE_FIXTURE names, read at each call: what a test says a
+// method answers.
+function fixture() {
+  const file = process.env.FAKE_FIXTURE
+  return file && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+}
+
 const rl = createInterface({ input: process.stdin })
-rl.on('line', (line) => {
+rl.on('line', async (line) => {
   const msg = JSON.parse(line)
   if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, JSON.stringify({ method: msg.method, params: msg.params }) + '\n')
   // The file FAKE_DIE names holds a method: its next call kills this helper
@@ -155,7 +197,7 @@ rl.on('line', (line) => {
   try {
     const fn = methods[msg.method]
     if (!fn) throw { class: 'refused', code: 'unknown_method', message: msg.method }
-    out = { jsonrpc: '2.0', id: msg.id, result: fn(msg.params ?? {}) }
+    out = { jsonrpc: '2.0', id: msg.id, result: await fn(msg.params ?? {}) }
   } catch (e) {
     out = { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: e.message, data: { class: e.class, code: e.code, status: e.status } } }
   }

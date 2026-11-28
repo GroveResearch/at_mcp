@@ -23,6 +23,9 @@ defmodule AtMcp.Application do
 
     with {:ok, dirs} <-
            AtMcp.StateLock.acquire_all([AtMcp.Inbound.Store.default_dir(), quota_dir]) do
+      # No agent's password is kept any more: an earlier file of them goes.
+      :ok = AtMcp.Spaces.AgentRevocations.migrate()
+
       case start_runtime() do
         {:ok, pid} ->
           {:ok, pid, dirs}
@@ -87,6 +90,8 @@ defmodule AtMcp.Application do
         AtMcp.AcceptLabelers,
         # Each account's saved settings for a new post's gates, kept briefly.
         AtMcp.PostDefaults,
+        AtMcp.MCP.GrantAttempts,
+        AtMcp.Spaces.Previews,
         # Shared Jetstream inbound ears — N identities track DIDs onto this one WS.
         {AtMcp.Inbound, name: AtMcp.Inbound},
         # N identities (Effects + Listen + optional MCP) — never communal login.

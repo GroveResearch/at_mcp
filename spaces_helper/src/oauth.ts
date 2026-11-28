@@ -132,12 +132,15 @@ export class OAuthSessions {
     }
     const code = await this.approve(url, key, {
       clientId: client.clientMetadata.client_id,
+      redirectUri: REDIRECT_URI,
       scope,
       account,
-    }).catch(async (err) => {
-      await client.abortRequest(url).catch(() => {})
-      throw err
     })
+      .then((location) => location.searchParams)
+      .catch(async (err) => {
+        await client.abortRequest(url).catch(() => {})
+        throw err
+      })
     const { session } = await client.callback(code, { redirect_uri: REDIRECT_URI })
     // A new session has a new DPoP key: anything holding the old one goes.
     this.onNewSession(session.did)
@@ -157,8 +160,16 @@ export class OAuthSessions {
   async approve(
     url: URL,
     key: LoginKey,
-    expected: { clientId: string; scope: string; account: string },
-  ): Promise<URLSearchParams> {
+    expected: {
+      clientId: string
+      scope: string
+      account: string
+      /** The exact redirect, for this helper's own client. */
+      redirectUri?: string
+      /** For another client's request: the origin its redirect must be on. */
+      redirectOrigin?: string
+    },
+  ): Promise<URL> {
     const fetch = this.config.fetch
     const preview = await fetch(url, {
       headers: { accept: 'application/json' },
@@ -175,7 +186,14 @@ export class OAuthSessions {
     const req = body.consent_request ?? {}
     const mismatches: string[] = []
     if (req.client_id !== expected.clientId) mismatches.push('client_id')
-    if (req.redirect_uri !== REDIRECT_URI) mismatches.push('redirect_uri')
+    if (expected.redirectUri != null && req.redirect_uri !== expected.redirectUri) mismatches.push('redirect_uri')
+    if (expected.redirectOrigin != null) {
+      let origin: string | undefined
+      try {
+        origin = new URL(String(req.redirect_uri)).origin
+      } catch {}
+      if (origin !== expected.redirectOrigin) mismatches.push('redirect_uri')
+    }
     if (typeof req.scope !== 'string' || !sameScopes(req.scope, expected.scope)) mismatches.push('scope')
     if (req.login_hint != null && req.login_hint !== expected.account) mismatches.push('login_hint')
     if (mismatches.length) {
@@ -201,7 +219,7 @@ export class OAuthSessions {
         if (params.get('error')) {
           throw refused('consent_denied', `the authorization server answered ${params.get('error')}: ${params.get('error_description') ?? ''}`.trim())
         }
-        return params
+        return new URL(location)
       }
       const err = (await res.json().catch(() => ({}))) as { error?: string; error_description?: string }
       if (res.status === 401 && err.error === 'use_dpop_nonce' && attempt === 0) {
@@ -221,6 +239,87 @@ export class OAuthSessions {
       throw indeterminate('consent_failed', `the consent fetch answered HTTP ${res.status} ${err.error ?? ''}`.trim())
     }
     throw indeterminate('consent_failed', 'the consent fetch kept asking for a new DPoP nonce')
+  }
+
+  /**
+   * Approves another client's pending request for this account (an
+   * app's read grant, such as the town AppView's on the account's inbox)
+   * with the account's login key: the same preview, check and signed
+   * fetch as its own sign-in. Nothing is signed unless the preview names
+   * exactly `clientId`, exactly `scope`, this account, and a redirect on
+   * `clientId`'s own origin. Then the redirect is fetched, so the app's
+   * callback gets its code.
+   */
+  async approveFor({
+    keyFile,
+    account,
+    authorizationUrl,
+    clientId,
+    scope,
+  }: { keyFile: string; account: string; authorizationUrl: string; clientId: string; scope: string }) {
+    const url = new URL(authorizationUrl)
+    if (url.searchParams.get('client_id') !== clientId) {
+      throw refused('preview_mismatch', 'the request is not from the app at_mcp approves; nothing was signed', {
+        mismatches: ['client_id'],
+      })
+    }
+    const key = await loadKey(keyFile)
+    const location = await this.approve(url, key, {
+      clientId,
+      scope,
+      account,
+      redirectOrigin: new URL(clientId).origin,
+    })
+    const delivered = await this.config.fetch(location, { redirect: 'manual' })
+    return { approved: true, delivered: delivered.status < 400, status: delivered.status }
+  }
+
+  /**
+   * What an outside app's authorization request asks, as the authorization
+   * server shows it (the JSON preview of agent authorization): its
+   * client_id, the name and links its metadata gives, the scopes, the
+   * redirect and the login hint. Signs nothing.
+   */
+  async previewApp({ authorizationUrl }: { authorizationUrl: string }) {
+    const url = new URL(authorizationUrl)
+    const res = await this.config.fetch(url, { headers: { accept: 'application/json' }, redirect: 'manual' })
+    const type = res.headers.get('content-type') ?? ''
+    if (!res.ok || !type.includes('application/json')) {
+      throw refused(
+        'signed_authorize_unsupported',
+        `the authorization server at ${url.origin} gave no JSON preview (HTTP ${res.status}); it does not offer agent authorization by key`,
+      )
+    }
+    const body = (await res.json()) as { consent_request?: Record<string, unknown> }
+    const req = body.consent_request ?? {}
+    const meta = (req.client_metadata ?? {}) as Record<string, unknown>
+    return {
+      clientId: req.client_id ?? null,
+      clientName: meta.client_name ?? null,
+      clientUri: meta.client_uri ?? null,
+      scope: req.scope ?? null,
+      redirectUri: req.redirect_uri ?? null,
+      loginHint: req.login_hint ?? null,
+    }
+  }
+
+  /**
+   * Approves an outside app's request with the account's login key, only if
+   * it is still exactly what was previewed (client, scope, redirect, and the
+   * account), and answers the callback URL, which the agent hands back to
+   * the app. The callback is not fetched here.
+   */
+  async approveApp({
+    keyFile,
+    account,
+    authorizationUrl,
+    clientId,
+    scope,
+    redirectUri,
+  }: { keyFile: string; account: string; authorizationUrl: string; clientId: string; scope: string; redirectUri: string }) {
+    const key = await loadKey(keyFile)
+    const location = await this.approve(new URL(authorizationUrl), key, { clientId, scope, account, redirectUri })
+    return { callbackUrl: location.toString() }
   }
 
   async #restore(did: string, refresh: boolean | 'auto'): Promise<OAuthSession> {

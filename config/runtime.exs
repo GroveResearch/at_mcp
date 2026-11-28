@@ -95,6 +95,20 @@ if config_env() != :test do
     # notifications while AtMcp isn't running. Either way AtMcp also hands
     # the AppView tokens for each inbox while it runs (AtMcp.Spaces.InboxTokens).
     {"AT_MCP_TOWN_INBOX_READER", flag, true},
+    {"AT_MCP_NOTIFICATIONS_SEEN_MARKER", flag, true},
+    {"AT_MCP_AGENT_SCOPE", one_of.([:include, :rpc]), :include},
+    # The town AppView's OAuth client_id, whose read grants on an inbox or a
+    # group at_mcp approves (AtMcp.Spaces.appview_client_id/0).
+    {"AT_MCP_APPVIEW_CLIENT_ID", url, nil},
+    # A PEM bundle of certificate authorities to trust in place of the
+    # system's, for a test network's own TLS (AtMcp.UserAgent.ca_options/0).
+    {"AT_MCP_CA_FILE", text, nil},
+    # How many days a newly issued grant lasts (AtMcp.Grants); unset, grants
+    # last until revoked, as on one person's machine.
+    {"AT_MCP_GRANT_LIFETIME_DAYS", positive, nil},
+    # Failed grant presentations allowed from one source a minute before it
+    # is refused for a while (AtMcp.MCP.GrantAttempts).
+    {"AT_MCP_GRANT_FAILURES_PER_MINUTE", positive, 10},
     {"AT_MCP_DELIVERY_URL", url, nil},
     {"AT_MCP_DELIVERY_TOKEN", text, nil},
     {"AT_MCP_DELIVERY_TOKEN_FILE", text, nil},
@@ -217,6 +231,12 @@ if config_env() != :test do
     keys_dir: value["AT_MCP_KEYS_DIR"],
     spaces_allow_http: value["AT_MCP_SPACES_ALLOW_HTTP"],
     town_inbox_reader: value["AT_MCP_TOWN_INBOX_READER"],
+    notifications_seen_marker: value["AT_MCP_NOTIFICATIONS_SEEN_MARKER"],
+    agent_scope: value["AT_MCP_AGENT_SCOPE"],
+    appview_client_id: value["AT_MCP_APPVIEW_CLIENT_ID"],
+    ca_file: value["AT_MCP_CA_FILE"],
+    grant_lifetime_days: value["AT_MCP_GRANT_LIFETIME_DAYS"],
+    grant_failures_per_minute: value["AT_MCP_GRANT_FAILURES_PER_MINUTE"],
     delivery: [
       url: value["AT_MCP_DELIVERY_URL"],
       token: value["AT_MCP_DELIVERY_TOKEN"],

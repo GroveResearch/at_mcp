@@ -133,7 +133,7 @@ defmodule AtMcp.Network do
       # lexicon DID; the agent routes are the PDS patch's (`agent`, the
       # prefix of each `town.delve.agent.*` method).
       spaces: %{
-        personal: "town.delve.space.personal",
+        state: "town.delve.space.agent",
         note: "town.delve.notes.note",
         feed: "town.delve.space.feed",
         agent: "town.delve.agent"
@@ -399,7 +399,7 @@ defmodule AtMcp.Network do
   def names, do: @names
 
   @doc """
-  The town's Spaces names on this network (`:personal`, `:note`, `:feed`,
+  The town's Spaces names on this network (`:state`, `:note`, `:feed`,
   `:agent`), or nil on a network that has none.
   """
   def spaces, do: @networks |> Map.fetch!(name()) |> Map.fetch!(:spaces)

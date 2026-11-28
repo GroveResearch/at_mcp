@@ -23,4 +23,27 @@ defmodule AtMcp.UserAgentTest do
     {:ok, _} = ProtoRune.HTTPClient.Adapters.Req.request(:get, "http://pds.invalid/x", plug: plug)
     assert_receive {:user_agent, [^agent]}
   end
+
+  test "AT_MCP_CA_FILE makes every request trust that bundle; unset, the system's" do
+    previous = Application.get_env(:at_mcp, :ca_file)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:at_mcp, :ca_file, previous),
+        else: Application.delete_env(:at_mcp, :ca_file)
+
+      AtMcp.UserAgent.install()
+    end)
+
+    Application.delete_env(:at_mcp, :ca_file)
+    assert AtMcp.UserAgent.ca_options() == []
+
+    Application.put_env(:at_mcp, :ca_file, "/stack/bundle.pem")
+    :ok = AtMcp.UserAgent.install()
+
+    assert Req.default_options()[:connect_options][:transport_opts][:cacertfile] ==
+             "/stack/bundle.pem"
+
+    assert Req.default_options()[:user_agent] == AtMcp.UserAgent.value()
+  end
 end

@@ -77,6 +77,10 @@ defmodule AtMcp.MCP.Server do
     param(:since, :string, AtMcp.MCP.Schemas.since())
     param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
+    param(:include_group_posts, :boolean,
+      description: "true also lists posts in this account's groups (space-post)"
+    )
+
     run(fn a, state ->
       e = state.effects
 
@@ -95,7 +99,7 @@ defmodule AtMcp.MCP.Server do
               {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
 
             result ->
-              result
+              AtMcp.MCP.Tools.without_group_posts(result, a)
           end
         end,
         a,
@@ -3138,12 +3142,12 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
-  # --- Spaces: personal notes (AtMcp.Spaces) ---
+  # --- Spaces: an agent's notes, in its state space (AtMcp.Spaces) ---
 
   tool "create_note",
        write_description(
          :create_note,
-         "Keep a private note: write it in this account's personal space, not its public repository. Only this account and the apps it grants can read it. Notes are not encrypted, though: the operators of the server holding them can read them, so keep no secrets in them. Returns the note with its rkey. Only on delve.town."
+         "Keep a private note: write it in this agent's state space, which its principal holds, not its public repository. Only this agent, its principal, and the apps they grant can read it. Notes are not encrypted, though: the operators of the server holding them can read them, so keep no secrets in them. Returns the note with its rkey. Only on delve.town."
        ) do
     annotations(
       write_annotations(:create_note, %{
@@ -3168,7 +3172,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_note",
-       "Read one note from this account's personal space by its rkey (get_notes lists them). Only on delve.town." do
+       "Read one note from this agent's state space by its rkey (get_notes lists them). Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:note))
 
@@ -3187,7 +3191,7 @@ defmodule AtMcp.MCP.Server do
   end
 
   tool "get_notes",
-       "List the notes in this account's personal space, newest first, each with the rkey the other note tools take. Only on delve.town." do
+       "List the notes in this agent's state space, newest first, each with the rkey the other note tools take. Only on delve.town." do
     annotations(%{readOnlyHint: true, openWorldHint: true})
     output_schema(AtMcp.MCP.Schemas.spaces(:notes))
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("notes"))
@@ -3205,7 +3209,7 @@ defmodule AtMcp.MCP.Server do
   tool "update_note",
        write_description(
          :update_note,
-         "Change a note in this account's personal space. What you leave out stays as it is; an empty title or tags removes them. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town."
+         "Change a note in this agent's state space. What you leave out stays as it is; an empty title or tags removes them. Personal spaces control who can read them, but they are not encrypted: the operators of the server holding them can read them, so keep no secrets in notes. Only on delve.town."
        ) do
     annotations(
       write_annotations(:update_note, %{
@@ -3236,7 +3240,7 @@ defmodule AtMcp.MCP.Server do
   tool "delete_note",
        write_description(
          :delete_note,
-         "Delete a note from this account's personal space. Only on delve.town."
+         "Delete a note from this agent's state space. Only on delve.town."
        ) do
     annotations(
       write_annotations(:delete_note, %{
@@ -3470,6 +3474,35 @@ defmodule AtMcp.MCP.Server do
     end)
   end
 
+  tool "remove_group_member",
+       write_description(
+         :remove_group_member,
+         "Put a member out of a group you run: their membership is deleted, and they can no longer read or post there. Only on delve.town."
+       ) do
+    annotations(
+      write_annotations(:remove_group_member, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:join_decided))
+    param(:group, :string, required: true, description: "The group: its DID, or its handle")
+    param(:member, :string, required: true, description: "The member: their DID or handle")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :remove_group_member, [
+          Map.fetch!(a, :group),
+          Map.fetch!(a, :member)
+        ]),
+        state
+      )
+    end)
+  end
+
   tool "deny_join_request",
        write_description(
          :deny_join_request,
@@ -3524,6 +3557,56 @@ defmodule AtMcp.MCP.Server do
           [Map.fetch!(a, :group)],
           :confirm_group_membership
         ),
+        state
+      )
+    end)
+  end
+
+  tool "preview_app_sign_in",
+       "See what an app asks before it signs in as this account: give the authorize URL the app showed you (at this account's PDS). Shows the app (its client_id, which for a local app is a localhost address), where it returns to, and each thing it would be able to do, in plain words. Signs nothing. Approve or deny it after, with approve_app_sign_in." do
+    annotations(%{readOnlyHint: true, openWorldHint: true})
+    output_schema(AtMcp.MCP.Schemas.spaces(:app_sign_in))
+
+    param(:url, :string,
+      required: true,
+      description: "The app's authorize URL, as the app gave it"
+    )
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :preview_app_sign_in, [Map.fetch!(a, :url)]),
+        state,
+        :app_sign_in
+      )
+    end)
+  end
+
+  tool "approve_app_sign_in",
+       write_description(
+         :approve_app_sign_in,
+         "Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. Refused unless that url was previewed in this session. Approved, it answers the callback URL to hand back to the app."
+       ) do
+    annotations(
+      # A manage grant's alone: the app it signs in may get more than a
+      # write grant could do (transition:generic, agent control).
+      write_annotations(:approve_app_sign_in, %{
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true
+      })
+    )
+
+    output_schema(AtMcp.MCP.Schemas.spaces(:app_sign_in))
+    param(:url, :string, required: true, description: "The app's authorize URL, as previewed")
+    param(:deny, :boolean, description: "true turns the app down: nothing is signed")
+
+    run(fn a, state ->
+      AtMcp.MCP.Tools.respond(
+        AtMcp.Effects.spaces(state.effects, :approve_app_sign_in, [
+          Map.fetch!(a, :url),
+          a[:deny] == true
+        ]),
         state
       )
     end)
@@ -3625,6 +3708,8 @@ defmodule AtMcp.MCP.Server do
 
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("posts"))
     param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       AtMcp.MCP.Tools.page(
@@ -3633,7 +3718,10 @@ defmodule AtMcp.MCP.Server do
         end,
         a,
         state,
-        :posts
+        :posts,
+        # Each group feed keeps its own read position: get_my_groups counts
+        # the posts after it.
+        AtMcp.ReadPositions.key(:space_feed, Map.fetch!(a, :space))
       )
     end)
   end
@@ -3657,9 +3745,8 @@ defmodule AtMcp.MCP.Server do
     output_schema(AtMcp.MCP.Schemas.spaces(:agent))
 
     param(:handle, :string,
-      required: true,
       description:
-        "The new agent's full handle: a name under the town's handle domain, such as helper.delve.town (letters, digits and hyphens before the domain)"
+        "The new agent's full handle: a name under the town's handle domain, such as helper.delve.town (letters, digits and hyphens before the domain). Leave it out and the PDS picks one (a-<random>)"
     )
 
     param(:invite_code, :string,
@@ -3670,7 +3757,7 @@ defmodule AtMcp.MCP.Server do
     run(fn a, state ->
       AtMcp.MCP.Tools.respond(
         AtMcp.Effects.spaces(state.effects, :create_agent, [
-          Map.fetch!(a, :handle),
+          a[:handle],
           Map.fetch!(a, :invite_code)
         ]),
         state
@@ -3731,7 +3818,7 @@ defmodule AtMcp.MCP.Server do
   tool "set_agent_status",
        write_description(
          :set_agent_status,
-         "Deactivate one of this account's agents, or reactivate it. A deactivated agent cannot log in or act. Only on delve.town."
+         "Stop one of this account's agents, or start it again. deactivated deactivates its account and ends its sessions, so it can't act; active reactivates it, with a new login key if its sessions were revoked, and it logs in again. Signs in as the agent with a password the PDS gives this account for it then (rotatePassword), kept nowhere. Only on delve.town."
        ) do
     annotations(
       write_annotations(:set_agent_status, %{
@@ -3765,7 +3852,7 @@ defmodule AtMcp.MCP.Server do
   tool "delete_agent",
        write_description(
          :delete_agent,
-         "Delete one of this account's agents: its account and everything in its repository, on its PDS. It can't be undone; to stop an agent for now, use set_agent_status. Its DID stays under this account's rotation key. Only on delve.town."
+         "Delete one of this account's agents: its account and everything in its repository, on its PDS. It can't be undone. Its DID stays under this account's rotation key. Only on delve.town."
        ) do
     annotations(
       write_annotations(:delete_agent, %{
@@ -3791,22 +3878,6 @@ defmodule AtMcp.MCP.Server do
       )
     end)
   end
-
-  tool "get_my_agents",
-       "List the agents this account is the principal of, with each one's login key and session state: when its key was enrolled and by whom, and if it was suspended, by whom and how (revokeSessions). Only on delve.town." do
-    annotations(%{readOnlyHint: true, openWorldHint: true})
-    output_schema(AtMcp.MCP.Schemas.spaces(:agents))
-
-    run(fn _a, state ->
-      AtMcp.MCP.Tools.respond(
-        AtMcp.Effects.spaces(state.effects, :list_my_agents, []),
-        state,
-        :agents
-      )
-    end)
-  end
-
-  # --- identity: ident.link ---
 
   tool "endorse_agent",
        write_description(

@@ -368,6 +368,29 @@ defmodule AtMcp.Test.MockBackend do
   defp spaces_summary(:approve_join_request, [group, member]),
     do: %{group: group, member: member, admitted: true}
 
+  defp spaces_summary(:preview_app_sign_in, [_url]),
+    do: %{
+      app: %{client_id: "https://app.example/client.json", name: "Example", uri: nil},
+      redirect_url: "https://app.example/cb",
+      granted: ["atproto"],
+      granted_in_words: ["know which account it is (its DID and handle)"],
+      previewed: true,
+      approved: false
+    }
+
+  defp spaces_summary(:approve_app_sign_in, [_url, _deny]),
+    do: %{
+      app: %{client_id: "https://app.example/client.json", name: "Example", uri: nil},
+      redirect_url: "https://app.example/cb",
+      granted: ["atproto"],
+      granted_in_words: ["know which account it is (its DID and handle)"],
+      approved: true,
+      callback_url: "https://app.example/cb?code=c"
+    }
+
+  defp spaces_summary(:remove_group_member, [group, member]),
+    do: %{group: group, member: member, removed: true}
+
   defp spaces_summary(:deny_join_request, [group, member]),
     do: %{group: group, member: member, denied: true}
 
@@ -414,7 +437,6 @@ defmodule AtMcp.Test.MockBackend do
       rotation_key: "did:key:zDn"
     }
 
-  defp spaces_summary(:list_my_agents, _), do: %{agents: []}
   defp spaces_summary(:endorse_agent, [agent]), do: %{agent: agent, uri: "at://x", cid: "c"}
 
   defp spaces_summary(:get_principals, [account]),

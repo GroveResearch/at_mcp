@@ -34,7 +34,11 @@ defmodule AtMcp.ReadPositions do
   directory, under `AtMcp.PrivateFile`'s lock, so every at_mcp client using
   that state directory shares them and they survive a restart. They are not
   the network's seen marker (`seenAt`), which the app counts unread
-  notifications from; only `update_seen` moves it.
+  notifications from; only `update_seen` moves it. With
+  `AT_MCP_NOTIFICATIONS_SEEN_MARKER`, that marker is the notifications' only
+  position (`AtMcp.MCP.Tools`), and their keys here are dropped at the next
+  write; `"seen-marker"` then holds a read's time pending until the read
+  that reaches the marker.
   """
 
   @version 1
@@ -47,6 +51,7 @@ defmodule AtMcp.ReadPositions do
   def key(:notifications, nil), do: "notifications"
   def key(:list_feed, uri) when is_binary(uri), do: "list:" <> uri
   def key(:author, actor) when is_binary(actor), do: "author:" <> String.downcase(actor)
+  def key(:space_feed, uri) when is_binary(uri), do: "space:" <> uri
 
   @doc """
   What is held for `did` in `feed`: `at`, the position, and `pending`, the
@@ -123,9 +128,28 @@ defmodule AtMcp.ReadPositions do
           do: %{"at" => latest([at, pending, newest]), "pending" => nil},
           else: %{"at" => at, "pending" => latest([pending, newest])}
 
-      accounts = Map.update(data["accounts"], did, %{feed => row}, &Map.put(&1, feed, row))
+      accounts =
+        data["accounts"]
+        |> Map.update(did, %{feed => row}, &Map.put(&1, feed, row))
+        |> without_notification_positions()
+
       {:ok, Jason.encode!(%{data | "accounts" => accounts}), held(row)}
     end
+  end
+
+  # With the network's seen marker as the notifications' only position
+  # (`AT_MCP_NOTIFICATIONS_SEEN_MARKER`), at_mcp's own notifications
+  # positions from before are left out of every write.
+  defp without_notification_positions(accounts) do
+    if AtMcp.MCP.Tools.seen_marker?(),
+      do:
+        Map.new(accounts, fn {did, feeds} ->
+          {did,
+           Map.reject(feeds, fn {k, _} ->
+             k == "notifications" or String.starts_with?(k, "notifications:")
+           end)}
+        end),
+      else: accounts
   end
 
   defp latest(times) do

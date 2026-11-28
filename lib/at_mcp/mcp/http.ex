@@ -102,6 +102,8 @@ defmodule AtMcp.MCP.HTTP do
          {:ok, %{account: account, scope: scope, format: format, tools: tools}} <- grant(conn),
          {:ok, effects} <- effects(account),
          :ok <- confirmed_binding(conn, effects) do
+      watch_stream(conn)
+
       conn
       |> put_private(:at_mcp_effects, effects)
       |> put_private(:at_mcp_scope, scope)
@@ -141,21 +143,79 @@ defmodule AtMcp.MCP.HTTP do
     end
   end
 
-  # The credential, and nothing else, says which identity this is.
+  # The credential, and nothing else, says which identity this is. A valid
+  # grant is always served; failed presentations are counted per source, and
+  # past the limit a source's failures are answered 429
+  # (`AtMcp.MCP.GrantAttempts`), so nobody sharing an address can lock out a
+  # grant that is good.
   defp grant(conn) do
     case get_req_header(conn, "authorization") do
       ["Bearer " <> token] when token != "" ->
         case AtMcp.Grants.request(token) do
           {:ok, grant} -> {:ok, grant}
           {:error, :grants_unreadable} -> {:error, 503, %{error: "grants_unreadable"}}
-          {:error, _} -> {:error, 401, %{error: "unknown_grant"}}
+          {:error, :expired_grant} -> failed(conn, %{error: "grant_expired"})
+          {:error, _} -> failed(conn, %{error: "unknown_grant"})
         end
 
       [] ->
         {:error, 401, %{error: "grant_required"}}
 
       _ ->
-        {:error, 401, %{error: "invalid_credential"}}
+        failed(conn, %{error: "invalid_credential"})
+    end
+  end
+
+  # A stream (MCP's GET) stays open past the request that opened it: it is
+  # closed once its grant expires or is revoked, checked every
+  # `AT_MCP_GRANT_WATCH_MS` (30 s). A POST is answered and done; the next
+  # request is checked anew.
+  defp watch_stream(%Plug.Conn{method: "GET"} = conn) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] ->
+        watch_grant(self(), token, Application.get_env(:at_mcp, :grant_watch_ms, 30_000))
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp watch_stream(_conn), do: :ok
+
+  @doc false
+  # Kills `handler` once `token` no longer names a live grant, looking every
+  # `every` ms while the handler lives. Returns the watcher's pid.
+  def watch_grant(handler, token, every) do
+    spawn(fn ->
+      ref = Process.monitor(handler)
+      watch(handler, ref, token, every)
+    end)
+  end
+
+  defp watch(handler, ref, token, every) do
+    receive do
+      {:DOWN, ^ref, :process, _, _} -> :ok
+    after
+      every ->
+        case AtMcp.Grants.request(token) do
+          {:ok, _} -> watch(handler, ref, token, every)
+          # Unreadable is not revoked: keep the stream, look again.
+          {:error, :grants_unreadable} -> watch(handler, ref, token, every)
+          {:error, _} -> Process.exit(handler, :kill)
+        end
+    end
+  end
+
+  defp failed(conn, body) do
+    source = AtMcp.MCP.GrantAttempts.source(conn)
+
+    case AtMcp.MCP.GrantAttempts.check(source) do
+      {:wait, seconds} ->
+        {:error, 429, %{error: "too_many_failed_grants", retry_after: seconds}}
+
+      :ok ->
+        AtMcp.MCP.GrantAttempts.failed(source)
+        {:error, 401, body}
     end
   end
 

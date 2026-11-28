@@ -150,3 +150,116 @@ test('an authorization server with no JSON preview is refused as not offering ag
   assert.equal(out.error.data.code, 'signed_authorize_unsupported')
   assert.equal(pds.consents, consents)
 })
+
+// Another app's read grant on the account (the town AppView's on its
+// inbox): pushed by the app, approved with the account's key, and its
+// redirect delivered to the app's callback.
+test("another app's grant is approved with the account's key only when it is exactly that app's, for exactly that scope", async () => {
+  const { createServer } = await import('node:http')
+  const hits: string[] = []
+  const app = createServer((req, res) => {
+    hits.push(req.url ?? '')
+    res.writeHead(200, { 'content-type': 'text/plain' })
+    res.end('done')
+  })
+  await new Promise<void>((r) => app.listen(0, '127.0.0.1', r))
+  const origin = `http://127.0.0.1:${(app.address() as { port: number }).port}`
+  const clientId = `${origin}/oauth/client-metadata.json`
+  const scope = `atproto space:org.atgrp.inbox?authority=self&action=read`
+  const keyFile = join(dir, 'grant-key.json')
+  const { result: key } = await call('key.generate', { keyFile })
+  pds.enroll(key.jkt)
+
+  const push = async (params: Record<string, string>) => {
+    const res = await fetch(`${pds.url}/oauth/par`, { method: 'POST', body: new URLSearchParams(params) })
+    const { request_uri } = (await res.json()) as { request_uri: string }
+    const url = new URL(`${pds.url}/oauth/authorize`)
+    url.searchParams.set('client_id', params.client_id)
+    url.searchParams.set('request_uri', request_uri)
+    return url.toString()
+  }
+  const request = { client_id: clientId, scope, redirect_uri: `${origin}/oauth/callback`, login_hint: pds.did, state: 's1' }
+
+  try {
+    // Another app: refused, nothing signed.
+    const before = pds.consents
+    const other = await call('oauth.approveFor', {
+      keyFile, account: pds.did, clientId: 'https://other.example/client.json', scope, authorizationUrl: await push(request),
+    })
+    assert.equal(other.error?.data?.code, 'preview_mismatch')
+    // A broader scope than the grant at_mcp approves: refused.
+    const broad = await call('oauth.approveFor', {
+      keyFile, account: pds.did, clientId, scope, authorizationUrl: await push({ ...request, scope: `${scope} transition:generic` }),
+    })
+    assert.equal(broad.error?.data?.code, 'preview_mismatch')
+    // A redirect off the app's own origin: refused.
+    const elsewhere = await call('oauth.approveFor', {
+      keyFile, account: pds.did, clientId, scope, authorizationUrl: await push({ ...request, redirect_uri: 'https://evil.example/cb' }),
+    })
+    assert.equal(elsewhere.error?.data?.code, 'preview_mismatch')
+    assert.equal(pds.consents, before)
+
+    // Exactly the app and scope: approved, and the app's callback gets the code.
+    const ok = await call('oauth.approveFor', { keyFile, account: pds.did, clientId, scope, authorizationUrl: await push(request) })
+    assert.ifError(ok.error)
+    assert.deepEqual(ok.result, { approved: true, delivered: true, status: 200 })
+    assert.equal(pds.consents, before + 1)
+    const [hit] = hits
+    assert.ok(hit.startsWith('/oauth/callback?'), hit)
+    assert.ok(new URLSearchParams(hit.split('?')[1]).get('code'))
+  } finally {
+    app.close()
+  }
+})
+
+// An outside app, a stock @atproto/oauth-client-node client that isn't
+// at_mcp's own, signs in as the account: the helper shows what it asks,
+// then approves exactly that with the account's key, and the app finishes
+// its session from the callback URL it is handed.
+test('an outside app signs in as the account: previewed, then approved with the key, and its session made', async () => {
+  const { NodeOAuthClient, buildAtprotoLoopbackClientMetadata } = await import('@atproto/oauth-client-node')
+  const store = () => {
+    const m = new Map()
+    return { set: async (k: string, v: unknown) => void m.set(k, v), get: async (k: string) => m.get(k), del: async (k: string) => void m.delete(k) }
+  }
+  const scope = 'atproto transition:generic'
+  const app = new NodeOAuthClient({
+    clientMetadata: buildAtprotoLoopbackClientMetadata({ scope, redirect_uris: ['http://127.0.0.1/app-callback'] }),
+    stateStore: store() as never,
+    sessionStore: store() as never,
+    allowHttp: true,
+    plcDirectoryUrl: pds.url,
+    handleResolver: pds.url,
+    requestLock: async (_n: string, fn: () => Promise<unknown>) => fn(),
+  } as never)
+  const keyFile = join(dir, 'app-key.json')
+  const { result: key } = await call('key.generate', { keyFile })
+  pds.enroll(key.jkt)
+
+  const url = (await app.authorize(pds.handle, { scope })).toString()
+  const preview = await call('oauth.previewApp', { authorizationUrl: url })
+  assert.ifError(preview.error)
+  assert.equal(preview.result.scope, scope)
+  assert.equal(preview.result.redirectUri, 'http://127.0.0.1/app-callback')
+  assert.ok(String(preview.result.clientId).startsWith('http://localhost'))
+
+  // Approved only as previewed: a different scope signs nothing.
+  const before = pds.consents
+  const wrong = await call('oauth.approveApp', {
+    keyFile, account: pds.handle, authorizationUrl: url,
+    clientId: preview.result.clientId, scope: 'atproto', redirectUri: preview.result.redirectUri,
+  })
+  assert.equal(wrong.error?.data?.code, 'preview_mismatch')
+  assert.equal(pds.consents, before)
+
+  const ok = await call('oauth.approveApp', {
+    keyFile, account: pds.handle, authorizationUrl: url,
+    clientId: preview.result.clientId, scope: preview.result.scope, redirectUri: preview.result.redirectUri,
+  })
+  assert.ifError(ok.error)
+  const callback = new URL(ok.result.callbackUrl)
+  assert.equal(callback.origin + callback.pathname, 'http://127.0.0.1/app-callback')
+  // The app finishes its own session from it.
+  const { session } = await app.callback(callback.searchParams)
+  assert.equal(session.did, pds.did)
+})

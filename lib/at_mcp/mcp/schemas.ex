@@ -1601,6 +1601,17 @@ defmodule AtMcp.MCP.Schemas do
           nullable_string(
             "The account's read position in this feed after this read. It stays where it was until a read reaches the old position."
           ),
+        "seen_marker" =>
+          nullable_boolean(
+            "true when the network's seen marker is the notifications' read position (AT_MCP_NOTIFICATIONS_SEEN_MARKER)"
+          ),
+        "seen_marked" =>
+          nullable_string("Where this read moved the network's seen marker to, if it did"),
+        "group_posts_hidden" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "How many new posts in this account's groups (space-post) the page leaves out; include_group_posts true lists them"
+        },
         "read_position_unsaved" =>
           nullable_string("The error that stopped at_mcp from saving the read position."),
         "since_unread" =>
@@ -1638,7 +1649,7 @@ defmodule AtMcp.MCP.Schemas do
 
   defp note_properties do
     %{
-      "uri" => nullable_string("The note's URI in this account's personal space"),
+      "uri" => nullable_string("The note's URI in this agent's state space"),
       "rkey" =>
         nullable_string("The note's key, which get_note, update_note and delete_note take"),
       "cid" => nullable_string("CID of the note as written"),
@@ -1669,6 +1680,15 @@ defmodule AtMcp.MCP.Schemas do
           nullable_boolean(
             "Whether the group counts this account's own confirmation of its membership, which its roster needs; null when the group host doesn't say"
           ),
+        "new_posts" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "Posts others made in the group's feeds since this account last read them here (get_space_feed with since: last_read)"
+        },
+        "new_posts_at_least" =>
+          nullable_boolean("True when there may be more than new_posts: past what at_mcp counts"),
+        "new_posts_since" =>
+          nullable_string("last read here, or never read here (every post counts as new)"),
         "added_by_group" =>
           nullable_boolean(
             "True when the group made this account a member without it asking, and it hasn't confirmed: confirm_group_membership confirms, leave_group leaves"
@@ -1757,8 +1777,10 @@ defmodule AtMcp.MCP.Schemas do
           nullable_string(
             "The town AppView as the group's bot member, which sends its members their notifications: how it is added, and that an admin can remove it"
           ),
-        "join_policy" =>
-          nullable_string("The join policy the group takes once its notifications member is in"),
+        "join_policy" => nullable_string("The join policy the group host has for the group"),
+        "join_policy_confirmed" =>
+          nullable_boolean("Whether the group host's policy, read back, is the one asked for"),
+        "join_policy_note" => nullable_string("What to do when it isn't, or couldn't be read"),
         "next" => nullable_string("What to do next: invite people")
       })
 
@@ -1795,7 +1817,40 @@ defmodule AtMcp.MCP.Schemas do
         "group" => nullable_string(),
         "member" => nullable_string(),
         "admitted" => nullable_boolean(),
-        "denied" => nullable_boolean()
+        "denied" => nullable_boolean(),
+        "removed" => nullable_boolean()
+      })
+
+  defp spaces_schema(:app_sign_in),
+    do:
+      object(%{
+        "app" => %{
+          "type" => ["object", "null"],
+          "description" =>
+            "The app asking: its client_id, and the name and uri its metadata gives",
+          "properties" => %{
+            "client_id" => nullable_string(),
+            "name" => nullable_string(),
+            "uri" => nullable_string()
+          }
+        },
+        "redirect_url" => nullable_string("Where the app's sign-in returns to"),
+        "granted" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "The scopes the app asks for (and, approved, gets)"
+        },
+        "granted_in_words" => %{
+          "type" => ["array", "null"],
+          "items" => %{"type" => "string"},
+          "description" => "What each scope lets the app do, in plain words"
+        },
+        "previewed" => nullable_boolean(),
+        "approved" => nullable_boolean(),
+        "denied" => nullable_boolean(),
+        "callback_url" =>
+          nullable_string("Approved: hand this URL back to the app to finish its sign-in"),
+        "note" => nullable_string()
       })
 
   defp spaces_schema(:membership_confirmed),
@@ -1850,12 +1905,17 @@ defmodule AtMcp.MCP.Schemas do
         "endorsement" => any_object(),
         "enrolled" => nullable_boolean(),
         "revoked" => nullable_boolean(),
+        "outstanding" => %{
+          "description" => "What the PDS says may outlive the revoke, as it gives it",
+          "type" => ["array", "object", "string", "null"]
+        },
+        "revocation_complete_at" =>
+          nullable_string("When the PDS says nothing it issued works any more"),
+        "elsewhere" => nullable_string("What other services hold, which no PDS ends"),
         "deleted" => nullable_boolean(),
         "next" => nullable_string("How to run the new agent"),
         "status" => nullable_string()
       })
-
-  defp spaces_schema(:agents), do: object(%{"agents" => any_list()})
 
   defp spaces_schema(:endorsement),
     do:
@@ -1869,16 +1929,25 @@ defmodule AtMcp.MCP.Schemas do
     do:
       object(%{
         "did" => nullable_string(),
+        "handle" => nullable_string("The account's handle, from its public profile"),
+        "display_name" => nullable_string(),
         "principals" => %{
           "type" => ["array", "null"],
           "items" => %{
             "type" => "object",
             "properties" => %{
               "did" => %{"type" => "string"},
+              "handle" => nullable_string(),
+              "display_name" => nullable_string(),
               "confirmed" => %{
                 "type" => "boolean",
-                "description" => "true when the principal's endorsement completes the pair"
-              }
+                "description" =>
+                  "true when the principal's endorsement, as its repository proves it, completes the pair"
+              },
+              "confirmation" =>
+                nullable_string(
+                  "confirmed, not_endorsed, proof_invalid (a record whose repository proof doesn't hold) or unavailable (couldn't be read now)"
+                )
             }
           }
         }

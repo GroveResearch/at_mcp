@@ -19,6 +19,15 @@
         "list"
       ]
     },
+    "approve_app_sign_in": {
+      "arguments": {
+        "deny": "boolean",
+        "url": "string"
+      },
+      "required": [
+        "url"
+      ]
+    },
     "approve_group_app": {
       "arguments": {
         "deny": "boolean",
@@ -77,7 +86,6 @@
         "invite_code": "string"
       },
       "required": [
-        "handle",
         "invite_code"
       ]
     },
@@ -467,12 +475,6 @@
       },
       "required": []
     },
-    "get_my_agents": {
-      "arguments": {
-        "format": "string"
-      },
-      "required": []
-    },
     "get_my_groups": {
       "arguments": {
         "format": "string"
@@ -511,7 +513,8 @@
         "limit": "integer",
         "mark_read": "boolean",
         "reasons": "array",
-        "since": "string"
+        "since": "string",
+        "include_group_posts": "boolean"
       },
       "required": []
     },
@@ -621,7 +624,9 @@
         "detail": "string",
         "format": "string",
         "limit": "integer",
-        "space": "string"
+        "space": "string",
+        "since": "string",
+        "mark_read": "boolean"
       },
       "required": [
         "space"
@@ -835,6 +840,15 @@
         "text"
       ]
     },
+    "preview_app_sign_in": {
+      "arguments": {
+        "format": "string",
+        "url": "string"
+      },
+      "required": [
+        "url"
+      ]
+    },
     "preview_group_app": {
       "arguments": {
         "format": "string",
@@ -873,6 +887,16 @@
       "required": [
         "actor",
         "list"
+      ]
+    },
+    "remove_group_member": {
+      "arguments": {
+        "group": "string",
+        "member": "string"
+      },
+      "required": [
+        "group",
+        "member"
       ]
     },
     "reply": {

@@ -137,6 +137,7 @@ defmodule AtMcp.Reading do
         ),
         notification_news(page),
         still_unread(page),
+        group_posts_hidden(page),
         left_out(page, one, many),
         next_page(page),
         unsaved(page)
@@ -830,7 +831,7 @@ defmodule AtMcp.Reading do
         [
           cat([
             count(length(notes), ~L"note", ~L"notes"),
-            ~L" in this account's personal space."
+            ~L" in this agent's state space."
           ]),
           readable(page["readable_by"])
         ],
@@ -928,6 +929,7 @@ defmodule AtMcp.Reading do
           true ->
             nil
         end,
+        new_posts(g),
         if(feeds != [],
           do:
             cat([
@@ -939,6 +941,20 @@ defmodule AtMcp.Reading do
       :line
     )
   end
+
+  defp new_posts(%{"new_posts" => n} = g) when is_integer(n) do
+    cat([
+      if(g["new_posts_at_least"] == true, do: ~L"At least ", else: ~L""),
+      count(n, ~L"new post", ~L"new posts"),
+      if(g["new_posts_since"] == "never read here",
+        do: ~L" (its feeds haven't been read here yet)",
+        else: ~L" since you last read its feeds here"
+      ),
+      if(n > 0, do: ~L": get_space_feed with since: last_read reads them.", else: ~L".")
+    ])
+  end
+
+  defp new_posts(_g), do: nil
 
   @doc "The invites waiting for this account, each with how to join, and the inbox's state."
   def invites(%{"invites" => invites} = result) when is_list(invites) do
@@ -987,6 +1003,9 @@ defmodule AtMcp.Reading do
 
             "off" ->
               ~L"Invites reach get_notifications only while at_mcp runs; they are always listed here."
+
+            "grantNeeded" ->
+              ~L"The town AppView raises invites to it in get_notifications while at_mcp runs. It has asked for a read grant on the inbox, so it can also while at_mcp is stopped; at_mcp approves it when it can."
 
             other when is_binary(other) ->
               cat([~L"Notifications of invites: ", literal(other), ~L"."])
@@ -1055,11 +1074,16 @@ defmodule AtMcp.Reading do
               )
             ]),
             fence(q["message"]),
-            cat([
-              ~L"Admit with approve_join_request (member: ",
-              ident(q["member"]),
-              ~L"), or turn down with deny_join_request."
-            ])
+            if(q["member"] == appview_did(),
+              do:
+                ~L"This is the town AppView, asking to be the group's notifications member: it reads the group so its members hear of mentions, replies and new posts while away, and writes nothing. at_mcp admits it as a bot member for a group founded here; an admin can remove it later, and it won't ask again.",
+              else:
+                cat([
+                  ~L"Admit with approve_join_request (member: ",
+                  ident(q["member"]),
+                  ~L"), or turn down with deny_join_request."
+                ])
+            )
           ],
           :line
         )
@@ -1069,6 +1093,57 @@ defmodule AtMcp.Reading do
   end
 
   def join_requests(_other), do: nil
+
+  defp appview_did, do: AtMcp.Network.appview_service() |> String.split("#") |> hd()
+
+  @doc "An outside app's request to sign in as this account: who, where it returns, and what it could do."
+  def app_sign_in(%{} = r) when is_map_key(r, "app") or is_map_key(r, "granted") do
+    app = if is_map(r["app"]), do: r["app"], else: %{}
+    words = List.wrap(r["granted_in_words"])
+
+    to_text(
+      join(
+        [
+          cat([
+            ~L"The app ",
+            join(
+              [
+                shown(app["name"]),
+                if(is_binary(app["client_id"]), do: cat([~L"(", ident(app["client_id"]), ~L")"]))
+              ],
+              :space
+            ),
+            ~L" asks to sign in as this account, returning to ",
+            if(is_binary(r["redirect_url"]),
+              do: url(r["redirect_url"]),
+              else: ~L"no redirect it named"
+            ),
+            ~L"."
+          ]),
+          if(words != [],
+            do:
+              join(
+                [~L"It would be able to:" | Enum.map(words, &cat([~L"- ", literal(&1)]))],
+                :line
+              )
+          ),
+          cond do
+            r["approved"] == true ->
+              cat([~L"Approved. Hand this back to the app: ", url(r["callback_url"])])
+
+            r["denied"] == true ->
+              ~L"Not approved: nothing was signed."
+
+            true ->
+              ~L"Approve with approve_app_sign_in (the same url), or turn it down with deny true."
+          end
+        ],
+        :blank
+      )
+    )
+  end
+
+  def app_sign_in(_other), do: nil
 
   @doc "An app's request to sign in as a group: what it would get, and what is withheld."
   def group_app(%{} = r) when is_map_key(r, "group") or is_map_key(r, "app") do
@@ -1128,70 +1203,35 @@ defmodule AtMcp.Reading do
 
   def group_app(_other), do: nil
 
-  @doc "This account's agents: each with its handle, DID and login keys."
-  def agents(%{"agents" => agents}) when is_list(agents) do
-    header =
-      if agents == [],
-        do: ~L"This account has no agents. create_agent makes one.",
-        else:
-          cat([
-            ~L"This account is the principal of ",
-            count(length(agents), ~L"agent", ~L"agents"),
-            ~L"."
-          ])
-
-    lines =
-      agents
-      |> Enum.with_index(1)
-      |> Enum.map(fn {a, n} ->
-        keys = List.wrap(a["loginKeys"] || a["login_keys"])
-
-        cat([
-          numbered(n),
-          ~L" ",
-          join(
-            [
-              join(
-                [
-                  if(is_binary(a["handle"]), do: cat([~L"@", ident(a["handle"])])),
-                  if(is_binary(a["did"]), do: ident(a["did"]))
-                ],
-                :space
-              ),
-              if(is_binary(a["status"]), do: ident(a["status"])),
-              cat([count(length(keys), ~L"login key", ~L"login keys")]),
-              if(is_binary(a["linkedAt"]), do: cat([~L"linked ", time(a["linkedAt"])]))
-            ],
-            :dot
-          )
-        ])
-      end)
-
-    to_text(join([header | lines], :line))
-  end
-
-  def agents(_other), do: nil
-
   @doc "An account's principals, and whether each one's endorsement confirms it."
-  def principals(%{"did" => did, "principals" => principals}) when is_list(principals) do
+  def principals(%{"did" => _, "principals" => principals} = r) when is_list(principals) do
     header =
       if principals == [],
         do:
           cat([
-            ident(did),
+            person(r),
             ~L" names no principal: it is not an agent, or not one of a known account."
           ]),
-        else: cat([ident(did), ~L" is an agent of:"])
+        else: cat([person(r), ~L" is an agent of:"])
 
     lines =
       for p <- principals do
         cat([
           ~L"  ",
-          ident(p["did"]),
-          if(p["confirmed"] == true,
-            do: ~L" (confirmed: its endorsement completes the pair)",
-            else: ~L" (not confirmed: no endorsement from it)"
-          )
+          person(p),
+          case p["confirmation"] || if(p["confirmed"] == true, do: "confirmed") do
+            "confirmed" ->
+              ~L" (confirmed: its endorsement, as its repository proves it, completes the pair)"
+
+            "proof_invalid" ->
+              ~L" (not confirmed: its repository's proof of the endorsement doesn't hold)"
+
+            "unavailable" ->
+              ~L" (unknown: its identity or repository couldn't be read now; ask again later)"
+
+            _ ->
+              ~L" (not confirmed: no endorsement from it)"
+          end
         ])
       end
 
@@ -1199,6 +1239,20 @@ defmodule AtMcp.Reading do
   end
 
   def principals(_other), do: nil
+
+  # Someone, as the reads name people: display name, @handle, then the DID.
+  defp person(p) do
+    join(
+      [
+        if(is_binary(p["display_name"]) and p["display_name"] != "",
+          do: shown(p["display_name"])
+        ),
+        if(is_binary(p["handle"]), do: cat([~L"@", ident(p["handle"])])),
+        ident(p["did"])
+      ],
+      :space
+    )
+  end
 
   @doc """
   One of the network's policy pages: its title and address, then its text,
@@ -2870,6 +2924,14 @@ defmodule AtMcp.Reading do
   # behind until update_seen. Each item says whether the app counts it read.
   # Nothing new here, though the app may still count as unread what this
   # account read here before without marking it seen: say where to find it.
+  # The seen marker is the read position: the read says where it moved it.
+  defp still_unread(%{"seen_marker" => true} = page) do
+    case page["seen_marked"] do
+      at when is_binary(at) -> cat([~L" Marked seen in the app up to ", time(at), ~L"."])
+      _ -> nil
+    end
+  end
+
   defp still_unread(%{"since_asked" => "last_read", "items" => [], "since" => at} = page)
        when is_binary(at) do
     seen = page["seen_at"]
@@ -2897,6 +2959,17 @@ defmodule AtMcp.Reading do
   end
 
   defp still_unread(_page), do: nil
+
+  # New posts in the account's groups aren't listed by default.
+  defp group_posts_hidden(%{"group_posts_hidden" => n}) when is_integer(n) and n > 0,
+    do:
+      cat([
+        ~L" ",
+        count(n, ~L"new post", ~L"new posts"),
+        ~L" in your groups not listed: get_my_groups counts them by group, and include_group_posts: true lists them here."
+      ])
+
+  defp group_posts_hidden(_page), do: nil
 
   defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
     do:

@@ -10,6 +10,7 @@ something outside can wake the agent, so each has a page:
 - [Codex](codex.md)
 - [Imp](imp.md)
 - [A plain script](script.md)
+- [A hosted agent, on someone else's servers](hosted.md): at_mcp on a server behind a TLS proxy
 
 Each page assumes at_mcp is installed and has an account, as the
 [README's quick start](../../README.md#quick-start) sets up.

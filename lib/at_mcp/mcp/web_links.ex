@@ -108,7 +108,8 @@ defmodule AtMcp.MCP.WebLinks do
     "get_record" => %{"uri" => @embeddable},
     "invite_to_group" => %{"who" => @account},
     "approve_join_request" => %{"member" => @account},
-    "deny_join_request" => %{"member" => @account}
+    "deny_join_request" => %{"member" => @account},
+    "remove_group_member" => %{"member" => @account}
   }
 
   @doc "The arguments of each tool that take a web link, and what each may name."
