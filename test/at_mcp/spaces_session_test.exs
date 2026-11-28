@@ -93,6 +93,14 @@ defmodule AtMcp.SpacesSessionTest do
     )
 
     on_exit(fn -> :persistent_term.erase({AtMcp.Spaces, :principal_of, "did:plc:oauthagent"}) end)
+    home = Path.join(System.tmp_dir!(), "state-home-#{System.unique_integer([:positive])}.json")
+    Application.put_env(:at_mcp, :state_home_path, home)
+
+    on_exit(fn ->
+      File.rm(home)
+      Application.delete_env(:at_mcp, :state_home_path)
+    end)
+
     die = Path.join(System.tmp_dir!(), "fake-die-#{System.unique_integer([:positive])}")
     System.put_env("FAKE_DIE", die)
     fixture = Path.join(System.tmp_dir!(), "fake-fixture-#{System.unique_integer([:positive])}")
@@ -509,6 +517,94 @@ defmodule AtMcp.SpacesSessionTest do
     after
       200 -> n
     end
+  end
+
+  test "notes go to the one principal whose endorsement its repository proves; a lookup that fails keeps the binding, or writes nothing",
+       ctx do
+    Application.put_env(:at_mcp, :plc_url, ctx.fake_service <> "/plc")
+    previous = Application.get_env(:at_mcp, :network)
+    Application.put_env(:at_mcp, :network, :delve)
+
+    on_exit(fn ->
+      Application.delete_env(:at_mcp, :plc_url)
+      Application.delete_env(:at_mcp, :spaces_session_test_agent_of)
+
+      if previous,
+        do: Application.put_env(:at_mcp, :network, previous),
+        else: Application.delete_env(:at_mcp, :network)
+    end)
+
+    assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+    agent = "did:plc:oauthagent"
+    key = {AtMcp.Spaces, :principal_of, agent}
+    # Resolved for real here, not pinned as in the other tests.
+    :persistent_term.erase(key)
+
+    verify = fn by ->
+      File.write!(ctx.fixture, Jason.encode!(%{verify: by}))
+    end
+
+    names = fn principals ->
+      Application.put_env(:at_mcp, :spaces_session_test_agent_of, %{agent => principals})
+      :persistent_term.erase(key)
+    end
+
+    writes = fn ->
+      for %{"method" => "space.records.create", "params" => p} <- calls(ctx.log), do: p["space"]
+    end
+
+    note = fn -> AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "remember"}]) end
+
+    # Two claimed, one proved: the proved one.
+    names.(["did:plc:claims", "did:plc:real"])
+
+    verify.(%{
+      "did:plc:claims" => %{found: false},
+      "did:plc:real" => %{found: true, record: %{agent: agent}}
+    })
+
+    _ = note.()
+    assert List.last(writes.()) == AtMcp.Spaces.agent_space_uri("did:plc:real", agent)
+    assert AtMcp.Spaces.StateHome.principal(agent) == "did:plc:real"
+
+    # The directory unreachable: the binding holds, and the failure isn't kept.
+    Application.put_env(:at_mcp, :plc_url, "http://127.0.0.1:9/plc")
+    :persistent_term.erase(key)
+    _ = note.()
+    assert List.last(writes.()) == AtMcp.Spaces.agent_space_uri("did:plc:real", agent)
+
+    # With no binding either, nothing is written, and it says why: never the
+    # account's own space instead.
+    File.rm(Application.get_env(:at_mcp, :state_home_path))
+    :persistent_term.erase(key)
+    count = length(writes.())
+
+    assert {:error, %AtMcp.Effects.Failure{detail: :principal_unavailable}} = note.()
+    assert length(writes.()) == count
+    assert :persistent_term.get(key, nil) == nil
+
+    Application.put_env(:at_mcp, :plc_url, ctx.fake_service <> "/plc")
+
+    # Two proved: a conflict, said, and nothing written.
+    names.(["did:plc:real", "did:plc:also"])
+
+    verify.(%{
+      "did:plc:real" => %{found: true, record: %{agent: agent}},
+      "did:plc:also" => %{found: true, record: %{agent: agent}}
+    })
+
+    assert {:error, %AtMcp.Effects.Failure{detail: :principal_conflict}} = note.()
+
+    # Claimed, none proved: refused, not sent to its own space.
+    names.(["did:plc:claims"])
+    verify.(%{"did:plc:claims" => "ProofInvalid"})
+    assert {:error, %AtMcp.Effects.Failure{detail: :principal_unconfirmed}} = note.()
+    assert length(writes.()) == count
+
+    # None claimed: it governs itself.
+    names.([])
+    _ = note.()
+    assert AtMcp.Spaces.StateHome.principal(agent) == agent
   end
 
   test "an endorsement is confirmed only as the principal's repository proves it, and a lookup that fails isn't a no",
@@ -1619,9 +1715,12 @@ defmodule AtMcp.SpacesSessionTest do
       if did == "did:plc:gone" do
         send_resp(conn, 404, "not found")
       else
+        agent_of = Application.get_env(:at_mcp, :spaces_session_test_agent_of, %{})[did] || []
+
         json(conn, %{
           id: did,
-          alsoKnownAs: ["at://#{did}.test"],
+          alsoKnownAs:
+            ["at://#{did}.test"] ++ Enum.map(agent_of, &"https://ident.link/agent-of/#{&1}"),
           verificationMethod: [
             %{id: "#{did}#atproto", type: "Multikey", publicKeyMultibase: "zQ3shKey"}
           ],

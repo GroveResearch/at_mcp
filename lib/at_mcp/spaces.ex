@@ -382,35 +382,117 @@ defmodule AtMcp.Spaces do
     case principal_of(session) do
       {:ok, principal} -> {:ok, agent_space_uri(principal, did)}
       :none -> {:ok, agent_space_uri(did, did)}
+      {:error, _} = error -> error
     end
   end
 
-  # The principal the account's DID document names (`agent-of`), cached.
+  # How long a principal found is believed before it is looked at again: a
+  # hand-off changes it. Failures aren't kept at all.
+  @principal_ttl_ms 5 * 60_000
+
+  # The principal whose state space holds this account's notes:
+  #
+  #   * `{:ok, principal}`: the one principal its DID document names
+  #     (`agent-of`) whose endorsement its repository proves
+  #     (`endorsement/3`), recorded as the account's binding
+  #     (`AtMcp.Spaces.StateHome`);
+  #   * `:none`: its DID document names no principal: it governs itself;
+  #   * `{:error, _}`: it can't be said now (the DID document or a
+  #     principal's repository unreadable, no claimed principal confirmed, or
+  #     more than one): notes are refused with what is wrong, never sent to
+  #     the account's own space instead. While the lookup is unavailable, the
+  #     binding recorded before holds.
+  #
+  # A result is kept for `@principal_ttl_ms`; a value put without a time
+  # (tests) is kept.
   defp principal_of(session) do
     did = Session.did(session)
     key = {__MODULE__, :principal_of, did}
+    now = System.monotonic_time(:millisecond)
 
     case :persistent_term.get(key, nil) do
-      nil ->
-        found =
-          case resolve_did_doc(session, did) do
-            {:ok, doc} ->
-              case for("https://ident.link/agent-of/" <> p <- doc["alsoKnownAs"] || [], do: p) do
-                [principal | _] -> {:ok, principal}
-                [] -> :none
-              end
+      {:resolved, found, at} when now - at < @principal_ttl_ms -> found
+      {:resolved, _found, _at} -> resolve_principal(session, key, now)
+      nil -> resolve_principal(session, key, now)
+      found -> found
+    end
+  end
 
-            _ ->
-              :none
-          end
+  defp resolve_principal(session, key, now) do
+    did = Session.did(session)
 
-        :persistent_term.put(key, found)
-        found
+    case principal_from_identity(session, did) do
+      {:error, %Failure{detail: :principal_unavailable}} = unavailable ->
+        # Not a no: the binding recorded before holds.
+        case AtMcp.Spaces.StateHome.principal(did) do
+          nil -> unavailable
+          principal -> {:ok, principal}
+        end
+
+      {:error, _} = error ->
+        error
 
       found ->
+        :persistent_term.put(key, {:resolved, found, now})
+
+        case found do
+          {:ok, principal} -> AtMcp.Spaces.StateHome.bind(did, principal)
+          :none -> AtMcp.Spaces.StateHome.bind(did, did)
+        end
+
         found
     end
   end
+
+  defp principal_from_identity(session, did) do
+    case resolve_did_doc(session, did) do
+      {:ok, doc} ->
+        claimed = for "https://ident.link/agent-of/" <> p <- doc["alsoKnownAs"] || [], do: p
+
+        if claimed == [] do
+          :none
+        else
+          checked = for p <- Enum.uniq(claimed), do: {p, endorsement(session, p, did)}
+
+          case for({p, "confirmed"} <- checked, do: p) do
+            [principal] ->
+              {:ok, principal}
+
+            [_, _ | _] = several ->
+              {:error,
+               Failure.new(:refused,
+                 detail: :principal_conflict,
+                 message:
+                   "This account's identity names more than one confirmed principal (#{Enum.join(several, ", ")}), so where its notes go can't be said: its principals settle which one answers for it."
+               )}
+
+            [] ->
+              if Enum.any?(checked, fn {_, s} -> s == "unavailable" end),
+                do: principal_unavailable(Enum.map(checked, &elem(&1, 0))),
+                else:
+                  {:error,
+                   Failure.new(:refused,
+                     detail: :principal_unconfirmed,
+                     message:
+                       "This account's identity names #{Enum.join(claimed, ", ")} as its principal, but no endorsement its repository proves confirms it, so its notes aren't written: its principal writes the endorsement (endorse_agent)."
+                   )}
+          end
+        end
+
+      _ ->
+        principal_unavailable([did])
+    end
+  end
+
+  defp principal_unavailable(dids),
+    do:
+      {:error,
+       # Nothing was sent: a refusal, whose cause passes.
+       Failure.new(:refused,
+         detail: :principal_unavailable,
+         message:
+           "Who governs this account's notes couldn't be read now (#{Enum.join(dids, ", ")}: identity or repository unavailable); nothing was written. Try again shortly."
+       )}
 
   # An account that is its own authority makes its state space at its
   # first note; an agent's is its principal's to make.
@@ -2588,6 +2670,8 @@ defmodule AtMcp.Spaces do
             end
 
           state = make_agent_space(session, did)
+          # Where its notes go, should it run on this installation.
+          AtMcp.Spaces.StateHome.bind(did, Session.did(session))
 
           {:ok,
            %{
@@ -3193,7 +3277,7 @@ defmodule AtMcp.Spaces do
                 {:ok, principal} ->
                   "#{agent_space_uri(principal, did)} (this agent's notes: the note tools)"
 
-                :none ->
+                _ ->
                   nil
               end
 
