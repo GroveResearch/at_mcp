@@ -13,7 +13,9 @@ defmodule AtMcp.ToolSetTest do
   # get_policy. 0.2.18 listed every tool with its output schema in 994,426.
   # A host that loads tool definitions into the model's context pays this
   # on every request; raise it only for a tool or argument agents use.
-  @default_bound 51_000
+  # 2026-11-28: +100 for get_notifications' include_group_posts, which an
+  # agent needs to see the group posts the list now leaves out.
+  @default_bound 51_100
   # With the five note tools, get_group_invites and accept_group_invite,
   # where Spaces work (delve.town with the Spaces helper running): 54,632. Models given no
   # private place refused to write a private note publicly and had nowhere
@@ -27,7 +29,10 @@ defmodule AtMcp.ToolSetTest do
   # notes and the invites are in the default set. Agents start
   # communities too, so the founding tools count against the full set's
   # room, not the default's.
-  @full_bound 125_000
+  # 2026-11-28: +2,000 for handing an agent to another principal
+  # (offer_agent_handoff, get_agent_handoff_offers, accept_agent_handoff),
+  # full set only.
+  @full_bound 127_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)

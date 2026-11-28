@@ -51,6 +51,7 @@ defmodule AtMcp.ReadPositions do
   def key(:notifications, nil), do: "notifications"
   def key(:list_feed, uri) when is_binary(uri), do: "list:" <> uri
   def key(:author, actor) when is_binary(actor), do: "author:" <> String.downcase(actor)
+  def key(:space_feed, uri) when is_binary(uri), do: "space:" <> uri
 
   @doc """
   What is held for `did` in `feed`: `at`, the position, and `pending`, the

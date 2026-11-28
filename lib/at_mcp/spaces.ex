@@ -843,7 +843,13 @@ defmodule AtMcp.Spaces do
              "actor" => Session.did(session),
              "limit" => 50
            }) do
-      {:ok, %{groups: Enum.map(body["groups"] || [], &group_view(session, &1["did"], &1))}}
+      groups =
+        for g <- body["groups"] || [] do
+          view = group_view(session, g["did"], g)
+          Map.merge(view, new_posts(session, view.feeds))
+        end
+
+      {:ok, %{groups: groups}}
     end
   end
 
@@ -875,6 +881,58 @@ defmodule AtMcp.Spaces do
       added_by_group:
         get_in(detail, ["group", "viewer", "accepted"]) == false and not asked?(session, did)
     }
+  end
+
+  # How many posts others made in a group's feeds after this account last
+  # read each one here (`get_space_feed` with `since: "last_read"`, its read
+  # position in `AtMcp.ReadPositions`); a feed never read here counts all
+  # it holds. Counted over at most `@new_posts_window` records a feed, so
+  # past that it says "at least".
+  @new_posts_window 200
+
+  defp new_posts(_session, []), do: %{}
+
+  defp new_posts(session, feeds) do
+    did = Session.did(session)
+    post = AtMcp.Network.collection(:post)
+
+    counted =
+      for feed <- feeds do
+        since =
+          case AtMcp.ReadPositions.get(did, AtMcp.ReadPositions.key(:space_feed, feed)) do
+            {:ok, %{at: at}} -> at
+            _ -> nil
+          end
+
+        case helper(session, "space.all", %{space: feed, limit: @new_posts_window}) do
+          {:ok, %{"records" => records} = got} ->
+            n =
+              Enum.count(records, fn r ->
+                made = get_in(r, ["record", "createdAt"])
+
+                r["collection"] == post and r["repo"] != did and is_binary(made) and
+                  (is_nil(since) or AtMcp.ReadPositions.later?(made, since))
+              end)
+
+            {n, got["more"] == true, is_nil(since)}
+
+          _ ->
+            nil
+        end
+      end
+
+    case Enum.reject(counted, &is_nil/1) do
+      [] ->
+        %{}
+
+      known ->
+        %{
+          new_posts: known |> Enum.map(&elem(&1, 0)) |> Enum.sum(),
+          new_posts_at_least: Enum.any?(known, &elem(&1, 1)),
+          new_posts_since:
+            if(Enum.all?(known, &elem(&1, 2)), do: "never read here", else: "last read here")
+        }
+    end
   end
 
   defp names_feed do

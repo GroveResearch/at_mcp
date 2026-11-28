@@ -1607,6 +1607,11 @@ defmodule AtMcp.MCP.Schemas do
           ),
         "seen_marked" =>
           nullable_string("Where this read moved the network's seen marker to, if it did"),
+        "group_posts_hidden" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "How many new posts in this account's groups (space-post) the page leaves out; include_group_posts true lists them"
+        },
         "read_position_unsaved" =>
           nullable_string("The error that stopped at_mcp from saving the read position."),
         "since_unread" =>
@@ -1675,6 +1680,15 @@ defmodule AtMcp.MCP.Schemas do
           nullable_boolean(
             "Whether the group counts this account's own confirmation of its membership, which its roster needs; null when the group host doesn't say"
           ),
+        "new_posts" => %{
+          "type" => ["integer", "null"],
+          "description" =>
+            "Posts others made in the group's feeds since this account last read them here (get_space_feed with since: last_read)"
+        },
+        "new_posts_at_least" =>
+          nullable_boolean("True when there may be more than new_posts: past what at_mcp counts"),
+        "new_posts_since" =>
+          nullable_string("last read here, or never read here (every post counts as new)"),
         "added_by_group" =>
           nullable_boolean(
             "True when the group made this account a member without it asking, and it hasn't confirmed: confirm_group_membership confirms, leave_group leaves"
