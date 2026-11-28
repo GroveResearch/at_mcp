@@ -96,6 +96,7 @@ if config_env() != :test do
     # the AppView tokens for each inbox while it runs (AtMcp.Spaces.InboxTokens).
     {"AT_MCP_TOWN_INBOX_READER", flag, true},
     {"AT_MCP_NOTIFICATIONS_SEEN_MARKER", flag, true},
+    {"AT_MCP_AGENT_SCOPE", one_of.([:include, :rpc]), :include},
     # The town AppView's OAuth client_id, whose read grants on an inbox or a
     # group at_mcp approves (AtMcp.Spaces.appview_client_id/0).
     {"AT_MCP_APPVIEW_CLIENT_ID", url, nil},
@@ -231,6 +232,7 @@ if config_env() != :test do
     spaces_allow_http: value["AT_MCP_SPACES_ALLOW_HTTP"],
     town_inbox_reader: value["AT_MCP_TOWN_INBOX_READER"],
     notifications_seen_marker: value["AT_MCP_NOTIFICATIONS_SEEN_MARKER"],
+    agent_scope: value["AT_MCP_AGENT_SCOPE"],
     appview_client_id: value["AT_MCP_APPVIEW_CLIENT_ID"],
     ca_file: value["AT_MCP_CA_FILE"],
     grant_lifetime_days: value["AT_MCP_GRANT_LIFETIME_DAYS"],

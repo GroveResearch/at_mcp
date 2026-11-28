@@ -92,7 +92,14 @@ defmodule AtMcp.Spaces do
           with true <- is_binary(did) and principal?(did),
                {:ok, pds} <- service_did(service, did) do
             aud = URI.encode_www_form(pds <> "#atproto_pds")
-            for m <- @agent_methods, do: "rpc:#{agent}.#{m}?aud=#{aud}"
+
+            # The PDS's permission set for its agent routes, which its
+            # consent screen names in words ("Create and manage agents you
+            # answer for"); the routes by name where the PDS can't resolve
+            # the set yet (AT_MCP_AGENT_SCOPE=rpc).
+            if agent_scope() == :include,
+              do: ["include:#{agent_set(agent)}?aud=#{aud}"],
+              else: for(m <- @agent_methods, do: "rpc:#{agent}.#{m}?aud=#{aud}")
           else
             _ -> []
           end
@@ -103,6 +110,16 @@ defmodule AtMcp.Spaces do
         "atproto transition:generic"
     end
   end
+
+  @doc false
+  # How a principal asks for the agent routes: `:include`, the PDS's
+  # permission set (the default), or `:rpc`, each route by name
+  # (`AT_MCP_AGENT_SCOPE`).
+  def agent_scope, do: Application.get_env(:at_mcp, :agent_scope, :include)
+
+  # The permission set beside the agent routes' namespace:
+  # `town.delve.agent` -> `town.delve.authManageAgents`.
+  defp agent_set(agent_ns), do: String.replace_suffix(agent_ns, ".agent", ".authManageAgents")
 
   # The inbox: making it, and reading it, which a delegation token for it
   # needs (`vouch_inbox/1`); adding the AppView to its members, only when
@@ -3036,8 +3053,19 @@ defmodule AtMcp.Spaces do
     end
   end
 
-  defp holds_method?(%{scope: scope}, method) when is_binary(scope),
-    do: String.contains?(scope, "rpc:#{method}?")
+  # A session holds an agent route by name, or through the permission set
+  # that covers them all, as the PDS may grant it unexpanded.
+  defp holds_method?(%{scope: scope}, method) when is_binary(scope) do
+    String.contains?(scope, "rpc:#{method}?") or
+      case String.split(method, ".") |> Enum.split(-1) do
+        {ns, [m]} ->
+          m in @agent_methods and
+            String.contains?(scope, "include:#{agent_set(Enum.join(ns, "."))}")
+
+        _ ->
+          false
+      end
+  end
 
   defp holds_method?(_session, _method), do: false
 
