@@ -3114,7 +3114,7 @@ defmodule AtMcp.Spaces do
   # A session holds an agent route by name, or through the permission set
   # that covers them all, as the PDS may grant it unexpanded.
   defp holds_method?(%{scope: scope}, method) when is_binary(scope) do
-    String.contains?(scope, "rpc:#{method}?") or
+    rpc_methods(scope) |> Enum.member?(method) or
       case String.split(method, ".") |> Enum.split(-1) do
         {ns, [m]} ->
           m in @agent_methods and
@@ -3126,6 +3126,37 @@ defmodule AtMcp.Spaces do
   end
 
   defp holds_method?(_session, _method), do: false
+
+  # The methods a scope's rpc permissions name, in either form a PDS grants:
+  # `rpc:<method>?aud=…`, or a permission set expanded into one
+  # `rpc?lxm=<a>&lxm=<b>&aud=…`.
+  defp rpc_methods(scope) do
+    scope
+    |> String.split()
+    |> Enum.flat_map(fn token ->
+      {head, query} =
+        case String.split(token, "?", parts: 2) do
+          [h, q] -> {h, q}
+          [h] -> {h, ""}
+        end
+
+      lxms =
+        query
+        |> String.split("&", trim: true)
+        |> Enum.flat_map(fn pair ->
+          case String.split(pair, "=", parts: 2) do
+            ["lxm", m] -> [URI.decode_www_form(m)]
+            _ -> []
+          end
+        end)
+
+      case head do
+        "rpc:" <> method -> [method | lxms]
+        "rpc" -> lxms
+        _ -> []
+      end
+    end)
+  end
 
   defp relogin_needed(method),
     do:
