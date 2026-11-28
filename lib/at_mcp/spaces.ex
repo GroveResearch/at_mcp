@@ -1280,12 +1280,15 @@ defmodule AtMcp.Spaces do
   `general`), which members read and write; confirms the founder's
   membership; and asks the town AppView in as the group's notifications
   member (`add_notifications_member/2`, which runs on its own once the
-  group is made).
+  group is made, and only where the policy lets it ask: with read grants,
+  the AppView reads a group through the grant a member approves, not as a
+  member).
+
+  The group is founded with the join policy asked for, and the answer says
+  the policy the group host then has (`join_policy`), read back, and
+  whether that is the one asked for (`join_policy_confirmed`).
   """
   def create_group(session, %{} = args) do
-    # Founded taking requests, so the town AppView can ask in (an invite-only
-    # group turns its request away for good); the policy asked for is set
-    # once it is in (`add_notifications_member_later/5`).
     policy = args[:join_policy] || "approval"
 
     with {:ok, handle} <- group_handle(args[:name]),
@@ -1296,7 +1299,7 @@ defmodule AtMcp.Spaces do
              %{
                "handle" => handle,
                "displayName" => args[:display_name],
-               "joinPolicy" => "approval"
+               "joinPolicy" => policy
              }
              |> put_present("description", args[:description])
            )
@@ -1336,8 +1339,12 @@ defmodule AtMcp.Spaces do
         ])
 
       confirmed = confirm_membership(session, group)
+      effective = effective_join_policy(session, group, made["meta"])
       _ = register_space(session, %{space: members})
-      add_notifications_member_later(session, group, members, made["meta"], policy)
+
+      # An invite-only group turns away the AppView's request to join, for
+      # good: it reads such a group through its grant alone.
+      if policy != "invite", do: add_notifications_member_later(session, group, members)
 
       {:ok,
        %{
@@ -1351,14 +1358,26 @@ defmodule AtMcp.Spaces do
              {:error, f} -> "The group was made, but its feed wasn't: #{to_failure(f).message}"
            end,
          confirmed: match?({:ok, _}, confirmed),
-         join_policy: policy,
+         join_policy: effective || policy,
+         join_policy_confirmed: effective == policy,
+         join_policy_note:
+           cond do
+             effective == policy ->
+               nil
+
+             is_nil(effective) ->
+               "The group host didn't say the group's join policy; check it in its console before you rely on #{policy}."
+
+             true ->
+               "The group host has the join policy #{effective}, not #{policy}: set it in its console."
+           end,
          notifications_member:
-           "The town AppView, which sends the group's members their notifications, is being added as a bot member: it asks to join, and at_mcp admits it in the next two minutes. An admin can remove it at any time; removed, it isn't added back." <>
-             if(policy != "approval",
-               do:
-                 " The group takes requests until then, and its join policy becomes #{policy} once the AppView is in.",
-               else: ""
-             ),
+           if(policy == "invite",
+             do:
+               "The town AppView sends the group's members their notifications once a member approves its read grant; an invite-only group doesn't take its request to join.",
+             else:
+               "The town AppView, which sends the group's members their notifications, is being added as a bot member: it asks to join, and at_mcp admits it in the next two minutes. An admin can remove it at any time; removed, it isn't added back."
+           ),
          next:
            "Invite people with invite_to_group (group: #{group}); see who asks to join with get_join_requests."
        }}
@@ -1427,7 +1446,7 @@ defmodule AtMcp.Spaces do
   # The town AppView asks to join once its members space is registered; it
   # is admitted as a bot member when its request is there. Runs on its own,
   # for up to two minutes, so founding answers at once.
-  defp add_notifications_member_later(session, group, members, meta, policy) do
+  defp add_notifications_member_later(session, group, members) do
     Task.Supervisor.start_child(AtMcp.Accounts.TaskSupervisor, fn ->
       Enum.reduce_while(1..40, nil, fn _, _ ->
         case add_notifications_member(session, group, members) do
@@ -1435,26 +1454,29 @@ defmodule AtMcp.Spaces do
           {:error, _} -> Process.sleep(3_000) && {:cont, nil}
         end
       end)
-
-      # Then the join policy the founder asked for, whether or not the
-      # AppView came in.
-      if policy != "approval", do: set_join_policy(session, group, meta, policy)
     end)
   end
 
-  defp set_join_policy(session, group, meta, policy) do
-    meta = meta || "at:space/#{group}/org.atgrp.meta/self"
+  # The join policy the group host has for `group`: from its view of the
+  # group, or else the group's own config record. nil when neither says.
+  defp effective_join_policy(session, group, meta) do
+    from_view =
+      case group_host_get(session, "org.atgrp.internal.getGroup", %{"group" => group}) do
+        {:ok, %{"group" => %{"joinPolicy" => p}}} when is_binary(p) -> p
+        {:ok, %{"joinPolicy" => p}} when is_binary(p) -> p
+        _ -> nil
+      end
 
-    as_group(session, group, meta, [
-      {"com.atproto.space.putRecord",
-       %{
-         "repo" => group,
-         "space" => meta,
-         "collection" => "org.atgrp.config",
-         "rkey" => "self",
-         "record" => %{"$type" => "org.atgrp.config", "joinPolicy" => policy}
-       }}
-    ])
+    from_view ||
+      case helper(session, "space.records.get", %{
+             space: meta || "at:space/#{group}/org.atgrp.meta/self",
+             collection: "org.atgrp.config",
+             rkey: "self",
+             repo: group
+           }) do
+        {:ok, %{"value" => %{"joinPolicy" => p}}} when is_binary(p) -> p
+        _ -> nil
+      end
   end
 
   @doc false

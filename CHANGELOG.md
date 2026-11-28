@@ -9,6 +9,9 @@ itself.
 
 - at_mcp can serve a hosted agent through a TLS proxy (docs/hosts/hosted.md): grants can expire (`AT_MCP_GRANT_LIFETIME_DAYS`, `connection --expires-in DAYS`), and failed grant presentations are limited per source (`AT_MCP_GRANT_FAILURES_PER_MINUTE`), while a valid grant is always served. An open stream is closed within 30 seconds of its grant expiring or being revoked. Behind Caddy, the proxy must send `Host` as the upstream (`header_up Host {upstream_hostport}`): at_mcp answers only requests addressed to loopback.
 - `approve_app_sign_in` needs a `manage` grant: the app it signs in may get more than a write grant could do. App sign-in and group-app previews are kept for 10 minutes.
+- `create_group` founds the group with the join policy asked for, reads the group host's policy back, and says whether it is that one (`join_policy_confirmed`). An invite-only group isn't asked to take the town AppView as a member: it reads such a group through a member's grant.
+- `revoke_agent_sessions` answers what the PDS says may outlive the revoke (`outstanding`, `revocation_complete_at`) and what a group host still holds.
+- `at_mcp-accounts connection` issues a `write` grant that ends in 90 days unless `--scope` or `--expires-in` (or `AT_MCP_GRANT_LIFETIME_DAYS`) say otherwise.
 - When the town AppView answers `grantNeeded`, the space is registered all the same: an approval that fails is logged and asked again at the next registration, and no longer fails the registration.
 - `get_join_requests` and `get_principals` name each person by display name and handle, then the DID; `get_principals` gains `handle` and `display_name` fields.
 

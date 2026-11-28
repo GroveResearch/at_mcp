@@ -581,6 +581,11 @@ defmodule AtMcp.SpacesSessionTest do
           handle: "g.groups.test",
           displayName: "G",
           description: "A group",
+          # The policy the last createGroup asked for, or what a test says
+          # the host ended up with.
+          joinPolicy:
+            Application.get_env(:at_mcp, :spaces_session_test_policy) ||
+              Application.get_env(:at_mcp, :spaces_session_test_founded_policy),
           viewer: %{member: true, accepted: true}
         },
         spaces: [
@@ -597,6 +602,12 @@ defmodule AtMcp.SpacesSessionTest do
       send(
         Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
         {:created, conn.body_params}
+      )
+
+      Application.put_env(
+        :at_mcp,
+        :spaces_session_test_founded_policy,
+        conn.body_params["joinPolicy"]
       )
 
       case Application.get_env(:at_mcp, :spaces_session_test_create) do
@@ -1236,21 +1247,21 @@ defmodule AtMcp.SpacesSessionTest do
       # createGroup with the handle under the host's domain.
       assert_received {:created, created}
 
-      # Founded taking requests, so the AppView can ask in; invite-only after.
+      # Founded with the policy asked for, which the host then has.
       assert created == %{
                "handle" => "garden-club.groups.test",
                "displayName" => "Garden Club",
                "description" => "We grow",
-               "joinPolicy" => "approval"
+               "joinPolicy" => "invite"
              }
 
-      assert made.join_policy == "invite"
+      assert made.join_policy == "invite" and made.join_policy_confirmed
 
       assert made.group.did == "did:plc:newgroup" and made.role == "admin"
       assert made.feeds == ["at:space/did:plc:newgroup/town.delve.space.feed/general"]
       assert made.confirmed
       assert made.next =~ "invite_to_group (group: did:plc:newgroup)"
-      assert made.notifications_member =~ "bot member"
+      assert made.notifications_member =~ "read grant"
 
       # Its feed, made as the group: members read and write, the bot reads.
       acts = Enum.filter(calls(ctx.log), &(&1["method"] == "group.act"))
@@ -1305,6 +1316,23 @@ defmodule AtMcp.SpacesSessionTest do
 
       assert membership["rkey"] == "did:web:api.delve.town"
       assert membership["record"]["roles"] == ["member", "bot"]
+    end
+
+    test "create_group says when the group host has another join policy than the one asked for",
+         ctx do
+      delve(ctx)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      Application.put_env(:at_mcp, :spaces_session_test_policy, "open")
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_policy) end)
+
+      assert {:ok, made} =
+               AtMcp.Effects.spaces(ctx.effects, :create_group, [
+                 %{name: "closed", display_name: "Closed", join_policy: "invite"}
+               ])
+
+      assert made.join_policy == "open"
+      refute made.join_policy_confirmed
+      assert made.join_policy_note =~ "not invite"
     end
 
     test "create_group says plainly why a group wasn't made, and checks the name before sending anything",

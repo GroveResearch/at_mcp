@@ -1757,8 +1757,10 @@ defmodule AtMcp.MCP.Schemas do
           nullable_string(
             "The town AppView as the group's bot member, which sends its members their notifications: how it is added, and that an admin can remove it"
           ),
-        "join_policy" =>
-          nullable_string("The join policy the group takes once its notifications member is in"),
+        "join_policy" => nullable_string("The join policy the group host has for the group"),
+        "join_policy_confirmed" =>
+          nullable_boolean("Whether the group host's policy, read back, is the one asked for"),
+        "join_policy_note" => nullable_string("What to do when it isn't, or couldn't be read"),
         "next" => nullable_string("What to do next: invite people")
       })
 
