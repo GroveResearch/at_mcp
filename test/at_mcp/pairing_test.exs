@@ -39,6 +39,7 @@ defmodule AtMcp.PairingTest do
     known_after = Keyword.get(opts, :known_after, 2)
     endorsed = Keyword.get(opts, :endorsed, true)
     login_error = Keyword.get(opts, :login_error, "key_refused")
+    limited = Keyword.get(opts, :limited, 0)
 
     helper = fn
       "key.generate", %{keyFile: file} ->
@@ -56,9 +57,11 @@ defmodule AtMcp.PairingTest do
         send(test, {:login, params})
         n = Agent.get_and_update(tries, &{&1 + 1, &1 + 1})
 
-        if n > known_after,
-          do: {:ok, %{"did" => @agent}},
-          else: {:error, Failure.new(:refused, detail: login_error, message: "refused")}
+        cond do
+          n <= limited -> {:error, Failure.new(:refused, detail: "rate_limited", message: "429")}
+          n > known_after -> {:ok, %{"did" => @agent}}
+          true -> {:error, Failure.new(:refused, detail: login_error, message: "refused")}
+        end
 
       "oauth.logout", _ ->
         {:ok, %{}}
@@ -152,7 +155,7 @@ defmodule AtMcp.PairingTest do
   end
 
   test "a link is replaced every 4 minutes while setup waits" do
-    deps = fakes(known_after: 100)
+    deps = fakes(known_after: 25)
 
     assert {:ok, _} =
              AtMcp.Pairing.setup(
@@ -169,9 +172,13 @@ defmodule AtMcp.PairingTest do
                deps
              )
 
-    # 100 refusals at 5 s each is 500 s: links at 0, 240 and 480 s.
-    proofs = for {:proved, p} <- drain(), do: p
+    # 25 refusals at 20 s each is 500 s: links at 0, 240 and 480 s.
+    msgs = drain()
+    proofs = for {:proved, p} <- msgs, do: p
     assert length(proofs) == 3
+    # Within the PDS's limit of 30 signed authorizes per 5 minutes per address.
+    logins = for {:login, _} <- msgs, do: 1
+    assert length(logins) == 26
   end
 
   test "setup gives up after the wait, saves nothing and leaves no key", %{path: path} do
@@ -293,6 +300,55 @@ defmodule AtMcp.PairingTest do
                },
                %{base | get_json: get_json}
              )
+  end
+
+  test "setup takes the name as --name too, as the storybook shows it", %{path: path} do
+    assert {:ok, %{account: %{"id" => "wren", "handle" => "wren.example"}}} =
+             AtMcp.AccountSetup.execute(
+               [
+                 "--file",
+                 path,
+                 "setup",
+                 "--principal",
+                 @principal,
+                 "--name",
+                 "wren",
+                 "--service",
+                 @service
+               ],
+               pairing: fakes()
+             )
+  end
+
+  test "a 429 from the PDS backs off, 60 s doubling to 5 minutes, then polling goes on every 20 s" do
+    test = self()
+    deps = fakes(limited: 4, known_after: 5)
+
+    deps = %{
+      deps
+      | sleep: fn ms ->
+          send(test, {:slept, ms})
+          deps.sleep.(ms)
+        end
+    }
+
+    assert {:ok, %{did: @agent}} =
+             AtMcp.Pairing.repair(
+               %{
+                 did: @agent,
+                 principal: @principal,
+                 service: @service,
+                 key_file: Path.join(AtMcp.Spaces.keys_dir(), "k4.json"),
+                 scope: "atproto",
+                 web_origin: "https://web.example"
+               },
+               deps
+             )
+
+    msgs = drain()
+    sleeps = for {:slept, ms} <- msgs, do: ms
+    assert sleeps == [60_000, 120_000, 240_000, 300_000, 20_000]
+    assert Enum.any?(msgs, &match?({:said, "Delvetown is limiting sign-ins" <> _}, &1))
   end
 
   defp drain(acc \\ []) do

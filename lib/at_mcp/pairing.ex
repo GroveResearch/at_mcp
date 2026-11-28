@@ -29,7 +29,14 @@ defmodule AtMcp.Pairing do
   # The PDS takes a proof at most 5 minutes old; a new link comes a minute
   # before that, so the one on screen always has time left.
   @link_ms 4 * 60_000
-  @poll_ms 5_000
+  # The PDS allows 30 signed-authorize attempts per 5 minutes and 300 a day
+  # from one address, for unknown keys as for known ones (the
+  # `agent-authorization` rate-limit policy). Every 20 s is 15 per 5 minutes,
+  # leaving room for the address's other sign-ins, and at most 90 over the
+  # default 30-minute wait.
+  @poll_ms 20_000
+  @limited_ms 60_000
+  @limit_window_ms 5 * 60_000
   @default_wait_ms 30 * 60_000
   # Errors that waiting will not fix.
   @fatal ~w(preview_mismatch signed_authorize_unsupported tos_changed file_corrupt file_insecure)
@@ -122,15 +129,18 @@ defmodule AtMcp.Pairing do
     end
   end
 
-  # Prints a link, then tries a key sign-in every 5 s; a fresh link every
+  # Prints a link, then tries a key sign-in every 20 s; a fresh link every
   # 4 minutes; gives up after `wait_ms`.
   defp await(opts, proof, link, account, deps) do
     start = deps.now_ms.()
     deadline = start + Map.get(opts, :wait_ms, @default_wait_ms)
-    loop(opts, proof, link, account, deps, deadline, nil)
+    loop(opts, proof, link, account, deps, deadline, nil, @poll_ms)
   end
 
-  defp loop(opts, proof, link, account, deps, deadline, minted_at) do
+  # `wait` is the pause after a refused try: 20 s, or after a 429 from the
+  # PDS, 60 s doubling up to its 5-minute window, back to 20 s once a try
+  # is answered.
+  defp loop(opts, proof, link, account, deps, deadline, minted_at, wait) do
     now = deps.now_ms.()
 
     cond do
@@ -142,7 +152,7 @@ defmodule AtMcp.Pairing do
           {:ok, %{"proof" => jwt}} ->
             deps.say.(link.(jwt))
             if minted_at, do: deps.say.("(The link above replaces the earlier one.)")
-            loop(opts, proof, link, account, deps, deadline, now)
+            loop(opts, proof, link, account, deps, deadline, now, wait)
 
           {:error, _} = error ->
             error
@@ -161,9 +171,20 @@ defmodule AtMcp.Pairing do
           {:error, %Failure{detail: code}} = error when code in @fatal ->
             error
 
+          {:error, %Failure{detail: "rate_limited"}} ->
+            backoff =
+              if wait < @limited_ms, do: @limited_ms, else: min(wait * 2, @limit_window_ms)
+
+            deps.say.(
+              "Delvetown is limiting sign-ins from this address; trying again in #{div(backoff, 1000)} s."
+            )
+
+            deps.sleep.(backoff)
+            loop(opts, proof, link, account, deps, deadline, minted_at, backoff)
+
           {:error, _} ->
             deps.sleep.(@poll_ms)
-            loop(opts, proof, link, account, deps, deadline, minted_at)
+            loop(opts, proof, link, account, deps, deadline, minted_at, @poll_ms)
         end
     end
   end
