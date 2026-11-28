@@ -125,6 +125,7 @@ export class Helper {
     'space.records.get': async (p) => this.#s.getRecord(p.did, p.space, p.collection, p.rkey, p.repo),
     'space.records.list': async (p) => this.#s.listRecords(p.did, p.space, p),
     'space.records.delete': async (p) => this.#s.deleteRecord(p.did, p.space, p.collection, p.rkey),
+    'space.records.clear': async (p) => this.#s.clearRecords(p.did, p.space),
     'space.writers': async (p) => this.#s.writers(p.did, p.space, p),
     'space.all': async (p) => this.#s.all(p.did, p.space, p),
     'space.members.put': async (p) => this.#s.members(p.did, p.space, 'put', p.members),
