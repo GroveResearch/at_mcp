@@ -960,6 +960,10 @@ defmodule AtMcp.Effects do
 
   # The `AtMcp.Spaces` operations that change nothing.
   @spaces_reads [
+    :get_agent_handoff_offers,
+    # Copies the agent's own records once after a hand-off: at_mcp's
+    # housekeeping, not the agent's writing, so no quota.
+    :carry_agent_state,
     :preview_app_sign_in,
     :registration,
     :get_join_requests,

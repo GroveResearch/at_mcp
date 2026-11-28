@@ -607,6 +607,84 @@ defmodule AtMcp.SpacesSessionTest do
     assert AtMcp.Spaces.StateHome.principal(agent) == agent
   end
 
+  test "after a hand-off the agent copies its own records to its new principal's space, clears the old, then moves its binding",
+       ctx do
+    Application.put_env(:at_mcp, :plc_url, ctx.fake_service <> "/plc")
+    previous = Application.get_env(:at_mcp, :network)
+    Application.put_env(:at_mcp, :network, :delve)
+
+    on_exit(fn ->
+      Application.delete_env(:at_mcp, :plc_url)
+      Application.delete_env(:at_mcp, :spaces_session_test_agent_of)
+
+      if previous,
+        do: Application.put_env(:at_mcp, :network, previous),
+        else: Application.delete_env(:at_mcp, :network)
+    end)
+
+    assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+    agent = "did:plc:oauthagent"
+    old = AtMcp.Spaces.agent_space_uri("did:plc:oldp", agent)
+    new = AtMcp.Spaces.agent_space_uri("did:plc:newp", agent)
+
+    # Bound to its old principal; its identity now names the new one, whose
+    # endorsement its repository proves.
+    AtMcp.Spaces.StateHome.bind(agent, "did:plc:oldp")
+    Application.put_env(:at_mcp, :spaces_session_test_agent_of, %{agent => ["did:plc:newp"]})
+
+    note = fn rkey, repo ->
+      %{
+        "repo" => repo,
+        "collection" => "town.delve.notes.note",
+        "rkey" => rkey,
+        "valid" => true,
+        "record" => %{"$type" => "town.delve.notes.note", "text" => "remember #{rkey}"}
+      }
+    end
+
+    fixture = fn existing ->
+      File.write!(
+        ctx.fixture,
+        Jason.encode!(%{
+          existing: existing,
+          verify: %{"did:plc:newp" => %{found: true, record: %{agent: agent}}},
+          all: %{old => [note.("3k1", agent), note.("3k2", agent), note.("3kp", "did:plc:oldp")]}
+        })
+      )
+    end
+
+    of = fn method -> for %{"method" => ^method, "params" => p} <- calls(ctx.log), do: p end
+
+    # The new principal hasn't made its space yet: nothing copied or
+    # cleared, and the binding stays, to try again.
+    fixture.([old])
+
+    assert {:ok, %{principal: "did:plc:newp"}} =
+             AtMcp.Effects.spaces(ctx.effects, :carry_agent_state, [])
+
+    assert of.("space.records.put") == [] and of.("space.records.clear") == []
+    assert AtMcp.Spaces.StateHome.principal(agent) == "did:plc:oldp"
+
+    # Made: its own two records copied under their keys (not its old
+    # principal's), the old space cleared of them, and the binding moved.
+    fixture.([old, new])
+
+    assert {:ok, %{principal: "did:plc:newp"}} =
+             AtMcp.Effects.spaces(ctx.effects, :carry_agent_state, [])
+
+    assert [first, second] = of.("space.records.put")
+    assert first["space"] == new and first["rkey"] == "3k1"
+    assert second["record"]["text"] == "remember 3k2"
+    assert [%{"space" => ^old}] = of.("space.records.clear")
+    assert AtMcp.Spaces.StateHome.principal(agent) == "did:plc:newp"
+
+    # Done once; new notes go to the new space.
+    assert {:ok, _} = AtMcp.Effects.spaces(ctx.effects, :carry_agent_state, [])
+    assert length(of.("space.records.put")) == 2
+    _ = AtMcp.Effects.spaces(ctx.effects, :create_note, [%{text: "after"}])
+    assert List.last(of.("space.records.create"))["space"] == new
+  end
+
   test "an endorsement is confirmed only as the principal's repository proves it, and a lookup that fails isn't a no",
        ctx do
     Application.put_env(:at_mcp, :plc_url, ctx.fake_service <> "/plc")
@@ -1871,6 +1949,56 @@ defmodule AtMcp.SpacesSessionTest do
       json(conn, %{})
     end
 
+    post "/xrpc/town.delve.agent.offerTransfer" do
+      if Application.get_env(:at_mcp, :spaces_session_test_transfers_off) do
+        conn
+        |> put_resp_content_type("application/json")
+        |> send_resp(
+          501,
+          Jason.encode!(%{error: "MethodNotImplemented", message: "Method Not Implemented"})
+        )
+      else
+        send(
+          Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+          {:agent_route, :offer, conn.body_params}
+        )
+
+        if conn.body_params["cancel"],
+          do: json(conn, %{}),
+          else: json(conn, %{expiresAt: "2026-12-05T00:00:00.000Z"})
+      end
+    end
+
+    post "/xrpc/town.delve.agent.acceptTransfer" do
+      send(
+        Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
+        {:agent_route, :accept, conn.body_params}
+      )
+
+      json(conn, %{
+        did: conn.body_params["did"],
+        principal: "did:plc:oauthagent",
+        password: "agent-secret-handed",
+        endorsed: false,
+        oldEndorsement:
+          "at://did:plc:oldprincipal/link.ident.endorsement/#{conn.body_params["did"]}"
+      })
+    end
+
+    get "/xrpc/town.delve.agent.listAgents" do
+      json(conn, %{
+        agents: [],
+        offers: [
+          %{
+            did: "did:plc:offered",
+            handle: "offered.test",
+            from: "did:plc:oldprincipal",
+            expiresAt: "2026-12-05T00:00:00.000Z"
+          }
+        ]
+      })
+    end
+
     post "/xrpc/town.delve.agent.enrollKey" do
       send(
         Application.fetch_env!(:at_mcp, :spaces_session_test_owner),
@@ -2019,6 +2147,79 @@ defmodule AtMcp.SpacesSessionTest do
 
       # Only agents' login keys are in the key folder: no rotation key.
       refute Enum.any?(File.ls!(AtMcp.Spaces.keys_dir()), &String.contains?(&1, "rotation"))
+    end
+
+    test "an agent is offered to another principal, withdrawn, and one offered here is listed and accepted",
+         ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+
+      assert {:ok, %{to: "did:plc:next", expires_at: "2026-12-05T00:00:00.000Z", next: next}} =
+               AtMcp.Effects.spaces(ctx.effects, :offer_agent_handoff, [
+                 "did:plc:mine",
+                 "did:plc:next",
+                 nil
+               ])
+
+      assert next =~ "accept_agent_handoff" and next =~ "72 hours"
+      assert_received {:agent_route, :offer, %{"did" => "did:plc:mine", "to" => "did:plc:next"}}
+
+      assert {:ok, %{cancelled: true}} =
+               AtMcp.Effects.spaces(ctx.effects, :offer_agent_handoff, [
+                 "did:plc:mine",
+                 nil,
+                 true
+               ])
+
+      assert_received {:agent_route, :offer, %{"did" => "did:plc:mine", "cancel" => true}}
+
+      assert {:ok, %{offers: [%{did: "did:plc:offered", from: "did:plc:oldprincipal"}]}} =
+               AtMcp.Effects.spaces(ctx.effects, :get_agent_handoff_offers, [])
+
+      assert {:ok, accepted} =
+               AtMcp.Effects.spaces(ctx.effects, :accept_agent_handoff, ["did:plc:offered"])
+
+      # With this account's public rotation key, as at creation.
+      assert_received {:agent_route, :accept,
+                       %{"did" => "did:plc:offered", "recoveryKey" => @rotation}}
+
+      # The password the PDS gives once is kept nowhere, nor shown; the
+      # agent, stopped by the accept, is re-keyed when started here.
+      refute inspect(accepted) =~ "agent-secret-handed"
+      assert accepted.next =~ "at_mcp-accounts repair NAME --principal"
+      assert AtMcp.Spaces.AgentRevocations.revoked?("did:plc:oauthagent", "did:plc:offered")
+      assert accepted.previous_principal == "did:plc:oldprincipal"
+
+      # Its state space, made here with the agent as a member, for the agent
+      # to carry its records into.
+      [made] = Enum.filter(calls(ctx.log), &(&1["method"] == "space.create"))
+      assert made["params"]["skey"] == "did:plc:offered"
+
+      assert %{"did" => "did:plc:offered", "read" => true, "write" => true} in made["params"][
+               "members"
+             ]
+
+      assert accepted.agent_space ==
+               "at:space/did:plc:oauthagent/town.delve.space.agent/did:plc:offered"
+
+      assert accepted.next =~
+               "at:space/did:plc:oldprincipal/town.delve.space.agent/did:plc:offered"
+    end
+
+    test "the hand-off routes off at the PDS are said as such", ctx do
+      ctx.write_accounts.(@rotation)
+      assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
+      Application.put_env(:at_mcp, :spaces_session_test_transfers_off, true)
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_transfers_off) end)
+
+      assert {:error, %AtMcp.Effects.Failure{kind: :refused, message: message}} =
+               AtMcp.Effects.spaces(ctx.effects, :offer_agent_handoff, [
+                 "did:plc:mine",
+                 "did:plc:next",
+                 nil
+               ])
+
+      assert message =~ "doesn't offer agent hand-offs"
     end
 
     test "revoking an agent's sessions says what the PDS says may outlive it, and what other services hold",

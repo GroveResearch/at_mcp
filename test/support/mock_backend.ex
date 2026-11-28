@@ -437,6 +437,24 @@ defmodule AtMcp.Test.MockBackend do
       rotation_key: "did:key:zDn"
     }
 
+  defp spaces_summary(:offer_agent_handoff, [agent, to, _cancel]),
+    do: %{did: agent, to: to, expires_at: "2026-12-05T00:00:00Z"}
+
+  defp spaces_summary(:accept_agent_handoff, [agent]),
+    do: %{did: agent, principal: "did:plc:principal", previous_principal: "did:plc:old"}
+
+  defp spaces_summary(:get_agent_handoff_offers, []),
+    do: %{
+      offers: [
+        %{
+          did: "did:plc:agent",
+          handle: "a.test",
+          from: "did:plc:old",
+          expires_at: "2026-12-05T00:00:00Z"
+        }
+      ]
+    }
+
   defp spaces_summary(:endorse_agent, [agent]), do: %{agent: agent, uri: "at://x", cid: "c"}
 
   defp spaces_summary(:get_principals, [account]),
