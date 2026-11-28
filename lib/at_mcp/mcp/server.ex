@@ -78,8 +78,7 @@ defmodule AtMcp.MCP.Server do
     param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     param(:include_group_posts, :boolean,
-      description:
-        "true also lists posts in this account's groups (space-post)"
+      description: "true also lists posts in this account's groups (space-post)"
     )
 
     run(fn a, state ->

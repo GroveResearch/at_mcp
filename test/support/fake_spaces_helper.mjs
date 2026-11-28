@@ -20,6 +20,13 @@ let inboxReaders = []
 const inboxMembers = new Set()
 // The scope the session was last logged in with.
 let currentScope = 'atproto transition:generic'
+
+// As the PDS grants it: the agent routes' permission set expanded into one
+// rpc permission naming every method.
+const agentMethods = ['acceptTransfer', 'createAgent', 'deleteAgent', 'enrollKey', 'listAgents', 'offerTransfer', 'revokeSessions', 'rotatePassword']
+const expandSets = (scope) =>
+  scope.replace(/include:town\.delve\.authManageAgents\?aud=(\S+)/g, (_, aud) =>
+    `rpc?${agentMethods.map((m) => `lxm=town.delve.agent.${m}`).join('&')}&aud=${aud}`)
 const written = []
 const keyed = new Map()
 
@@ -43,7 +50,7 @@ const methods = {
     return creds()
   },
   'oauth.login': (p) => {
-    currentScope = p.scope ?? currentScope
+    currentScope = expandSets(p.scope ?? currentScope)
     return { did, scope: currentScope, expiresAt: null }
   },
   'oauth.status': () => ({ did, held: true }),
