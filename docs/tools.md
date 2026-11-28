@@ -15,13 +15,12 @@ Reads return readable text, so a model gets the same result in every host. A pro
 
 A page of posts is at most 40000 characters of text. When a page would be longer, at_mcp returns fewer posts, says how many it dropped, and returns a cursor that starts with them. A page asked for as JSON keeps every post up to `limit`. With `"detail": "brief"`, each post gets one line: the author, the time, the first line of the text, the counts and the uri. `get_posts` returns a post in full.
 
-at_mcp remembers how far the account has read in the timeline, each list feed, each author feed and the notifications. A read of one of these with `"since": "last_read"` returns only the items newer than that point, newest first, and says how many are new. It then moves the point to the newest item it returned.
+at_mcp remembers how far the account has read in the timeline, each list feed and each author feed. For the notifications, the network's seen marker is that point: the one the app counts unread from. A read of one of these with `"since": "last_read"` returns only the items newer than that point, newest first, and says how many are new. It then moves the point to the newest item it returned.
 
-- at_mcp keeps these positions in its state folder. Every at_mcp client using that folder shares them, and they survive a restart.
-- They are not the network's seen marker, which the app counts unread notifications from. Only `update_seen` moves that marker.
+- at_mcp keeps the feeds' positions in its state folder. Every at_mcp client using that folder shares them, and they survive a restart.
+- A notifications read that moves the point marks them seen in the app (`update_seen` does too). A read filtered with `reasons`, or a grouped `feed` other than `all`, never moves it, as the marker covers them all. `AT_MCP_NOTIFICATIONS_SEEN_MARKER=false` keeps a separate at_mcp position for them instead.
 - When more new items wait below the first page, the position moves after the agent follows the cursor down to the old position, so the agent doesn't skip any item.
 - A read with a time as `since` leaves the position alone. A read without `since` moves it only when it passes `"mark_read": true`.
-- Before the first read of the notifications with `last_read`, their position is where the account last marked them seen, as the app shows them unread.
 - Custom feeds have no read position, because each feed's generator decides the order of its own posts.
 
 | Tool | Set | What it does |

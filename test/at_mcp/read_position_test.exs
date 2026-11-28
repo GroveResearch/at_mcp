@@ -296,6 +296,11 @@ defmodule AtMcp.ReadPositionTest do
   end
 
   test "a reply indexed after the position is new, though its author dated it earlier", ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     notifications = fn args ->
       {:ok, result, _} =
         AtMcp.MCP.Server.handle_call_tool(
@@ -329,6 +334,11 @@ defmodule AtMcp.ReadPositionTest do
 
   test "the first notifications read with last_read starts where the account last marked them seen",
        ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     notifications = fn ->
       {:ok, result, _} =
         AtMcp.MCP.Server.handle_call_tool(
@@ -474,6 +484,11 @@ defmodule AtMcp.ReadPositionTest do
   # newest notification's time as seenAt, and counts that one unread.
   test "the first notifications read of a never-seen account returns the newest, which the app counts unread",
        ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     at = &"2026-10-29T10:0#{&1}:00.000Z"
     Application.put_env(:at_mcp, :read_position_test_seen_at, at.(3))
 
@@ -629,6 +644,11 @@ defmodule AtMcp.ReadPositionTest do
 
   test "nothing new since the last read, though the app still counts some unread, says where they are",
        ctx do
+    # at_mcp's own notifications position, apart from the seen marker: the
+    # off switch (AT_MCP_NOTIFICATIONS_SEEN_MARKER=false).
+    Application.put_env(:at_mcp, :notifications_seen_marker, false)
+    on_exit(fn -> Application.delete_env(:at_mcp, :notifications_seen_marker) end)
+
     read = fn ->
       {:ok, result, _} =
         AtMcp.MCP.Server.handle_call_tool(

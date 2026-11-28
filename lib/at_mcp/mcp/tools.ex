@@ -1051,7 +1051,7 @@ defmodule AtMcp.MCP.Tools do
   Whether the network's seen marker is the only read position for the
   notifications (`AT_MCP_NOTIFICATIONS_SEEN_MARKER`).
   """
-  def seen_marker?, do: Application.get_env(:at_mcp, :notifications_seen_marker, false) == true
+  def seen_marker?, do: Application.get_env(:at_mcp, :notifications_seen_marker, true) != false
 
   # The marker covers the whole list, so only an unfiltered read moves it.
   defp filtered?(args),
