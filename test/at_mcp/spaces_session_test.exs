@@ -2018,9 +2018,19 @@ defmodule AtMcp.SpacesSessionTest do
       scope = AtMcp.Spaces.scope_for("did:plc:oauthagent", ctx.fake_service)
       aud = URI.encode_www_form("did:web:pds.test#atproto_pds")
 
+      # The PDS's permission set, which its consent screen says in words.
+      assert scope =~ "include:town.delve.authManageAgents?aud=#{aud}"
+      refute scope =~ "rpc:town.delve.agent."
+
+      # Each route by name, for a PDS that can't resolve the set yet.
+      Application.put_env(:at_mcp, :agent_scope, :rpc)
+      on_exit(fn -> Application.delete_env(:at_mcp, :agent_scope) end)
+      scope = AtMcp.Spaces.scope_for("did:plc:oauthagent", ctx.fake_service)
+
       for m <- ~w(createAgent enrollKey revokeSessions deleteAgent rotatePassword),
           do: assert(scope =~ "rpc:town.delve.agent.#{m}?aud=#{aud}")
 
+      refute scope =~ "include:"
       refute scope =~ "aud=*"
       assert scope =~ "transition:generic"
     end
@@ -2262,7 +2272,7 @@ defmodule AtMcp.SpacesSessionTest do
                AtMcp.Effects.spaces(ctx.effects, :create_agent, ["helper.test", "code"])
 
       [login] = Enum.filter(calls(ctx.log), &(&1["method"] == "oauth.login"))
-      assert login["params"]["scope"] =~ "rpc:town.delve.agent.createAgent?aud="
+      assert login["params"]["scope"] =~ "include:town.delve.authManageAgents?aud="
     end
 
     test "deletes an agent only with confirm, never this account itself, and retires its key",
