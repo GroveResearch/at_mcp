@@ -1601,6 +1601,12 @@ defmodule AtMcp.MCP.Schemas do
           nullable_string(
             "The account's read position in this feed after this read. It stays where it was until a read reaches the old position."
           ),
+        "seen_marker" =>
+          nullable_boolean(
+            "true when the network's seen marker is the notifications' read position (AT_MCP_NOTIFICATIONS_SEEN_MARKER)"
+          ),
+        "seen_marked" =>
+          nullable_string("Where this read moved the network's seen marker to, if it did"),
         "read_position_unsaved" =>
           nullable_string("The error that stopped at_mcp from saving the read position."),
         "since_unread" =>

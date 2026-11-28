@@ -95,6 +95,7 @@ if config_env() != :test do
     # notifications while AtMcp isn't running. Either way AtMcp also hands
     # the AppView tokens for each inbox while it runs (AtMcp.Spaces.InboxTokens).
     {"AT_MCP_TOWN_INBOX_READER", flag, true},
+    {"AT_MCP_NOTIFICATIONS_SEEN_MARKER", flag, false},
     # The town AppView's OAuth client_id, whose read grants on an inbox or a
     # group at_mcp approves (AtMcp.Spaces.appview_client_id/0).
     {"AT_MCP_APPVIEW_CLIENT_ID", url, nil},
@@ -229,6 +230,7 @@ if config_env() != :test do
     keys_dir: value["AT_MCP_KEYS_DIR"],
     spaces_allow_http: value["AT_MCP_SPACES_ALLOW_HTTP"],
     town_inbox_reader: value["AT_MCP_TOWN_INBOX_READER"],
+    notifications_seen_marker: value["AT_MCP_NOTIFICATIONS_SEEN_MARKER"],
     appview_client_id: value["AT_MCP_APPVIEW_CLIENT_ID"],
     ca_file: value["AT_MCP_CA_FILE"],
     grant_lifetime_days: value["AT_MCP_GRANT_LIFETIME_DAYS"],

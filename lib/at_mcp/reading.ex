@@ -2908,6 +2908,14 @@ defmodule AtMcp.Reading do
   # behind until update_seen. Each item says whether the app counts it read.
   # Nothing new here, though the app may still count as unread what this
   # account read here before without marking it seen: say where to find it.
+  # The seen marker is the read position: the read says where it moved it.
+  defp still_unread(%{"seen_marker" => true} = page) do
+    case page["seen_marked"] do
+      at when is_binary(at) -> cat([~L" Marked seen in the app up to ", time(at), ~L"."])
+      _ -> nil
+    end
+  end
+
   defp still_unread(%{"since_asked" => "last_read", "items" => [], "since" => at} = page)
        when is_binary(at) do
     seen = page["seen_at"]

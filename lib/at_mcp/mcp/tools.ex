@@ -839,7 +839,7 @@ defmodule AtMcp.MCP.Tools do
     cursor = Map.get(args, :cursor)
     started = System.monotonic_time(:millisecond)
 
-    case valid_since(Map.get(args, :since), feed) do
+    case valid_since(Map.get(args, :since), feed) |> and_marker(args, feed) do
       :ok ->
         result = fetch.(Map.get(args, :limit), cursor)
 
@@ -1034,8 +1034,89 @@ defmodule AtMcp.MCP.Tools do
   # mark/5 when the read asks to move the position. If the page is all new
   # and more wait below it, mark/5 stores its newest time as pending. The
   # later read that gets back to the position commits it.
+  defp positioned({:ok, %{items: items} = page}, args, state, "notifications", fetch, started)
+       when is_list(items) do
+    if seen_marker?(),
+      do: seen_positioned(page, args, state, fetch, started),
+      else: local_positioned(page, args, state, "notifications", fetch, started)
+  end
+
   defp positioned({:ok, %{items: items} = page}, args, state, feed, fetch, started)
-       when is_binary(feed) and is_list(items) do
+       when is_binary(feed) and is_list(items),
+       do: local_positioned(page, args, state, feed, fetch, started)
+
+  defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
+
+  @doc """
+  Whether the network's seen marker is the only read position for the
+  notifications (`AT_MCP_NOTIFICATIONS_SEEN_MARKER`).
+  """
+  def seen_marker?, do: Application.get_env(:at_mcp, :notifications_seen_marker, false) == true
+
+  # The marker covers the whole list, so only an unfiltered read moves it.
+  defp filtered?(args),
+    do:
+      Map.get(args, :reasons) not in [nil, []] or
+        Map.get(args, :feed) not in [nil, "all"]
+
+  # A filtered read asked to mark is refused before anything is sent.
+  defp and_marker(:ok, args, "notifications") do
+    if seen_marker?() and filtered?(args) and Map.get(args, :mark_read) == true,
+      do:
+        {:error,
+         {:invalid_argument, "mark_read",
+          "can't be true with reasons or a feed other than all: the seen marker covers every notification, and this read returns only some"}},
+      else: :ok
+  end
+
+  defp and_marker(result, _args, _feed), do: result
+
+  # The seen marker as the read position: since it for last_read; a read
+  # that marks moves it to the newest notification returned once it has
+  # reached the marker, and before then holds that time as pending (under
+  # `"seen-marker"` in `AtMcp.ReadPositions`) for the read that reaches it.
+  defp seen_positioned(page, args, state, fetch, started) do
+    asked = Map.get(args, :since)
+    held = seen(page, "notifications")
+    since = if asked == "last_read", do: held, else: asked
+    reached? = reached?(page, held, "notifications")
+    marks? = marks?(args) and not filtered?(args)
+    did = account(state)
+
+    {:ok, read} =
+      page
+      |> newer(since, asked, fetch, started, "notifications", asked == "last_read")
+      |> then(&{:ok, Map.put(&1, :seen_marker, true)})
+
+    newest =
+      read.items |> Enum.map(&when_listed(&1, "notifications")) |> Enum.reduce(nil, &newest/2)
+
+    cond do
+      not marks? or is_nil(newest) or is_nil(did) ->
+        {:ok, read}
+
+      true ->
+        case AtMcp.ReadPositions.advance(did, "seen-marker", newest, reached?) do
+          {:ok, %{at: at, pending: nil}} when is_binary(at) and reached? ->
+            if is_binary(held) and not AtMcp.ReadPositions.later?(at, held) do
+              {:ok, read}
+            else
+              case AtMcp.Effects.update_seen(state.effects, at) do
+                {:ok, _} -> {:ok, Map.put(read, :seen_marked, at)}
+                {:error, reason} -> {:ok, Map.put(read, :read_position_unsaved, plain(reason))}
+              end
+            end
+
+          {:ok, _pending} ->
+            {:ok, read}
+
+          {:error, reason} ->
+            {:ok, Map.put(read, :read_position_unsaved, plain(reason))}
+        end
+    end
+  end
+
+  defp local_positioned(page, args, state, feed, fetch, started) do
     did = account(state)
     asked = Map.get(args, :since)
 
@@ -1074,8 +1155,6 @@ defmodule AtMcp.MCP.Tools do
          |> Map.merge(%{read_position_unsaved: if(marks?(args), do: plain(why))})}
     end
   end
-
-  defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
 
   # Where a feed with no position held starts. Notifications start where the
   # account last marked them seen, as the AppView's `seenAt` gives it, so the

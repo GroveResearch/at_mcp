@@ -485,14 +485,15 @@ defmodule AtMcp.Spaces do
   end
 
   defp principal_unavailable(dids),
-    do:
-      {:error,
-       # Nothing was sent: a refusal, whose cause passes.
-       Failure.new(:refused,
-         detail: :principal_unavailable,
-         message:
-           "Who governs this account's notes couldn't be read now (#{Enum.join(dids, ", ")}: identity or repository unavailable); nothing was written. Try again shortly."
-       )}
+    do: {
+      :error,
+      # Nothing was sent: a refusal, whose cause passes.
+      Failure.new(:refused,
+        detail: :principal_unavailable,
+        message:
+          "Who governs this account's notes couldn't be read now (#{Enum.join(dids, ", ")}: identity or repository unavailable); nothing was written. Try again shortly."
+      )
+    }
 
   # An account that is its own authority makes its state space at its
   # first note; an agent's is its principal's to make.
