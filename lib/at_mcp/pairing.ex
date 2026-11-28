@@ -64,7 +64,7 @@ defmodule AtMcp.Pairing do
     with {:ok, server} <- describe(opts.service, deps),
          {:ok, handle} <- agent_handle(opts, server),
          {:ok, principal} <- resolve(opts.principal, opts.service, deps),
-         {:ok, key} <- deps.helper.("key.generate", %{keyFile: opts.key_file}) do
+         {:ok, key} <- key(opts, deps) do
       proof = %{iss: principal, sub: handle, aud: server["did"], lxm: @create}
 
       link = fn proof_jwt ->
@@ -79,15 +79,17 @@ defmodule AtMcp.Pairing do
           )
       end
 
-      deps.say.("Open this link signed in as #{opts.principal}, and create the agent @#{handle}:")
+      announce(opts, key, deps)
+      intro = "Open this link signed in as #{opts.principal}, and create the agent @#{handle}:"
 
-      with {:ok, did} <- await(opts, proof, link, opts.service, deps) do
+      with {:ok, did} <- await(Map.put(opts, :intro, intro), proof, link, opts.service, deps) do
         {:ok,
          %{
            did: did,
            handle: handle,
            principal: principal,
            login_key: key["didKey"],
+           fingerprint: fingerprint(key["didKey"]),
            confirmed: confirmed?(did, principal, deps)
          }}
       end
@@ -109,7 +111,7 @@ defmodule AtMcp.Pairing do
 
     with {:ok, server} <- describe(opts.service, deps),
          {:ok, principal} <- repair_principal(opts, deps),
-         {:ok, key} <- deps.helper.("key.generate", %{keyFile: opts.key_file}) do
+         {:ok, key} <- key(opts, deps) do
       proof = %{iss: principal, sub: opts.did, aud: server["did"], lxm: @enroll}
 
       link = fn proof_jwt ->
@@ -119,12 +121,19 @@ defmodule AtMcp.Pairing do
           "/start#" <> URI.encode_query(v: 1, key: key["didKey"], proof: proof_jwt)
       end
 
-      deps.say.(
-        "Open this link signed in as the agent's principal (#{principal}) to start it again:"
-      )
+      announce(opts, key, deps)
 
-      with {:ok, did} <- await(opts, proof, link, opts.did, deps) do
-        {:ok, %{did: did, principal: principal, login_key: key["didKey"]}}
+      intro =
+        "Open this link signed in as the agent's principal (#{principal}) to start it again:"
+
+      with {:ok, did} <- await(Map.put(opts, :intro, intro), proof, link, opts.did, deps) do
+        {:ok,
+         %{
+           did: did,
+           principal: principal,
+           login_key: key["didKey"],
+           fingerprint: fingerprint(key["didKey"])
+         }}
       end
     end
   end
@@ -134,7 +143,85 @@ defmodule AtMcp.Pairing do
   defp await(opts, proof, link, account, deps) do
     start = deps.now_ms.()
     deadline = start + Map.get(opts, :wait_ms, @default_wait_ms)
-    loop(opts, proof, link, account, deps, deadline, nil, @poll_ms)
+    # One sign-in before any link. Resuming, the account may already exist
+    # (the principal acted after at_mcp stopped waiting, or an answer was
+    # lost). New, a PDS that doesn't offer sign-in by key says so now, before
+    # a principal is sent a link that could only make an agent nothing can
+    # sign in as: `{:before_link, failure}`, and nothing was shown to anyone.
+    case try_login(opts, account, deps) do
+      {:ok, _} = found ->
+        found
+
+      {:error, %Failure{detail: code} = failure} when code in @fatal ->
+        if Map.get(opts, :resume), do: {:error, failure}, else: {:error, {:before_link, failure}}
+
+      {:error, %Failure{detail: "rate_limited"}} ->
+        deps.sleep.(@limited_ms)
+        loop(opts, proof, link, account, deps, deadline, nil, @limited_ms)
+
+      _ ->
+        loop(opts, proof, link, account, deps, deadline, nil, @poll_ms)
+    end
+  end
+
+  defp try_login(opts, account, deps) do
+    case deps.helper.("oauth.login", %{
+           account: account,
+           keyFile: opts.key_file,
+           scope: opts.scope
+         }) do
+      {:ok, %{"did" => did}} ->
+        _ = deps.helper.("oauth.logout", %{did: did})
+        {:ok, did}
+
+      other ->
+        other
+    end
+  end
+
+  # A new key, or, resuming, the one the pending pairing kept.
+  defp key(%{resume: true} = opts, deps),
+    do: deps.helper.("key.public", %{keyFile: opts.key_file})
+
+  defp key(opts, deps), do: deps.helper.("key.generate", %{keyFile: opts.key_file})
+
+  defp announce(opts, key, deps) do
+    if Map.get(opts, :resume),
+      do: deps.say.("Resuming the pairing started earlier, with the same key."),
+      else: deps.say.("Made the agent's login key. It stays on this machine.")
+
+    deps.say.(
+      "Key fingerprint: #{fingerprint(key["didKey"])}. The page shows it too: the principal checks they match."
+    )
+  end
+
+  @doc """
+  A short fingerprint of a login key, for a person to compare on two
+  screens: the first 8 characters of the base32 (RFC 4648, no padding) of
+  the SHA-256 of its did:key string, as `XXXX-XXXX`. The web page computes
+  the same from the link's `key`.
+  """
+  def fingerprint(did_key) do
+    <<a::binary-size(4), b::binary-size(4), _::binary>> =
+      Base.encode32(:crypto.hash(:sha256, did_key), padding: false)
+
+    a <> "-" <> b
+  end
+
+  @doc "The PDS an account's DID document names, for `repair` on a machine that has only the DID."
+  def service_of(did, deps) do
+    with {:ok, doc} <- did_doc(did, deps),
+         url when is_binary(url) <- pds_endpoint(doc) do
+      handle =
+        Enum.find_value(doc["alsoKnownAs"] || [], fn
+          "at://" <> h -> h
+          _ -> nil
+        end)
+
+      {:ok, %{service: url, handle: handle}}
+    else
+      _ -> {:error, :unresolvable_did}
+    end
   end
 
   # `wait` is the pause after a refused try: 20 s, or after a 429 from the
@@ -150,6 +237,7 @@ defmodule AtMcp.Pairing do
       minted_at == nil or now - minted_at >= @link_ms ->
         case deps.helper.("key.prove", Map.put(proof, :keyFile, opts.key_file)) do
           {:ok, %{"proof" => jwt}} ->
+            if minted_at == nil, do: deps.say.(opts.intro)
             deps.say.(link.(jwt))
             if minted_at, do: deps.say.("(The link above replaces the earlier one.)")
             loop(opts, proof, link, account, deps, deadline, now, wait)
@@ -159,14 +247,9 @@ defmodule AtMcp.Pairing do
         end
 
       true ->
-        case deps.helper.("oauth.login", %{
-               account: account,
-               keyFile: opts.key_file,
-               scope: opts.scope
-             }) do
-          {:ok, %{"did" => did}} ->
-            _ = deps.helper.("oauth.logout", %{did: did})
-            {:ok, did}
+        case try_login(opts, account, deps) do
+          {:ok, _} = found ->
+            found
 
           {:error, %Failure{detail: code}} = error when code in @fatal ->
             error

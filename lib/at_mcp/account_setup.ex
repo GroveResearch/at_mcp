@@ -16,6 +16,7 @@ defmodule AtMcp.AccountSetup do
     key_file: :string,
     did_key: :string,
     principal: :string,
+    cancel: :boolean,
     name: :string,
     wait_minutes: :integer,
     transport: :string,
@@ -238,13 +239,20 @@ defmodule AtMcp.AccountSetup do
   end
 
   defp dispatch(["setup", id], opts, dependencies) do
-    with principal when is_binary(principal) <- opts[:principal] || :usage,
+    with :ok <- if(opts[:cancel], do: :cancel, else: :ok),
+         principal when is_binary(principal) <- opts[:principal] || :usage,
          :ok <- wait_valid(opts),
          {:ok, accounts} <- AccountConfig.load(path(opts)),
          false <- Enum.any?(accounts, &(&1["id"] == id)),
          :ok <- name_valid(id, opts[:handle]),
          service = opts[:service] || AtMcp.Network.default_service(),
-         pending = pending_key_path(),
+         wanted = %{
+           "kind" => "setup",
+           "principal" => principal,
+           "handle" => opts[:handle],
+           "service" => service
+         },
+         {:ok, pending, resume} <- pending_pairing(id, wanted),
          {:ok, paired} <-
            pairing(dependencies, fn deps ->
              AtMcp.Pairing.setup(
@@ -253,7 +261,8 @@ defmodule AtMcp.AccountSetup do
                  name: id,
                  handle: opts[:handle],
                  service: service,
-                 key_file: pending,
+                 key_file: pending["key_file"],
+                 resume: resume,
                  scope: AtMcp.Spaces.scope_for(nil, service),
                  web_origin: AtMcp.Network.web_origin(),
                  wait_ms: wait_ms(opts)
@@ -261,9 +270,10 @@ defmodule AtMcp.AccountSetup do
                deps
              )
            end)
-           |> discard_on_error(pending),
+           |> unsettled(id),
          key_file = AtMcp.Spaces.key_path(paired.did),
-         :ok <- move_key(pending, key_file),
+         :ok <- move_key(pending["key_file"], key_file),
+         :ok <- AtMcp.Pairing.Pending.finish(id),
          account = %{
            "id" => id,
            "handle" => paired.handle,
@@ -278,6 +288,7 @@ defmodule AtMcp.AccountSetup do
          account: public(saved),
          principal: paired.principal,
          principal_confirmed: paired.confirmed,
+         fingerprint: paired.fingerprint,
          file: path(opts),
          key_file: key_file,
          next:
@@ -290,6 +301,7 @@ defmodule AtMcp.AccountSetup do
              )
        }}
     else
+      :cancel -> cancel_pairing(id)
       true -> {:error, :duplicate_id}
       {:error, reason} -> {:error, reason}
       _ -> {:error, :usage}
@@ -298,22 +310,26 @@ defmodule AtMcp.AccountSetup do
 
   # A stopped agent's way back: a new login key here, a link for its
   # principal to enroll it with, and the account's key file replaced once
-  # the new key signs in.
+  # the new key signs in. On a machine with no entry for NAME, --did names
+  # the agent: its PDS and handle come from its DID document, and the
+  # account is saved once the new key signs in.
   defp dispatch(["repair", id], opts, dependencies) do
-    with :ok <- wait_valid(opts),
+    with :ok <- if(opts[:cancel], do: :cancel, else: :ok),
+         :ok <- wait_valid(opts),
          {:ok, accounts} <- AccountConfig.load(path(opts)),
-         {:ok, current} <- find(accounts, id),
-         key_file when is_binary(key_file) <- current["key_file"] || {:error, :no_login_key},
-         service = current["service"] || AtMcp.Network.default_service(),
-         pending = pending_key_path(),
-         {:ok, _paired} <-
+         {:ok, current, new?} <- repair_target(accounts, id, opts, dependencies),
+         service = current["service"],
+         wanted = %{"kind" => "repair", "did" => current["did"], "service" => service},
+         {:ok, pending, resume} <- pending_pairing(id, wanted),
+         {:ok, paired} <-
            pairing(dependencies, fn deps ->
              AtMcp.Pairing.repair(
                %{
                  did: current["did"],
                  principal: opts[:principal],
                  service: service,
-                 key_file: pending,
+                 key_file: pending["key_file"],
+                 resume: resume,
                  scope: AtMcp.Spaces.scope_for(current["did"], service),
                  web_origin: AtMcp.Network.web_origin(),
                  wait_ms: wait_ms(opts)
@@ -321,15 +337,20 @@ defmodule AtMcp.AccountSetup do
                deps
              )
            end)
-           |> discard_on_error(pending),
-         :ok <- move_key(pending, key_file) do
+           |> unsettled(id),
+         key_file = current["key_file"] || AtMcp.Spaces.key_path(current["did"]),
+         :ok <- move_key(pending["key_file"], key_file),
+         :ok <- AtMcp.Pairing.Pending.finish(id),
+         {:ok, saved} <- save_repaired(path(opts), Map.put(current, "key_file", key_file), new?) do
       {:ok,
        %{
-         account: public(current),
+         account: public(saved),
          key_file: key_file,
+         fingerprint: paired.fingerprint,
          next: reload_message() <> " The agent signs in with its new key from then on."
        }}
     else
+      :cancel -> cancel_pairing(id)
       {:error, reason} -> {:error, reason}
       _ -> {:error, :usage}
     end
@@ -625,21 +646,92 @@ defmodule AtMcp.AccountSetup do
     end
   end
 
-  defp pending_key_path do
-    Path.join(
-      AtMcp.Spaces.keys_dir(),
-      "login-pending-" <>
-        Base.url_encode64(:crypto.strong_rand_bytes(9), padding: false) <> ".json"
-    )
+  # The pending pairing for NAME: resumed (same key) when it was for the
+  # same thing, started otherwise. One for something else is refused, so a
+  # typo can't silently drop a key whose agent may exist.
+  defp pending_pairing(id, wanted) do
+    case AtMcp.Pairing.Pending.load(id) do
+      {:ok, pending} ->
+        if Map.take(pending, Map.keys(wanted)) == wanted,
+          do: {:ok, pending, true},
+          else: {:error, :pairing_pending}
+
+      :none ->
+        with {:ok, pending} <- AtMcp.Pairing.Pending.start(id, wanted),
+             do: {:ok, pending, false}
+
+      error ->
+        error
+    end
   end
 
-  # A key that paired nothing is no one's: it goes.
-  defp discard_on_error({:ok, _} = ok, _pending), do: ok
+  # Waiting ran out, or something failed after the key was made: whether the
+  # principal acted is unknown, so the key stays for a resume or a cancel.
+  defp unsettled(result, id) do
+    case result do
+      {:ok, _} = ok ->
+        ok
 
-  defp discard_on_error(error, pending) do
-    File.rm(pending)
-    error
+      {:error, :pairing_timeout} ->
+        {:error, :pairing_unsettled}
+
+      # Refused before any link was shown: nothing can exist for this key.
+      {:error, {:before_link, failure}} ->
+        _ = AtMcp.Pairing.Pending.cancel(id)
+        {:error, failure}
+
+      error ->
+        error
+    end
   end
+
+  defp cancel_pairing(id) do
+    with :ok <- AtMcp.Pairing.Pending.cancel(id) do
+      {:ok,
+       %{
+         cancelled: id,
+         next:
+           "The pending pairing and its key are gone. If the principal already created the agent (or enrolled the key), the account stays: they can delete it on the web, or run repair to give it a new key."
+       }}
+    end
+  end
+
+  defp repair_target(accounts, id, opts, dependencies) do
+    case find(accounts, id) do
+      {:ok, %{"key_file" => k} = current} when is_binary(k) ->
+        if opts[:did] in [nil, current["did"]],
+          do: {:ok, current, false},
+          else: {:error, :account_identity_changed}
+
+      {:ok, _} ->
+        {:error, :no_login_key}
+
+      _ ->
+        with "did:" <> _ = did <- opts[:did] || {:error, :not_found},
+             :ok <- name_valid(id, "given"),
+             :ok <-
+               if(Enum.any?(accounts, &(&1["did"] == did)),
+                 do: {:error, :duplicate_did},
+                 else: :ok
+               ),
+             {:ok, %{service: service, handle: handle}} <-
+               pairing(dependencies, &AtMcp.Pairing.service_of(did, &1)) do
+          {:ok,
+           %{
+             "id" => id,
+             "did" => did,
+             "handle" => handle || did,
+             "service" => opts[:service] || service
+           }, true}
+        end
+    end
+  end
+
+  defp save_repaired(file, account, true) do
+    with :ok <- AccountConfig.validate(account), do: AccountConfig.add(file, account)
+  end
+
+  defp save_repaired(_file, account, false), do: {:ok, account}
 
   defp move_key(from, to) do
     with :ok <- File.rename(from, to), :ok <- File.chmod(to, 0o600), do: :ok
@@ -791,8 +883,8 @@ defmodule AtMcp.AccountSetup do
                      [--service URL]
       key NAME --key-file ABSOLUTE_PATH
       setup NAME | --name NAME --principal HANDLE [--handle HANDLE] [--service URL]
-                 [--wait-minutes N]
-      repair NAME [--principal HANDLE] [--wait-minutes N]
+                 [--wait-minutes N] [--cancel]
+      repair NAME [--did DID] [--principal HANDLE] [--wait-minutes N] [--cancel]
       rotation-key NAME --did-key did:key:...
       remove NAME
       delivery NAME --url URL --token-file ABSOLUTE_PATH
@@ -810,9 +902,22 @@ defmodule AtMcp.AccountSetup do
     Running service: status | reload | disconnect NAME | reconnect NAME
     """
 
-  defp message(:pairing_timeout),
+  defp message(:pairing_unsettled),
     do:
-      "No account was created with this key in time. Nothing was saved; run the command again for a new link."
+      "No account signed in with this key yet. The key is kept, since the principal may still act or may have acted already: run the same command again to keep waiting (it first checks whether the account exists), or add --cancel to discard it."
+
+  defp message(:pairing_pending),
+    do:
+      "A pairing for this name is pending with other details (principal, handle, service or DID). Finish it with the same command, or discard it with --cancel."
+
+  defp message(:no_pending_pairing), do: "No pairing is pending for this name."
+
+  defp message(:pairing_state_unreadable),
+    do:
+      "The pending pairing's record in the key folder can't be read. Check the folder's permissions."
+
+  defp message(:unresolvable_did),
+    do: "That DID's document names no PDS. Check the DID, or give --service."
 
   defp message(:principal_not_found),
     do: "That principal's handle does not resolve. Check it, or give its DID."

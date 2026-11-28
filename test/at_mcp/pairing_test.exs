@@ -48,6 +48,10 @@ defmodule AtMcp.PairingTest do
         File.chmod!(file, 0o600)
         {:ok, %{"didKey" => "did:key:zDnaeNew", "jkt" => "jkt"}}
 
+      "key.public", %{keyFile: file} ->
+        send(test, {:public, file})
+        {:ok, %{"didKey" => "did:key:zDnaeNew", "jkt" => "jkt"}}
+
       "key.prove", params ->
         n = System.unique_integer([:positive])
         send(test, {:proved, params})
@@ -181,8 +185,120 @@ defmodule AtMcp.PairingTest do
     assert length(logins) == 26
   end
 
-  test "setup gives up after the wait, saves nothing and leaves no key", %{path: path} do
-    assert {:error, :pairing_timeout} =
+  test "a setup that runs out of time keeps its key; the same command resumes with it and first looks for the account",
+       %{path: path} do
+    args = ["--file", path, "setup", "scout", "--principal", @principal, "--service", @service]
+
+    assert {:error, :pairing_unsettled} =
+             AtMcp.AccountSetup.execute(args ++ ["--wait-minutes", "1"],
+               pairing: fakes(known_after: 1_000)
+             )
+
+    assert {:ok, []} = AtMcp.AccountConfig.load(path)
+    assert [pending_key] = Path.wildcard(Path.join(AtMcp.Spaces.keys_dir(), "login-pending-*"))
+    drain()
+
+    # The principal created the agent after at_mcp stopped waiting (or the
+    # answer was lost): the resumed run signs in with the kept key at once,
+    # before printing any link.
+    assert {:ok, %{account: %{"did" => @agent}}} =
+             AtMcp.AccountSetup.execute(args, pairing: fakes(known_after: 0))
+
+    msgs = drain()
+    assert {:public, ^pending_key} = Enum.find(msgs, &match?({:public, _}, &1))
+    refute Enum.any?(msgs, &match?({:proved, _}, &1))
+    assert Path.wildcard(Path.join(AtMcp.Spaces.keys_dir(), "login-pending-*")) == []
+    assert Path.wildcard(Path.join(AtMcp.Spaces.keys_dir(), "pairing-*")) == []
+  end
+
+  test "a pending pairing for other details is refused, and --cancel discards it", %{path: path} do
+    args = ["--file", path, "setup", "scout", "--principal", @principal, "--service", @service]
+
+    assert {:error, :pairing_unsettled} =
+             AtMcp.AccountSetup.execute(args ++ ["--wait-minutes", "1"],
+               pairing: fakes(known_after: 1_000)
+             )
+
+    assert {:error, :pairing_pending} =
+             AtMcp.AccountSetup.execute(
+               [
+                 "--file",
+                 path,
+                 "setup",
+                 "scout",
+                 "--principal",
+                 "did:plc:other",
+                 "--service",
+                 @service
+               ],
+               pairing: fakes()
+             )
+
+    assert {:ok, %{cancelled: "scout"}} =
+             AtMcp.AccountSetup.execute(["--file", path, "setup", "scout", "--cancel"],
+               pairing: fakes()
+             )
+
+    assert Path.wildcard(Path.join(AtMcp.Spaces.keys_dir(), "login-pending-*")) == []
+
+    assert {:error, :no_pending_pairing} =
+             AtMcp.AccountSetup.execute(["--file", path, "setup", "scout", "--cancel"],
+               pairing: fakes()
+             )
+  end
+
+  test "repair works on a machine that has only the agent's DID, and saves the account", %{
+    path: path
+  } do
+    base = fakes()
+
+    get_json = fn
+      @plc <> "/" <> @agent ->
+        {:ok,
+         %{
+           "alsoKnownAs" => ["at://scout.example", "https://ident.link/agent-of/" <> @principal],
+           "service" => [%{"id" => "#atproto_pds", "serviceEndpoint" => @service}]
+         }}
+
+      url ->
+        base.get_json.(url)
+    end
+
+    assert {:ok, %{account: account, key_file: key_file, fingerprint: fp}} =
+             AtMcp.AccountSetup.execute(["--file", path, "repair", "scout", "--did", @agent],
+               pairing: %{base | get_json: get_json}
+             )
+
+    assert account == %{
+             "id" => "scout",
+             "did" => @agent,
+             "handle" => "scout.example",
+             "service" => @service
+           }
+
+    assert key_file == AtMcp.Spaces.key_path(@agent)
+    assert fp =~ ~r/\A[A-Z2-7]{4}-[A-Z2-7]{4}\z/
+    assert_received {:proved, %{lxm: "town.delve.agent.enrollKey", sub: @agent, iss: @principal}}
+    {:ok, [saved]} = AtMcp.AccountConfig.load(path)
+    assert saved["key_file"] == key_file
+  end
+
+  test "the key fingerprint is the one the web page computes from the link's key" do
+    # SHA-256 of the did:key's UTF-8, base32 (RFC 4648, no padding), first 8, as XXXX-XXXX.
+    key = "did:key:zDnaeVRuQyji7mCyNohpPwZ5TK54U1"
+
+    <<a::binary-size(4), b::binary-size(4), _::binary>> =
+      Base.encode32(:crypto.hash(:sha256, key))
+
+    assert AtMcp.Pairing.fingerprint(key) == a <> "-" <> b
+    # The same value JavaScript gets (WebCrypto SHA-256, then base32): pinned.
+    assert AtMcp.Pairing.fingerprint(key) == "JLHC-WPLV"
+  end
+
+  test "a PDS that doesn't offer sign-in by key is refused before any link, and the key goes", %{
+    path: path
+  } do
+    assert {:error, %Failure{detail: "signed_authorize_unsupported"}} =
              AtMcp.AccountSetup.execute(
                [
                  "--file",
@@ -192,19 +308,18 @@ defmodule AtMcp.PairingTest do
                  "--principal",
                  @principal,
                  "--service",
-                 @service,
-                 "--wait-minutes",
-                 "1"
+                 @service
                ],
-               pairing: fakes(known_after: 1_000)
+               pairing: fakes(login_error: "signed_authorize_unsupported")
              )
 
-    assert {:ok, []} = AtMcp.AccountConfig.load(path)
+    refute Enum.any?(drain(), &match?({:proved, _}, &1))
     assert Path.wildcard(Path.join(AtMcp.Spaces.keys_dir(), "login-pending-*")) == []
+    assert Path.wildcard(Path.join(AtMcp.Spaces.keys_dir(), "pairing-*")) == []
   end
 
   test "a preview that names an account stops setup at once" do
-    assert {:error, %Failure{detail: "preview_mismatch"}} =
+    assert {:error, {:before_link, %Failure{detail: "preview_mismatch"}}} =
              AtMcp.Pairing.setup(
                %{
                  principal: @principal,
