@@ -2487,11 +2487,9 @@ defmodule AtMcp.Spaces do
         {:ok, %{"did" => did} = created} ->
           File.rename!(pending, key_path(did))
 
-          # The agent's password, given once: kept in this principal's state,
-          # never shown (`AtMcp.Spaces.AgentPasswords`).
-          if is_binary(created["password"]),
-            do: AtMcp.Spaces.AgentPasswords.put(Session.did(session), did, created["password"])
-
+          # The agent's password, given once, isn't kept: when this
+          # principal must sign in as the agent, it gets a fresh one
+          # (`signed_in_as_agent/2`).
           # The PDS writes the principal's endorsement when it hosts the
           # principal (endorsed); otherwise this account writes it.
           endorsement =
@@ -2515,10 +2513,7 @@ defmodule AtMcp.Spaces do
              endorsement: endorsement,
              agent_space: state,
              password:
-               if(is_binary(created["password"]),
-                 do:
-                   "kept in at_mcp's state folder for this principal (agent-passwords.json), shown nowhere"
-               ),
+               "not kept: at_mcp gets a fresh one from the PDS when this account must sign in as the agent",
              next:
                "The agent logs in with its own key, which at_mcp keeps for it. To run it on this installation, its operator runs: at_mcp-accounts add-agent NAME --did #{did}, then at_mcp-accounts reload, then at_mcp-accounts connection NAME for the agent's MCP client."
            }}
@@ -2594,12 +2589,10 @@ defmodule AtMcp.Spaces do
                "loginKey" => login["didKey"],
                "loginKeyProof" => proof
              }) do
-        current = key_path(agent)
-
-        if File.exists?(current),
-          do: File.rename!(current, current <> ".replaced-#{System.system_time(:second)}")
-
-        File.rename!(next, current)
+        # The new key replaces the old one in place: a superseded key is
+        # kept nowhere.
+        File.rename!(next, key_path(agent))
+        AtMcp.Spaces.AgentRevocations.clear(Session.did(session), agent)
         {:ok, %{did: agent, login_key: login["didKey"], enrolled: true}}
       else
         error ->
@@ -2672,7 +2665,7 @@ defmodule AtMcp.Spaces do
   @doc """
   Deletes one of this account's agents: its account and repository on the
   PDS (its DID stays, under this account's rotation key). It can't be
-  undone, so it takes `confirm` true. The agent's login key is retired from
+  undone, so it takes `confirm` true. The agent's login key is deleted from
   the key folder.
   """
   def delete_agent(session, agent, confirm?) do
@@ -2688,7 +2681,7 @@ defmodule AtMcp.Spaces do
       key = key_path(agent)
 
       if File.exists?(key),
-        do: File.rename!(key, key <> ".deleted-#{System.system_time(:second)}")
+        do: File.rm!(key)
 
       {:ok, %{did: agent, deleted: true}}
     end
@@ -2696,15 +2689,15 @@ defmodule AtMcp.Spaces do
 
   @doc """
   Stops one of this account's agents, or starts it again, as its PDS has a
-  principal do it: signed in as the agent with the password kept when it
-  was created (`AtMcp.Spaces.AgentPasswords`), `deactivateAccount` or
+  principal do it: signed in as the agent with a password the PDS gives
+  for it now (`rotatePassword`, kept nowhere), `deactivateAccount` or
   `activateAccount`. Deactivating doesn't end the agent's OAuth sessions,
   so stopping also revokes them (`revokeSessions`).
   """
   def set_agent_status(session, agent, status) when status in ["active", "deactivated"] do
     with {:ok, agent} <- did_arg(agent, "agent"),
          :ok <- not_self(session, agent),
-         revoked_before? = AtMcp.Spaces.AgentPasswords.stale?(Session.did(session), agent),
+         revoked_before? = AtMcp.Spaces.AgentRevocations.revoked?(Session.did(session), agent),
          {:ok, token} <- signed_in_as_agent(session, agent),
          {:ok, _} <-
            agent_account_call(
@@ -2732,42 +2725,13 @@ defmodule AtMcp.Spaces do
   def set_agent_status(_session, _agent, _status),
     do: invalid("status", "must be active or deactivated")
 
-  # A full session as the agent. Revoking its sessions also sets its password
-  # to one nobody knows, so a password kept from before (marked stale, or
-  # refused) is rotated first (`rotatePassword`), and the new one kept.
+  # A full session as the agent, with a password the PDS gives this
+  # principal for it now (`rotatePassword`), used once and kept nowhere.
   defp signed_in_as_agent(session, agent) do
-    principal = Session.did(session)
-
-    with {:ok, password} <- agent_password(session, agent) do
-      stale? = AtMcp.Spaces.AgentPasswords.stale?(principal, agent)
-
-      case if(stale?, do: :stale, else: agent_password_session(session, agent, password)) do
-        {:ok, token} ->
-          {:ok, token}
-
-        _stale_or_refused ->
-          with {:ok, names} <- names(),
-               {:ok, %{"password" => fresh}} <-
-                 agent_call(session, names, "rotatePassword", %{"did" => agent}) do
-            AtMcp.Spaces.AgentPasswords.put(principal, agent, fresh)
-            agent_password_session(session, agent, fresh)
-          end
-      end
-    end
-  end
-
-  defp agent_password(session, agent) do
-    case AtMcp.Spaces.AgentPasswords.get(Session.did(session), agent) do
-      {:ok, password} ->
-        {:ok, password}
-
-      :error ->
-        {:error,
-         Failure.new(:refused,
-           detail: :no_agent_password,
-           message:
-             "at_mcp holds no password for #{agent}: it keeps the one the PDS gives when it creates an agent, on this installation. Without it, revoke_agent_sessions still stops the agent's sessions."
-         )}
+    with {:ok, names} <- names(),
+         {:ok, %{"password" => fresh}} <-
+           agent_call(session, names, "rotatePassword", %{"did" => agent}) do
+      agent_password_session(session, agent, fresh)
     end
   end
 
@@ -2826,7 +2790,7 @@ defmodule AtMcp.Spaces do
          {:ok, agent} <- did_arg(agent, "agent"),
          {:ok, answer} <- agent_call(session, names, "revokeSessions", %{"did" => agent}) do
       # The PDS sets its password to one nobody knows: the kept one is stale.
-      AtMcp.Spaces.AgentPasswords.mark_stale(Session.did(session), agent)
+      AtMcp.Spaces.AgentRevocations.mark(Session.did(session), agent)
       answer = if is_map(answer), do: answer, else: %{}
 
       # What may outlive the revoke, as the PDS says it (stateless tokens,

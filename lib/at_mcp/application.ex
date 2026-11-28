@@ -23,6 +23,9 @@ defmodule AtMcp.Application do
 
     with {:ok, dirs} <-
            AtMcp.StateLock.acquire_all([AtMcp.Inbound.Store.default_dir(), quota_dir]) do
+      # No agent's password is kept any more: an earlier file of them goes.
+      :ok = AtMcp.Spaces.AgentRevocations.migrate()
+
       case start_runtime() do
         {:ok, pid} ->
           {:ok, pid, dirs}

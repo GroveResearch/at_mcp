@@ -1674,12 +1674,14 @@ defmodule AtMcp.SpacesSessionTest do
       assert body["recoveryKey"] == @rotation
       assert body["rotationKey"] == @rotation
 
-      # The password is kept for this principal, and shown nowhere.
-      assert {:ok, "agent-secret-once"} =
-               AtMcp.Spaces.AgentPasswords.get("did:plc:oauthagent", "did:plc:newagent")
-
+      # The password the PDS gave once is kept nowhere, nor shown.
       refute inspect(created) =~ "agent-secret-once"
-      assert created.password =~ "kept in at_mcp's state folder"
+      assert created.password =~ "not kept"
+
+      refute Enum.any?(
+               Path.wildcard(Path.join(AtMcp.Inbound.Store.default_dir(), "**/*")),
+               &(File.regular?(&1) and File.read!(&1) =~ "agent-secret-once")
+             )
 
       # The agent's state space, made on this principal's PDS, with the agent
       # as a read/write member beside it.
@@ -1726,7 +1728,7 @@ defmodule AtMcp.SpacesSessionTest do
       assert revoked.elsewhere =~ "15 minutes"
     end
 
-    test "an agent stops with its kept password: deactivated, and its sessions revoked; started again, active",
+    test "an agent stops with a password the PDS gives for it then: deactivated, and its sessions revoked; started again, active with a new key",
          ctx do
       ctx.write_accounts.(@rotation)
       assert {:ok, _} = AtMcp.Effects.login(ctx.effects)
@@ -1738,38 +1740,29 @@ defmodule AtMcp.SpacesSessionTest do
                  "deactivated"
                ])
 
-      assert_received {:agent_session,
-                       %{"identifier" => "did:plc:newagent", "password" => "agent-secret-once"}}
+      # Signed in with a fresh password, never the one from creation.
+      assert_received {:agent_route, :rotate, %{"did" => "did:plc:newagent"}}
 
+      assert_received {:agent_session,
+                       %{"identifier" => "did:plc:newagent", "password" => "agent-secret-rotated"}}
+
+      refute_received {:agent_session, %{"password" => "agent-secret-once"}}
       assert_received {:agent_account, :deactivate, ["Bearer agent-access"]}
       assert_received {:agent_route, :revoke, %{"did" => "did:plc:newagent"}}
+      assert AtMcp.Spaces.AgentRevocations.revoked?("did:plc:oauthagent", "did:plc:newagent")
 
-      # Revoking set its password to one nobody knows: it is rotated before
-      # the agent is started again, and the new one kept.
       assert {:ok, %{status: "active"} = started} =
                AtMcp.Effects.spaces(ctx.effects, :set_agent_status, ["did:plc:newagent", "active"])
 
       refute Map.has_key?(started, :revoked)
-      # Revoking retired its login key too: it gets a new one.
+      # Revoking retired its login key: it gets a new one, which replaces
+      # the old one in place, kept nowhere else.
       assert started.new_login_key == true
       assert_received {:agent_route, :enroll, %{"did" => "did:plc:newagent"}}
       assert_received {:agent_route, :rotate, %{"did" => "did:plc:newagent"}}
-      assert_received {:agent_session, %{"password" => "agent-secret-rotated"}}
       assert_received {:agent_account, :activate, ["Bearer agent-access"]}
-
-      assert {:ok, "agent-secret-rotated"} =
-               AtMcp.Spaces.AgentPasswords.get("did:plc:oauthagent", "did:plc:newagent")
-
-      refute AtMcp.Spaces.AgentPasswords.stale?("did:plc:oauthagent", "did:plc:newagent")
-
-      # An agent this installation didn't create has no kept password.
-      assert {:error, %AtMcp.Effects.Failure{detail: :no_agent_password, message: message}} =
-               AtMcp.Effects.spaces(ctx.effects, :set_agent_status, [
-                 "did:plc:elsewhere",
-                 "deactivated"
-               ])
-
-      assert message =~ "revoke_agent_sessions still stops"
+      refute AtMcp.Spaces.AgentRevocations.revoked?("did:plc:oauthagent", "did:plc:newagent")
+      assert File.ls!(AtMcp.Spaces.keys_dir()) |> Enum.filter(&(&1 =~ "replaced")) == []
     end
 
     test "an agent created with no handle gets one from the PDS; its key's proof names the key itself",

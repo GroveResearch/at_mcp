@@ -3809,7 +3809,7 @@ defmodule AtMcp.MCP.Server do
   tool "set_agent_status",
        write_description(
          :set_agent_status,
-         "Stop one of this account's agents, or start it again. deactivated deactivates its account and ends its sessions, so it can't act; active reactivates it, with a new login key if its sessions were revoked, and it logs in again. Uses the agent's password, which at_mcp kept when it created the agent, and rotates it first after its sessions were revoked. Only on delve.town."
+         "Stop one of this account's agents, or start it again. deactivated deactivates its account and ends its sessions, so it can't act; active reactivates it, with a new login key if its sessions were revoked, and it logs in again. Signs in as the agent with a password the PDS gives this account for it then (rotatePassword), kept nowhere. Only on delve.town."
        ) do
     annotations(
       write_annotations(:set_agent_status, %{
