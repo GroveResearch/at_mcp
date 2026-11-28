@@ -29,7 +29,10 @@ defmodule AtMcp.ToolSetTest do
   # notes and the invites are in the default set. Agents start
   # communities too, so the founding tools count against the full set's
   # room, not the default's.
-  @full_bound 125_000
+  # 2026-11-28: +2,000 for handing an agent to another principal
+  # (offer_agent_handoff, get_agent_handoff_offers, accept_agent_handoff),
+  # full set only.
+  @full_bound 127_000
 
   setup do
     previous = Application.fetch_env(:at_mcp, :tool_set)
