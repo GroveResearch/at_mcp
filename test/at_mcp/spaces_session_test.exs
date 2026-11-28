@@ -1291,6 +1291,48 @@ defmodule AtMcp.SpacesSessionTest do
 
       assert {:ok, %{groups: [group]}} = AtMcp.Effects.spaces(ctx.effects, :get_my_groups, [])
       assert group.did == "did:plc:group" and group.feeds == [feed]
+
+      # New posts by group: others' posts after this account last read the
+      # feed here; never read here, every one of them.
+      post = fn rkey, repo, at ->
+        %{
+          "repo" => repo,
+          "collection" => AtMcp.Network.collection(:post),
+          "rkey" => rkey,
+          "valid" => true,
+          "record" => %{"text" => rkey, "createdAt" => at}
+        }
+      end
+
+      File.write!(
+        ctx.fixture,
+        Jason.encode!(%{
+          all: %{
+            feed => [
+              post.("3k3", "did:plc:friend", "2026-11-28T10:03:00.000Z"),
+              post.("3k2", "did:plc:oauthagent", "2026-11-28T10:02:00.000Z"),
+              post.("3k1", "did:plc:friend", "2026-11-28T10:01:00.000Z")
+            ]
+          }
+        })
+      )
+
+      assert {:ok, %{groups: [fresh]}} = AtMcp.Effects.spaces(ctx.effects, :get_my_groups, [])
+      assert fresh.new_posts == 2 and fresh.new_posts_since == "never read here"
+
+      {:ok, _} =
+        AtMcp.ReadPositions.advance(
+          "did:plc:oauthagent",
+          AtMcp.ReadPositions.key(:space_feed, feed),
+          "2026-11-28T10:02:00.000Z",
+          true
+        )
+
+      assert {:ok, %{groups: [read]}} = AtMcp.Effects.spaces(ctx.effects, :get_my_groups, [])
+      assert read.new_posts == 1 and read.new_posts_since == "last read here"
+
+      assert AtMcp.Reading.groups(Jason.decode!(Jason.encode!(%{groups: [read]}))) =~
+               "1 new post since you last read its feeds here"
     end
 
     test "a group's handle that does not resolve is found among the account's invites", ctx do

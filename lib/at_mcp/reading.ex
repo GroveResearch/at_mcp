@@ -137,6 +137,7 @@ defmodule AtMcp.Reading do
         ),
         notification_news(page),
         still_unread(page),
+        group_posts_hidden(page),
         left_out(page, one, many),
         next_page(page),
         unsaved(page)
@@ -928,6 +929,7 @@ defmodule AtMcp.Reading do
           true ->
             nil
         end,
+        new_posts(g),
         if(feeds != [],
           do:
             cat([
@@ -939,6 +941,20 @@ defmodule AtMcp.Reading do
       :line
     )
   end
+
+  defp new_posts(%{"new_posts" => n} = g) when is_integer(n) do
+    cat([
+      if(g["new_posts_at_least"] == true, do: ~L"At least ", else: ~L""),
+      count(n, ~L"new post", ~L"new posts"),
+      if(g["new_posts_since"] == "never read here",
+        do: ~L" (its feeds haven't been read here yet)",
+        else: ~L" since you last read its feeds here"
+      ),
+      if(n > 0, do: ~L": get_space_feed with since: last_read reads them.", else: ~L".")
+    ])
+  end
+
+  defp new_posts(_g), do: nil
 
   @doc "The invites waiting for this account, each with how to join, and the inbox's state."
   def invites(%{"invites" => invites} = result) when is_list(invites) do
@@ -2943,6 +2959,17 @@ defmodule AtMcp.Reading do
   end
 
   defp still_unread(_page), do: nil
+
+  # New posts in the account's groups aren't listed by default.
+  defp group_posts_hidden(%{"group_posts_hidden" => n}) when is_integer(n) and n > 0,
+    do:
+      cat([
+        ~L" ",
+        count(n, ~L"new post", ~L"new posts"),
+        ~L" in your groups not listed: get_my_groups counts them by group, and include_group_posts: true lists them here."
+      ])
+
+  defp group_posts_hidden(_page), do: nil
 
   defp unsaved(%{"read_position_unsaved" => why}) when is_binary(why),
     do:

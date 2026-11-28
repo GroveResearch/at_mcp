@@ -77,6 +77,11 @@ defmodule AtMcp.MCP.Server do
     param(:since, :string, AtMcp.MCP.Schemas.since())
     param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
+    param(:include_group_posts, :boolean,
+      description:
+        "true lists every new post in this account's groups too (space-post). Left out by default, which keeps invites, mentions and replies; get_my_groups counts new posts by group"
+    )
+
     run(fn a, state ->
       e = state.effects
 
@@ -95,7 +100,7 @@ defmodule AtMcp.MCP.Server do
               {:error, {:not_served, nsid, evidence, :ungrouped_notifications}}
 
             result ->
-              result
+              AtMcp.MCP.Tools.without_group_posts(result, a)
           end
         end,
         a,
@@ -3704,6 +3709,8 @@ defmodule AtMcp.MCP.Server do
 
     param(:limit, :integer, AtMcp.MCP.Schemas.page_limit("posts"))
     param(:detail, :string, AtMcp.MCP.Schemas.post_detail())
+    param(:since, :string, AtMcp.MCP.Schemas.since())
+    param(:mark_read, :boolean, AtMcp.MCP.Schemas.mark_read())
 
     run(fn a, state ->
       AtMcp.MCP.Tools.page(
@@ -3712,7 +3719,10 @@ defmodule AtMcp.MCP.Server do
         end,
         a,
         state,
-        :posts
+        :posts,
+        # Each group feed keeps its own read position: get_my_groups counts
+        # the posts after it.
+        AtMcp.ReadPositions.key(:space_feed, Map.fetch!(a, :space))
       )
     end)
   end

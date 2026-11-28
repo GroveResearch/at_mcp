@@ -480,6 +480,49 @@ defmodule AtMcp.ReadPositionTest do
     end
   end
 
+  test "posts in the account's groups aren't listed unless asked for; invites, mentions and replies are",
+       ctx do
+    at = &"2026-10-29T10:0#{&1}:00.000Z"
+    Application.put_env(:at_mcp, :read_position_test_seen_at, "2026-10-29T09:00:00.000Z")
+    group_post = Map.put(reply(9, at.(4), at.(4)), "reason", "space-post")
+
+    Application.put_env(:at_mcp, :read_position_test_notifications, [
+      reply(5, at.(5), at.(5)),
+      group_post,
+      reply(3, at.(3), at.(3))
+    ])
+
+    read = fn args ->
+      {:ok, result, _} = AtMcp.MCP.Server.handle_call_tool("get_notifications", args, ctx.state)
+      refute result[:isError], inspect(result)
+      Jason.decode!(hd(result.content).text)
+    end
+
+    plain = read.(%{"mark_read" => false})
+    assert Enum.map(plain["items"], & &1["reason"]) == ["reply", "reply"]
+    assert plain["group_posts_hidden"] == 1
+
+    text =
+      AtMcp.MCP.Server.handle_call_tool(
+        "get_notifications",
+        %{"mark_read" => false},
+        Map.delete(ctx.state, :format)
+      )
+      |> elem(1)
+      |> Map.get(:content)
+      |> hd()
+      |> Map.get(:text)
+
+    assert text =~ "1 new post in your groups not listed: get_my_groups counts them by group"
+
+    all = read.(%{"include_group_posts" => true, "mark_read" => false})
+    assert Enum.map(all["items"], & &1["reason"]) == ["reply", "space-post", "reply"]
+
+    asked = read.(%{"reasons" => ["space-post"], "mark_read" => false})
+    assert "space-post" in Enum.map(asked["items"], & &1["reason"]) or asked["items"] == []
+    refute asked["group_posts_hidden"]
+  end
+
   # An account that never marked its notifications seen: the AppView gives the
   # newest notification's time as seenAt, and counts that one unread.
   test "the first notifications read of a never-seen account returns the newest, which the app counts unread",

@@ -136,6 +136,8 @@ const methods = {
     }
   },
   'space.all': (p) => {
+    const given = (fixture().all ?? {})[p.space]
+    if (given) return { records: given, more: false }
     if (!p.space.startsWith(`at:space/${did}/`)) {
       throw { class: 'refused', code: 'ScopeMissingError', status: 403, message: `Missing required scope "space:${p.space}"` }
     }

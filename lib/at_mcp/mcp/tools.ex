@@ -1048,6 +1048,31 @@ defmodule AtMcp.MCP.Tools do
   defp positioned(result, _args, _state, _feed, _fetch, _started), do: result
 
   @doc """
+  A notifications page without the posts made in the account's groups
+  (`space-post`), unless the read asks for them (`include_group_posts`, or
+  `reasons` naming them): a busy group would fill the list. Says how many
+  it left out (`group_posts_hidden`); `get_my_groups` counts them by group.
+  """
+  def without_group_posts({:ok, %{items: items} = page}, args) when is_list(items) do
+    asked? =
+      Map.get(args, :include_group_posts) == true or
+        "space-post" in (Map.get(args, :reasons) || [])
+
+    if asked? do
+      {:ok, page}
+    else
+      {posts, rest} = Enum.split_with(items, &group_post?(&1))
+
+      {:ok,
+       Map.merge(page, %{items: rest, count: length(rest), group_posts_hidden: length(posts)})}
+    end
+  end
+
+  def without_group_posts(result, _args), do: result
+
+  defp group_post?(item), do: (item[:reason] || item["reason"]) == "space-post"
+
+  @doc """
   Whether the network's seen marker is the only read position for the
   notifications (`AT_MCP_NOTIFICATIONS_SEEN_MARKER`).
   """

@@ -513,7 +513,8 @@
         "limit": "integer",
         "mark_read": "boolean",
         "reasons": "array",
-        "since": "string"
+        "since": "string",
+        "include_group_posts": "boolean"
       },
       "required": []
     },
@@ -623,7 +624,9 @@
         "detail": "string",
         "format": "string",
         "limit": "integer",
-        "space": "string"
+        "space": "string",
+        "since": "string",
+        "mark_read": "boolean"
       },
       "required": [
         "space"
