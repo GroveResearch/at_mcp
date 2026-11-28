@@ -57,8 +57,13 @@ defmodule AtMcp.ReadPositionTest do
     # updateSeen: the stand-in AppView's marker moves.
     def request(:post, url, opts) do
       if String.ends_with?(URI.parse(url).path, ".notification.updateSeen") do
-        body = Keyword.get(opts, :body) || Keyword.get(opts, :json)
-        body = if is_binary(body), do: Jason.decode!(body), else: body
+        body =
+          case Keyword.get(opts, :body) || Keyword.get(opts, :json) do
+            %{} = map -> map
+            raw when is_binary(raw) or is_list(raw) -> Jason.decode!(IO.iodata_to_binary(raw))
+          end
+
+        body = Map.new(body, fn {k, v} -> {to_string(k), v} end)
         send(Application.fetch_env!(:at_mcp, :read_position_test_owner), {:seen, body["seenAt"]})
         Application.put_env(:at_mcp, :read_position_test_seen_at, body["seenAt"])
       end
