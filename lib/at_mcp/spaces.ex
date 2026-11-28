@@ -50,7 +50,7 @@ defmodule AtMcp.Spaces do
   # The town PDS counts the mutating agent routes as privileged: service auth
   # for them is minted only for a session that holds the matching `rpc:`
   # scope (or a full password session), never for an app password.
-  @agent_methods ~w(createAgent enrollKey revokeSessions deleteAgent rotatePassword)
+  @agent_methods ~w(createAgent enrollKey revokeSessions deleteAgent rotatePassword offerTransfer acceptTransfer listAgents)
 
   @doc """
   The OAuth scope at_mcp asks for when an account's key logs it in, no more
@@ -434,10 +434,17 @@ defmodule AtMcp.Spaces do
 
       found ->
         :persistent_term.put(key, {:resolved, found, now})
+        principal = with({:ok, p} <- found, do: p, else: (:none -> did))
 
-        case found do
-          {:ok, principal} -> AtMcp.Spaces.StateHome.bind(did, principal)
-          :none -> AtMcp.Spaces.StateHome.bind(did, did)
+        # Handed to another principal since: its records come along first,
+        # and the binding moves once they have.
+        case AtMcp.Spaces.StateHome.principal(did) do
+          previous when previous in [nil, principal] ->
+            AtMcp.Spaces.StateHome.bind(did, principal)
+
+          previous ->
+            if carry(session, previous, principal) == :ok,
+              do: AtMcp.Spaces.StateHome.bind(did, principal)
         end
 
         found
@@ -2868,6 +2875,232 @@ defmodule AtMcp.Spaces do
         do: File.rm!(key)
 
       {:ok, %{did: agent, deleted: true}}
+    end
+  end
+
+  # --- handing an agent to another principal ---
+  #
+  # Two steps, each by its own account: this account, the agent's principal,
+  # offers it (`offerTransfer`, good for 7 days); the account offered accepts
+  # (`acceptTransfer`) with its own rotation key, and becomes the principal.
+  # Accepting suspends the agent's login key and ends its sessions, since the
+  # old principal's installation holds that key: the agent is paired again
+  # from where it runs (`at_mcp-accounts repair`), with a key the new
+  # principal enrolls. The new principal makes the agent's state space under
+  # itself, and the agent's at_mcp, once it runs again, carries its own
+  # records there and clears them from the old one (`principal_of/1`): only
+  # the agent can, since its records live in its own repository.
+
+  @doc """
+  Offers this account's agent `agent` to the account `to`, which becomes its
+  principal when it accepts within 7 days; with `cancel` true, withdraws the
+  offer. A new offer replaces an earlier one. Until it is accepted, this
+  account still answers for the agent.
+  """
+  def offer_agent_handoff(session, agent, to, cancel?) do
+    with {:ok, names} <- names(),
+         {:ok, agent} <- did_arg(agent, "agent"),
+         :ok <- not_self(session, agent) do
+      if cancel? == true do
+        with {:ok, _} <-
+               transfer_call(session, names, "offerTransfer", %{
+                 "did" => agent,
+                 "cancel" => true
+               }),
+             do: {:ok, %{did: agent, cancelled: true}}
+      else
+        with {:ok, to} <- did_arg(to, "to"),
+             {:ok, offered} <-
+               transfer_call(session, names, "offerTransfer", %{"did" => agent, "to" => to}) do
+          {:ok,
+           %{
+             did: agent,
+             to: to,
+             expires_at: offered["expiresAt"],
+             next:
+               "#{to} accepts it with accept_agent_handoff (agent: #{agent}) before #{offered["expiresAt"] || "the offer expires"}. Until then this account answers for the agent; withdraw the offer with cancel true. Accepting stops the agent until it is paired again with a key its new principal enrolls. Keep this account until the agent has run again and carried its notes to its new principal: its state space here goes with this account. For 72 hours after, this account's PLC rotation key can still undo the hand-off."
+           }}
+        end
+      end
+    end
+  end
+
+  @doc "The agents other principals have offered to this account (`listAgents`' `offers`)."
+  def get_agent_handoff_offers(session) do
+    with {:ok, names} <- names(),
+         {:ok, listed} <- transfer_call(session, names, "listAgents", nil) do
+      {:ok,
+       %{
+         offers:
+           for o <- listed["offers"] || [] do
+             %{did: o["did"], handle: o["handle"], from: o["from"], expires_at: o["expiresAt"]}
+           end
+       }}
+    end
+  end
+
+  @doc """
+  Accepts `agent`, offered to this account: this account becomes its
+  principal, with its rotation key on the agent's identity and `agent-of`
+  naming it. Writes the endorsement where the PDS didn't, and makes the
+  agent's state space under this account, which the agent fills from the old
+  one once it runs again. The password the PDS gives once isn't kept.
+  Accepting stops the agent (its login key suspended, its sessions ended):
+  it runs again once paired with a key this account enrolls. Safe to retry.
+  """
+  def accept_agent_handoff(session, agent) do
+    with {:ok, names} <- names(),
+         {:ok, agent} <- did_arg(agent, "agent"),
+         :ok <- not_self(session, agent),
+         {:ok, rotation_key} <- principal_rotation_key(Session.did(session)),
+         {:ok, accepted} <-
+           transfer_call(session, names, "acceptTransfer", %{
+             "did" => agent,
+             "recoveryKey" => rotation_key
+           }) do
+      principal = Session.did(session)
+
+      endorsement =
+        if accepted["endorsed"] == true do
+          %{uri: accepted["endorsement"], written_by: "the PDS"}
+        else
+          case endorse_agent(session, agent) do
+            {:ok, written} -> written
+            {:error, failure} -> %{error: failure.message}
+          end
+        end
+
+      state = make_agent_space(session, agent)
+      old = old_principal(accepted["oldEndorsement"])
+      # Its key is suspended: started again here, it gets a new one.
+      AtMcp.Spaces.AgentRevocations.mark(principal, agent)
+
+      {:ok,
+       %{
+         did: agent,
+         principal: principal,
+         rotation_key: rotation_key,
+         endorsement: endorsement,
+         agent_space: state,
+         previous_principal: old,
+         password:
+           "not kept: at_mcp gets a fresh one from the PDS when this account must sign in as the agent",
+         next:
+           "The agent is stopped until it is paired again: where it runs, its operator runs at_mcp-accounts repair NAME --principal <this account's handle>, and this account enrolls the key that prints (or, to run it on this installation, enroll_agent_key and at_mcp-accounts add-agent NAME --did #{agent}). Once it runs, its at_mcp copies its notes into its new state space and clears them from the old one" <>
+             if(old,
+               do:
+                 " (#{agent_space_uri(old, agent)}), which goes when #{old}'s account is deleted. #{old} deletes its old endorsement of the agent.",
+               else: "."
+             )
+       }}
+    end
+  end
+
+  # The hand-off routes sit behind the PDS's PDS_AGENT_TRANSFERS: off, they
+  # answer MethodNotImplemented, said as such.
+  defp transfer_call(session, names, name, body) do
+    case agent_call(session, names, name, body) do
+      {:error, %Failure{detail: detail} = f}
+      when detail in ["MethodNotImplemented", "MethodNotSupported"] ->
+        {:error,
+         %{
+           f
+           | kind: :refused,
+             message:
+               "This PDS doesn't offer agent hand-offs (#{names.agent}.#{name} isn't served): its operator turns them on."
+         }}
+
+      other ->
+        other
+    end
+  end
+
+  # The account whose endorsement the PDS names as the old one
+  # (`at://<old principal>/link.ident.endorsement/<agent>`).
+  defp old_principal("at://" <> rest) do
+    case String.split(rest, "/") do
+      ["did:" <> _ = did | _] -> did
+      _ -> nil
+    end
+  end
+
+  defp old_principal(%{"uri" => uri}), do: old_principal(uri)
+  defp old_principal(_other), do: nil
+
+  @doc """
+  Looks again at who governs this account's notes, and carries its records
+  to a new principal's state space after a hand-off (`principal_of/1`).
+  Run by `AtMcp.Spaces.InboxTokens` on each pass, so an agent moves its
+  notes while it runs, not only at its next note. Answers the binding.
+  """
+  def carry_agent_state(session) do
+    :persistent_term.erase({__MODULE__, :principal_of, Session.did(session)})
+
+    case principal_of(session) do
+      {:ok, principal} -> {:ok, %{principal: principal}}
+      :none -> {:ok, %{principal: Session.did(session)}}
+      {:error, _} = error -> error
+    end
+  end
+
+  # After a hand-off: the agent's own records copied from `old`'s state space
+  # into `new`'s, under the same keys (so a copy cut short is finished by the
+  # next), then cleared from the old space (`clearRecords`), since the data
+  # follows the agent. `:ok` once done, or when the old space is gone;
+  # otherwise the binding stays and the next look tries again.
+  defp carry(session, old, new) do
+    did = Session.did(session)
+    from = agent_space_uri(old, did)
+    to = agent_space_uri(new, did)
+
+    with {:ok, _} <- helper(session, "space.get", %{space: to}),
+         {:ok, %{"records" => records}} <-
+           helper(session, "space.all", %{space: from, limit: 100_000}) do
+      mine = Enum.filter(records, &(&1["repo"] == did and &1["valid"] != false and &1["rkey"]))
+
+      copied? =
+        Enum.all?(mine, fn r ->
+          match?(
+            {:ok, _},
+            helper(session, "space.records.put", %{
+              space: to,
+              collection: r["collection"],
+              rkey: r["rkey"],
+              record: r["record"]
+            })
+          )
+        end)
+
+      cond do
+        not copied? ->
+          {:error, :not_all_copied}
+
+        true ->
+          case helper(session, "space.records.clear", %{space: from}) do
+            {:ok, _} -> :ok
+            {:error, %Failure{detail: "SpaceNotFound"}} -> :ok
+            # Copied; clearing tried again at the next look.
+            error -> error
+          end
+          |> tap(fn _ -> Logger.info("carried #{length(mine)} records from #{from} to #{to}") end)
+      end
+    else
+      {:error, %Failure{detail: "SpaceNotFound"}} = missing ->
+        case helper(session, "space.get", %{space: from}) do
+          {:error, %Failure{detail: "SpaceNotFound"}} ->
+            Logger.warning(
+              "this agent's earlier state space #{from} is gone; nothing was carried"
+            )
+
+            :ok
+
+          # The new principal hasn't made its space yet.
+          _ ->
+            missing
+        end
+
+      error ->
+        error
     end
   end
 

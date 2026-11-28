@@ -1,6 +1,14 @@
 {
   "about": "The MCP tools and arguments AtMcp has published. test/at_mcp/tool_surface_test.exs holds the rules for changing it.",
   "tools": {
+    "accept_agent_handoff": {
+      "arguments": {
+        "agent": "string"
+      },
+      "required": [
+        "agent"
+      ]
+    },
     "accept_group_invite": {
       "arguments": {
         "group": "string"
@@ -281,6 +289,12 @@
       "required": [
         "actor"
       ]
+    },
+    "get_agent_handoff_offers": {
+      "arguments": {
+        "format": "string"
+      },
+      "required": []
     },
     "get_author_feed": {
       "arguments": {
@@ -811,6 +825,16 @@
       },
       "required": [
         "value"
+      ]
+    },
+    "offer_agent_handoff": {
+      "arguments": {
+        "agent": "string",
+        "to": "string",
+        "cancel": "boolean"
+      },
+      "required": [
+        "agent"
       ]
     },
     "pin_post": {

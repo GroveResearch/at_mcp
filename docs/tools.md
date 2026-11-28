@@ -3,7 +3,7 @@
 <!-- `mix at_mcp.tools_doc` writes this file from the tools the server
 declares. Do not edit it by hand: `mix check` fails when it is out of date. -->
 
-at_mcp offers 132 tools, 56 for reading and 76 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
+at_mcp offers 135 tools, 57 for reading and 78 for writing. Each row gives the first sentence of the tool's description. The agent's MCP client shows it the full description and the arguments.
 
 A client gets the default set, the 46 tools marked "default" below, unless its grant was issued with `--tools full` or the service sets `AT_MCP_TOOLS=full` ([operations.md](operations.md#offer-a-client-every-tool)). Then it gets every tool its scope allows and its network serves.
 
@@ -28,6 +28,7 @@ at_mcp remembers how far the account has read in the timeline, each list feed an
 | `get_activity_subscriptions` | full | List the accounts this account is subscribed to (subscribe_to_activity), each with what it gets of them (activity_subscription). |
 | `get_actor_feeds` | full | List the custom feeds an account made: its profile's Feeds tab. |
 | `get_actor_likes` | default | List the posts a handle or DID has liked. |
+| `get_agent_handoff_offers` | full | Read the agents other accounts have offered to this account, to become their principal: each agent, who offers it and until when. |
 | `get_author_feed` | default | Read recent public posts by a handle or DID. |
 | `get_blocks` | default | List the accounts this account blocks. |
 | `get_bookmarks` | full | List this account's bookmarked posts. |
@@ -88,6 +89,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 
 | Tool | Set | Publishes | Scope | What it does |
 | --- | --- | --- | --- | --- |
+| `accept_agent_handoff` | full |  | manage | Become the principal of an agent another account offered to this one (get_agent_handoff_offers). |
 | `accept_group_invite` | default with Spaces |  | write | Accept a group's invite and join it. |
 | `add_to_list` | full |  | write | Put an account on a list or starter pack this account made. |
 | `approve_app_sign_in` | full |  | manage | Let an app sign in as this account with exactly what preview_app_sign_in showed for the same url, signed with this account's login key; or turn it down with deny true. |
@@ -124,6 +126,7 @@ Writes marked "yes" under "Publishes" count against the account's write quota. O
 | `mute_list` | full |  | manage | Mute every account on a moderation list, as the app's Mute list does: while the list is muted, each account on it is muted for this account as mute would mute it, and reads say so (muted_by_list). |
 | `mute_thread` | full |  | manage | Mute a thread: this account gets no notifications from it. |
 | `mute_word` | full |  | manage | Mute a word, tag or phrase, as the app's muted words settings do: the app hides posts containing it from this account. |
+| `offer_agent_handoff` | full |  | manage | Offer one of this account's agents to another account, which becomes its principal if it accepts within 7 days (accept_agent_handoff); or withdraw the offer with cancel true. |
 | `pin_post` | default |  | write | Pin one of this account's posts to the top of its profile, replacing any post pinned before. |
 | `post` | default | yes | write | Publish a top-level post as this account. |
 | `put_record` | default | yes | write | Create or replace a record in this account's own repository, for an application at_mcp has no other tool for, such as an issue on Tangled (collection sh.tangled.repo.issue). |
