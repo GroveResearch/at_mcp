@@ -998,12 +998,16 @@ defmodule AtMcp.Spaces do
          message: "The AppView's request named no authorization URL."
        )}
 
-  # A member approves the AppView's session as the group: getAuthorization
-  # first, to check it is the AppView asking for read alone.
+  # An admin approves the AppView's session as the group, in routine sync:
+  # a member without the admin role doesn't, since the session reads the
+  # group for everyone in it. getAuthorization first, to check it is the
+  # AppView asking for read alone, of the group's members space and feeds,
+  # in what it asks and in what the host would grant.
   defp approve_group_grant(session, group, %{request_uri: uri}) when is_binary(uri) do
-    with {:ok, asked} <-
+    with :ok <- group_admin(session, group),
+         {:ok, asked} <-
            group_host_get(session, "org.atgrp.internal.getAuthorization", %{"requestUri" => uri}),
-         :ok <- appview_asking(asked),
+         :ok <- appview_asking(session, asked, group),
          {:ok, %{"redirectUrl" => redirect}} <-
            group_host_post(session, "org.atgrp.internal.approveAuthorization", %{
              "requestUri" => uri,
@@ -1023,38 +1027,97 @@ defmodule AtMcp.Spaces do
          message: "The AppView's request named no request_uri."
        )}
 
-  defp appview_asking(asked) do
+  defp appview_asking(session, asked, group) do
     client = get_in(asked, ["client", "clientId"]) || get_in(asked, ["client", "client_id"])
-    scopes = for %{"scope" => s} <- asked["requested"] || [], do: s
+    requested = for %{"scope" => s} <- asked["requested"] || [], do: s
+    # What the host would grant for this group, as it says (per group, as
+    # getAuthorization answers): checked as strictly.
+    granted =
+      scopes(
+        Enum.find_value(asked["groups"] || [], asked["granted"], fn g ->
+          if g["did"] == group, do: g["granted"] || []
+        end)
+      )
 
-    cond do
-      client != appview_client_id() ->
-        {:error,
-         Failure.new(:refused,
-           detail: :not_the_appview,
-           message:
-             "The request to sign in as the group isn't the town AppView's (#{inspect(client)}); nothing was approved."
-         )}
+    if client != appview_client_id() do
+      {:error,
+       Failure.new(:refused,
+         detail: :not_the_appview,
+         message:
+           "The request to sign in as the group isn't the town AppView's (#{inspect(client)}); nothing was approved."
+       )}
+    else
+      with :ok <- read_only_spaces(session, requested, group, "asks for"),
+           do: read_only_spaces(session, granted, group, "would be granted")
+    end
+  end
 
-      Enum.any?(scopes, &(not read_only_scope?(&1))) ->
+  # The space types the AppView's notifications read in a group.
+  defp notification_space_types, do: ["org.atgrp.members", names_feed()]
+
+  # Parsed with the protocol's own scope parser, in the helper.
+  defp read_only_spaces(_session, [], _group, "would be granted"), do: :ok
+
+  defp read_only_spaces(session, scopes, group, what) do
+    case helper(session, "scope.readOnlySpaces", %{
+           scope: Enum.join(scopes, " "),
+           types: notification_space_types(),
+           authority: group
+         }) do
+      {:ok, %{"ok" => true}} ->
+        :ok
+
+      {:ok, %{"refused" => refused}} ->
+        why = Enum.map_join(refused, "; ", &"#{&1["scope"]}: #{&1["why"]}")
+
         {:error,
          Failure.new(:refused,
            detail: :more_than_read,
            message:
-             "The town AppView's request asks for more than read (#{Enum.join(scopes, " ")}); nothing was approved."
+             "The town AppView's request #{what} more than reading the group's members and feeds (#{if why == "", do: Enum.join(scopes, " "), else: why}); nothing was approved."
          )}
 
-      true ->
-        :ok
+      {:error, _} = error ->
+        error
     end
   end
 
-  defp read_only_scope?("atproto"), do: true
+  # Whether this account is an admin of `group`, from the group host's list.
+  defp group_admin(session, group) do
+    me = Session.did(session)
 
-  defp read_only_scope?("space:" <> _ = scope),
-    do: String.contains?(scope, "action=read") and not String.contains?(scope, "manage=")
+    case group_host_get(session, "org.atgrp.internal.listMembers", %{
+           "group" => group,
+           "q" => me,
+           "limit" => 1
+         }) do
+      {:ok, %{"members" => found}} when is_list(found) ->
+        roles =
+          Enum.find_value(found, [], fn m ->
+            if get_in(m, ["actor", "did"]) == me, do: m["roles"] || []
+          end)
 
-  defp read_only_scope?(_scope), do: false
+        if "admin" in roles,
+          do: :ok,
+          else:
+            {:error,
+             Failure.new(:refused,
+               detail: :not_an_admin,
+               message:
+                 "The town AppView asks to read #{group} for its members' notifications; only an admin of the group approves that, and this account isn't one."
+             )}
+
+      {:error, _} = error ->
+        error
+
+      _ ->
+        {:error,
+         Failure.new(:indeterminate,
+           detail: :roles_unknown,
+           message: "The group host didn't say this account's roles in #{group}."
+         )}
+    end
+  end
 
   # --- an outside app signing in as this account ---
   #

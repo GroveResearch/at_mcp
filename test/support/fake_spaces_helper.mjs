@@ -58,6 +58,11 @@ const methods = {
     redirectUri: 'https://app.example/callback',
     loginHint: new URL(p.authorizationUrl).searchParams.get('hint'),
   }),
+  // The helper's own check, with the protocol's scope parser.
+  'scope.readOnlySpaces': async (p) => {
+    const { readOnlySpaces } = await import(new URL('../../spaces_helper/src/scopes.ts', import.meta.url))
+    return readOnlySpaces(p.scope ?? '', p.types ?? [], p.authority)
+  },
   'oauth.approveApp': (p) => ({ callbackUrl: `${p.redirectUri}?code=fake-code&iss=x` }),
   'space.get': (p) => {
     if (spaces.has(p.space)) return { space: p.space, policy: {} }
@@ -156,7 +161,7 @@ const methods = {
 }
 
 const rl = createInterface({ input: process.stdin })
-rl.on('line', (line) => {
+rl.on('line', async (line) => {
   const msg = JSON.parse(line)
   if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, JSON.stringify({ method: msg.method, params: msg.params }) + '\n')
   // The file FAKE_DIE names holds a method: its next call kills this helper
@@ -169,7 +174,7 @@ rl.on('line', (line) => {
   try {
     const fn = methods[msg.method]
     if (!fn) throw { class: 'refused', code: 'unknown_method', message: msg.method }
-    out = { jsonrpc: '2.0', id: msg.id, result: fn(msg.params ?? {}) }
+    out = { jsonrpc: '2.0', id: msg.id, result: await fn(msg.params ?? {}) }
   } catch (e) {
     out = { jsonrpc: '2.0', id: msg.id, error: { code: -32000, message: e.message, data: { class: e.class, code: e.code, status: e.status } } }
   }

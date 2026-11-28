@@ -565,7 +565,8 @@ defmodule AtMcp.SpacesSessionTest do
     get "/xrpc/org.atgrp.internal.listMembers" do
       conn = Plug.Conn.fetch_query_params(conn)
       member? = Application.get_env(:at_mcp, :spaces_session_test_appview_member, true)
-      found = if member?, do: [%{actor: %{did: conn.query_params["q"]}, roles: []}], else: []
+      roles = Application.get_env(:at_mcp, :spaces_session_test_roles, ["member", "admin"])
+      found = if member?, do: [%{actor: %{did: conn.query_params["q"]}, roles: roles}], else: []
       json(conn, %{members: found})
     end
 
@@ -944,6 +945,40 @@ defmodule AtMcp.SpacesSessionTest do
             %{
               client: %{clientId: appview},
               requested: [%{scope: "atproto"}, %{scope: "include:org.atgrp.authManageAdmin"}]
+            },
+            # Read beside a write: a substring check took it for read.
+            %{
+              client: %{clientId: appview},
+              requested: [
+                %{scope: "atproto"},
+                %{scope: "space:town.delve.space.feed?authority=self&action=read&action=create"}
+              ]
+            },
+            # No action at all is read, create, update and delete.
+            %{
+              client: %{clientId: appview},
+              requested: [%{scope: "atproto"}, %{scope: "space:town.delve.space.feed"}]
+            },
+            # Another space type than the notifications read.
+            %{
+              client: %{clientId: appview},
+              requested: [%{scope: "atproto"}, %{scope: "space:org.atgrp.meta?action=read"}]
+            },
+            # Asks for read, but the host would grant more.
+            %{
+              client: %{clientId: appview},
+              requested: [
+                %{scope: "atproto"},
+                %{scope: "space:org.atgrp.members?authority=self&action=read"}
+              ],
+              groups: [
+                %{
+                  did: "did:plc:group",
+                  granted: [
+                    %{scope: "space:org.atgrp.members?authority=self&action=read&manage=update"}
+                  ]
+                }
+              ]
             }
           ] do
         Application.put_env(:at_mcp, :spaces_session_test_register_status, [
@@ -970,6 +1005,26 @@ defmodule AtMcp.SpacesSessionTest do
           %{scope: "space:town.delve.space.feed?authority=self&action=read"}
         ]
       })
+
+      # A member who isn't an admin doesn't approve it in routine sync.
+      Application.put_env(:at_mcp, :spaces_session_test_roles, ["member"])
+      on_exit(fn -> Application.delete_env(:at_mcp, :spaces_session_test_roles) end)
+
+      Application.put_env(:at_mcp, :spaces_session_test_register_status, [
+        need,
+        %{status: "registered"}
+      ])
+
+      _ = register.()
+      refute_received {:approved, _}
+
+      # An admin does.
+      Application.delete_env(:at_mcp, :spaces_session_test_roles)
+
+      Application.put_env(:at_mcp, :spaces_session_test_register_status, [
+        need,
+        %{status: "registered"}
+      ])
 
       _ = register.()
       assert_received {:approved, %{"requestUri" => "urn:req:group", "group" => "did:plc:group"}}

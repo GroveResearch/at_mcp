@@ -12,6 +12,7 @@ import type { Log } from './log.ts'
 import { OAuthSessions } from './oauth.ts'
 import { Spaces } from './spaces.ts'
 import { asGroup } from './group.ts'
+import { readOnlySpaces } from './scopes.ts'
 
 export const PROTOCOL = 1
 export const HELPER_VERSION = '0.1.0'
@@ -100,6 +101,8 @@ export class Helper {
     // with the account's key.
     'oauth.approveFor': async (p) => this.#o.approveFor(p as never),
     // An outside app's sign-in as the account: what it asks, then approving it.
+    'scope.readOnlySpaces': async (p) =>
+      readOnlySpaces(String(p.scope ?? ''), (p.types as string[]) ?? [], p.authority as string | undefined),
     'oauth.previewApp': async (p) => this.#o.previewApp(p as never),
     'oauth.approveApp': async (p) => this.#o.approveApp(p as never),
     'oauth.credentials': async (p) =>
